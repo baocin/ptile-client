@@ -1,0 +1,36 @@
+{
+  "name": "ptile-client",
+  "version": "0.1.0",
+  "description": "JavaScript reader for PTILES geospatial format — buildings, roads, water, and more from 77M+ building footprints",
+  "type": "module",
+  "main": "src/ptiles.js",
+  "exports": {
+    ".": {
+      "import": "./src/ptiles.js",
+      "default": "./src/ptiles.js"
+    }
+  },
+  "scripts": {
+    "test": "node --experimental-modules test/test.js",
+    "test:single": "node --experimental-modules test/test-single.js",
+    "test:multi": "node --experimental-modules test/test-multi.js"
+  },
+  "keywords": [
+    "ptiles",
+    "geospatial",
+    "buildings",
+    "h3",
+    "gis",
+    "tiles",
+    "osm",
+    "maps"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/steele-red/ptile-client.git"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
