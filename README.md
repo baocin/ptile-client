@@ -1,6 +1,6 @@
 # ptile-client
 
-JavaScript client library for [PTILES](https://github.com/steele-red/ptiles) — a compact binary geospatial format for OSM building footprints, roads, waterways, and more.
+JavaScript client library for [PTILES](https://github.com/baocin/ptiles) — a compact binary geospatial format for OSM building footprints, roads, waterways, and more.
 
 Queries 77M+ US building footprints from a browser or Node.js app. Loads per-state or national files from Cloudflare R2 or local disk.
 
@@ -168,7 +168,7 @@ All layers share the same PTILES format and can be read with `PtilesReader`. Not
 
 ## Data Sources
 
-Building footprints are extracted from [OpenStreetMap](https://www.openstreetmap.org) via [Geofabrik](https://download.geofabrik.de/) state-level PBF extracts, encoded in [PTILES v8 format](https://github.com/steele-red/ptiles) with per-cell string tables and zstd dictionary compression.
+Building footprints are extracted from [OpenStreetMap](https://www.openstreetmap.org) via [Geofabrik](https://download.geofabrik.de/) state-level PBF extracts, encoded in [PTILES v8 format](https://github.com/baocin/ptiles) with per-cell string tables and zstd dictionary compression.
 
 - **77M building footprints** across the continental US + AK, HI, DC
 - **Field values**: OSM ID, building type, name, polygon geometry (cell-relative i16 + varint zigzag)
