@@ -15,6 +15,36 @@ Queries 77M+ US building footprints from a browser or Node.js app. Loads per-sta
 
 ## Usage
 
+### One-liner (define + query in two calls)
+
+```js
+import { definePtiles } from "ptile-client";
+import * as h3 from "h3-js";
+
+const { ptile, bounds, ready } = definePtiles({
+  source: "https://pub-e46b7d7ee876916fd2db17000245b340.r2.dev/maps/", // per-state lazy load
+  h3,
+});
+await ready;
+
+// GPS in, building out — single function call
+const building = await ptile(36.1628, -86.7816);
+console.log(building?.name || building?.buildingType);
+// => "The Place" or "commercial"
+
+// All buildings within a rectangle
+const nearby = await bounds(40.7, -74.0, 40.8, -73.9, 50);
+console.log(`${nearby.length} buildings in lower Manhattan`);
+```
+
+`definePtiles` handles all three source types automatically:
+
+- Ends with `/` → multi-state directory (51 state files, lazy-loaded)
+- Starts with `http` → single URL (HTTP fetch)
+- Anything else → local file path (Node only)
+
+### Full PtilesReader API (for more control)
+
 ```js
 import { PtilesReader } from "ptile-client";
 import * as h3 from "h3-js";
@@ -56,6 +86,23 @@ console.log(`${buildings.length} buildings in lower Manhattan`);
 ```
 
 ## API
+
+### `definePtiles(config)` — singleton setup
+
+Configure once, then query with a bare function call. Handles all source types automatically.
+
+| Return value                                     | Description                                               |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| `ptile(lat, lon)`                                | Nearest building within 50m. Returns `null` or `Building` |
+| `bounds(minLat, minLon, maxLat, maxLon, limit?)` | All buildings in rectangle                                |
+| `header`                                         | File header (single-file mode only)                       |
+| `ready`                                          | Promise that resolves when the reader is initialized      |
+
+Config options:
+
+- `source` — path or URL. Trailing `/` = multi-state dir, `http` = HTTP fetch, else local file
+- `h3` — h3-js library instance (required)
+- `mode` — force a mode: `'file'`, `'url'`, `'dir'`, `'state-dir'`
 
 ### `PtilesReader`
 

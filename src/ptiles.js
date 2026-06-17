@@ -572,6 +572,91 @@ async function loadFile(data) {
 
 // ─── Exported ──────────────────────────────────────────────────────
 
+/**
+ * Define a singleton ptiles lookup. Configure once with a source and h3-js,
+ * then call `const building = await ptile(lat, lon)` with no ceremony.
+ *
+ * @param {object} config
+ * @param {string} config.source - URL or local path. Can be:
+ *   - A single .ptiles file: `"/data/TN.buildings_v8.ptiles"`
+ *   - A URL: `"https://r2.dev/maps/TN.buildings_v8.ptiles"`
+ *   - A directory/URL prefix: `"/data/states/"` or `"https://r2.dev/maps/"`
+ * @param {object} [config.h3] - h3-js library instance
+ * @param {'file'|'url'|'dir'|'state-dir'} [config.mode='auto'] - Force a mode.
+ *   'auto': directory/URL ending in / or with states detected as multi-state dir,
+ *   otherwise single file.
+ * @returns {{ ptile: (lat: number, lon: number) => Promise<object|null>,
+ *            bounds: (minLat, minLon, maxLat, maxLon, limit?) => Promise<object[]>,
+ *            header: object|null,
+ *            ready: Promise<void> }}
+ *
+ * Usage:
+ *   import { definePtiles } from 'ptile-client';
+ *   import * as h3 from 'h3-js';
+ *
+ *   const { ptile, ready } = definePtiles({
+ *     source: 'https://pub-....r2.dev/maps/',
+ *     h3,
+ *   });
+ *   await ready;
+ *   const building = await ptile(36.16, -86.78);
+ *   // => { osmId: 828131426, buildingType: 'commercial', name: 'The Place', ... }
+ */
+export function definePtiles(config) {
+  const { source, h3: h3lib } = config;
+  let reader = null;
+  let error = null;
+
+  const ready = (async () => {
+    try {
+      if (
+        source.endsWith("/") ||
+        config.mode === "state-dir" ||
+        config.mode === "dir"
+      ) {
+        reader = await PtilesReader.fromStateDir(source, { h3: h3lib });
+      } else if (
+        source.startsWith("http://") ||
+        source.startsWith("https://") ||
+        config.mode === "url"
+      ) {
+        reader = await PtilesReader.fromUrl(source);
+        reader._h3 = h3lib;
+      } else {
+        reader = await PtilesReader.fromFile(source);
+        reader._h3 = h3lib;
+      }
+    } catch (e) {
+      error = e;
+    }
+  })();
+
+  const ptile = async (lat, lon) => {
+    if (error) throw error;
+    await ready;
+    if (!reader) throw new Error("Ptiles not initialized");
+    return reader.query(lat, lon, { h3: h3lib });
+  };
+
+  const bounds = async (minLat, minLon, maxLat, maxLon, limit) => {
+    if (error) throw error;
+    await ready;
+    if (!reader) throw new Error("Ptiles not initialized");
+    return reader.queryBounds(minLat, minLon, maxLat, maxLon, limit, {
+      h3: h3lib,
+    });
+  };
+
+  return {
+    ptile,
+    bounds,
+    get header() {
+      return reader?.header ?? null;
+    },
+    ready,
+  };
+}
+
 export class PtilesReader {
   /**
    * Internal: wraps one or more per-file readers.
