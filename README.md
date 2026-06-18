@@ -1,8 +1,10 @@
 1|# ptile-client
 2|
-3|JavaScript client library for [PTILES](https://github.com/baocin/ptiles) — a compact binary geospatial format for OSM building footprints, roads, waterways, and more.
-4|
-5|Queries 77M+ US building footprints from a browser or Node.js app. Loads per-state or national files from Cloudflare R2 or local disk.
+JavaScript client library for [PTILES](https://github.com/baocin/ptiles) — a compact binary geospatial format for OSM building footprints, roads, waterways, and more.
+
+PTILES is designed for **feature lookup** (what building is at this GPS coordinate) rather than map rendering. Each file is self-contained, offline-readable, and indexed by H3 cell for O(1) spatial lookup. A typical point query decompresses ~1-5KB — vs fetching a whole PMTiles tile (~100KB+) for the same result.
+
+Queries 77M+ US building footprints from a browser or Node.js app. Loads per-state or national files from Cloudflare R2 or local disk.
 6|
 7|## Features
 8|
