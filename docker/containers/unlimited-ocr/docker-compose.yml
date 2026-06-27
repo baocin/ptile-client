@@ -1,0 +1,27 @@
+services:
+  unlimited-ocr:
+    build:
+      context: /home/aoi/kino/docker/containers/unlimited-ocr
+      dockerfile: /home/aoi/kino/docker/containers/unlimited-ocr/Dockerfile
+    container_name: unlimited-ocr
+    restart: unless-stopped
+    ports:
+      - "9362:8000"
+    environment:
+      - UNLIMITED_OCR_MAX_LENGTH=32768
+    networks:
+      - kino-infra
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0", "1"]
+              capabilities: [gpu]
+        limits:
+          memory: 16G
+          cpus: "8.0"
+
+networks:
+  kino-infra:
+    external: true

@@ -1,0 +1,332 @@
+# Kino Internal Infrastructure — Docker orchestration
+# 
+# All services are independent HTTP servers with no runtime network deps on each other.
+# depends_on is set for startup ordering and documentation (Docker waits for the 
+# dependency to be healthy before starting the dependant).
+#
+# Cross-compose dependencies (not enforced by Docker):
+#   ephemera, pipeline-daemon -> syncthing  (volume mounts from syncthing data dirs)
+#   pipeline-daemon, kanban-ui -> kb directory (host mount)
+#   pipeline-daemon -> model-server-asr, model-server-ocr (HTTP clients)
+#
+# Usage:
+#   docker compose up -d              # Start all services
+#   docker compose up -d <service>    # Start one service
+#   docker compose down               # Stop all
+#   docker compose logs -f <service>  # Follow logs
+#
+# Volume mounts preserve the same paths the native services used.
+
+networks:
+  kino-infra:
+    driver: bridge
+
+services:
+
+  # ── 0. Syncthing (depended on by ephemera, pipeline-daemon) ──
+
+  syncthing:
+    image: syncthing/syncthing:latest
+    container_name: syncthing
+    hostname: omarchy-syncthing
+    restart: unless-stopped
+    ports:
+      - "8384:8384"
+      - "22000:22000/tcp"
+      - "22000:22000/udp"
+      - "21027:21027/udp"
+    volumes:
+      - /home/aoi/data/syncthing/config:/var/syncthing/config
+      - /home/aoi/data/syncthing/ingest:/var/syncthing/ingest
+      - /home/aoi/data/syncthing/oneplus15/Recordings:/var/syncthing/OnePlus15/Recordings
+      - /home/aoi/data/syncthing/oneplus15/Screenshots:/var/syncthing/OnePlus15/Screenshots
+    environment:
+      - PUID=${UID:-1000}
+      - PGID=${GID:-1000}
+      - STNOUPGRADE=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8384"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - kino-infra
+
+  # ── A. Bun apps ──────────────────────────────────────────────
+
+  kanban-ui:
+    build:
+      context: /home/aoi/kino/projects/kanban-ui
+      dockerfile: /home/aoi/kino/docker/containers/kanban-ui/Dockerfile
+    container_name: kanban-ui
+    restart: unless-stopped
+    ports:
+      - "8499:8499"
+    volumes:
+      - /home/aoi/kino/kb/kanban:/app/kino/kb/kanban:ro
+      - /home/aoi/kino/projects/kanban-ui/kanban-ui.log:/var/log/kanban/kanban-ui.log
+    environment:
+      - HOME=/app
+    networks:
+      - kino-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  # ── B. Python web servers ────────────────────────────────────
+
+  ephemera:
+    build:
+      context: /home/aoi/kino/projects/ephemera
+      dockerfile: /home/aoi/kino/docker/containers/ephemera/Dockerfile
+    container_name: ephemera
+    restart: unless-stopped
+    ports:
+      - "9354:9354"
+    volumes:
+      - /home/aoi/data/syncthing/oneplus15/Recordings:/home/aoi/data/syncthing/oneplus15/Recordings:ro
+      - /home/aoi/data/syncthing/oneplus15/Screenshots:/home/aoi/data/syncthing/oneplus15/Screenshots:ro
+      - /home/aoi/kino/data:/home/aoi/kino/data:ro
+      - /home/aoi/ephemera/data:/home/aoi/ephemera/data
+      - /home/aoi/.local/bin/kb_index.py:/home/aoi/.local/bin/kb_index.py:ro
+    environment:
+      - HOME=/home/aoi
+    networks:
+      - kino-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    depends_on:
+      syncthing:
+        condition: service_healthy
+
+  snac-webui:
+    build:
+      context: /home/aoi/kino/projects/snac
+      dockerfile: /home/aoi/kino/docker/containers/snac-webui/Dockerfile
+    container_name: snac-webui
+    restart: unless-stopped
+    ports:
+      - "5000:10901"
+    volumes:
+      - /home/aoi/kino/projects/snac:/home/aoi/kino/projects/snac:ro
+      - /mnt:/mnt:ro
+    environment:
+      - HOME=/home/aoi
+    networks:
+      - kino-infra
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+  # ── C. Static file servers ───────────────────────────────────
+
+  dashboard:
+    build:
+      context: /home/aoi/kino/meta/local-services-server
+      dockerfile: /home/aoi/kino/docker/containers/dashboard/Dockerfile
+    container_name: dashboard
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - /home/aoi/kino/meta/local-services-server/index.html:/app/static/index.html:ro
+      - /home/aoi/kino/meta/local-services-server/downloads:/app/static/downloads:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - kino-infra
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+
+  resume-server:
+    build:
+      context: /home/aoi/kino/meta/local-services-server/resume
+      dockerfile: /home/aoi/kino/docker/containers/resume-server/Dockerfile
+    container_name: resume-server
+    restart: unless-stopped
+    ports:
+      - "10902:80"
+    volumes:
+      - /home/aoi/kino/meta/local-services-server/resume/index.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      - kino-infra
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+
+  # ── D. ML / vision ───────────────────────────────────────────
+
+  derpyface:
+    build:
+      context: /home/aoi/kino/projects/derpyface
+      dockerfile: /home/aoi/kino/docker/containers/derpyface/Dockerfile
+    container_name: derpyface
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    volumes:
+      - /home/aoi/kino/projects/derpyface/models:/app/models:ro
+      - /mnt/aoi/derpyface:/data
+    environment:
+      - HOME=/home/aoi
+      - DERPY_BASE_DIR=/data
+    networks:
+      - kino-infra
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+
+  # ── E. SDR / hardware ────────────────────────────────────────
+
+  tpms-server:
+    build:
+      context: /home/aoi/kino/projects/rtl-sdr
+      dockerfile: /home/aoi/kino/docker/containers/tpms-server/Dockerfile
+    container_name: tpms-server
+    restart: unless-stopped
+    ports:
+      - "8092:8092"
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - /home/aoi/kino/projects/rtl-sdr/data:/data
+      - /home/aoi/kino/projects/rtl-sdr/logs:/app/logs
+    cap_add:
+      - SYS_RAWIO
+    networks:
+      - kino-infra
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+  # ── F. Inference servers (GPU, hot model) ────────────────────
+  # These keep models loaded in VRAM. Any container on the network can
+  # POST audio/images and get results back without loading the model itself.
+
+  model-server-asr:
+    build:
+      context: /home/aoi/kino/docker/containers/model-server-asr
+      dockerfile: /home/aoi/kino/docker/containers/model-server-asr/Dockerfile
+    container_name: model-server-asr
+    network_mode: host
+    restart: unless-stopped
+    ports: []
+    volumes:
+      - /home/aoi/.local/bin/asr_decoder.py:/usr/local/bin/asr_decoder.py:ro
+      - /home/aoi/.local/bin/vad_chunker.py:/usr/local/bin/vad_chunker.py:ro
+      - /home/aoi/kino/docker/containers/model-server-asr/server.py:/app/server.py:ro
+      - /home/aoi/.whimper/models/parakeet-tdt:/data/models/parakeet-tdt-int8:ro
+      - model-server-tmp:/data/tmp
+      - /home/aoi/data/syncthing/oneplus15/Recordings:/home/aoi/data/syncthing/oneplus15/Recordings:ro
+    environment:
+      - HOME=/home/aoi
+      - NVIDIA_VISIBLE_DEVICES=GPU-3854bae3-ccd5-afeb-2385-db060ad3adba
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [ gpu ]
+        limits:
+          memory: 8G
+          cpus: "4.0"
+
+  model-server-ocr:
+    build:
+      context: /home/aoi/kino/docker/containers/model-server-ocr
+      dockerfile: /home/aoi/kino/docker/containers/model-server-ocr/Dockerfile
+    container_name: model-server-ocr
+    network_mode: host
+    restart: unless-stopped
+    ports: []
+    volumes:
+      - /home/aoi/.paddlex:/root/.paddlex:ro
+      - model-server-tmp:/data/tmp
+      - /home/aoi/data/syncthing/oneplus15/Screenshots:/home/aoi/data/syncthing/oneplus15/Screenshots:ro
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=GPU-3854bae3-ccd5-afeb-2385-db060ad3adba
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [ gpu ]
+        limits:
+          memory: 4G
+          cpus: "2.0"
+
+  # ── G. Pipeline daemon (now thin orchestrator) ───────────────
+
+  pipeline-daemon:
+    build:
+      context: /home/aoi/kino/docker/containers/pipeline-daemon/context
+      dockerfile: /home/aoi/kino/docker/containers/pipeline-daemon/Dockerfile
+    container_name: pipeline-daemon
+    network_mode: host
+    restart: unless-stopped
+    ports: []
+    volumes:
+      - /home/aoi/data/syncthing/oneplus15/Screenshots:/home/aoi/data/syncthing/oneplus15/Screenshots:ro
+      - /home/aoi/data/syncthing/oneplus15/Recordings:/home/aoi/data/syncthing/oneplus15/Recordings:ro
+      - /home/aoi/kino/data:/home/aoi/kino/data:ro
+      - /home/aoi/.local/share:/home/aoi/.local/share
+    environment:
+      - PIPELINE_HEALTH_PORT=9355
+      - ASR_SERVER_URL=http://127.0.0.1:9360
+      - OCR_SERVER_URL=http://127.0.0.1:9361
+      - HOME=/home/aoi
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    depends_on:
+      model-server-asr:
+        condition: service_started
+      model-server-ocr:
+        condition: service_started
+      syncthing:
+        condition: service_healthy
+
+  # ── H. Ptiles route compare ──────────────────────────────────
+
+  ptiles-route:
+    build:
+      context: /home/aoi/kino/projects/ptiles
+      dockerfile: /home/aoi/kino/docker/containers/ptiles-route/Dockerfile
+    container_name: ptiles-route
+    restart: unless-stopped
+    ports:
+      - "9352:9352"
+    volumes:
+      - /home/aoi/kino/projects/ptiles/data/states:/home/aoi/kino/projects/ptiles/data/states:ro
+      - /home/aoi/kino/projects/timeline/target/release/ptiles:/home/aoi/kino/projects/timeline/target/release/ptiles:ro
+      - /home/aoi/kino/projects/ptiles/scripts/states.py:/home/aoi/kino/projects/ptiles/scripts/states.py:ro
+    networks:
+      - kino-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+volumes:
+  model-server-tmp:
+    driver: local

@@ -1,0 +1,3 @@
+# model-server-asr -- add missing python-multipart on top of existing image
+FROM docker-model-server-asr:latest
+RUN pip3 install python-multipart

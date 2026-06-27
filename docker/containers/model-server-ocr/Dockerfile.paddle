@@ -1,0 +1,11 @@
+FROM docker-model-server-ocr:latest
+
+# Install PaddleOCR + PP-OCRv6 (GPU)
+# paddlepaddle-gpu wheels are hosted on PaddlePaddle's own index, not PyPI
+# CUDA 12.0 wheel (post120) is compatible with CUDA 12.8
+RUN pip3 install --no-cache-dir \
+    --extra-index-url https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html \
+    paddlepaddle-gpu==2.6.1.post120 \
+    paddleocr>=2.8.0
+
+COPY server.py /app/server.py

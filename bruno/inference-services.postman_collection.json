@@ -1,0 +1,229 @@
+{
+  "info": {
+    "name": "Inference Services",
+    "description": "Kino inference services: ASR (Parakeet TDT), OCR (PP-OCRv6 ONNX), Pipeline\nAll on GPU 0 (RTX 2070 SUPER)\n\nPorts:\n- 9360: ASR - onnxruntime-gpu, VAD chunking\n- 9361: OCR - onnxruntime-gpu, strip-based detection for tall images\n- 9355: Pipeline daemon\n\nOCR ?preview=true returns annotated image with bounding boxes + text.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "ASR (Parakeet TDT)",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:9360/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9360",
+              "path": ["health"]
+            },
+            "description": "Check ASR server health and VRAM usage"
+          }
+        },
+        {
+          "name": "Ready",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:9360/ready",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9360",
+              "path": ["ready"]
+            },
+            "description": "Check if ASR model is loaded"
+          }
+        },
+        {
+          "name": "Transcribe (path)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "http://localhost:9360/transcribe",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9360",
+              "path": ["transcribe"]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "path",
+                  "value": "/home/aoi/data/syncthing/oneplus15/Recordings/Standard recording 29.mp3",
+                  "type": "text"
+                }
+              ]
+            },
+            "description": "Transcribe audio from shared volume path (Syncthing recordings dir)"
+          }
+        },
+        {
+          "name": "Transcribe (upload)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "http://localhost:9360/transcribe",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9360",
+              "path": ["transcribe"]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "description": "Transcribe audio via file upload"
+          }
+        }
+      ]
+    },
+    {
+      "name": "OCR (PP-OCRv6 ONNX)",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:9361/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9361",
+              "path": ["health"]
+            },
+            "description": "Check OCR server health and model load status"
+          }
+        },
+        {
+          "name": "Ready",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:9361/ready",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9361",
+              "path": ["ready"]
+            },
+            "description": "Check if OCR models (det+rec) are loaded"
+          }
+        },
+        {
+          "name": "OCR (path)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "http://localhost:9361/ocr",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9361",
+              "path": ["ocr"]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "path",
+                  "value": "/home/aoi/data/syncthing/oneplus15/Screenshots/Screenshot_2026-06-07-14-36-06-30.jpg",
+                  "type": "text"
+                }
+              ]
+            },
+            "description": "OCR a screenshot from Syncthing (tall 24824px image with strip detection)"
+          }
+        },
+        {
+          "name": "OCR (path + preview)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "http://localhost:9361/ocr?preview=true",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9361",
+              "path": ["ocr"],
+              "query": [{ "key": "preview", "value": "true" }]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "path",
+                  "value": "/home/aoi/data/syncthing/oneplus15/Screenshots/Screenshot_2026-06-07-14-36-06-30.jpg",
+                  "type": "text"
+                }
+              ]
+            },
+            "description": "OCR with annotated preview image (returns preview_url in response)"
+          }
+        },
+        {
+          "name": "OCR (upload)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "http://localhost:9361/ocr",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9361",
+              "path": ["ocr"]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "description": "OCR an image via file upload"
+          }
+        },
+        {
+          "name": "Preview Image",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:9361/preview/preview_d1e8008d.jpg",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9361",
+              "path": ["preview", "preview_d1e8008d.jpg"]
+            },
+            "description": "Serve a previously generated preview image (URL from ocr?preview=true)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pipeline",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:9355/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9355",
+              "path": ["health"]
+            },
+            "description": "Check pipeline daemon health and backend status"
+          }
+        }
+      ]
+    }
+  ]
+}

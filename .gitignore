@@ -1,0 +1,10 @@
+postgres/pgdata/
+data/
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+.env
+*.log
+.wan IP.db
+docker/volumes/

@@ -1,0 +1,25 @@
+services:
+  syncthing:
+    image: syncthing/syncthing:latest
+    container_name: syncthing
+    hostname: omarchy-syncthing
+    restart: unless-stopped
+    ports:
+      - "8384:8384"    # Web UI
+      - "22000:22000/tcp"  # TCP sync protocol
+      - "22000:22000/udp"  # QUIC sync protocol
+      - "21027:21027/udp"  # Local discovery
+    volumes:
+      - /home/aoi/data/syncthing/config:/var/syncthing/config
+      - /home/aoi/data/syncthing/ingest:/var/syncthing/ingest
+      - /home/aoi/data/syncthing/oneplus15/Recordings:/var/syncthing/OnePlus15/Recordings
+      - /home/aoi/data/syncthing/oneplus15/Screenshots:/var/syncthing/OnePlus15/Screenshots
+    environment:
+      - PUID=${UID:-1000}
+      - PGID=${GID:-1000}
+      - STNOUPGRADE=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8384"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
