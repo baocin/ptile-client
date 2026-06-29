@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """FastAPI OCR inference server using Surya OCR v2 - direct PyTorch inference."""
 
-import os, sys, time, traceback
+import sys
+import time
+import traceback
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, Form, HTTPException
-from fastapi.responses import JSONResponse
 from PIL import Image
 import io
 
@@ -21,7 +22,9 @@ async def lifespan(app):
     t0 = time.time()
     from surya.detection import DetectionPredictor
 
-    ocr_engine["detector"] = DetectionPredictor(device="cuda")
+    ocr_engine["detector"] = DetectionPredictor(
+        checkpoint="/root/.surya_models/text_detection/2025_05_07", device="cuda"
+    )
     sys.stderr.write(f"Detection model loaded in {time.time() - t0:.1f}s\n")
 
     sys.stderr.write("Loading Surya recognition model with llama.cpp backend...\n")
@@ -78,7 +81,7 @@ async def ocr(file: UploadFile | None = None, path: str | None = Form(None)):
 
     t0 = time.time()
     try:
-        sys.stderr.write(f"Detecting... ")
+        sys.stderr.write("Detecting... ")
         detections = ocr_engine["detector"]([image])
         sys.stderr.write(f"done in {time.time() - t0:.1f}s. Recognizing... ")
         predictions = ocr_engine["recognizer"]([image], full_page=True)
@@ -99,12 +102,14 @@ async def ocr(file: UploadFile | None = None, path: str | None = Form(None)):
             text_content = getattr(b, "html", "") or ""
             if text_content:
                 text_parts.append(text_content)
-            regions.append({
-                "bbox": getattr(b, "bbox", []),
-                "confidence": getattr(b, "confidence", 0),
-                "label": getattr(b, "label", "text"),
-                "text": text_content,
-            })
+            regions.append(
+                {
+                    "bbox": getattr(b, "bbox", []),
+                    "confidence": getattr(b, "confidence", 0),
+                    "label": getattr(b, "label", "text"),
+                    "text": text_content,
+                }
+            )
 
         full_text = "\n".join(text_parts)
         return {

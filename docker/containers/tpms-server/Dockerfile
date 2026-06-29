@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Install system deps for RTL-SDR
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    librtlsdr-dev rtl-sdr rtl-433 cmake build-essential pkg-config \
+    librtlsdr-dev rtl-sdr rtl-433 pkgconf \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project

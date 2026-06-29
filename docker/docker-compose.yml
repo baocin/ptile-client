@@ -30,16 +30,13 @@ services:
     container_name: syncthing
     hostname: omarchy-syncthing
     restart: unless-stopped
-    ports:
-      - "8384:8384"
-      - "22000:22000/tcp"
-      - "22000:22000/udp"
-      - "21027:21027/udp"
+    network_mode: host
     volumes:
       - /home/aoi/data/syncthing/config:/var/syncthing/config
       - /home/aoi/data/syncthing/ingest:/var/syncthing/ingest
       - /home/aoi/data/syncthing/oneplus15/Recordings:/var/syncthing/OnePlus15/Recordings
       - /home/aoi/data/syncthing/oneplus15/Screenshots:/var/syncthing/OnePlus15/Screenshots
+      - /home/aoi/data/syncthing/OP15/screenshots:/var/syncthing/OP15/screenshots
     environment:
       - PUID=${UID:-1000}
       - PGID=${GID:-1000}
@@ -49,8 +46,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    networks:
-      - kino-infra
 
   # ── A. Bun apps ──────────────────────────────────────────────
 
@@ -195,10 +190,11 @@ services:
     build:
       context: /home/aoi/kino/projects/rtl-sdr
       dockerfile: /home/aoi/kino/docker/containers/tpms-server/Dockerfile
+      network: host
     container_name: tpms-server
+    network_mode: host
     restart: unless-stopped
-    ports:
-      - "8092:8092"
+    ports: []
     devices:
       - /dev/bus/usb:/dev/bus/usb
     volumes:
@@ -206,8 +202,6 @@ services:
       - /home/aoi/kino/projects/rtl-sdr/logs:/app/logs
     cap_add:
       - SYS_RAWIO
-    networks:
-      - kino-infra
     deploy:
       resources:
         limits:
