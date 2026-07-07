@@ -33,7 +33,7 @@ use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business, decode_roads,
     haversine_distance_m, nearest_road as core_nearest_road, neighbor_cells, score_candidates,
     Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind,
-    FileSource, Fix as CoreFix, PtilesFile, RoadSegment, ScoringParams,
+    FileSource, Fix as CoreFix, HttpSource, PtilesFile, RoadSegment, ScoringParams,
 };
 
 uniffi::setup_scaffolding!();
@@ -197,33 +197,72 @@ impl LayerKind {
 
 // --- PtilesLayer: one opened `.ptiles` file --------------------------------
 
-/// One opened `.ptiles` file, its layer inferred from the filename
-/// (`<state>.<layer>.ptiles`), wrapping `PtilesFile<FileSource>` -- the one
-/// generic instantiation this crate exports, per the plan's "no generics
-/// across FFI boundaries" rule.
+/// True for `http://`/`https://` -- the scheme sniff `PtilesLayer::open`
+/// uses to pick `HttpSource` vs. `FileSource`, matching `ptiles-cli`'s
+/// `is_url` (`cli/src/main.rs`).
+fn is_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
+/// `PtilesFile` over either a local file or an HTTP(S) URL. `PtilesFile<S>`
+/// is generic over its source, but UniFFI cannot export a generic type
+/// (see this module's top doc comment), so `PtilesLayer` needs one concrete
+/// field type covering both backends -- picked at `open()` time by scheme
+/// sniff, mirroring `ptiles-cli`'s `AnyFile` (`cli/src/main.rs`).
+enum AnyFile {
+    File(PtilesFile<FileSource>),
+    Http(PtilesFile<HttpSource>),
+}
+
+impl AnyFile {
+    fn read_block(&self, cell: u64) -> Result<Option<Vec<u8>>, PtilesError> {
+        let result = match self {
+            AnyFile::File(f) => f.read_block(cell).map_err(|e| e.to_string()),
+            AnyFile::Http(f) => f.read_block(cell).map_err(|e| e.to_string()),
+        };
+        result.map_err(|message| PtilesError::Decode { message })
+    }
+}
+
+/// One opened `.ptiles` file (local path or `http(s)://` URL), its layer
+/// inferred from the filename (`<state>.<layer>.ptiles`), wrapping
+/// `AnyFile` -- see that type's doc comment for why this isn't
+/// `PtilesFile<FileSource>` directly anymore.
 #[derive(uniffi::Object)]
 pub struct PtilesLayer {
     kind: LayerKind,
-    file: PtilesFile<FileSource>,
+    file: AnyFile,
 }
 
 #[uniffi::export]
 impl PtilesLayer {
-    /// Open a `.ptiles` file. `path` must be `<state>.<layer>.ptiles` where
+    /// Open a `.ptiles` file, local or remote. `path` must be
+    /// `<state>.<layer>.ptiles` (optionally under an `http(s)://` URL) where
     /// `<layer>` is one of `roads`, `buildings_v8`, `business`.
     #[uniffi::constructor]
     pub fn open(path: String) -> Result<Arc<Self>, PtilesError> {
         let kind = LayerKind::from_path(&path).ok_or_else(|| PtilesError::UnknownLayer {
             path: path.clone(),
         })?;
-        let source = FileSource::open(&path).map_err(|e| PtilesError::Open {
-            path: path.clone(),
-            message: e.to_string(),
-        })?;
-        let file = PtilesFile::open(source).map_err(|e| PtilesError::Open {
-            path,
-            message: e.to_string(),
-        })?;
+        let file = if is_url(&path) {
+            let source = HttpSource::open(&path).map_err(|e| PtilesError::Open {
+                path: path.clone(),
+                message: e.to_string(),
+            })?;
+            AnyFile::Http(PtilesFile::open(source).map_err(|e| PtilesError::Open {
+                path,
+                message: e.to_string(),
+            })?)
+        } else {
+            let source = FileSource::open(&path).map_err(|e| PtilesError::Open {
+                path: path.clone(),
+                message: e.to_string(),
+            })?;
+            AnyFile::File(PtilesFile::open(source).map_err(|e| PtilesError::Open {
+                path,
+                message: e.to_string(),
+            })?)
+        };
         Ok(Arc::new(PtilesLayer { kind, file }))
     }
 }
@@ -247,7 +286,7 @@ impl PtilesLayer {
     fn decoded_roads(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<RoadSegment>, PtilesError> {
         let mut roads = Vec::new();
         for cell in self.cells_for(lat, lon, ring) {
-            let Some(block) = self.file.read_block(cell).ok().flatten() else {
+            let Some(block) = self.file.read_block(cell).unwrap_or(None) else {
                 continue;
             };
             let mut r = decode_roads(&block).map_err(|e| PtilesError::Decode {
@@ -261,7 +300,7 @@ impl PtilesLayer {
     fn decoded_buildings(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<Building>, PtilesError> {
         let mut buildings = Vec::new();
         for cell in self.cells_for(lat, lon, ring) {
-            let Some(block) = self.file.read_block(cell).ok().flatten() else {
+            let Some(block) = self.file.read_block(cell).unwrap_or(None) else {
                 continue;
             };
             let (center_lat, center_lon) = cell_center(cell);
@@ -276,7 +315,7 @@ impl PtilesLayer {
     fn decoded_business(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<Business>, PtilesError> {
         let mut businesses = Vec::new();
         for cell in self.cells_for(lat, lon, ring) {
-            let Some(block) = self.file.read_block(cell).ok().flatten() else {
+            let Some(block) = self.file.read_block(cell).unwrap_or(None) else {
                 continue;
             };
             let mut b = decode_business(&block).map_err(|e| PtilesError::Decode {

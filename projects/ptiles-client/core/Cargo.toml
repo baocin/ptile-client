@@ -13,6 +13,16 @@ serde = { version = "1", features = ["derive"], optional = true }
 # takes the same libm-under-no_std approach (see h3o's src/math/functions-libm.rs).
 libm = "0.2"
 
+# `http` feature: HttpSource (PtilesSource over HTTP Range requests). ureq
+# chosen over reqwest/hyper/isahc/attohttpc: no async runtime (this workspace
+# is sync-only everywhere -- CLI, FFI, tests), rustls-by-default (no OpenSSL/
+# native-tls system dep to shell out to), small dependency footprint matching
+# the workspace's "no unnecessary std/dep weight" stance (see cli/Cargo.toml's
+# pico-args justification), and a blocking `Agent` that pools/reuses
+# connections out of the box -- exactly the connection-reuse requirement for
+# this task. No other HTTP client exists anywhere in this workspace yet.
+ureq = { version = "3", optional = true }
+
 [dev-dependencies]
 serde_json = "1"
 
@@ -20,3 +30,5 @@ serde_json = "1"
 default = ["std"]
 std = ["thiserror/std", "h3o/std", "ruzstd/std"]
 serde = ["dep:serde", "h3o/serde"]
+# HttpSource needs a real Read/blocking-IO stack (std) plus ureq itself.
+http = ["std", "dep:ureq"]

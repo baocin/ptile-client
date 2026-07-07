@@ -12,7 +12,7 @@ name = "ptiles_ffi"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
-ptiles-core = { path = "../core", features = ["std"] }
+ptiles-core = { path = "../core", features = ["std", "http"] }
 uniffi = "0.29.4"
 thiserror = "2.0.18"
 

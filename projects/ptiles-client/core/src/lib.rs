@@ -16,6 +16,9 @@ pub mod header;
 pub mod index;
 pub mod source;
 pub mod file;
+#[cfg(feature = "http")]
+pub mod http_source;
+pub mod versions;
 
 pub mod buildings;
 pub mod roads;
@@ -49,4 +52,17 @@ pub use header::Header;
 pub use index::{binary_search as index_binary_search, parse_index, IndexEntry};
 #[cfg(feature = "std")]
 pub use source::FileSource;
+#[cfg(feature = "http")]
+pub use http_source::HttpSource;
 pub use source::{MemorySource, PtilesSource, SourceError};
+pub use versions::{
+    check_supported, format_table as supported_formats_table, versions_for, FormatEntry,
+    UnsupportedVersion, SUPPORTED_FORMATS,
+};
+
+/// Human-readable table of format versions this client supports, generated
+/// from [`SUPPORTED_FORMATS`]. Exposed for FFI/wasm/CLI to surface directly
+/// (e.g. a `--supported-formats` CLI flag) without duplicating the table.
+pub fn supported_formats() -> alloc::string::String {
+    versions::format_table()
+}

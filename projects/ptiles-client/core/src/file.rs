@@ -48,6 +48,7 @@ use ruzstd::decoding::{BlockDecodingStrategy, Dictionary, FrameDecoder};
 use crate::header::{Header, HEADER_SIZE};
 use crate::index::{binary_search, parse_index, IndexEntry};
 use crate::source::{PtilesSource, SourceError};
+use crate::versions::{check_supported, UnsupportedVersion};
 
 /// Errors from opening a `.ptiles` file or reading one of its blocks.
 #[derive(thiserror::Error, Debug)]
@@ -58,8 +59,22 @@ pub enum FileError {
     Decode(#[from] crate::codec::DecodeError),
     #[error("bad magic prefix: {found:?} (expected `PTILES` + layer byte)")]
     BadMagic { found: [u8; 7] },
+    /// Header parsed fine, but its magic/version pair is not in
+    /// `SUPPORTED_FORMATS` -- fails closed rather than guessing at forward
+    /// compatibility (Addendum 2, decision 2). Not `#[from]`-derived: `no_std`
+    /// builds have no `core::error::Error` impl for `UnsupportedVersion` to
+    /// satisfy thiserror's `AsDynError` bound, so the conversion is manual
+    /// (see the `From` impl below).
+    #[error("{0}")]
+    UnsupportedVersion(UnsupportedVersion),
     #[error("zstd decompress failed for block at offset {offset} (dict and plain both failed): {message}")]
     Decompress { offset: u64, message: String },
+}
+
+impl From<UnsupportedVersion> for FileError {
+    fn from(e: UnsupportedVersion) -> Self {
+        FileError::UnsupportedVersion(e)
+    }
 }
 
 /// An open `.ptiles` file: header, spatial index, and (if present) zstd
@@ -89,6 +104,8 @@ impl<S: PtilesSource> PtilesFile<S> {
                 found: header.magic,
             });
         }
+
+        check_supported(&header.magic, header.version)?;
 
         let dict = if header.dict_length > 0 {
             let mut buf = alloc::vec![0u8; header.dict_length as usize];
@@ -121,6 +138,12 @@ impl<S: PtilesSource> PtilesFile<S> {
 
     pub fn header(&self) -> &Header {
         &self.header
+    }
+
+    /// The underlying source, e.g. to inspect `HttpSource::request_count()`
+    /// for telemetry/tests. Not otherwise needed for normal use.
+    pub fn source(&self) -> &S {
+        &self.source
     }
 
     pub fn index(&self) -> &[IndexEntry] {
@@ -300,5 +323,76 @@ mod tests {
             .expect("read_block should succeed")
             .expect("cell from the index must resolve to a block");
         assert!(!block.is_empty(), "decompressed block must be non-empty");
+    }
+
+    /// Every real `.ptiles` file under `~/kino/data/ptiles/` must open
+    /// successfully -- this is the version-gating happy path for all seven
+    /// magics in `SUPPORTED_FORMATS` at once. Skips (passes trivially) if the
+    /// data dir isn't present, matching the other real-file tests here.
+    #[cfg(feature = "std")]
+    #[test]
+    fn opens_every_real_ptiles_file() {
+        let files: &[(&str, &str)] = &[
+            ("/home/aoi/kino/data/ptiles/TN.buildings_v8.ptiles", "PTILESF"),
+            ("/home/aoi/kino/data/ptiles/TN.roads.ptiles", "PTILESR"),
+            ("/home/aoi/kino/data/ptiles/TN.business.ptiles", "PTILESB"),
+            ("/home/aoi/kino/data/ptiles/TN.water.ptiles", "PTILESW"),
+            ("/home/aoi/kino/data/ptiles/TN.places.ptiles", "PTILESP"),
+            ("/home/aoi/kino/data/ptiles/TN.parks.ptiles", "PTILESN"),
+            ("/home/aoi/kino/data/ptiles/TN.rail.ptiles", "PTILEST"),
+        ];
+        for (path, expected_magic) in files {
+            let path = std::path::Path::new(path);
+            if !path.exists() {
+                eprintln!("skipping: fixture not present at {path:?}");
+                continue;
+            }
+            let src = crate::source::FileSource::open(path).expect("open");
+            let file = PtilesFile::open(src).unwrap_or_else(|e| {
+                panic!("PtilesFile::open should accept the real file {path:?}: {e}")
+            });
+            assert_eq!(file.header().magic_str(), *expected_magic);
+        }
+    }
+
+    /// A header whose version byte has been bumped past what
+    /// `SUPPORTED_FORMATS` lists must be rejected with `UnsupportedVersion`,
+    /// not silently accepted -- the fail-closed contract from Addendum 2.
+    #[test]
+    fn open_rejects_bumped_version() {
+        // Real TN.buildings_v8.ptiles header is magic PTILESF version 8; bump
+        // to 9, which is not in SUPPORTED_FORMATS.
+        let mut buf = alloc::vec![0u8; HEADER_SIZE];
+        buf[0..7].copy_from_slice(b"PTILESF");
+        buf[8] = 9;
+        buf[64..72].copy_from_slice(&256u64.to_le_bytes()); // blocks_offset
+        let src = MemorySource::new(buf);
+        match PtilesFile::open(src) {
+            Err(FileError::UnsupportedVersion(e)) => {
+                assert_eq!(e.found, 9);
+                assert_eq!(e.supported, alloc::vec![8]);
+            }
+            Ok(_) => panic!("expected UnsupportedVersion, got Ok"),
+            Err(other) => panic!("expected UnsupportedVersion, got a different FileError variant: {other}"),
+        }
+    }
+
+    /// A magic this client has never seen a real sample of (e.g. admin) must
+    /// also be rejected, with an empty `supported` list rather than a panic
+    /// or silent accept.
+    #[test]
+    fn open_rejects_unrecognized_magic_with_known_prefix() {
+        let mut buf = alloc::vec![0u8; HEADER_SIZE];
+        buf[0..7].copy_from_slice(b"PTILESA"); // admin: PTILES-prefixed but not in SUPPORTED_FORMATS
+        buf[8] = 1;
+        buf[64..72].copy_from_slice(&256u64.to_le_bytes());
+        let src = MemorySource::new(buf);
+        match PtilesFile::open(src) {
+            Err(FileError::UnsupportedVersion(e)) => {
+                assert!(e.supported.is_empty());
+            }
+            Ok(_) => panic!("expected UnsupportedVersion, got Ok"),
+            Err(other) => panic!("expected UnsupportedVersion, got a different FileError variant: {other}"),
+        }
     }
 }

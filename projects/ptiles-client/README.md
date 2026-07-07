@@ -47,6 +47,35 @@ format into typed Rust structs (`RoadSegment`, `Building`, `Business`,
   for `no_std` embedding (`cargo check -p ptiles-core --no-default-features`).
 - `serde` — derives `Serialize`/`Deserialize` on all decoded structs (needed
   by both `wasm` and `cli`).
+- `http` — adds `HttpSource`, a `PtilesSource` implementation that opens a
+  `.ptiles` file served over `http(s)://` instead of the local filesystem,
+  using range requests (see "Remote (HTTP) files" below). Pulls in `ureq`
+  (blocking, rustls-backed — no local TLS/OpenSSL dependency). Off by
+  default; `wasm` does not enable it, so it never reaches the wasm32 build.
+
+### Remote (HTTP) files
+
+`ptiles-core`'s `HttpSource` (behind the `http` feature) opens a `.ptiles`
+file served over plain HTTP range requests — no server-side changes needed,
+any static file host that supports `Range` works. On `open()` it eagerly
+prefetches the first 64 KiB in one request (small/no-dict layers' header +
+index are usually served entirely out of that prefetch, for free), then
+caches each subsequent exact `(offset, len)` read. A non-`206` response to a
+range request is reported as `SourceError::RangeNotSupported` rather than
+silently falling back to a full download.
+
+Request-efficiency evidence (real file, `TN.roads.ptiles`, 33 MB, over
+`https://maps.mydatatimeline.com/maps/`): `PtilesFile::open()` costs 3 HTTP
+requests (prefetch + dict + index); one subsequent `read_block()` query
+costs exactly 1 more request (4 total for open + one query) — see
+`core/src/http_source.rs`'s `request_count_for_open_plus_one_query_is_small`
+test, which asserts against `HttpSource::request_count()`.
+
+The CLI exposes this directly — see "Remote/URL paths" under `cli` below.
+`ffi/`'s `PtilesLayer::open` also scheme-sniffs the same way (any
+`http(s)://` path opens over `HttpSource`; anything else opens over the
+local filesystem), so the same remote support is available to Swift/Kotlin
+consumers with no API change.
 
 ### `wasm` (`ptiles-wasm`)
 
@@ -122,6 +151,31 @@ ptiles-cli --serve --data-dir /path/to/ptiles-data
 `accuracy_m`, and `speed_mps` are all optional. Malformed input, unknown
 state, unsupported `ring`, or per-layer decode errors produce
 `{"error":"..."}` lines instead of crashing the loop.
+
+#### Remote/URL paths
+
+`--path`, and per-layer files under `--serve --data-dir`, accept
+`http(s)://` URLs as well as local paths (scheme-sniffed automatically —
+`http`/`https` prefix opens over `HttpSource`, anything else opens over the
+filesystem):
+
+```sh
+ptiles-cli --path https://maps.mydatatimeline.com/maps/TN.roads.ptiles \
+  --lat 36.1627 --lon -86.7816 --query road
+```
+
+For serving multiple states straight off a remote host, without a local
+`--data-dir` mirror, use `--serve --remote-base <url> --states TN,US`. This
+opens `<remote-base><state>.{roads,buildings_v8,business}.ptiles` per state
+over HTTP; a missing state/layer combination is skipped (logged to stderr)
+rather than failing the whole serve loop:
+
+```sh
+ptiles-cli --serve --remote-base https://maps.mydatatimeline.com/maps/ --states TN,US
+```
+
+Requires `ptiles-core`'s `http` feature (enabled by default in `cli`'s own
+`Cargo.toml` dependency on `ptiles-core`).
 
 ### GPS candidate scoring
 
@@ -230,6 +284,30 @@ Python reference decoders (`../ptiles/ptiles/*.py`) on `PYTHONPATH`. Writes
 `test-fixtures/golden/<layer>.{block.bin,golden.json,meta.json}` for all six
 layers — commit the results (`test-fixtures/`, including `golden/`, is
 intentionally tracked, not gitignored).
+
+## Format-version policy
+
+`ptiles-core` rejects any `.ptiles` file whose magic/version byte pair isn't
+in its `SUPPORTED_FORMATS` table (`core/src/versions.rs`) — `PtilesFile::open`
+fails closed with `FileError::UnsupportedVersion` right after magic
+validation, before touching the dict/index, rather than guessing at an
+unverified layout. The table is populated only from bytes actually observed
+in real files (`od`-inspected under `~/kino/data/ptiles/`), not copied
+uncross-checked from `SPEC.md`.
+
+See [`SUPPORTED_FORMATS.md`](./SUPPORTED_FORMATS.md) for the generated
+table (also available at runtime via `ptiles-cli --supported-formats`, and
+as `ptiles_core::supported_formats()` for FFI/wasm callers). A
+`core/tests/supported_formats_doc.rs` drift guard keeps the checked-in
+markdown in sync with the table in code. Notably, the real
+`TN.business.ptiles` uses magic `PTILESB` version 3, not `SPEC.md`'s
+documented `PTILESI` version 2 — `SPEC.md` is stale for that layer;
+`versions.rs` follows the real bytes.
+
+Magics with no local sample file (`PTILESA` admin, `PTILESD` addr, `PTILESU`
+routing) are deliberately absent from the table — any such file is rejected
+with an empty `supported` set until a real sample is inspected and a table
+entry is added.
 
 ## Known gaps
 

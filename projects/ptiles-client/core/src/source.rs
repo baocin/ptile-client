@@ -20,6 +20,29 @@ pub enum SourceError {
         needed: usize,
         message: alloc::string::String,
     },
+    /// Server answered a Range request with `200 OK` instead of `206 Partial
+    /// Content` -- it does not support Range requests, so `HttpSource`'s
+    /// positioned reads cannot work against it (it would otherwise silently
+    /// fetch the whole file body for every "range").
+    #[cfg(feature = "http")]
+    #[error("{url} does not support HTTP Range requests (got status {status}, expected 206 Partial Content)")]
+    RangeNotSupported { url: alloc::string::String, status: u16 },
+    /// Any other unsuccessful HTTP status for a range fetch.
+    #[cfg(feature = "http")]
+    #[error("HTTP {status} fetching {url} (range {offset}..{end})")]
+    HttpStatus {
+        url: alloc::string::String,
+        status: u16,
+        offset: u64,
+        end: u64,
+    },
+    /// Transport-level failure: DNS, TLS, connection refused/reset, timeout, etc.
+    #[cfg(feature = "http")]
+    #[error("network error fetching {url}: {message}")]
+    HttpNetwork {
+        url: alloc::string::String,
+        message: alloc::string::String,
+    },
 }
 
 /// Positioned-read abstraction over a `.ptiles` file's bytes. Implementations

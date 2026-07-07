@@ -1,14 +1,28 @@
 //! ptiles-cli: rookery bridge over ptiles-core.
 //!
+//! Local and remote files: `--path` (one-shot) and per-layer files under
+//! `--data-dir`/`--remote-base` (serve) accept either a filesystem path or an
+//! `http(s)://` URL -- picked by a scheme sniff (`is_url`), matching
+//! `ptiles-core`'s `FileSource`/`HttpSource` split
+//! (`~/.hermes/plans/ptiles-client-extraction-plan.md`, Addendum 2 item 1).
+//!
 //! Modes:
-//! - one-shot: `--path <file.ptiles> --lat <f64> --lon <f64> [--query roads|buildings|business|all] [--ring 1]`
-//!   Opens a single `.ptiles` file, resolves the H3 res-7 cell for the point
-//!   (plus ring-1 neighbors if `--ring 1`), decodes the block(s) with the
-//!   decoder matching the file's layer (inferred from its `<state>.<layer>.ptiles`
-//!   filename), and prints one JSON object to stdout.
+//! - one-shot: `--path <file.ptiles|https://.../file.ptiles> --lat <f64> --lon <f64> [--query roads|buildings|business|all] [--ring 1]`
+//!   Opens a single `.ptiles` file (local or remote), resolves the H3 res-7
+//!   cell for the point (plus ring-1 neighbors if `--ring 1`), decodes the
+//!   block(s) with the decoder matching the file's layer (inferred from its
+//!   `<state>.<layer>.ptiles` filename), and prints one JSON object to stdout.
 //! - `--serve --data-dir <dir>`: pre-opens every `*.ptiles` file under `dir`
 //!   (grouped by state + layer parsed from the filename), then reads JSON
-//!   lines from stdin:
+//!   lines from stdin. `--serve --remote-base <https://host/path/> --states
+//!   TN,US`: same, but for each state and each of the three queried layers
+//!   (`roads`, `buildings_v8`, `business`) opens
+//!   `<remote_base><state>.<layer>.ptiles` over HTTP instead of scanning a
+//!   local directory -- a state/layer combination that 404s or errors is
+//!   skipped (eprintln), not fatal, since not every state has every layer.
+//!   `--serve` accepts either `--data-dir` or `--remote-base` (not both).
+//!
+//!   `--serve` JSON lines:
 //!   `{"lat":..,"lon":..,"query":"building|road|roads|business|all","state":?,
 //!   "ring":0|1,"accuracy_m":?,"speed_mps":?}`.
 //!   `state` is optional; if omitted, the sole state present in the data dir
@@ -32,8 +46,8 @@ use std::path::{Path, PathBuf};
 
 use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business, decode_roads, nearest_road,
-    score_candidates, Building, Business, Candidate, CandidateKind, FileSource, Fix, PtilesFile,
-    RoadSegment, ScoringParams,
+    score_candidates, Building, Business, Candidate, CandidateKind, FileSource, Fix, HttpSource,
+    PtilesFile, RoadSegment, ScoringParams,
 };
 use serde_json::{json, Value};
 
@@ -105,16 +119,30 @@ impl QueryKind {
 fn main() {
     let mut args = pico_args::Arguments::from_env();
 
-    if args.contains("--serve") {
-        let data_dir: PathBuf = args
-            .opt_value_from_str("--data-dir")
-            .unwrap_or(None)
-            .unwrap_or_else(|| PathBuf::from("/home/aoi/kino/data/ptiles"));
-        run_serve(&data_dir);
+    if args.contains("--supported-formats") {
+        print!("{}", ptiles_core::supported_formats());
         return;
     }
 
-    let path: PathBuf = match args.value_from_str("--path") {
+    if args.contains("--serve") {
+        let remote_base: Option<String> = args.opt_value_from_str("--remote-base").unwrap_or(None);
+        if let Some(remote_base) = remote_base {
+            let states: String = args.opt_value_from_str("--states").unwrap_or(None).unwrap_or_else(|| {
+                eprintln!("ptiles-cli --serve --remote-base: --states TN,US,... is required");
+                std::process::exit(2);
+            });
+            run_serve_remote(&remote_base, &states);
+        } else {
+            let data_dir: PathBuf = args
+                .opt_value_from_str("--data-dir")
+                .unwrap_or(None)
+                .unwrap_or_else(|| PathBuf::from("/home/aoi/kino/data/ptiles"));
+            run_serve(&data_dir);
+        }
+        return;
+    }
+
+    let path: String = match args.value_from_str("--path") {
         Ok(p) => p,
         Err(e) => {
             eprintln!("ptiles-cli: --path is required for one-shot mode ({e})");
@@ -154,8 +182,7 @@ fn main() {
         Some(l) => l,
         None => {
             eprintln!(
-                "ptiles-cli: could not infer layer from filename {:?} (expected <state>.<layer>.ptiles)",
-                path
+                "ptiles-cli: could not infer layer from filename {path:?} (expected <state>.<layer>.ptiles)"
             );
             std::process::exit(2);
         }
@@ -229,27 +256,72 @@ fn candidates_json(candidates: &[Candidate]) -> Value {
     )
 }
 
-fn layer_from_path(path: &Path) -> Option<Layer> {
-    let name = path.file_name()?.to_str()?;
+/// True for `http://`/`https://` -- the scheme sniff that picks `HttpSource`
+/// vs. `FileSource` everywhere this CLI opens a `.ptiles` file (one-shot
+/// `--path`, `--serve --data-dir`/`--remote-base` per-layer files).
+fn is_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
+/// Infer the `<state>.<layer>.ptiles` layer token from a local path or a
+/// URL's final path segment.
+fn layer_from_path(path_or_url: &str) -> Option<Layer> {
+    let name = if is_url(path_or_url) {
+        path_or_url.rsplit('/').next()?
+    } else {
+        Path::new(path_or_url).file_name()?.to_str()?
+    };
     let mut parts = name.split('.');
     let _state = parts.next()?;
     let layer_token = parts.next()?;
     Layer::from_filename_token(layer_token)
 }
 
-/// One opened `.ptiles` file plus the metadata needed to decode its blocks
-/// and answer queries against it. `PtilesFile` handles both absolute and
-/// relative block offsets (detected per-file in `PtilesFile::open`), so no
-/// per-layer backend distinction is needed.
+/// `PtilesFile` over either a local file or an HTTP(S) URL. `PtilesFile<S>`
+/// is generic over its source, but this CLI needs one concrete type it can
+/// store in `OpenedLayer`/`StateFiles` uniformly, so this enum picks the
+/// backend at open time (scheme sniff) and forwards the two calls
+/// (`read_block`, `index`) `OpenedLayer` needs.
+enum AnyFile {
+    File(PtilesFile<FileSource>),
+    Http(PtilesFile<HttpSource>),
+}
+
+impl AnyFile {
+    fn open(path_or_url: &str) -> Result<AnyFile, String> {
+        if is_url(path_or_url) {
+            let source = HttpSource::open(path_or_url).map_err(|e| format!("open: {e}"))?;
+            let file = PtilesFile::open(source).map_err(|e| format!("parse header/index: {e}"))?;
+            Ok(AnyFile::Http(file))
+        } else {
+            let source = FileSource::open(path_or_url).map_err(|e| format!("open: {e}"))?;
+            let file = PtilesFile::open(source).map_err(|e| format!("parse header/index: {e}"))?;
+            Ok(AnyFile::File(file))
+        }
+    }
+
+    fn read_block(&self, cell: u64) -> Result<Option<Vec<u8>>, String> {
+        match self {
+            AnyFile::File(f) => f.read_block(cell).map_err(|e| e.to_string()),
+            AnyFile::Http(f) => f.read_block(cell).map_err(|e| e.to_string()),
+        }
+    }
+
+}
+
+/// One opened `.ptiles` file (local or remote) plus the metadata needed to
+/// decode its blocks and answer queries against it. `PtilesFile` handles
+/// both absolute and relative block offsets (detected per-file in
+/// `PtilesFile::open`), so no per-layer backend distinction is needed beyond
+/// the local-vs-HTTP split in `AnyFile`.
 struct OpenedLayer {
     layer: Layer,
-    file: PtilesFile<FileSource>,
+    file: AnyFile,
 }
 
 impl OpenedLayer {
-    fn open(path: &Path, layer: Layer) -> Result<OpenedLayer, String> {
-        let source = FileSource::open(path).map_err(|e| format!("open: {e}"))?;
-        let file = PtilesFile::open(source).map_err(|e| format!("parse header/index: {e}"))?;
+    fn open(path_or_url: &str, layer: Layer) -> Result<OpenedLayer, String> {
+        let file = AnyFile::open(path_or_url)?;
         Ok(OpenedLayer { layer, file })
     }
 
@@ -484,7 +556,10 @@ fn run_serve(data_dir: &Path) {
         let Some(layer) = Layer::from_filename_token(layer_token) else {
             continue;
         };
-        let opened = match OpenedLayer::open(&path, layer) {
+        let Some(path_str) = path.to_str() else {
+            continue;
+        };
+        let opened = match OpenedLayer::open(path_str, layer) {
             Ok(o) => o,
             Err(e) => {
                 eprintln!("ptiles-cli --serve: skipping {path:?}: {e}");
@@ -509,6 +584,50 @@ fn run_serve(data_dir: &Path) {
         data_dir
     );
 
+    serve_loop(&states);
+}
+
+/// `--serve --remote-base <base> --states TN,US`: same per-state
+/// roads/buildings_v8/business layer set as `run_serve`, but each file is
+/// `<base><state>.<layer>.ptiles` fetched over HTTP instead of scanned from a
+/// local directory. A state missing a given layer (404/error) just doesn't
+/// get that layer populated -- not every state has every layer.
+fn run_serve_remote(remote_base: &str, states_csv: &str) {
+    let base = if remote_base.ends_with('/') {
+        remote_base.to_string()
+    } else {
+        format!("{remote_base}/")
+    };
+
+    let mut states: HashMap<String, StateFiles> = HashMap::new();
+
+    for state in states_csv.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let mut entry = StateFiles { roads: None, buildings: None, business: None };
+        for layer in [Layer::Roads, Layer::BuildingsV8, Layer::Business] {
+            let url = format!("{base}{state}.{}.ptiles", layer.as_str());
+            match OpenedLayer::open(&url, layer) {
+                Ok(opened) => match layer {
+                    Layer::Roads => entry.roads = Some(opened),
+                    Layer::BuildingsV8 => entry.buildings = Some(opened),
+                    Layer::Business => entry.business = Some(opened),
+                },
+                Err(e) => {
+                    eprintln!("ptiles-cli --serve --remote-base: skipping {url}: {e}");
+                }
+            }
+        }
+        states.insert(state.to_string(), entry);
+    }
+
+    eprintln!(
+        "ptiles-cli --serve --remote-base: loaded states {:?} from {base}",
+        states.keys().collect::<Vec<_>>()
+    );
+
+    serve_loop(&states);
+}
+
+fn serve_loop(states: &HashMap<String, StateFiles>) {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -521,7 +640,7 @@ fn run_serve(data_dir: &Path) {
         if line.trim().is_empty() {
             continue;
         }
-        let response = handle_serve_line(&line, &states);
+        let response = handle_serve_line(&line, states);
         let _ = writeln!(out, "{}", serde_json::to_string(&response).unwrap());
         let _ = out.flush();
     }
