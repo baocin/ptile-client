@@ -8,11 +8,21 @@
 //!   filename), and prints one JSON object to stdout.
 //! - `--serve --data-dir <dir>`: pre-opens every `*.ptiles` file under `dir`
 //!   (grouped by state + layer parsed from the filename), then reads JSON
-//!   lines from stdin: `{"lat":..,"lon":..,"query":"building|road|business|all","state":?}`.
+//!   lines from stdin:
+//!   `{"lat":..,"lon":..,"query":"building|road|roads|business|all","state":?,
+//!   "ring":0|1,"accuracy_m":?,"speed_mps":?}`.
 //!   `state` is optional; if omitted, the sole state present in the data dir
 //!   is used, or an `{"error":...}` line if more than one state is loaded.
+//!   `ring` defaults to 0 (center cell only); 1 includes the H3 ring-1
+//!   neighbors; anything else is rejected with an `{"error":...}` line.
+//!   `"query":"roads"` returns every decoded road segment in the query
+//!   cell(s) under `"roads"` (vs. `"road"`, which returns only the
+//!   nearest-road match under `"nearest_road"`, same as before).
+//!   When `accuracy_m` is present, the response includes `"candidates"`:
+//!   ranked GPS-fix scoring output (see `ptiles_core::scoring`) built from
+//!   whichever of roads/buildings/business this state has loaded.
 //!   Responds with one JSON line per request:
-//!   `{"building":..|null,"nearest_road":{..}|null,"business":[..]}`.
+//!   `{"building":..|null,"nearest_road":{..}|null,"business":[..],"roads":?,"candidates":?}`.
 //!   Malformed input or per-query decode failures produce `{"error":"..."}`
 //!   lines -- the serve loop never crashes on bad input.
 
@@ -22,125 +32,10 @@ use std::path::{Path, PathBuf};
 
 use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business, decode_roads, nearest_road,
-    Building, Business, FileSource, PtilesFile, RoadSegment,
+    score_candidates, Building, Business, Candidate, CandidateKind, FileSource, Fix, PtilesFile,
+    RoadSegment, ScoringParams,
 };
 use serde_json::{json, Value};
-
-/// Workaround for a `core/file.rs` bug found while wiring up this CLI:
-/// `PtilesFile::read_block` always treats `IndexEntry::block_offset` as an
-/// absolute file offset. The Python reference (`ptiles/buildings.py:317-318`,
-/// `BuildingsReader.__init__`) detects that `.buildings_v8.ptiles` files
-/// actually store block offsets **relative to `header.blocks_offset`**
-/// (`self._relative_offsets = first_off < self._header["blocks_offset"]`) and
-/// adjusts every read accordingly -- `PtilesFile` does not do this
-/// detection/adjustment at all, so `read_block` silently returns corrupt
-/// bytes (confirmed against `TN.buildings_v8.ptiles`: the "block" at the raw
-/// index offset starts 4117 bytes before the actual zstd frame, and adding
-/// `header.blocks_offset` back in lines it up exactly, matching a Python
-/// `zstandard` decompress of the same corrected range). Rather than patch
-/// `core/file.rs` (out of scope for this task -- reported to the core owner
-/// instead), buildings_v8 blocks are read here via a small raw reader that
-/// mirrors `PtilesFile::open`/`read_block` using only core's public
-/// header/index parsing plus a local dict-fallback zstd decompress.
-mod buildings_v8_workaround {
-    use ptiles_core::header::HEADER_SIZE;
-    use ptiles_core::{parse_index, FileSource, Header, IndexEntry, PtilesSource};
-    use ruzstd::decoding::{BlockDecodingStrategy, Dictionary, FrameDecoder};
-
-    pub struct RawFile {
-        source: FileSource,
-        header: Header,
-        index: Vec<IndexEntry>,
-        dict: Vec<u8>,
-        relative_offsets: bool,
-    }
-
-    impl RawFile {
-        pub fn open(path: &std::path::Path) -> Result<RawFile, String> {
-            let source = FileSource::open(path).map_err(|e| format!("open: {e}"))?;
-            let mut header_buf = [0u8; HEADER_SIZE];
-            source
-                .read_exact_at(0, &mut header_buf)
-                .map_err(|e| format!("read header: {e}"))?;
-            let header = Header::parse(&header_buf).map_err(|e| format!("parse header: {e}"))?;
-
-            let dict = if header.dict_length > 0 {
-                let mut buf = vec![0u8; header.dict_length as usize];
-                source
-                    .read_exact_at(header.dict_offset, &mut buf)
-                    .map_err(|e| format!("read dict: {e}"))?;
-                buf
-            } else {
-                Vec::new()
-            };
-
-            let mut index_buf = vec![0u8; header.index_length as usize];
-            source
-                .read_exact_at(header.index_offset, &mut index_buf)
-                .map_err(|e| format!("read index: {e}"))?;
-            let index = parse_index(&index_buf).map_err(|e| format!("parse index: {e}"))?;
-
-            // Same detection the Python `BuildingsReader` uses.
-            let relative_offsets = index
-                .first()
-                .is_some_and(|e| e.block_offset < header.blocks_offset);
-
-            Ok(RawFile {
-                source,
-                header,
-                index,
-                dict,
-                relative_offsets,
-            })
-        }
-
-        pub fn read_block(&self, cell: u64) -> Result<Option<Vec<u8>>, String> {
-            let Some(entry) = binary_search(&self.index, cell) else {
-                return Ok(None);
-            };
-            let abs_offset = if self.relative_offsets {
-                self.header.blocks_offset + entry.block_offset
-            } else {
-                entry.block_offset
-            };
-            let mut compressed = vec![0u8; entry.block_length as usize];
-            self.source
-                .read_exact_at(abs_offset, &mut compressed)
-                .map_err(|e| format!("read block at {abs_offset}: {e}"))?;
-            decompress_with_dict_fallback(&compressed, &self.dict).map(Some)
-        }
-    }
-
-    fn binary_search(index: &[IndexEntry], cell: u64) -> Option<&IndexEntry> {
-        index.binary_search_by_key(&cell, |e| e.h3_cell).ok().map(|i| &index[i])
-    }
-
-    /// Mirrors `core/file.rs::decompress_with_dict_fallback` (that function
-    /// isn't public -- duplicated here rather than exported for a one-off
-    /// workaround).
-    fn decompress_with_dict_fallback(compressed: &[u8], dict: &[u8]) -> Result<Vec<u8>, String> {
-        if !dict.is_empty() {
-            if let Ok(parsed_dict) = Dictionary::decode_dict(dict) {
-                let mut decoder = FrameDecoder::new();
-                if decoder.add_dict(parsed_dict).is_ok() {
-                    if let Some(out) = try_decode_all(&mut decoder, compressed) {
-                        return Ok(out);
-                    }
-                }
-            }
-        }
-        let mut decoder = FrameDecoder::new();
-        try_decode_all(&mut decoder, compressed)
-            .ok_or_else(|| "zstd decompress failed (dict and plain both failed)".to_string())
-    }
-
-    fn try_decode_all(decoder: &mut FrameDecoder, compressed: &[u8]) -> Option<Vec<u8>> {
-        let mut input: &[u8] = compressed;
-        decoder.reset(&mut input).ok()?;
-        decoder.decode_blocks(&mut input, BlockDecodingStrategy::All).ok()?;
-        decoder.collect()
-    }
-}
 
 /// The layer a `.ptiles` file holds, inferred from its filename
 /// (`<state>.<layer>.ptiles`). Only the three layers this CLI queries are
@@ -172,8 +67,13 @@ impl Layer {
 }
 
 /// Query kinds accepted on `--query` / the `"query"` JSON field.
+///
+/// `Road` ("road") is the singular nearest-road-to-point lookup. `Roads`
+/// ("roads") is the plan-addendum bulk query: every decoded segment in the
+/// containing cell (plus ring-1 neighbors when requested).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QueryKind {
+    Road,
     Roads,
     Buildings,
     Business,
@@ -183,7 +83,8 @@ enum QueryKind {
 impl QueryKind {
     fn parse(s: &str) -> Option<QueryKind> {
         match s {
-            "road" | "roads" => Some(QueryKind::Roads),
+            "road" => Some(QueryKind::Road),
+            "roads" => Some(QueryKind::Roads),
             "building" | "buildings" => Some(QueryKind::Buildings),
             "business" => Some(QueryKind::Business),
             "all" => Some(QueryKind::All),
@@ -194,7 +95,7 @@ impl QueryKind {
     fn wants(self, layer: Layer) -> bool {
         match self {
             QueryKind::All => true,
-            QueryKind::Roads => layer == Layer::Roads,
+            QueryKind::Road | QueryKind::Roads => layer == Layer::Roads,
             QueryKind::Buildings => layer == Layer::BuildingsV8,
             QueryKind::Business => layer == Layer::Business,
         }
@@ -230,6 +131,13 @@ fn main() {
     });
     let query: Option<String> = args.opt_value_from_str("--query").unwrap_or(None);
     let ring: u32 = args.opt_value_from_str("--ring").unwrap_or(None).unwrap_or(0);
+    let accuracy_m: Option<f64> = args.opt_value_from_str("--accuracy-m").unwrap_or(None);
+    let speed_mps: Option<f64> = args.opt_value_from_str("--speed-mps").unwrap_or(None);
+
+    if let Err(e) = validate_ring(ring) {
+        println!("{}", serde_json::to_string_pretty(&json!({"error": e})).unwrap());
+        std::process::exit(1);
+    }
 
     let query_kind = match query.as_deref() {
         Some(s) => match QueryKind::parse(s) {
@@ -270,8 +178,55 @@ fn main() {
         }
     };
 
-    let result = opened.query(lat, lon, ring);
+    let mut result = opened.query(lat, lon, ring, query_kind);
+
+    if let Some(accuracy_m) = accuracy_m {
+        // Scoring only has real signal against roads/buildings/business
+        // together; a one-shot query is scoped to a single layer's file, so
+        // scan just that layer's decoded candidates for this fix. (--serve
+        // scores across all three layers -- see handle_serve_line.)
+        let fix = Fix { lat, lon, horizontal_accuracy_m: accuracy_m, speed_mps };
+        let (roads, buildings, businesses) = opened.candidates_for(lat, lon, ring);
+        let candidates = score_candidates(&fix, &roads, &buildings, &businesses, &ScoringParams::default());
+        if let Value::Object(ref mut map) = result {
+            map.insert("candidates".to_string(), candidates_json(&candidates));
+        }
+    }
+
     println!("{}", serde_json::to_string_pretty(&result).unwrap());
+}
+
+/// Ring is opt-in and center-cell-default per the plan addendum; only 0 or 1
+/// are supported (ring-1 neighbors), so reject anything larger explicitly
+/// rather than silently truncating.
+fn validate_ring(ring: u32) -> Result<(), String> {
+    if ring > 1 {
+        Err(format!("ring {ring} not supported (only 0 or 1)"))
+    } else {
+        Ok(())
+    }
+}
+
+fn candidates_json(candidates: &[Candidate]) -> Value {
+    Value::Array(
+        candidates
+            .iter()
+            .map(|c| {
+                let kind = match c.kind {
+                    CandidateKind::Road => "road",
+                    CandidateKind::Building => "building",
+                    CandidateKind::Business => "business",
+                };
+                json!({
+                    "kind": kind,
+                    "osm_id": c.osm_id,
+                    "name": c.name,
+                    "distance_m": c.distance_m,
+                    "score": c.score,
+                })
+            })
+            .collect(),
+    )
 }
 
 fn layer_from_path(path: &Path) -> Option<Layer> {
@@ -282,40 +237,24 @@ fn layer_from_path(path: &Path) -> Option<Layer> {
     Layer::from_filename_token(layer_token)
 }
 
-/// Backing reader for an opened layer file: `PtilesFile` for layers whose
-/// index offsets are absolute (roads, business -- confirmed against real
-/// `TN.*.ptiles` data), or the `buildings_v8_workaround::RawFile` for
-/// buildings_v8, whose index offsets are relative (see that module's doc
-/// comment for why `PtilesFile` can't be used as-is there).
-enum Backend {
-    Standard(PtilesFile<FileSource>),
-    BuildingsV8(buildings_v8_workaround::RawFile),
-}
-
 /// One opened `.ptiles` file plus the metadata needed to decode its blocks
-/// and answer queries against it.
+/// and answer queries against it. `PtilesFile` handles both absolute and
+/// relative block offsets (detected per-file in `PtilesFile::open`), so no
+/// per-layer backend distinction is needed.
 struct OpenedLayer {
     layer: Layer,
-    backend: Backend,
+    file: PtilesFile<FileSource>,
 }
 
 impl OpenedLayer {
     fn open(path: &Path, layer: Layer) -> Result<OpenedLayer, String> {
-        let backend = if layer == Layer::BuildingsV8 {
-            Backend::BuildingsV8(buildings_v8_workaround::RawFile::open(path)?)
-        } else {
-            let source = FileSource::open(path).map_err(|e| format!("open: {e}"))?;
-            let file = PtilesFile::open(source).map_err(|e| format!("parse header/index: {e}"))?;
-            Backend::Standard(file)
-        };
-        Ok(OpenedLayer { layer, backend })
+        let source = FileSource::open(path).map_err(|e| format!("open: {e}"))?;
+        let file = PtilesFile::open(source).map_err(|e| format!("parse header/index: {e}"))?;
+        Ok(OpenedLayer { layer, file })
     }
 
     fn read_block(&self, cell: u64) -> Option<Vec<u8>> {
-        match &self.backend {
-            Backend::Standard(file) => file.read_block(cell).ok().flatten(),
-            Backend::BuildingsV8(raw) => raw.read_block(cell).ok().flatten(),
-        }
+        self.file.read_block(cell).ok().flatten()
     }
 
     /// Cells to fetch for a query point: the center cell, plus ring-1
@@ -334,7 +273,49 @@ impl OpenedLayer {
         cells.iter().filter_map(|&c| self.read_block(c)).collect()
     }
 
-    fn query(&self, lat: f64, lon: f64, ring: u32) -> Value {
+    /// Decode this layer's blocks for the query cells (center + ring-1 if
+    /// requested), returning `(roads, buildings, businesses)` -- exactly one
+    /// of the three is populated, matching `self.layer`. Used to feed
+    /// `score_candidates` for one-shot `--accuracy-m` requests.
+    fn candidates_for(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u32,
+    ) -> (Vec<RoadSegment>, Vec<Building>, Vec<Business>) {
+        let cells = self.cells_for(lat, lon, ring);
+        let mut roads = Vec::new();
+        let mut buildings = Vec::new();
+        let mut businesses = Vec::new();
+        match self.layer {
+            Layer::Roads => {
+                for block in self.blocks_for(&cells) {
+                    if let Ok(mut r) = decode_roads(&block) {
+                        roads.append(&mut r);
+                    }
+                }
+            }
+            Layer::BuildingsV8 => {
+                for &cell in &cells {
+                    let Some(block) = self.read_block(cell) else { continue };
+                    let (center_lat, center_lon) = cell_center(cell);
+                    if let Ok(mut b) = decode_buildings(&block, center_lat, center_lon) {
+                        buildings.append(&mut b);
+                    }
+                }
+            }
+            Layer::Business => {
+                for block in self.blocks_for(&cells) {
+                    if let Ok(mut b) = decode_business(&block) {
+                        businesses.append(&mut b);
+                    }
+                }
+            }
+        }
+        (roads, buildings, businesses)
+    }
+
+    fn query(&self, lat: f64, lon: f64, ring: u32, query_kind: QueryKind) -> Value {
         let cells = self.cells_for(lat, lon, ring);
 
         match self.layer {
@@ -346,6 +327,10 @@ impl OpenedLayer {
                         Ok(mut r) => roads.append(&mut r),
                         Err(e) => return json!({"error": format!("decode_roads: {e}")}),
                     }
+                }
+                if query_kind == QueryKind::Roads {
+                    let segments: Vec<Value> = roads.iter().map(road_segment_json).collect();
+                    return json!({"roads": segments, "candidate_count": roads.len()});
                 }
                 let nearest = nearest_road(lat, lon, &roads, ptiles_core::DEFAULT_THRESHOLD_M * 2.0)
                     .map(|nr| nearest_road_json(&nr, &roads));
@@ -391,7 +376,7 @@ impl OpenedLayer {
 /// (ray casting over `coords`, which are `[lon, lat]` pairs) and the
 /// fallback distance search are CLI-local -- core has no polygon-containment
 /// helper (out of scope per the plan; buildings.rs only decodes geometry).
-fn find_building<'a>(lat: f64, lon: f64, buildings: &'a [Building]) -> Option<&'a Building> {
+fn find_building(lat: f64, lon: f64, buildings: &[Building]) -> Option<&Building> {
     for b in buildings {
         if point_in_polygon(lon, lat, &b.coords) {
             return Some(b);
@@ -431,6 +416,15 @@ fn nearest_road_json(nr: &ptiles_core::NearestRoad, roads: &[RoadSegment]) -> Va
         "road_class": road.road_class,
         "snapped": [nr.snapped.0, nr.snapped.1],
         "distance_m": nr.distance_m,
+        "geometry": road.coords.iter().map(|c| [c[1], c[0]]).collect::<Vec<_>>(),
+    })
+}
+
+fn road_segment_json(road: &RoadSegment) -> Value {
+    json!({
+        "osm_id": road.osm_id,
+        "name": road.name,
+        "road_class": road.road_class,
         "geometry": road.coords.iter().map(|c| [c[1], c[0]]).collect::<Vec<_>>(),
     })
 }
@@ -553,6 +547,11 @@ fn handle_serve_line(line: &str, states: &HashMap<String, StateFiles>) -> Value 
         None => return json!({"error": format!("unknown query {query_str:?}")}),
     };
     let ring = req.get("ring").and_then(Value::as_u64).unwrap_or(0) as u32;
+    if let Err(e) = validate_ring(ring) {
+        return json!({"error": e});
+    }
+    let accuracy_m = req.get("accuracy_m").and_then(Value::as_f64);
+    let speed_mps = req.get("speed_mps").and_then(Value::as_f64);
 
     let state_files = match req.get("state").and_then(Value::as_str) {
         Some(s) => match states.get(s) {
@@ -576,29 +575,37 @@ fn handle_serve_line(line: &str, states: &HashMap<String, StateFiles>) -> Value 
 
     let mut building: Value = Value::Null;
     let mut nearest_road: Value = Value::Null;
+    let mut roads_list: Value = Value::Null;
     let mut business: Value = Value::Array(Vec::new());
+
+    let mut decoded_roads: Vec<RoadSegment> = Vec::new();
+    let mut decoded_buildings: Vec<Building> = Vec::new();
+    let mut decoded_businesses: Vec<Business> = Vec::new();
 
     if matches!(query_kind, QueryKind::Buildings | QueryKind::All) {
         if let Some(layer) = &state_files.buildings {
-            let r = layer.query(lat, lon, ring);
+            let r = layer.query(lat, lon, ring, query_kind);
             if let Some(e) = r.get("error") {
                 return json!({"error": e});
             }
             building = r.get("building").cloned().unwrap_or(Value::Null);
         }
     }
-    if matches!(query_kind, QueryKind::Roads | QueryKind::All) {
+    if matches!(query_kind, QueryKind::Road | QueryKind::Roads | QueryKind::All) {
         if let Some(layer) = &state_files.roads {
-            let r = layer.query(lat, lon, ring);
+            let r = layer.query(lat, lon, ring, query_kind);
             if let Some(e) = r.get("error") {
                 return json!({"error": e});
             }
             nearest_road = r.get("nearest_road").cloned().unwrap_or(Value::Null);
+            if let Some(rs) = r.get("roads") {
+                roads_list = rs.clone();
+            }
         }
     }
     if matches!(query_kind, QueryKind::Business | QueryKind::All) {
         if let Some(layer) = &state_files.business {
-            let r = layer.query(lat, lon, ring);
+            let r = layer.query(lat, lon, ring, query_kind);
             if let Some(e) = r.get("error") {
                 return json!({"error": e});
             }
@@ -606,9 +613,42 @@ fn handle_serve_line(line: &str, states: &HashMap<String, StateFiles>) -> Value 
         }
     }
 
-    json!({
+    let mut response = json!({
         "building": building,
         "nearest_road": nearest_road,
         "business": business,
-    })
+    });
+    if query_kind == QueryKind::Roads {
+        if let Value::Object(ref mut map) = response {
+            map.insert("roads".to_string(), roads_list);
+        }
+    }
+
+    if let Some(accuracy_m) = accuracy_m {
+        // Full-cross-layer scoring, unlike the one-shot path (which is
+        // scoped to a single opened file): decode whichever layers this
+        // state has and score across all of them together.
+        if let Some(layer) = &state_files.roads {
+            decoded_roads = layer.candidates_for(lat, lon, ring).0;
+        }
+        if let Some(layer) = &state_files.buildings {
+            decoded_buildings = layer.candidates_for(lat, lon, ring).1;
+        }
+        if let Some(layer) = &state_files.business {
+            decoded_businesses = layer.candidates_for(lat, lon, ring).2;
+        }
+        let fix = Fix { lat, lon, horizontal_accuracy_m: accuracy_m, speed_mps };
+        let candidates = score_candidates(
+            &fix,
+            &decoded_roads,
+            &decoded_buildings,
+            &decoded_businesses,
+            &ScoringParams::default(),
+        );
+        if let Value::Object(ref mut map) = response {
+            map.insert("candidates".to_string(), candidates_json(&candidates));
+        }
+    }
+
+    response
 }

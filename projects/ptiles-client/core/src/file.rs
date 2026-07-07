@@ -28,6 +28,17 @@
 //! files' indexes (`parse_index` will misinterpret v2 entries as v1 and
 //! either error on a length mismatch or return corrupt entries). That's
 //! flagged as a follow-up, not fixed here — see task report.
+//!
+//! Block offset relativity: every reader in the Python reference
+//! (`ptiles/buildings.py`, `roads.py`, `water.py`, `business.py`,
+//! `places.py`, `reader.py`) detects whether `IndexEntry::block_offset`
+//! values are absolute file offsets or relative to `header.blocks_offset`,
+//! using the same rule: `relative = index[0].block_offset < header.blocks_offset`.
+//! This is a per-file property, not a per-layer one — `PtilesFile::open`
+//! runs the same detection and `read_block` adds `blocks_offset` back in
+//! when relative. Layers whose `blocks_offset` happens to be 0 (or whose
+//! first block offset happens to already exceed it) look "absolute" only
+//! by coincidence; the general rule handles both cases uniformly.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -59,6 +70,10 @@ pub struct PtilesFile<S: PtilesSource> {
     header: Header,
     index: Vec<IndexEntry>,
     dict: Vec<u8>,
+    /// True if `IndexEntry::block_offset` values are relative to
+    /// `header.blocks_offset` rather than absolute file offsets. Detected
+    /// in `open()` — see this module's doc comment.
+    relative_offsets: bool,
 }
 
 impl<S: PtilesSource> PtilesFile<S> {
@@ -87,11 +102,20 @@ impl<S: PtilesSource> PtilesFile<S> {
         source.read_exact_at(header.index_offset, &mut index_buf)?;
         let index = parse_index(&index_buf)?;
 
+        // Same detection the Python reference readers use (buildings.py,
+        // roads.py, water.py, business.py, places.py, reader.py): if the
+        // first block's offset is less than blocks_offset, offsets are
+        // relative to blocks_offset, not absolute file offsets.
+        let relative_offsets = index
+            .first()
+            .is_some_and(|e| e.block_offset < header.blocks_offset);
+
         Ok(PtilesFile {
             source,
             header,
             index,
             dict,
+            relative_offsets,
         })
     }
 
@@ -113,14 +137,19 @@ impl<S: PtilesSource> PtilesFile<S> {
             return Ok(None);
         };
 
+        let abs_offset = if self.relative_offsets {
+            self.header.blocks_offset + entry.block_offset
+        } else {
+            entry.block_offset
+        };
+
         let mut compressed = alloc::vec![0u8; entry.block_length as usize];
-        self.source
-            .read_exact_at(entry.block_offset, &mut compressed)?;
+        self.source.read_exact_at(abs_offset, &mut compressed)?;
 
         decompress_with_dict_fallback(&compressed, &self.dict)
             .map(Some)
             .map_err(|message| FileError::Decompress {
-                offset: entry.block_offset,
+                offset: abs_offset,
                 message,
             })
     }
@@ -238,5 +267,38 @@ mod tests {
             !features.is_empty(),
             "real water block should decode to at least one feature"
         );
+    }
+
+    /// Regression test for the relative-block-offset bug: `TN.buildings_v8.ptiles`
+    /// stores `IndexEntry::block_offset` relative to `header.blocks_offset`
+    /// (confirmed against the Python reference's `BuildingsReader`), unlike
+    /// e.g. `TN.water.ptiles` above where offsets are already absolute.
+    /// `PtilesFile::open`/`read_block` must detect and handle both.
+    ///
+    /// Skips (passes trivially) if the fixture isn't present.
+    #[cfg(feature = "std")]
+    #[test]
+    fn opens_real_buildings_v8_file_and_decodes_a_block() {
+        let path = std::path::Path::new("/home/aoi/kino/data/ptiles/TN.buildings_v8.ptiles");
+        if !path.exists() {
+            eprintln!("skipping: fixture not present at {path:?}");
+            return;
+        }
+
+        let src = crate::source::FileSource::open(path).expect("open TN.buildings_v8.ptiles");
+        let file = PtilesFile::open(src).expect("parse header/dict/index");
+
+        assert!(!file.index().is_empty(), "index must have entries");
+        assert!(
+            file.relative_offsets,
+            "TN.buildings_v8.ptiles is expected to use relative block offsets"
+        );
+
+        let cell = file.index()[0].h3_cell;
+        let block = file
+            .read_block(cell)
+            .expect("read_block should succeed")
+            .expect("cell from the index must resolve to a block");
+        assert!(!block.is_empty(), "decompressed block must be non-empty");
     }
 }

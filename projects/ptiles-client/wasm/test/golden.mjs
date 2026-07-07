@@ -173,9 +173,100 @@ try {
   console.log(`PASS decompress_block: rejects garbage input as expected (${String(e).slice(0, 60)}...)`);
 }
 
+// roads_in_block / nearest_road (plan addendum item 1): exercise against
+// the same roads.block.bin fixture used above, at a known coordinate.
+{
+  const { block, golden } = loadFixture("roads");
+
+  const allRoads = wasm.roads_in_block(block);
+  const diff = deepEqual(allRoads, golden.roads);
+  if (diff) {
+    console.log(`FAIL roads_in_block: ${diff}`);
+    failed++;
+  } else {
+    console.log(`PASS roads_in_block: ${allRoads.length} records match golden`);
+  }
+
+  // Known coordinate: golden.roads[0]'s first vertex (osm_id 19443101,
+  // motorway_link, coords[0] = [-86.79397, 36.16412] as [lon, lat]).
+  const knownRoad = golden.roads[0];
+  const [knownLon, knownLat] = knownRoad.coords[0];
+
+  const nearest = wasm.nearest_road(block, knownLat, knownLon);
+  if (!nearest) {
+    console.log("FAIL nearest_road: expected a match at the road's own first vertex, got null");
+    failed++;
+  } else if (Number(nearest.osm_id) !== knownRoad.osm_id) {
+    console.log(`FAIL nearest_road: expected osm_id ${knownRoad.osm_id}, got ${nearest.osm_id}`);
+    failed++;
+  } else if (nearest.distance_m > 1.0) {
+    console.log(`FAIL nearest_road: expected ~0m snap distance at the road's own vertex, got ${nearest.distance_m}m`);
+    failed++;
+  } else if (nearest.road_class !== knownRoad.road_class) {
+    console.log(`FAIL nearest_road: expected road_class ${knownRoad.road_class}, got ${nearest.road_class}`);
+    failed++;
+  } else if (!Array.isArray(nearest.geometry) || nearest.geometry.length !== knownRoad.coords.length) {
+    console.log(`FAIL nearest_road: geometry length mismatch (expected ${knownRoad.coords.length}, got ${nearest.geometry?.length})`);
+    failed++;
+  } else if (nearest.geometry[0][0] !== knownLat || nearest.geometry[0][1] !== knownLon) {
+    console.log(`FAIL nearest_road: geometry[0] expected [lat, lon]=[${knownLat}, ${knownLon}], got ${JSON.stringify(nearest.geometry[0])}`);
+    failed++;
+  } else {
+    console.log(`PASS nearest_road: matched osm_id ${knownRoad.osm_id} at distance ${nearest.distance_m}m, [lat,lon] geometry shape confirmed`);
+  }
+
+  // Far-away coordinate, tight threshold: expect no match.
+  const farAway = wasm.nearest_road(block, 0.0, 0.0, 1.0);
+  if (farAway !== null) {
+    console.log(`FAIL nearest_road: expected null far from all roads, got ${JSON.stringify(farAway)}`);
+    failed++;
+  } else {
+    console.log("PASS nearest_road: null when no road is within threshold");
+  }
+}
+
+// score_candidates (plan addendum item 2): synthetic fix near the known
+// road coordinate above, moving fast enough that the road candidate should
+// rank first (and score/rank fields should be sane).
+{
+  const { block: roadsBlock, golden } = loadFixture("roads");
+  const knownRoad = golden.roads[0];
+  const [knownLon, knownLat] = knownRoad.coords[0];
+
+  const fix = JSON.stringify({
+    lat: knownLat,
+    lon: knownLon,
+    horizontal_accuracy_m: 10.0,
+    speed_mps: 8.0,
+  });
+
+  const emptyBlock = new Uint8Array();
+  const candidates = wasm.score_candidates(fix, roadsBlock, emptyBlock, emptyBlock, 0.0, 0.0);
+
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    console.log(`FAIL score_candidates: expected a non-empty ranked list, got ${JSON.stringify(candidates)}`);
+    failed++;
+  } else {
+    const top = candidates[0];
+    const sorted = candidates.every((c, i) => i === 0 || candidates[i - 1].score >= c.score);
+    if (top.kind !== "Road") {
+      console.log(`FAIL score_candidates: expected top candidate kind "Road" (moving fix on its own road vertex), got ${JSON.stringify(top)}`);
+      failed++;
+    } else if (!sorted) {
+      console.log("FAIL score_candidates: candidates not sorted descending by score");
+      failed++;
+    } else if (Number(top.osm_id) !== knownRoad.osm_id) {
+      console.log(`FAIL score_candidates: expected top osm_id ${knownRoad.osm_id}, got ${top.osm_id}`);
+      failed++;
+    } else {
+      console.log(`PASS score_candidates: ${candidates.length} ranked candidates, top=${JSON.stringify(top, (_, v) => (typeof v === "bigint" ? v.toString() : v))}`);
+    }
+  }
+}
+
 if (failed > 0) {
   console.log(`\n${failed} case(s) failed`);
   process.exit(1);
 } else {
-  console.log(`\nall ${cases.length} golden cases + decompress_block smoke test passed`);
+  console.log(`\nall ${cases.length} golden cases + decompress_block/nearest_road/roads_in_block/score_candidates tests passed`);
 }

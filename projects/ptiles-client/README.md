@@ -35,6 +35,8 @@ format into typed Rust structs (`RoadSegment`, `Building`, `Business`,
 - `cell_for_coord` / `neighbor_cells` / `cell_center` — H3 resolution-7 cell
   lookup (wraps `h3o`).
 - `nearest_road` — haversine point-to-linestring proximity search.
+- `score_candidates` — GPS emission-probability scoring for a fix against
+  road/building/business candidates (see "GPS candidate scoring" below).
 
 **Features:**
 
@@ -51,6 +53,21 @@ field-for-field: `decode_roads`, `decode_water`, `decode_buildings`,
 `decompress_block(compressed, dict)` export so JS callers can eventually drop
 their own zstd-wasm dependency. `osm_id` values outside the safe JS integer
 range (business layer) serialize as `bigint` rather than panicking.
+
+Additional exports (road geometry + scoring, mirroring the CLI's):
+
+- `nearest_road(block_bytes, lat, lon, threshold_m?)` — decodes a roads block
+  and returns the closest segment as `{osm_id, name, road_class, snapped:
+  [lat, lon], distance_m, geometry: [[lat, lon], ...]}`, or `null` if nothing
+  is within `threshold_m` (default 50m). Coordinates are `[lat, lon]` in the
+  output (the on-disk/core representation is `[lon, lat]`).
+- `roads_in_block(block_bytes)` — full decoded segment list for one block
+  (same shape as `decode_roads`). Ring-1 neighbor-cell lookup is a JS-side
+  concern: call this once per cell you decide to fetch.
+- `score_candidates(fix_json, roads_block, buildings_block, business_block,
+  cell_center_lat, cell_center_lon)` — see "GPS candidate scoring" below.
+  Pass an empty `Uint8Array` for any layer you want to skip; `roads_block` is
+  required.
 
 Build:
 
@@ -74,30 +91,54 @@ One-shot:
 
 ```sh
 ptiles-cli --path /path/to/TN.roads.ptiles --lat 36.16 --lon -86.78 \
-  --query roads   # roads | buildings | business | all
-  [--ring 1]       # also check the six neighboring res-7 cells
+  --query road    # road (nearest single segment) | roads (bulk) | buildings | business | all
+  [--ring 1]      # 0 (default, center cell only) or 1 (also check the six neighboring res-7 cells)
+  [--accuracy-m 10] [--speed-mps 8]   # optional: adds ranked "candidates" via score_candidates
 ```
+
+`--query road` returns the single nearest segment, enriched with geometry:
+`{"nearest_road":{"osm_id":...,"name":...,"road_class":...,
+"snapped":[lat,lon],"distance_m":...,"geometry":[[lat,lon],...]}}`.
+
+`--query roads` returns every decoded segment in the query cell(s) (ring-0,
+or ring-0+1 with `--ring 1`): `{"roads":[{"osm_id":...,"name":...,
+"road_class":...,"geometry":[[lat,lon],...]}, ...],"candidate_count":N}`.
+`--ring` values other than `0`/`1` are rejected: `{"error":"ring N not
+supported (only 0 or 1)"}` (exit 1 in one-shot mode; serve mode returns the
+error line and keeps looping).
 
 Serve mode (JSON lines on stdin/stdout, for long-lived integration):
 
 ```sh
 ptiles-cli --serve --data-dir /path/to/ptiles-data
-# stdin:  {"lat":36.16,"lon":-86.78,"query":"all","state":"TN"}
-# stdout: {"building":null,"nearest_road":{...},"business":[...]}
+# stdin:  {"lat":36.16,"lon":-86.78,"query":"all","state":"TN","ring":1,"accuracy_m":10,"speed_mps":8}
+# stdout: {"building":null,"nearest_road":{...},"business":[...],"candidates":[...]}
 ```
 
-`state` is optional if only one state's files are loaded. Malformed
-input, unknown state, or per-layer decode errors produce
+`state` is optional if only one state's files are loaded. `ring`,
+`accuracy_m`, and `speed_mps` are all optional. Malformed input, unknown
+state, unsupported `ring`, or per-layer decode errors produce
 `{"error":"..."}` lines instead of crashing the loop.
 
-Known gap: `core/file.rs::PtilesFile::read_block` assumes
-`IndexEntry::block_offset` is always an absolute file offset. For
-`*.buildings_v8.ptiles` files it is actually relative to
-`header.blocks_offset` (matching the Python reference's
-`BuildingsReader._relative_offsets` detection in `ptiles/buildings.py`).
-`cli/src/main.rs` works around this locally (`buildings_v8_workaround`
-module); `core` itself has not been patched, since that fix belongs to
-whoever owns `file.rs`.
+### GPS candidate scoring
+
+When `accuracy_m` (one-shot: `--accuracy-m`) is supplied, the response gains
+a `"candidates"` array: `[{"kind":"Road"|"Building"|"Business","osm_id":...,
+"name":...,"distance_m":...,"score":...}, ...]`, ranked descending by score.
+Scoring is implemented in `ptiles-core::scoring` (`score_candidates`), not
+in the CLI/wasm layers, so the same emission model is available to future
+FFI (Swift/Kotlin) consumers.
+
+Model: each candidate's emission score is `exp(-distance_m^2 / (2 *
+sigma^2))`, where `sigma = accuracy_m` (CoreLocation's `horizontalAccuracy`)
+and `distance_m` is point-to-segment distance for roads, 0 if inside /
+distance-to-edge otherwise for building polygons. `--speed-mps` (optional)
+gates the weighting: speed above roughly 3 m/s up-weights road candidates,
+near-zero/absent speed up-weights buildings. Weights are `ScoringParams`
+fields, not hardcoded constants. This is *not* a position filter or gravity
+well — it returns ranked candidates with scores and leaves any state
+tracking (e.g. an HMM over fixes) to the caller; that's deferred to a future
+routing phase.
 
 ### `fuzz`
 
@@ -127,9 +168,18 @@ cargo +nightly fuzz run decode_roads     # or decode_buildings / decode_business
   to decoded road geometry within a 100m threshold, exercising
   `PtilesFile` + `decode_roads` + `nearest_road` together against real data
   under `~/kino/data/ptiles/`.
+- **Scoring unit tests** (`core/src/scoring.rs`) — synthetic fixes: a
+  fast-moving fix ranks the road candidate first, a stationary fix inside a
+  building footprint ranks that building first, and widening sigma flattens
+  the ranking (scores converge).
+- **CLI integration test** (`cli/tests/roads_query.rs`) — against real data
+  under `~/kino/data/ptiles/` (skipped gracefully if absent): `roads` query
+  shape and ring-0 vs ring-1 candidate-count monotonicity, `--ring 2`
+  rejection, and the enriched `nearest_road` shape.
 - **WASM golden test** (`wasm/test/golden.mjs`, run via `node`) — same
   fixtures, run through the built `wasm-pkg/` bindings, to confirm parity
-  between the `core` decoders and their WASM wrapper.
+  between the `core` decoders and their WASM wrapper, plus `roads_in_block`,
+  `nearest_road`, and `score_candidates` cases.
 - **Fuzz** (`fuzz/`) — best-effort crash discovery on the three decoders
   most exposed to untrusted/corrupt input.
 

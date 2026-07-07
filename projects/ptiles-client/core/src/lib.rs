@@ -26,6 +26,7 @@ pub mod business;
 
 pub mod proximity;
 pub mod query;
+pub mod scoring;
 
 pub use codec::DecodeError;
 
@@ -41,6 +42,7 @@ pub use proximity::{
     point_to_segment_distance_m, NearestRoad, SegmentProjection, DEFAULT_THRESHOLD_M,
 };
 pub use query::{cell_center, cell_for_coord, neighbor_cells};
+pub use scoring::{score_candidates, Candidate, CandidateKind, Fix, ScoringParams};
 
 pub use file::{FileError, PtilesFile};
 pub use header::Header;
