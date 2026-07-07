@@ -1,0 +1,486 @@
+//! ptiles-ffi: UniFFI mobile bindings (Swift + Kotlin) over ptiles-core.
+//!
+//! Concrete, non-generic surface per the extraction plan (Phase 5 +
+//! "Addendum: decisions 2026-07-07" item 3, `~/.hermes/plans/
+//! ptiles-client-extraction-plan.md`): `core::PtilesFile<S: PtilesSource>` is
+//! generic over its source, but UniFFI cannot export a generic type, so this
+//! crate fixes `S = FileSource` and wraps it in one opaque object,
+//! [`PtilesLayer`]. A second opaque object, [`PtilesStack`], groups up to one
+//! roads/buildings/business `PtilesLayer` each for a state and exposes
+//! [`PtilesStack::score`] — this is the "small stack object" shape from the
+//! addendum, chosen because a CoreLocation caller naturally has one state's
+//! three files open at once and one `CLLocation` (lat/lon/horizontalAccuracy/
+//! speed) to score against all of them together, matching the CLI's
+//! `--serve` cross-layer scoring path (`cli/src/main.rs::handle_serve_line`)
+//! rather than the one-shot single-file path.
+//!
+//! UniFFI setup: proc-macro-only mode (`uniffi::setup_scaffolding!()` below),
+//! no `.udl` file. Justification: UDL duplicates every signature in a
+//! separate interface-definition file that must be kept in sync by hand;
+//! proc-macro attributes (`#[uniffi::export]` etc.) sit directly on the Rust
+//! item they describe, so the compiler enforces the one true signature and
+//! `cargo test`/normal `cargo build` already exercise the binding-relevant
+//! code paths. UDL remains useful for exposing a *foreign*-defined interface
+//! or for teams that want the language-neutral IDL as documentation, neither
+//! of which applies here — this is a Rust-authored library binding into
+//! Swift/Kotlin callers, so proc-macros are the more direct, less
+//! duplicative path (this is also UniFFI's own recommended default as of the
+//! 0.28+ line).
+
+use std::sync::Arc;
+
+use ptiles_core::{
+    cell_center, cell_for_coord, decode_buildings, decode_business, decode_roads,
+    haversine_distance_m, nearest_road as core_nearest_road, neighbor_cells, score_candidates,
+    Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind,
+    FileSource, Fix as CoreFix, PtilesFile, RoadSegment, ScoringParams,
+};
+
+uniffi::setup_scaffolding!();
+
+// --- Errors -----------------------------------------------------------------
+
+/// Flat UniFFI error enum. Every error path anywhere in this crate collapses
+/// into one of these variants; wrapped source errors are stringified
+/// (`{0}`/`{message}`) rather than exposed as nested UniFFI error types,
+/// which keeps the generated Swift/Kotlin error surface small and stable.
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum PtilesError {
+    #[error("failed to open {path}: {message}")]
+    Open { path: String, message: String },
+    #[error("could not infer layer from filename {path:?} (expected <state>.<layer>.ptiles)")]
+    UnknownLayer { path: String },
+    #[error("block decode failed: {message}")]
+    Decode { message: String },
+    #[error("this operation is not supported on a {layer} layer")]
+    UnsupportedForLayer { layer: String },
+    #[error("ring {ring} not supported (only 0 or 1)")]
+    InvalidRing { ring: u8 },
+}
+
+// --- Plain data records -------------------------------------------------------
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LatLon {
+    pub lat: f64,
+    pub lon: f64,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NearestRoad {
+    pub osm_id: u64,
+    pub name: Option<String>,
+    pub road_class: String,
+    pub snapped_lat: f64,
+    pub snapped_lon: f64,
+    pub distance_m: f64,
+    pub geometry: Vec<LatLon>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct RoadInfo {
+    pub osm_id: u64,
+    pub name: Option<String>,
+    pub road_class: String,
+    pub geometry: Vec<LatLon>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BuildingInfo {
+    pub osm_id: i64,
+    pub name: Option<String>,
+    pub building_type: String,
+    pub category: Option<String>,
+    pub centroid: LatLon,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BusinessInfo {
+    pub osm_id: i64,
+    pub name: String,
+    pub location: LatLon,
+    pub category_idx: u8,
+    pub phone: Option<String>,
+    pub website: Option<String>,
+    pub operating_status: String,
+}
+
+/// A GPS fix to score candidates against. Field names/units mirror
+/// `CoreLocation`: `horizontal_accuracy_m` is `CLLocation.horizontalAccuracy`,
+/// `speed_mps` is `CLLocation.speed` (pass `nil`/`None` when unavailable, not
+/// CoreLocation's `-1` sentinel — the caller translates that at the FFI
+/// boundary).
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct Fix {
+    pub lat: f64,
+    pub lon: f64,
+    pub horizontal_accuracy_m: f64,
+    pub speed_mps: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CandidateKind {
+    Road,
+    Building,
+    Business,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Candidate {
+    pub kind: CandidateKind,
+    pub osm_id: i64,
+    pub name: Option<String>,
+    pub distance_m: f64,
+    pub score: f64,
+}
+
+fn to_candidate(c: &CoreCandidate) -> Candidate {
+    Candidate {
+        kind: match c.kind {
+            CoreCandidateKind::Road => CandidateKind::Road,
+            CoreCandidateKind::Building => CandidateKind::Building,
+            CoreCandidateKind::Business => CandidateKind::Business,
+        },
+        osm_id: c.osm_id,
+        name: c.name.clone(),
+        distance_m: c.distance_m,
+        score: c.score,
+    }
+}
+
+fn geometry_of(coords: &[[f64; 2]]) -> Vec<LatLon> {
+    // Decoders store `[lon, lat]` pairs (see roads.rs/buildings.rs doc
+    // comments) -- flip to the lat/lon field order this FFI surface uses
+    // everywhere else.
+    coords.iter().map(|c| LatLon { lat: c[1], lon: c[0] }).collect()
+}
+
+fn validate_ring(ring: u8) -> Result<(), PtilesError> {
+    if ring > 1 {
+        Err(PtilesError::InvalidRing { ring })
+    } else {
+        Ok(())
+    }
+}
+
+// --- Layer inference (mirrors cli/src/main.rs::Layer) ------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LayerKind {
+    Roads,
+    BuildingsV8,
+    Business,
+}
+
+impl LayerKind {
+    fn from_path(path: &str) -> Option<LayerKind> {
+        let name = std::path::Path::new(path).file_name()?.to_str()?;
+        let mut parts = name.split('.');
+        let _state = parts.next()?;
+        match parts.next()? {
+            "roads" => Some(LayerKind::Roads),
+            "buildings_v8" => Some(LayerKind::BuildingsV8),
+            "business" => Some(LayerKind::Business),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            LayerKind::Roads => "roads",
+            LayerKind::BuildingsV8 => "buildings_v8",
+            LayerKind::Business => "business",
+        }
+    }
+}
+
+// --- PtilesLayer: one opened `.ptiles` file --------------------------------
+
+/// One opened `.ptiles` file, its layer inferred from the filename
+/// (`<state>.<layer>.ptiles`), wrapping `PtilesFile<FileSource>` -- the one
+/// generic instantiation this crate exports, per the plan's "no generics
+/// across FFI boundaries" rule.
+#[derive(uniffi::Object)]
+pub struct PtilesLayer {
+    kind: LayerKind,
+    file: PtilesFile<FileSource>,
+}
+
+#[uniffi::export]
+impl PtilesLayer {
+    /// Open a `.ptiles` file. `path` must be `<state>.<layer>.ptiles` where
+    /// `<layer>` is one of `roads`, `buildings_v8`, `business`.
+    #[uniffi::constructor]
+    pub fn open(path: String) -> Result<Arc<Self>, PtilesError> {
+        let kind = LayerKind::from_path(&path).ok_or_else(|| PtilesError::UnknownLayer {
+            path: path.clone(),
+        })?;
+        let source = FileSource::open(&path).map_err(|e| PtilesError::Open {
+            path: path.clone(),
+            message: e.to_string(),
+        })?;
+        let file = PtilesFile::open(source).map_err(|e| PtilesError::Open {
+            path,
+            message: e.to_string(),
+        })?;
+        Ok(Arc::new(PtilesLayer { kind, file }))
+    }
+}
+
+// Private decode helpers, deliberately in a plain (non-`#[uniffi::export]`)
+// impl block: they return core types (`RoadSegment`/`Building`/`Business`)
+// that don't implement UniFFI's `Lower`/`TypeId` traits and aren't meant to
+// cross the FFI boundary -- only the exported methods below translate their
+// output into this crate's `Record` types. Every method in an
+// `#[uniffi::export] impl` block is exported, so these must live outside it.
+impl PtilesLayer {
+    fn cells_for(&self, lat: f64, lon: f64, ring: u8) -> Vec<u64> {
+        let center = cell_for_coord(lat, lon);
+        let mut cells = vec![center];
+        if ring >= 1 {
+            cells.extend(neighbor_cells(center));
+        }
+        cells
+    }
+
+    fn decoded_roads(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<RoadSegment>, PtilesError> {
+        let mut roads = Vec::new();
+        for cell in self.cells_for(lat, lon, ring) {
+            let Some(block) = self.file.read_block(cell).ok().flatten() else {
+                continue;
+            };
+            let mut r = decode_roads(&block).map_err(|e| PtilesError::Decode {
+                message: e.to_string(),
+            })?;
+            roads.append(&mut r);
+        }
+        Ok(roads)
+    }
+
+    fn decoded_buildings(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<Building>, PtilesError> {
+        let mut buildings = Vec::new();
+        for cell in self.cells_for(lat, lon, ring) {
+            let Some(block) = self.file.read_block(cell).ok().flatten() else {
+                continue;
+            };
+            let (center_lat, center_lon) = cell_center(cell);
+            let mut b = decode_buildings(&block, center_lat, center_lon).map_err(|e| {
+                PtilesError::Decode { message: e.to_string() }
+            })?;
+            buildings.append(&mut b);
+        }
+        Ok(buildings)
+    }
+
+    fn decoded_business(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<Business>, PtilesError> {
+        let mut businesses = Vec::new();
+        for cell in self.cells_for(lat, lon, ring) {
+            let Some(block) = self.file.read_block(cell).ok().flatten() else {
+                continue;
+            };
+            let mut b = decode_business(&block).map_err(|e| PtilesError::Decode {
+                message: e.to_string(),
+            })?;
+            businesses.append(&mut b);
+        }
+        Ok(businesses)
+    }
+}
+
+#[uniffi::export]
+impl PtilesLayer {
+    /// Nearest road segment to `(lat, lon)` within the CLI's default search
+    /// threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
+    /// `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
+    /// only.
+    pub fn nearest_road(&self, lat: f64, lon: f64) -> Result<Option<NearestRoad>, PtilesError> {
+        if self.kind != LayerKind::Roads {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        // Ring is opt-in everywhere else in this API but nearest_road here
+        // mirrors the CLI's ring-0 one-shot default: callers that want a
+        // wider search should call `roads(..., ring: 1)` and snap manually,
+        // or this method can be revisited if mobile callers need ring-1.
+        let roads = self.decoded_roads(lat, lon, 0)?;
+        let Some(nr) = core_nearest_road(lat, lon, &roads, ptiles_core::DEFAULT_THRESHOLD_M * 2.0)
+        else {
+            return Ok(None);
+        };
+        let road = &roads[nr.road_index];
+        Ok(Some(NearestRoad {
+            osm_id: road.osm_id,
+            name: road.name.clone(),
+            road_class: road.road_class.clone(),
+            snapped_lat: nr.snapped.0,
+            snapped_lon: nr.snapped.1,
+            distance_m: nr.distance_m,
+            geometry: geometry_of(&road.coords),
+        }))
+    }
+
+    /// All decoded road segments in the cell containing `(lat, lon)`, plus
+    /// ring-1 neighbors when `ring == 1`. `ring` must be 0 or 1 (matches the
+    /// CLI's `--ring` semantics in `cli/src/main.rs::validate_ring`).
+    /// Roads-layer only.
+    pub fn roads(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<RoadInfo>, PtilesError> {
+        if self.kind != LayerKind::Roads {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        validate_ring(ring)?;
+        let roads = self.decoded_roads(lat, lon, ring)?;
+        Ok(roads
+            .iter()
+            .map(|r| RoadInfo {
+                osm_id: r.osm_id,
+                name: r.name.clone(),
+                road_class: r.road_class.clone(),
+                geometry: geometry_of(&r.coords),
+            })
+            .collect())
+    }
+
+    /// Building containing `(lat, lon)`, falling back to the nearest
+    /// centroid within 50m (mirrors `cli/src/main.rs::find_building`).
+    /// Buildings-layer only.
+    pub fn building(&self, lat: f64, lon: f64) -> Result<Option<BuildingInfo>, PtilesError> {
+        if self.kind != LayerKind::BuildingsV8 {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        let buildings = self.decoded_buildings(lat, lon, 0)?;
+        let found = buildings
+            .iter()
+            .find(|b| point_in_polygon(lon, lat, &b.coords))
+            .or_else(|| {
+                buildings
+                    .iter()
+                    .map(|b| (b, haversine_distance_m(lat, lon, b.centroid_lat, b.centroid_lon)))
+                    .filter(|(_, d)| *d <= 50.0)
+                    .min_by(|a, b| a.1.total_cmp(&b.1))
+                    .map(|(b, _)| b)
+            });
+        Ok(found.map(|b| BuildingInfo {
+            osm_id: b.osm_id,
+            name: b.name.clone(),
+            building_type: b.building_type.clone(),
+            category: b.category.clone(),
+            centroid: LatLon { lat: b.centroid_lat, lon: b.centroid_lon },
+        }))
+    }
+
+    /// Businesses within `radius_m` of `(lat, lon)`, searching the
+    /// containing cell (plus ring-1 neighbors when `ring == 1`).
+    /// Business-layer only.
+    pub fn businesses_near(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+        radius_m: f64,
+    ) -> Result<Vec<BusinessInfo>, PtilesError> {
+        if self.kind != LayerKind::Business {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        validate_ring(ring)?;
+        let businesses = self.decoded_business(lat, lon, ring)?;
+        Ok(businesses
+            .iter()
+            .filter(|b| haversine_distance_m(lat, lon, b.lat, b.lon) <= radius_m)
+            .map(|b| BusinessInfo {
+                osm_id: b.osm_id,
+                name: b.name.clone(),
+                location: LatLon { lat: b.lat, lon: b.lon },
+                category_idx: b.category_idx,
+                phone: b.phone.clone(),
+                website: b.website.clone(),
+                operating_status: b.operating_status.clone(),
+            })
+            .collect())
+    }
+}
+
+/// Ray-casting point-in-polygon, `(lon, lat)`-ordered ring -- copied from
+/// `cli/src/main.rs::point_in_polygon` (core intentionally has no
+/// polygon-containment helper; see that function's doc comment).
+fn point_in_polygon(x: f64, y: f64, coords: &[[f64; 2]]) -> bool {
+    if coords.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let n = coords.len();
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = (coords[i][0], coords[i][1]);
+        let (xj, yj) = (coords[j][0], coords[j][1]);
+        if ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+// --- PtilesStack: cross-layer scoring for one state -------------------------
+
+/// Groups up to one roads/buildings/business `PtilesLayer` for a single
+/// state/region and scores a [`Fix`] across whichever of them are present --
+/// the shape a CoreLocation caller wants: one `CLLocation`-derived `Fix` in,
+/// one ranked candidate list out, without the caller re-deriving H3 cells or
+/// juggling three separate decode calls per fix. Mirrors the CLI's
+/// `--serve` cross-layer scoring path (`handle_serve_line`), not the
+/// single-file one-shot path.
+#[derive(uniffi::Object)]
+pub struct PtilesStack {
+    roads: Option<Arc<PtilesLayer>>,
+    buildings: Option<Arc<PtilesLayer>>,
+    business: Option<Arc<PtilesLayer>>,
+}
+
+#[uniffi::export]
+impl PtilesStack {
+    #[uniffi::constructor]
+    pub fn new(
+        roads: Option<Arc<PtilesLayer>>,
+        buildings: Option<Arc<PtilesLayer>>,
+        business: Option<Arc<PtilesLayer>>,
+    ) -> Arc<Self> {
+        Arc::new(PtilesStack { roads, buildings, business })
+    }
+
+    /// Score `fix` against whichever layers this stack holds, at the fix's
+    /// cell (plus ring-1 neighbors when `ring == 1`). Uses
+    /// `ptiles_core::scoring::ScoringParams::default()` -- tunable weights
+    /// aren't exposed yet; add a params record if a caller needs to retune.
+    pub fn score(&self, fix: Fix, ring: u8) -> Result<Vec<Candidate>, PtilesError> {
+        validate_ring(ring)?;
+        let roads = match &self.roads {
+            Some(layer) => layer.decoded_roads(fix.lat, fix.lon, ring)?,
+            None => Vec::new(),
+        };
+        let buildings = match &self.buildings {
+            Some(layer) => layer.decoded_buildings(fix.lat, fix.lon, ring)?,
+            None => Vec::new(),
+        };
+        let businesses = match &self.business {
+            Some(layer) => layer.decoded_business(fix.lat, fix.lon, ring)?,
+            None => Vec::new(),
+        };
+        let core_fix = CoreFix {
+            lat: fix.lat,
+            lon: fix.lon,
+            horizontal_accuracy_m: fix.horizontal_accuracy_m,
+            speed_mps: fix.speed_mps,
+        };
+        let candidates =
+            score_candidates(&core_fix, &roads, &buildings, &businesses, &ScoringParams::default());
+        Ok(candidates.iter().map(to_candidate).collect())
+    }
+}

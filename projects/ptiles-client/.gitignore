@@ -3,6 +3,9 @@
 /cli/target/
 /core/target/
 /wasm/target/
+/ffi/target/
+/ffi/target-android/
+/ffi/target-apple/
 /fuzz/target/
 /fuzz/corpus/
 /fuzz/artifacts/

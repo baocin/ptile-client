@@ -2,10 +2,11 @@
 
 Rust workspace for the [PTiles binary geospatial format](https://github.com/baocin/ptiles):
 a `no_std`-optional decoder core, a WASM bridge for the browser, a native CLI
-bridge for Rookery, and a fuzz harness. Extracted from the original
-`wasm-bindgen`-only prototype (`src/lib.rs`, kept as a legacy reference —
-see below) into a layered workspace so the decoding logic can be shared
-between the browser (WASM) and native (CLI) consumers.
+bridge for Rookery, a UniFFI bridge for iOS/Android, and a fuzz harness.
+Extracted from the original `wasm-bindgen`-only prototype (`src/lib.rs`, kept
+as a legacy reference — see below) into a layered workspace so the decoding
+logic can be shared between the browser (WASM), native (CLI), and mobile
+(FFI) consumers.
 
 ## Workspace layout
 
@@ -15,6 +16,8 @@ core/    ptiles-core   — decoder library (buildings, roads, water, parks, rail
 wasm/    ptiles-wasm   — thin wasm-bindgen wrapper over ptiles-core, for browser use.
 cli/     ptiles-cli    — native binary: one-shot lat/lon query, or a `--serve`
                           JSON-lines bridge for Rookery.
+ffi/     ptiles-ffi    — UniFFI bridge over ptiles-core, generating Swift and
+                          Kotlin bindings for iOS/macOS/Android consumers.
 fuzz/    (not a workspace member — has its own [workspace] table)
                        — cargo-fuzz targets for buildings/roads/business decoders.
 src/lib.rs             — LEGACY SEED, the original monolithic wasm-bindgen prototype.
@@ -139,6 +142,30 @@ fields, not hardcoded constants. This is *not* a position filter or gravity
 well — it returns ranked candidates with scores and leaves any state
 tracking (e.g. an HMM over fixes) to the caller; that's deferred to a future
 routing phase.
+
+### `ffi` (`ptiles-ffi`)
+
+UniFFI bridge (proc-macro mode, no `.udl` file — see `ffi/README.md` for the
+rationale) exposing `ptiles-core` to Swift and Kotlin. Two opaque objects:
+
+- `PtilesLayer` — opens one `.ptiles` file, layer inferred from the
+  `<state>.<layer>.ptiles` filename convention (same rule as the CLI's
+  `Layer` enum). Methods: `nearest_road`, `roads` (ring 0/1), `building`,
+  `businesses_near`; each errors if called against a mismatched layer.
+- `PtilesStack` — holds up to one roads/buildings/business `PtilesLayer`
+  together and exposes `score(fix, ring)`, a thin wrapper over
+  `ptiles_core::score_candidates`, for CoreLocation-style callers scoring one
+  fix across all open layers at once.
+
+Generated bindings are checked into `ffi/bindings/{swift,kotlin}/`.
+Regeneration commands, the Android cross-compile recipe (verified on Linux
+with `cargo-ndk`), and the iOS/macOS recipe (**requires a Mac** — Apple
+targets cannot be built on this Linux host) are documented in
+[`ffi/README.md`](ffi/README.md).
+
+```sh
+cargo test -p ptiles-ffi   # 9 integration tests against real TN.*.ptiles fixtures
+```
 
 ### `fuzz`
 
