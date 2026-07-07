@@ -1,0 +1,22 @@
+[package]
+name = "ptiles-core"
+version = "0.1.0"
+edition = "2021"
+description = "no_std-optional decoder library for the PTiles geospatial format"
+
+[dependencies]
+h3o = { version = "0.10.0", default-features = false }
+ruzstd = { version = "0.8.3", default-features = false }
+thiserror = { version = "2.0.18", default-features = false }
+serde = { version = "1", features = ["derive"], optional = true }
+# sin/cos/sqrt/atan2 aren't in libcore (they need libm or std); h3o itself
+# takes the same libm-under-no_std approach (see h3o's src/math/functions-libm.rs).
+libm = "0.2"
+
+[dev-dependencies]
+serde_json = "1"
+
+[features]
+default = ["std"]
+std = ["thiserror/std", "h3o/std", "ruzstd/std"]
+serde = ["dep:serde", "h3o/serde"]

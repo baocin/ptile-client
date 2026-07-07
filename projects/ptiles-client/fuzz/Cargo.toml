@@ -1,0 +1,39 @@
+[workspace]
+members = ["."]
+
+[package]
+name = "ptiles-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.ptiles-core]
+path = "../core"
+default-features = false
+
+[[bin]]
+name = "decode_buildings"
+path = "fuzz_targets/decode_buildings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_roads"
+path = "fuzz_targets/decode_roads.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_business"
+path = "fuzz_targets/decode_business.rs"
+test = false
+doc = false
+bench = false

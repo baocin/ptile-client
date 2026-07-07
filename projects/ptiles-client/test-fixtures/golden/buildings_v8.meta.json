@@ -1,0 +1,13 @@
+{
+  "block_length_compressed": 24794,
+  "block_length_decompressed": 41203,
+  "cell_center_lat": 36.166500290002354,
+  "cell_center_lon": -86.78319797133413,
+  "cell_id_hex": "87264d106ffffff",
+  "cell_id_int": 608659748576821247,
+  "feature_count_in_index": 1354,
+  "file_version": 8,
+  "index_version": 1,
+  "layer": "buildings_v8",
+  "source_file": "TN.buildings_v8.ptiles"
+}

@@ -1,0 +1,17 @@
+# Build artifacts
+/target/
+/cli/target/
+/core/target/
+/wasm/target/
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+/fuzz/coverage/
+
+# wasm-pack output (regenerate via `wasm-pack build wasm --target nodejs --out-dir ../wasm-pkg`)
+/wasm-pkg/
+/pkg/
+
+# NOT ignored: test-fixtures/ (including test-fixtures/golden/) — golden
+# fixtures are checked in so `cargo test --workspace` is reproducible without
+# a data-regen step.

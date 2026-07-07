@@ -1,0 +1,26 @@
+[package]
+name = "ptiles-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Rookery bridge: JSON-lines --serve mode + one-shot lat/lon query over ptiles-core"
+
+[[bin]]
+name = "ptiles-cli"
+path = "src/main.rs"
+
+[dependencies]
+ptiles-core = { path = "../core", features = ["std", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Duplicated dict-fallback zstd decompress, only for the buildings_v8
+# relative-offset workaround in main.rs (see that module's doc comment) --
+# core/file.rs::PtilesFile::read_block assumes block_offset is absolute,
+# which is wrong for buildings_v8's index. Workaround-local, not a
+# general-purpose dependency.
+ruzstd = "0.8.3"
+# pico-args over clap: this binary is a thin JSON-lines bridge with a handful
+# of flags (--serve, --path, --lat, --lon, --data-dir). pico-args has zero
+# dependencies and a tiny footprint, matching the workspace's "no unnecessary
+# std/dep weight" stance; clap's derive machinery and help/completion
+# generation are unneeded here.
+pico-args = "0.5.0"

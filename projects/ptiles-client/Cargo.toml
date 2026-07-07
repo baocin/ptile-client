@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["core", "cli", "wasm"]
+
+# Old root package (`ptiles-client`, wasm-bindgen JS client) is intentionally
+# not a workspace member. Its source lives untouched at src/lib.rs as a
+# reference for porting decoders into core/. It is superseded by wasm/.
