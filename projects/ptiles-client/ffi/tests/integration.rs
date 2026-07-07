@@ -19,6 +19,9 @@ fn buildings_path() -> String {
 fn business_path() -> String {
     format!("{DATA_DIR}/TN.business.ptiles")
 }
+fn business_name_index_path() -> String {
+    format!("{DATA_DIR}/TN.business_name_index.ptiles")
+}
 
 macro_rules! skip_if_absent {
     ($path:expr) => {
@@ -109,6 +112,38 @@ fn open_business_layer_and_query_nearby() {
     // Downtown Nashville within 500m/ring-1 should have at least one
     // business in a 52 MB statewide file.
     assert!(!nearby.is_empty(), "expected at least one nearby business");
+}
+
+#[test]
+fn search_business_finds_a_known_chain_in_tn() {
+    skip_if_absent!(business_name_index_path());
+    let layer = PtilesLayer::open(business_name_index_path()).expect("open business name index");
+
+    let hits = layer
+        .search_business("Waffle House".to_string(), 20)
+        .expect("search_business should not error");
+    assert!(!hits.is_empty(), "expected at least one Waffle House in TN");
+    for hit in &hits {
+        assert!(hit.name.to_lowercase().contains("waffle"));
+        assert!((34.9..=36.7).contains(&hit.location.lat), "lat {} out of TN range", hit.location.lat);
+        assert!((-90.4..=-81.6).contains(&hit.location.lon), "lon {} out of TN range", hit.location.lon);
+    }
+}
+
+#[test]
+fn search_business_respects_limit() {
+    skip_if_absent!(business_name_index_path());
+    let layer = PtilesLayer::open(business_name_index_path()).expect("open business name index");
+    let hits = layer.search_business("s".to_string(), 5).expect("search_business should not error");
+    assert!(hits.len() <= 5);
+}
+
+#[test]
+fn search_business_on_wrong_layer_errors() {
+    skip_if_absent!(business_path());
+    let layer = PtilesLayer::open(business_path()).expect("open business layer");
+    let err = layer.search_business("Waffle House".to_string(), 10);
+    assert!(err.is_err(), "search_business() on the main business layer (not the name index) must error");
 }
 
 #[test]

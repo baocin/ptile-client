@@ -80,6 +80,12 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
         versions: &[1],
         notes: "matches SPEC.md (v1)",
     },
+    FormatEntry {
+        magic: b"PTILESX",
+        file_kind: "business_name_index",
+        versions: &[1],
+        notes: "sidecar {STATE}.business_name_index.ptiles from scripts/build_business_name_index.py; not in SPEC.md's file table, but matches the real bytes the reference builder produced from TN.business.ptiles during this task (magic PTILESX v1, no dict)",
+    },
 ];
 
 /// Error returned when a header's magic/version pair is not in

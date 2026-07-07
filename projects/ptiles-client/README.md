@@ -26,6 +26,26 @@ test-fixtures/          — golden fixtures (real block bytes + Python-reference
                           JSON) used by core/tests/golden.rs. Checked into git.
 ```
 
+## Documentation
+
+- [`docs/INTEGRATION.md`](docs/INTEGRATION.md) — integration guide for
+  consumers (Rookery/CLI, browser/wasm, iOS/Android/FFI), covering the
+  file-open/layer-inference convention, remote (HTTP) files, and the
+  scoring/search APIs above.
+
+## Demo
+
+[`demo/`](demo/) is a static Leaflet-based web demo built entirely on this
+repo's `ptiles-wasm` build — no JS reimplementation of header/index parsing
+or H3 math (both are thin wasm wrappers over `ptiles-core`, see
+`wasm/src/lib.rs`'s `parse_header`/`parse_index_entries`/
+`find_block_for_cell`/`cell_for_coord`/`cell_center`/`neighbor_cells`). State
+selector, per-layer toggles (roads/water/parks/rail/buildings), business
+name search (sidecar-first, brute-force fallback), and click-for-nearest-road.
+Deployed via GitHub Pages using `.github/workflows/pages.yml`; see
+[`demo/README.md`](demo/README.md) for local-serve instructions and a CORS
+finding for the real data host.
+
 ## Crates
 
 ### `core` (`ptiles-core`)
@@ -123,7 +143,7 @@ One-shot:
 
 ```sh
 ptiles-cli --path /path/to/TN.roads.ptiles --lat 36.16 --lon -86.78 \
-  --query road    # road (nearest single segment) | roads (bulk) | buildings | business | all
+  --query road    # road (nearest single segment) | roads (bulk) | buildings | business | all | business-search
   [--ring 1]      # 0 (default, center cell only) or 1 (also check the six neighboring res-7 cells)
   [--accuracy-m 10] [--speed-mps 8]   # optional: adds ranked "candidates" via score_candidates
 ```
@@ -196,6 +216,42 @@ fields, not hardcoded constants. This is *not* a position filter or gravity
 well — it returns ranked candidates with scores and leaves any state
 tracking (e.g. an HMM over fixes) to the caller; that's deferred to a future
 routing phase.
+
+### Business name search
+
+`ptiles-core::business_search` provides indexed-first, brute-force-fallback
+name search over a state's business/POI layer:
+
+- `search_business_indexed` — for states that have the
+  `<state>.business_name_index.ptiles` sidecar (magic `PTILESX`, built by
+  `scripts/build_business_name_index.py` from the corresponding
+  `.business.ptiles`), buckets the query into one of 28 letter-keyed blocks
+  via `name_to_key` (public, so `wasm` callers can pick the bucket without a
+  round trip) and scans only that block.
+- `search_business_brute_force` — falls back to a full linear scan of every
+  block in a plain `.business.ptiles` file when no sidecar is present
+  (slower, but works against the real deployed dataset today, which does
+  not yet host the sidecar).
+- `match_business_name_block` — the pure, no-I/O block-matching primitive
+  both of the above share; also exported to `wasm` as
+  `match_business_name_block` alongside `key_for_business_name_query` so a
+  JS caller can fetch one HTTP range, decompress, and match without any
+  business-record parsing of its own.
+
+Exposed at every layer: `ptiles-cli --query business-search --name '...'`
+(one-shot and `--serve`, single-state or `--national`, local or
+`--remote-base`), `ptiles-ffi`'s `PtilesLayer::search_business`, and the
+`demo/` app's search box (sidecar-first with brute-force fallback).
+
+### Bounds / viewport queries
+
+`ptiles_core::query::cells_for_bounds(min_lat, min_lon, max_lat, max_lon) ->
+Result<Vec<u64>, BoundsError>` returns every res-7 H3 cell covering a
+lat/lon bounding box, for viewport-driven feature loading (map pan/zoom)
+rather than the single-point/ring APIs above. Rejects degenerate input
+(`min >= max`) and oversized boxes. Exposed to `wasm` as `cells_for_bounds`
+and used by `demo/js/app.js` to decide which blocks to fetch per map
+viewport.
 
 ### `ffi` (`ptiles-ffi`)
 

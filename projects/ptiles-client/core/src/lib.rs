@@ -26,6 +26,7 @@ pub mod water;
 pub mod parks;
 pub mod rail;
 pub mod business;
+pub mod business_search;
 
 pub mod proximity;
 pub mod query;
@@ -35,6 +36,10 @@ pub use codec::DecodeError;
 
 pub use buildings::{decode_buildings, Building};
 pub use business::{decode_business, Business};
+pub use business_search::{
+    match_business_name_block, name_to_key, search_business_brute_force, search_business_indexed,
+    BusinessHit,
+};
 pub use parks::{decode_parks, ParkFeature};
 pub use rail::{decode_rail, RailFeature};
 pub use roads::{decode_road_block, decode_roads, Intersection, RoadSegment};
@@ -44,7 +49,7 @@ pub use proximity::{
     haversine_distance_m, nearest_road, point_to_linestring_distance_m,
     point_to_segment_distance_m, NearestRoad, SegmentProjection, DEFAULT_THRESHOLD_M,
 };
-pub use query::{cell_center, cell_for_coord, neighbor_cells};
+pub use query::{cell_center, cell_for_coord, cells_for_bounds, neighbor_cells, BoundsError, MAX_BOUNDS_CELLS};
 pub use scoring::{score_candidates, Candidate, CandidateKind, Fix, ScoringParams};
 
 pub use file::{FileError, PtilesFile};

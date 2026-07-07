@@ -32,8 +32,9 @@ use std::sync::Arc;
 use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business, decode_roads,
     haversine_distance_m, nearest_road as core_nearest_road, neighbor_cells, score_candidates,
-    Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind,
-    FileSource, Fix as CoreFix, HttpSource, PtilesFile, RoadSegment, ScoringParams,
+    search_business_indexed, Building, Business, Candidate as CoreCandidate,
+    CandidateKind as CoreCandidateKind, FileSource, Fix as CoreFix, HttpSource, PtilesFile,
+    RoadSegment, ScoringParams,
 };
 
 uniffi::setup_scaffolding!();
@@ -106,6 +107,21 @@ pub struct BusinessInfo {
     pub operating_status: String,
 }
 
+/// One hit from [`PtilesLayer::search_business`], the shape of
+/// `ptiles_core::business_search::BusinessHit` translated to a UniFFI
+/// record. No `osm_id`/`phone`/`website`/`operating_status`: the
+/// `business_name_index.ptiles` sidecar this searches doesn't carry them
+/// (see `core::business_search`'s module doc) -- only the spatial
+/// `.ptiles` file (`PtilesLayer::businesses_near`) has that detail.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BusinessSearchHit {
+    pub name: String,
+    pub category_idx: u8,
+    pub location: LatLon,
+    /// 2 = exact (case-insensitive) name match, 1 = prefix, 0 = substring.
+    pub score: u8,
+}
+
 /// A GPS fix to score candidates against. Field names/units mirror
 /// `CoreLocation`: `horizontal_accuracy_m` is `CLLocation.horizontalAccuracy`,
 /// `speed_mps` is `CLLocation.speed` (pass `nil`/`None` when unavailable, not
@@ -171,6 +187,11 @@ enum LayerKind {
     Roads,
     BuildingsV8,
     Business,
+    /// `{STATE}.business_name_index.ptiles` -- the name-search sidecar, see
+    /// `core::business_search`. Separate from `Business` since it's a
+    /// different file with a different (first-letter-bucket) index shape,
+    /// only usable via `PtilesLayer::search_business`.
+    BusinessNameIndex,
 }
 
 impl LayerKind {
@@ -182,6 +203,7 @@ impl LayerKind {
             "roads" => Some(LayerKind::Roads),
             "buildings_v8" => Some(LayerKind::BuildingsV8),
             "business" => Some(LayerKind::Business),
+            "business_name_index" => Some(LayerKind::BusinessNameIndex),
             _ => None,
         }
     }
@@ -191,6 +213,7 @@ impl LayerKind {
             LayerKind::Roads => "roads",
             LayerKind::BuildingsV8 => "buildings_v8",
             LayerKind::Business => "business",
+            LayerKind::BusinessNameIndex => "business_name_index",
         }
     }
 }
@@ -325,6 +348,21 @@ impl PtilesLayer {
         }
         Ok(businesses)
     }
+
+    /// `core::search_business_indexed` needs a concrete `PtilesFile<S>`, not
+    /// `AnyFile` -- dispatch to whichever backend `self.file` holds, same
+    /// pattern as `AnyFile::read_block`.
+    fn search_business_indexed_dispatch(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<ptiles_core::BusinessHit>, PtilesError> {
+        let result = match &self.file {
+            AnyFile::File(f) => search_business_indexed(f, query, limit),
+            AnyFile::Http(f) => search_business_indexed(f, query, limit),
+        };
+        result.map_err(|e| PtilesError::Decode { message: e.to_string() })
+    }
 }
 
 #[uniffi::export]
@@ -441,6 +479,35 @@ impl PtilesLayer {
                 phone: b.phone.clone(),
                 website: b.website.clone(),
                 operating_status: b.operating_status.clone(),
+            })
+            .collect())
+    }
+
+    /// Business name search over a `{STATE}.business_name_index.ptiles`
+    /// sidecar (open a `PtilesLayer` on that file, not the main
+    /// `business.ptiles` file). Index-accelerated: correct for
+    /// case-insensitive prefix queries; substring queries only surface a
+    /// hit when the substring starts at the name's first character (see
+    /// `core::business_search`'s module doc for why). `limit` caps the
+    /// returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+    pub fn search_business(
+        &self,
+        query: String,
+        limit: u32,
+    ) -> Result<Vec<BusinessSearchHit>, PtilesError> {
+        if self.kind != LayerKind::BusinessNameIndex {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        let hits = self.search_business_indexed_dispatch(&query, limit as usize)?;
+        Ok(hits
+            .iter()
+            .map(|h| BusinessSearchHit {
+                name: h.name.clone(),
+                category_idx: h.category_idx,
+                location: LatLon { lat: h.lat, lon: h.lon },
+                score: h.score,
             })
             .collect())
     }

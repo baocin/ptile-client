@@ -150,11 +150,11 @@ fn load_roads<'a>(
     if missing_cells.contains_key(&cell) {
         return None;
     }
-    if !cache.contains_key(&cell) {
+    if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(cell) {
         match file.read_block(cell).expect("read_block must not error") {
             Some(block) => {
                 let roads = decode_roads(&block).expect("decode_roads must parse a real block");
-                cache.insert(cell, roads);
+                e.insert(roads);
             }
             None => {
                 missing_cells.insert(cell, ());

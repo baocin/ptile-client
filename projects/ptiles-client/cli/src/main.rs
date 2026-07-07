@@ -39,6 +39,17 @@
 //!   `{"building":..|null,"nearest_road":{..}|null,"business":[..],"roads":?,"candidates":?}`.
 //!   Malformed input or per-query decode failures produce `{"error":"..."}`
 //!   lines -- the serve loop never crashes on bad input.
+//!
+//!   A separate request shape, `{"query":"business_search","name":"waffle",
+//!   "state":?,"limit":?}`, does business name search instead of a lat/lon
+//!   lookup (no `lat`/`lon` required). `--serve --data-dir`/`--remote-base`
+//!   also pre-open each state's `business_name_index.ptiles` sidecar
+//!   alongside its three layer files, when present; `limit` defaults to 50.
+//!   Responds `{"state":..,"method":"indexed"|"brute_force","hits":[..]}` or
+//!   `{"error":"..."}` -- falls back to brute-force search over the main
+//!   `business.ptiles` file (see `ptiles_core::business_search`'s module
+//!   doc) when a state has no name-index sidecar loaded, matching the
+//!   one-shot `--query business-search`/`--national` CLI path.
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -46,10 +57,22 @@ use std::path::{Path, PathBuf};
 
 use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business, decode_roads, nearest_road,
-    score_candidates, Building, Business, Candidate, CandidateKind, FileSource, Fix, HttpSource,
-    PtilesFile, RoadSegment, ScoringParams,
+    score_candidates, search_business_brute_force, search_business_indexed, Building, Business,
+    BusinessHit, Candidate, CandidateKind, FileSource, Fix, HttpSource, PtilesFile, RoadSegment,
+    ScoringParams,
 };
 use serde_json::{json, Value};
+
+/// USPS state/territory abbreviations + DC -- the full set `--national`
+/// iterates when no local directory listing is available (i.e. against
+/// `--remote-base`, where there's no directory to scan and 404s for states
+/// without a business-name-index file are expected and skipped).
+const ALL_US_STATES: &[&str] = &[
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS",
+    "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY",
+    "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+    "WI", "WY", "DC",
+];
 
 /// The layer a `.ptiles` file holds, inferred from its filename
 /// (`<state>.<layer>.ptiles`). Only the three layers this CLI queries are
@@ -124,6 +147,45 @@ fn main() {
         return;
     }
 
+    // `--query cells --bounds min_lat,min_lon,max_lat,max_lon`: viewport ->
+    // cell-list query (docs/INTEGRATION.md's first step). No `.ptiles` file
+    // involved -- pure H3 geometry -- so it's handled before `--path` is
+    // required, unlike every other `--query` kind.
+    let query_peek: Option<String> = args.opt_value_from_str("--query").unwrap_or(None);
+    if query_peek.as_deref() == Some("cells") {
+        let bounds: String = args.value_from_str("--bounds").unwrap_or_else(|e| {
+            eprintln!("ptiles-cli: --query cells requires --bounds min_lat,min_lon,max_lat,max_lon ({e})");
+            std::process::exit(2);
+        });
+        let parts: Vec<f64> = bounds.split(',').map(|s| s.trim().parse::<f64>()).collect::<Result<_, _>>().unwrap_or_else(|e| {
+            eprintln!("ptiles-cli: --bounds must be 4 comma-separated numbers min_lat,min_lon,max_lat,max_lon ({e})");
+            std::process::exit(2);
+        });
+        let [min_lat, min_lon, max_lat, max_lon]: [f64; 4] = parts.try_into().unwrap_or_else(|v: Vec<f64>| {
+            eprintln!(
+                "ptiles-cli: --bounds must be exactly 4 comma-separated numbers, got {}",
+                v.len()
+            );
+            std::process::exit(2);
+        });
+        let result = match ptiles_core::cells_for_bounds(min_lat, min_lon, max_lat, max_lon) {
+            Ok(cells) => json!({"cells": cells.into_iter().map(|c| format!("{c:x}")).collect::<Vec<_>>()}),
+            Err(e) => json!({"error": e.to_string()}),
+        };
+        println!("{}", serde_json::to_string_pretty(&result).unwrap());
+        return;
+    }
+
+    // `--query business-search --name <query> [--state XX | --national]
+    // [--limit N] [--data-dir <dir>|--remote-base <url>]`: business name
+    // search over `{STATE}.business_name_index.ptiles` sidecar file(s), not
+    // a lat/lon lookup against one already-known layer file -- handled here,
+    // before `--path` is required, same as the `cells` peek above.
+    if query_peek.as_deref() == Some("business-search") {
+        run_business_search_cli(&mut args);
+        return;
+    }
+
     if args.contains("--serve") {
         let remote_base: Option<String> = args.opt_value_from_str("--remote-base").unwrap_or(None);
         if let Some(remote_base) = remote_base {
@@ -157,7 +219,10 @@ fn main() {
         eprintln!("ptiles-cli: --lon is required ({e})");
         std::process::exit(2);
     });
-    let query: Option<String> = args.opt_value_from_str("--query").unwrap_or(None);
+    // `--query` was already consumed by the `cells` peek above (pico-args
+    // removes matched flags from `args`), so reuse that parse rather than
+    // asking `args` for it again (it would come back empty).
+    let query: Option<String> = query_peek;
     let ring: u32 = args.opt_value_from_str("--ring").unwrap_or(None).unwrap_or(0);
     let accuracy_m: Option<f64> = args.opt_value_from_str("--accuracy-m").unwrap_or(None);
     let speed_mps: Option<f64> = args.opt_value_from_str("--speed-mps").unwrap_or(None);
@@ -307,6 +372,31 @@ impl AnyFile {
         }
     }
 
+    /// Business-name-index search (`{STATE}.business_name_index.ptiles`
+    /// sidecar), dispatched to whichever backend this file opened as --
+    /// same pattern as `read_block`. Not layer-gated here; callers only
+    /// open this variant against a name-index file (see `run_business_search`,
+    /// `--serve`'s `name_index` field), unlike `OpenedLayer::query` which is
+    /// gated by `Layer`.
+    fn search_business(&self, query: &str, limit: usize) -> Result<Vec<BusinessHit>, String> {
+        match self {
+            AnyFile::File(f) => search_business_indexed(f, query, limit).map_err(|e| e.to_string()),
+            AnyFile::Http(f) => search_business_indexed(f, query, limit).map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Brute-force business search over a main `.business.ptiles` file --
+    /// the fallback used when a state has no `business_name_index.ptiles`
+    /// sidecar (true of the real deployed dataset at
+    /// `https://maps.mydatatimeline.com/maps/`, which only hosts the main
+    /// business file; the sidecar is generated locally, see
+    /// `core::business_search`'s module doc).
+    fn search_business_brute_force(&self, query: &str, limit: usize) -> Result<Vec<BusinessHit>, String> {
+        match self {
+            AnyFile::File(f) => search_business_brute_force(f, query, limit).map_err(|e| e.to_string()),
+            AnyFile::Http(f) => search_business_brute_force(f, query, limit).map_err(|e| e.to_string()),
+        }
+    }
 }
 
 /// One opened `.ptiles` file (local or remote) plus the metadata needed to
@@ -480,6 +570,169 @@ fn point_in_polygon(x: f64, y: f64, coords: &[[f64; 2]]) -> bool {
     inside
 }
 
+/// `{STATE}.business_name_index.ptiles` sidecar location, local or remote --
+/// `remote_base` (already `/`-terminated by its callers) takes priority when
+/// present, otherwise `<data_dir>/<state>.business_name_index.ptiles`.
+fn business_name_index_location(state: &str, remote_base: Option<&str>, data_dir: &Path) -> String {
+    match remote_base {
+        Some(base) => format!("{base}{state}.business_name_index.ptiles"),
+        None => data_dir.join(format!("{state}.business_name_index.ptiles")).to_string_lossy().into_owned(),
+    }
+}
+
+/// `<data_dir>/<state>.business.ptiles`, or `<remote_base><state>.business.ptiles`
+/// -- the main business file, used as the brute-force fallback location
+/// when a state has no `business_name_index.ptiles` sidecar.
+fn business_location(state: &str, remote_base: Option<&str>, data_dir: &Path) -> String {
+    match remote_base {
+        Some(base) => format!("{base}{state}.business.ptiles"),
+        None => data_dir.join(format!("{state}.business.ptiles")).to_string_lossy().into_owned(),
+    }
+}
+
+/// Search one state: prefer the `business_name_index.ptiles` sidecar
+/// (index-accelerated) when present, falling back to brute-force over the
+/// main `business.ptiles` file when it isn't -- true of the real deployed
+/// dataset (`https://maps.mydatatimeline.com/maps/`), which only hosts the
+/// main business file, not the locally-generated sidecar. Returns `None`
+/// only when *neither* file could be opened (caller treats that as a
+/// skippable 404, not an error).
+fn business_search_one_state(
+    state: &str,
+    name: &str,
+    limit: usize,
+    remote_base: Option<&str>,
+    data_dir: &Path,
+) -> Option<Value> {
+    let index_loc = business_name_index_location(state, remote_base, data_dir);
+    if let Ok(file) = AnyFile::open(&index_loc) {
+        return Some(match file.search_business(name, limit) {
+            Ok(hits) => json!({
+                "state": state,
+                "method": "indexed",
+                "hits": hits.iter().map(business_hit_json).collect::<Vec<_>>(),
+            }),
+            Err(e) => json!({"state": state, "error": e}),
+        });
+    }
+
+    let business_loc = business_location(state, remote_base, data_dir);
+    match AnyFile::open(&business_loc) {
+        Ok(file) => Some(match file.search_business_brute_force(name, limit) {
+            Ok(hits) => json!({
+                "state": state,
+                "method": "brute_force",
+                "hits": hits.iter().map(business_hit_json).collect::<Vec<_>>(),
+            }),
+            Err(e) => json!({"state": state, "error": e}),
+        }),
+        Err(_) => None,
+    }
+}
+
+/// `--query business-search --name <n> --national`: search every state's
+/// name-index sidecar and stream one JSON line per state as results come in
+/// (rather than buffering the whole national result set), so a slow scan
+/// over many remote states is tolerable to watch. States without a
+/// name-index file (a 404 against `--remote-base`, or simply absent from
+/// `--data-dir`) are skipped with an `eprintln`, not fatal.
+fn run_business_search_national(name: &str, limit: usize, remote_base: Option<&str>, data_dir: &Path) {
+    let start = std::time::Instant::now();
+    let mut states_searched = 0usize;
+    let mut total_hits = 0usize;
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+
+    let mut search_and_emit = |state: &str, remote_base: Option<&str>, data_dir: &Path| {
+        match business_search_one_state(state, name, limit, remote_base, data_dir) {
+            Some(result) => {
+                states_searched += 1;
+                if let Some(hits) = result.get("hits").and_then(|h| h.as_array()) {
+                    total_hits += hits.len();
+                }
+                let _ = writeln!(out, "{}", serde_json::to_string(&result).unwrap());
+                let _ = out.flush();
+            }
+            None => eprintln!(
+                "ptiles-cli --national: skipping {state} (no name-index or business file found)"
+            ),
+        }
+    };
+
+    match remote_base {
+        Some(base) => {
+            let base = if base.ends_with('/') { base.to_string() } else { format!("{base}/") };
+            for &state in ALL_US_STATES {
+                search_and_emit(state, Some(&base), data_dir);
+            }
+        }
+        None => {
+            let entries = match std::fs::read_dir(data_dir) {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("ptiles-cli --national: cannot read data dir {data_dir:?}: {e}");
+                    std::process::exit(1);
+                }
+            };
+            // States present under `data_dir` as either a name-index
+            // sidecar or a main business file -- de-duplicated, since a
+            // state could have both.
+            let mut states: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Some(fname) = path.file_name().and_then(|n| n.to_str()) else { continue };
+                if let Some(state) = fname.strip_suffix(".business_name_index.ptiles") {
+                    states.insert(state.to_string());
+                } else if let Some(state) = fname.strip_suffix(".business.ptiles") {
+                    states.insert(state.to_string());
+                }
+            }
+            for state in &states {
+                search_and_emit(state, None, data_dir);
+            }
+        }
+    }
+
+    eprintln!(
+        "ptiles-cli --national: searched {states_searched} state(s), {total_hits} total hit(s), {:?} elapsed",
+        start.elapsed()
+    );
+}
+
+fn run_business_search_cli(args: &mut pico_args::Arguments) {
+    let name: String = args.value_from_str("--name").unwrap_or_else(|e| {
+        eprintln!("ptiles-cli: --query business-search requires --name <query> ({e})");
+        std::process::exit(2);
+    });
+    let limit: usize = args.opt_value_from_str("--limit").unwrap_or(None).unwrap_or(50);
+    let state: Option<String> = args.opt_value_from_str("--state").unwrap_or(None);
+    let national = args.contains("--national");
+    let remote_base: Option<String> = args.opt_value_from_str("--remote-base").unwrap_or(None);
+    let data_dir: PathBuf = args
+        .opt_value_from_str("--data-dir")
+        .unwrap_or(None)
+        .unwrap_or_else(|| PathBuf::from("/home/aoi/kino/data/ptiles"));
+
+    if national && state.is_some() {
+        eprintln!("ptiles-cli: --query business-search: pass --state OR --national, not both");
+        std::process::exit(2);
+    }
+    if !national && state.is_none() {
+        eprintln!("ptiles-cli: --query business-search requires --state XX or --national");
+        std::process::exit(2);
+    }
+
+    if national {
+        run_business_search_national(&name, limit, remote_base.as_deref(), &data_dir);
+    } else {
+        let state = state.unwrap();
+        let remote_base = remote_base.map(|b| if b.ends_with('/') { b } else { format!("{b}/") });
+        let result = business_search_one_state(&state, &name, limit, remote_base.as_deref(), &data_dir)
+            .unwrap_or_else(|| json!({"state": state, "error": "no name-index or business file found"}));
+        println!("{}", serde_json::to_string_pretty(&result).unwrap());
+    }
+}
+
 fn nearest_road_json(nr: &ptiles_core::NearestRoad, roads: &[RoadSegment]) -> Value {
     let road = &roads[nr.road_index];
     json!({
@@ -511,6 +764,16 @@ fn building_json(b: &Building) -> Value {
     })
 }
 
+fn business_hit_json(h: &BusinessHit) -> Value {
+    json!({
+        "name": h.name,
+        "lat": h.lat,
+        "lon": h.lon,
+        "category_idx": h.category_idx,
+        "score": h.score,
+    })
+}
+
 fn business_json(b: &Business) -> Value {
     json!({
         "osm_id": b.osm_id,
@@ -531,6 +794,11 @@ struct StateFiles {
     roads: Option<OpenedLayer>,
     buildings: Option<OpenedLayer>,
     business: Option<OpenedLayer>,
+    /// `business_name_index.ptiles` sidecar, when present. Not an
+    /// `OpenedLayer` -- it's not one of the three `Layer` variants (a
+    /// different index shape, see `core::business_search`), so it's stored
+    /// as a bare `AnyFile` and searched via `AnyFile::search_business`.
+    name_index: Option<AnyFile>,
 }
 
 fn run_serve(data_dir: &Path) {
@@ -553,10 +821,29 @@ fn run_serve(data_dir: &Path) {
         let (Some(state), Some(layer_token)) = (parts.next(), parts.next()) else {
             continue;
         };
-        let Some(layer) = Layer::from_filename_token(layer_token) else {
+        let Some(path_str) = path.to_str() else {
             continue;
         };
-        let Some(path_str) = path.to_str() else {
+
+        if layer_token == "business_name_index" {
+            match AnyFile::open(path_str) {
+                Ok(file) => {
+                    states
+                        .entry(state.to_string())
+                        .or_insert_with(|| StateFiles {
+                            roads: None,
+                            buildings: None,
+                            business: None,
+                            name_index: None,
+                        })
+                        .name_index = Some(file);
+                }
+                Err(e) => eprintln!("ptiles-cli --serve: skipping {path:?}: {e}"),
+            }
+            continue;
+        }
+
+        let Some(layer) = Layer::from_filename_token(layer_token) else {
             continue;
         };
         let opened = match OpenedLayer::open(path_str, layer) {
@@ -570,6 +857,7 @@ fn run_serve(data_dir: &Path) {
             roads: None,
             buildings: None,
             business: None,
+            name_index: None,
         });
         match layer {
             Layer::Roads => entry.roads = Some(opened),
@@ -602,7 +890,7 @@ fn run_serve_remote(remote_base: &str, states_csv: &str) {
     let mut states: HashMap<String, StateFiles> = HashMap::new();
 
     for state in states_csv.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        let mut entry = StateFiles { roads: None, buildings: None, business: None };
+        let mut entry = StateFiles { roads: None, buildings: None, business: None, name_index: None };
         for layer in [Layer::Roads, Layer::BuildingsV8, Layer::Business] {
             let url = format!("{base}{state}.{}.ptiles", layer.as_str());
             match OpenedLayer::open(&url, layer) {
@@ -615,6 +903,14 @@ fn run_serve_remote(remote_base: &str, states_csv: &str) {
                     eprintln!("ptiles-cli --serve --remote-base: skipping {url}: {e}");
                 }
             }
+        }
+        // Sidecar name-index file: rarely hosted remotely (the real
+        // deployed dataset only serves the main business file), so a 404
+        // here is expected and just means business_search falls back to
+        // brute-force -- not logged as loudly as the three layers above.
+        let name_index_url = format!("{base}{state}.business_name_index.ptiles");
+        if let Ok(file) = AnyFile::open(&name_index_url) {
+            entry.name_index = Some(file);
         }
         states.insert(state.to_string(), entry);
     }
@@ -646,11 +942,73 @@ fn serve_loop(states: &HashMap<String, StateFiles>) {
     }
 }
 
+/// `{"query":"business_search","name":..,"state":?,"limit":?}` handler --
+/// see `handle_serve_line`, which dispatches here before its own `lat`/`lon`
+/// requirement. `state` falls back the same way `handle_serve_line` does
+/// (sole loaded state, or an error if ambiguous). Prefers the state's
+/// pre-loaded `name_index` sidecar (index-accelerated); falls back to
+/// brute-force over the pre-loaded `business` layer's file when no sidecar
+/// was loaded for that state (matching the one-shot CLI path's fallback).
+fn handle_business_search_line(req: &Value, states: &HashMap<String, StateFiles>) -> Value {
+    let name = match req.get("name").and_then(Value::as_str) {
+        Some(n) => n,
+        None => return json!({"error": "missing or non-string \"name\""}),
+    };
+    let limit = req.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+
+    let state_files = match req.get("state").and_then(Value::as_str) {
+        Some(s) => match states.get(s) {
+            Some(f) => f,
+            None => return json!({"error": format!("unknown state {s:?}")}),
+        },
+        None => {
+            if states.len() == 1 {
+                states.values().next().unwrap()
+            } else {
+                return json!({
+                    "error": format!(
+                        "\"state\" is required: {} states loaded ({:?})",
+                        states.len(),
+                        states.keys().collect::<Vec<_>>()
+                    )
+                });
+            }
+        }
+    };
+
+    if let Some(file) = &state_files.name_index {
+        return match file.search_business(name, limit) {
+            Ok(hits) => json!({
+                "method": "indexed",
+                "hits": hits.iter().map(business_hit_json).collect::<Vec<_>>(),
+            }),
+            Err(e) => json!({"error": e}),
+        };
+    }
+    if let Some(business_layer) = &state_files.business {
+        return match business_layer.file.search_business_brute_force(name, limit) {
+            Ok(hits) => json!({
+                "method": "brute_force",
+                "hits": hits.iter().map(business_hit_json).collect::<Vec<_>>(),
+            }),
+            Err(e) => json!({"error": e}),
+        };
+    }
+    json!({"error": "no business_name_index or business layer loaded for this state"})
+}
+
 fn handle_serve_line(line: &str, states: &HashMap<String, StateFiles>) -> Value {
     let req: Value = match serde_json::from_str(line) {
         Ok(v) => v,
         Err(e) => return json!({"error": format!("invalid JSON: {e}")}),
     };
+
+    // `{"query":"business_search","name":..,"state":?,"limit":?}`: business
+    // name search, not a lat/lon lookup -- handled before `lat`/`lon` are
+    // required below, since this request shape doesn't carry them.
+    if req.get("query").and_then(Value::as_str) == Some("business_search") {
+        return handle_business_search_line(&req, states);
+    }
 
     let lat = match req.get("lat").and_then(Value::as_f64) {
         Some(v) => v,

@@ -16,6 +16,57 @@ use h3o::{CellIndex, LatLng, Resolution};
 /// H3 resolution used by every ptiles layer (SPEC.md fixes this at 7).
 const RESOLUTION: Resolution = Resolution::Seven;
 
+/// Hard cap on the number of cells `cells_for_bounds` will return. A viewport
+/// this large (e.g. res-7 cells, ~5.16 km^2 each, cover roughly a state at
+/// this count) means the caller almost certainly should be zoomed in, using
+/// a coarser resolution, or paging the request rather than asking this
+/// library to walk thousands of individual blocks. Chosen to match the
+/// demo's own client-side cap (`cells.slice(0, 300)` in
+/// steele.red/ptiles/index.html) with headroom.
+pub const MAX_BOUNDS_CELLS: usize = 512;
+
+/// `cells_for_bounds` failure: the requested bbox would cover more than
+/// [`MAX_BOUNDS_CELLS`] res-7 cells.
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+pub enum BoundsError {
+    #[error(
+        "bounding box ({min_lat}, {min_lon})..({max_lat}, {max_lon}) is too large: \
+         covers more than {max} H3 res-7 cells (cap is {max}); zoom in or split the request"
+    )]
+    TooManyCells {
+        min_lat: OrderedF64,
+        min_lon: OrderedF64,
+        max_lat: OrderedF64,
+        max_lon: OrderedF64,
+        max: usize,
+    },
+    #[error("invalid bounding box: min ({min_lat}, {min_lon}) must be <= max ({max_lat}, {max_lon}) and all coordinates finite")]
+    InvalidBounds {
+        min_lat: OrderedF64,
+        min_lon: OrderedF64,
+        max_lat: OrderedF64,
+        max_lon: OrderedF64,
+    },
+}
+
+/// Thin wrapper so `f64` can appear in a `PartialEq`/`Eq`-deriving error enum
+/// (this crate has no other need for a general-purpose ordered-float type,
+/// so this stays local rather than pulling in a crate for it). Only used for
+/// display/equality in `BoundsError`, never arithmetic.
+#[derive(Debug, Clone, Copy)]
+pub struct OrderedF64(pub f64);
+impl PartialEq for OrderedF64 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+impl Eq for OrderedF64 {}
+impl core::fmt::Display for OrderedF64 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.0, f)
+    }
+}
+
 /// Resolve `(lat, lon)` in degrees to its H3 res-7 cell index.
 ///
 /// Returns `0` for non-finite/out-of-range input (mirrors `h3o::LatLng::new`
@@ -56,6 +107,88 @@ pub fn neighbor_cells(cell: u64) -> Vec<u64> {
         Ok(idx) => idx.grid_ring::<Vec<_>>(1).into_iter().map(u64::from).collect(),
         Err(_) => Vec::new(),
     }
+}
+
+/// H3 res-7 cells covering a lat/lon bounding box -- the "viewport -> cell
+/// list" step of the loading pattern described in
+/// `ptiles-client/docs/INTEGRATION.md` (mirrors the demo's
+/// `h3.polygonToCells([...], 7)` call, see steele.red/ptiles/index.html).
+///
+/// This does not depend on h3o's `geo` feature (which would pull in `geo`/
+/// `geo-types` and force `std`, at odds with this crate's no_std-optional
+/// stance, see core/Cargo.toml). Instead it's a flood fill from the bbox's
+/// center cell: pop a cell, keep it if its hexagonal boundary (`.boundary()`,
+/// core h3o, no extra feature) overlaps the bbox, and if so enqueue its
+/// ring-1 neighbors. Cells that don't overlap are dropped without expanding
+/// past them, which bounds the fill to (approximately) the bbox's footprint
+/// instead of spreading over the whole globe. This is an approximation, not
+/// exact polygon-cell coverage: for a normal (non-degenerate, several-cells-
+/// wide) bbox it matches true polyfill, but on a bbox so thin one of its
+/// cell-width "waists" pinches to a non-intersecting cell, a run of cells on
+/// the far side of that waist could be missed. Good enough for viewport
+/// queries (which are never that pathological); exact polygon coverage is
+/// `h3o::geom::TilerBuilder`, not used here for the reason above.
+///
+/// Errors if any input is non-finite, `min` is not `<=` `max`, or covering
+/// the box would need more than [`MAX_BOUNDS_CELLS`] cells (a bbox that
+/// large means the caller should zoom in rather than pull hundreds of
+/// blocks at once).
+pub fn cells_for_bounds(min_lat: f64, min_lon: f64, max_lat: f64, max_lon: f64) -> Result<Vec<u64>, BoundsError> {
+    let invalid = || BoundsError::InvalidBounds {
+        min_lat: OrderedF64(min_lat),
+        min_lon: OrderedF64(min_lon),
+        max_lat: OrderedF64(max_lat),
+        max_lon: OrderedF64(max_lon),
+    };
+    if ![min_lat, min_lon, max_lat, max_lon].iter().all(|v| v.is_finite()) {
+        return Err(invalid());
+    }
+    if min_lat > max_lat || min_lon > max_lon {
+        return Err(invalid());
+    }
+
+    let center_lat = (min_lat + max_lat) / 2.0;
+    let center_lon = (min_lon + max_lon) / 2.0;
+    let start = match LatLng::new(center_lat, center_lon) {
+        Ok(ll) => ll.to_cell(RESOLUTION),
+        Err(_) => return Err(invalid()),
+    };
+
+    let overlaps = |cell: CellIndex| -> bool {
+        cell.boundary().iter().any(|ll| {
+            ll.lat() >= min_lat && ll.lat() <= max_lat && ll.lng() >= min_lon && ll.lng() <= max_lon
+        })
+    };
+
+    let mut visited: alloc::collections::BTreeSet<u64> = alloc::collections::BTreeSet::new();
+    let mut queue: alloc::collections::VecDeque<CellIndex> = alloc::collections::VecDeque::new();
+    let mut result = Vec::new();
+
+    visited.insert(u64::from(start));
+    queue.push_back(start);
+
+    while let Some(cell) = queue.pop_front() {
+        if !overlaps(cell) {
+            continue;
+        }
+        result.push(u64::from(cell));
+        if result.len() > MAX_BOUNDS_CELLS {
+            return Err(BoundsError::TooManyCells {
+                min_lat: OrderedF64(min_lat),
+                min_lon: OrderedF64(min_lon),
+                max_lat: OrderedF64(max_lat),
+                max_lon: OrderedF64(max_lon),
+                max: MAX_BOUNDS_CELLS,
+            });
+        }
+        for neighbor in cell.grid_ring::<Vec<_>>(1) {
+            if visited.insert(u64::from(neighbor)) {
+                queue.push_back(neighbor);
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -117,5 +250,44 @@ mod tests {
     #[test]
     fn neighbor_cells_invalid_input_returns_empty() {
         assert!(neighbor_cells(0).is_empty());
+    }
+
+    /// Small bbox around downtown Nashville (a few blocks) -- should
+    /// resolve to a handful of res-7 cells, one of which is the cell
+    /// covering Music City Center itself.
+    #[test]
+    fn cells_for_bounds_small_bbox_contains_downtown_cell() {
+        let downtown_cell = cell_for_coord(NASHVILLE_LAT, NASHVILLE_LON);
+        let cells = cells_for_bounds(36.14, -86.80, 36.18, -86.76).expect("small bbox must not error");
+        assert!(!cells.is_empty());
+        assert!(
+            cells.contains(&downtown_cell),
+            "expected downtown cell {downtown_cell} in {cells:?}"
+        );
+        for c in &cells {
+            let idx = CellIndex::try_from(*c).expect("must be a valid cell index");
+            assert_eq!(idx.resolution(), Resolution::Seven);
+        }
+    }
+
+    #[test]
+    fn cells_for_bounds_oversized_bbox_errors() {
+        // Roughly the continental US -- far more than MAX_BOUNDS_CELLS
+        // res-7 cells (~5.16 km^2 each).
+        let result = cells_for_bounds(24.0, -125.0, 49.0, -66.0);
+        assert!(matches!(result, Err(BoundsError::TooManyCells { .. })));
+    }
+
+    #[test]
+    fn cells_for_bounds_invalid_input_errors() {
+        assert!(matches!(
+            cells_for_bounds(f64::NAN, 0.0, 1.0, 1.0),
+            Err(BoundsError::InvalidBounds { .. })
+        ));
+        // min > max
+        assert!(matches!(
+            cells_for_bounds(10.0, 10.0, 5.0, 5.0),
+            Err(BoundsError::InvalidBounds { .. })
+        ));
     }
 }

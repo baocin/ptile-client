@@ -40,4 +40,5 @@ real file, not the (apparently stale) doc.
 | places | `PTILESP\x00` | 1 | matches SPEC.md (v1) |
 | parks | `PTILESN\x00` | 1 | matches SPEC.md (v1) |
 | rail | `PTILEST\x00` | 1 | matches SPEC.md (v1) |
+| business_name_index | `PTILESX\x00` | 1 | sidecar {STATE}.business_name_index.ptiles from scripts/build_business_name_index.py; not in SPEC.md's file table, but matches the real bytes the reference builder produced from TN.business.ptiles during this task (magic PTILESX v1, no dict) |
 <!-- END GENERATED SUPPORTED_FORMATS TABLE -->
