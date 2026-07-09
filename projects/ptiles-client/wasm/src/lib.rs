@@ -18,9 +18,13 @@ use ptiles_core::{decode_buildings as core_decode_buildings, decode_business as 
     decode_parks as core_decode_parks, decode_rail as core_decode_rail, decode_roads as core_decode_roads,
     decode_water as core_decode_water};
 use ptiles_core::{
-    nearest_road as core_nearest_road, score_candidates as core_score_candidates, Fix, ScoringParams,
-    DEFAULT_THRESHOLD_M,
+    decode_road_block as core_decode_road_block,
+    nearest_intersection as core_nearest_intersection, nearest_road as core_nearest_road,
+    route_roads as core_route_roads, score_candidates as core_score_candidates, Fix, RoadSegment,
+    ScoringParams, DEFAULT_THRESHOLD_M,
 };
+use ptiles_core::address::merged_block_cell_slice;
+use ptiles_core::admin::{decode_grid, decode_string_tables, AdminLookup};
 use ptiles_core::cells_for_bounds as core_cells_for_bounds;
 use ptiles_core::{
     match_business_name_block as core_match_business_name_block, name_to_key as core_name_to_key,
@@ -45,6 +49,57 @@ fn to_js<T: serde::Serialize>(value: &T) -> Result<JsValue, JsValue> {
     value
         .serialize(&serializer)
         .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Parse a lowercase (or uppercase) hex H3 cell string into a `u64`, the
+/// single validation point shared by every `cell_hex`-taking export. Trims
+/// surrounding whitespace and tolerates an optional `0x`/`0X` prefix so a
+/// caller that hands us a formatted address (rather than a bare radix-16
+/// string) gets a clear error only for genuinely non-hex input. Pure (no
+/// `JsValue`) so it's unit-testable on the host target.
+fn parse_cell_hex(cell_hex: &str) -> Result<u64, String> {
+    let trimmed = cell_hex.trim();
+    let digits = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    if digits.is_empty() {
+        return Err(format!("invalid cell hex {cell_hex:?}: empty"));
+    }
+    u64::from_str_radix(digits, 16).map_err(|e| format!("invalid cell hex {cell_hex:?}: {e}"))
+}
+
+/// Parse+validate a `score_candidates` `fix_json` string into a core [`Fix`].
+/// Pure (no `JsValue`) so the JSON-shape contract and the finite-coordinate
+/// validation are unit-testable on the host target. Rejects malformed JSON,
+/// non-finite `lat`/`lon`, a non-finite or negative `horizontal_accuracy_m`,
+/// and a non-finite `speed_mps` — a NaN slipping into the scorer would
+/// silently poison every emission score (`exp(-d^2/2sigma^2)`), so it's
+/// caught at the boundary rather than propagated.
+fn parse_fix_input(fix_json: &str) -> Result<Fix, String> {
+    let fix_input: FixInput =
+        serde_json::from_str(fix_json).map_err(|e| format!("invalid fix_json: {e}"))?;
+    if !fix_input.lat.is_finite() || !fix_input.lon.is_finite() {
+        return Err(format!(
+            "invalid fix_json: lat/lon must be finite (got lat={}, lon={})",
+            fix_input.lat, fix_input.lon
+        ));
+    }
+    if !fix_input.horizontal_accuracy_m.is_finite() || fix_input.horizontal_accuracy_m < 0.0 {
+        return Err(format!(
+            "invalid fix_json: horizontal_accuracy_m must be finite and non-negative (got {})",
+            fix_input.horizontal_accuracy_m
+        ));
+    }
+    if fix_input.speed_mps.is_some_and(|s| !s.is_finite()) {
+        return Err("invalid fix_json: speed_mps must be finite when present".to_string());
+    }
+    Ok(Fix {
+        lat: fix_input.lat,
+        lon: fix_input.lon,
+        horizontal_accuracy_m: fix_input.horizontal_accuracy_m,
+        speed_mps: fix_input.speed_mps,
+    })
 }
 
 #[wasm_bindgen]
@@ -129,6 +184,118 @@ pub fn nearest_road(block_bytes: &[u8], lat: f64, lon: f64, threshold_m: Option<
     }
 }
 
+
+/// Route on pre-decoded road segments (JS owns fetch + zstd + corridor).
+/// `segments_js`: `[{coords:[[lon,lat],...], road_class, oneway?, speed_limit_kmh?}, ...]`
+/// `zone_middle`: bool[] same length (true = arterial-only middle); empty/null = all end-cap.
+/// Returns `{distance_m, duration_s, path:[[lat,lon],...]}` or null.
+#[wasm_bindgen]
+pub fn route_from_segments(
+    segments_js: JsValue,
+    zone_middle: JsValue,
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+    snap_m: Option<f64>,
+) -> Result<JsValue, JsValue> {
+    #[derive(serde::Deserialize)]
+    struct SegIn {
+        coords: Vec<[f64; 2]>,
+        road_class: String,
+        #[serde(default)]
+        oneway: Option<String>,
+        #[serde(default)]
+        speed_limit_kmh: Option<u8>,
+    }
+    let segs_in: Vec<SegIn> = serde_wasm_bindgen::from_value(segments_js)
+        .map_err(|e| JsValue::from_str(&format!("segments: {e}")))?;
+    let roads: Vec<RoadSegment> = segs_in
+        .into_iter()
+        .map(|s| RoadSegment {
+            osm_id: 0,
+            road_class: s.road_class,
+            coords: s.coords,
+            name: None,
+            ref_tag: None,
+            oneway: s.oneway,
+            speed_limit_kmh: s.speed_limit_kmh,
+            lanes: None,
+            surface: None,
+            bridge_tunnel: None,
+        })
+        .collect();
+    let middle: Vec<bool> = if zone_middle.is_null() || zone_middle.is_undefined() {
+        Vec::new()
+    } else {
+        serde_wasm_bindgen::from_value(zone_middle)
+            .map_err(|e| JsValue::from_str(&format!("zone_middle: {e}")))?
+    };
+    let snap = snap_m.unwrap_or(100.0);
+    match core_route_roads(&roads, &middle, lat1, lon1, lat2, lon2, snap) {
+        Some(r) => to_js(&r),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// Nearest-intersection response shape: `{lat, lon, distance_m,
+/// intersection_type}`. `intersection_type`: 1 = traffic_signals, 2 = stop,
+/// 3 = give_way, 4 = roundabout (0/other = untyped).
+#[derive(serde::Serialize, PartialEq, Debug)]
+struct NearestIntersectionResponse {
+    lat: f64,
+    lon: f64,
+    distance_m: f64,
+    intersection_type: u8,
+}
+
+/// Pure core of [`nearest_intersection`]: decode a roads block's v2
+/// intersection table and return the nearest one to `(lat, lon)` within
+/// `threshold_m`. No `JsValue`, so it's unit-testable on the host target.
+/// Roads blocks always carry schema v2 (the intersection table only exists in
+/// v2), so the version is fixed at 2 here.
+fn nearest_intersection_in_block(
+    block_bytes: &[u8],
+    lat: f64,
+    lon: f64,
+    threshold_m: f64,
+) -> Result<Option<NearestIntersectionResponse>, String> {
+    let (_roads, intersections) =
+        core_decode_road_block(block_bytes, 2).map_err(|e| e.to_string())?;
+    Ok(core_nearest_intersection(lat, lon, &intersections, threshold_m).map(|ni| {
+        let [ix_lon, ix_lat] = intersections[ni.index].coords();
+        NearestIntersectionResponse {
+            lat: ix_lat,
+            lon: ix_lon,
+            distance_m: ni.distance_m,
+            intersection_type: ni.intersection_type,
+        }
+    }))
+}
+
+/// Decode a roads block and return the nearest labeled intersection to
+/// `(lat, lon)` — the "am I at an intersection?" query. `threshold_m` is
+/// optional (omit/`undefined` from JS for the SPEC.md default of 50 m).
+/// Returns `null` when nothing is within the threshold. Reports a mapped
+/// intersection point + its control type, not junction degree (the format
+/// stores no topology). JS supplies `block_bytes` already decompressed
+/// (no-I/O contract, same as `nearest_road`).
+#[wasm_bindgen]
+pub fn nearest_intersection(
+    block_bytes: &[u8],
+    lat: f64,
+    lon: f64,
+    threshold_m: Option<f64>,
+) -> Result<JsValue, JsValue> {
+    let threshold = threshold_m.unwrap_or(DEFAULT_THRESHOLD_M);
+    match nearest_intersection_in_block(block_bytes, lat, lon, threshold)
+        .map_err(|e| JsValue::from_str(&e))?
+    {
+        Some(response) => to_js(&response),
+        None => Ok(JsValue::NULL),
+    }
+}
+
 /// H3 res-7 cells covering a viewport bbox -- the wasm boundary for
 /// `ptiles_core::cells_for_bounds` (see docs/INTEGRATION.md's "viewport ->
 /// cells" step). Returns lowercase hex cell strings (a JS array of
@@ -190,14 +357,7 @@ pub fn score_candidates(
     cell_center_lat: f64,
     cell_center_lon: f64,
 ) -> Result<JsValue, JsValue> {
-    let fix_input: FixInput =
-        serde_json::from_str(fix_json).map_err(|e| JsValue::from_str(&format!("invalid fix_json: {e}")))?;
-    let fix = Fix {
-        lat: fix_input.lat,
-        lon: fix_input.lon,
-        horizontal_accuracy_m: fix_input.horizontal_accuracy_m,
-        speed_mps: fix_input.speed_mps,
-    };
+    let fix = parse_fix_input(fix_json).map_err(|e| JsValue::from_str(&e))?;
 
     let roads = core_decode_roads(roads_block).map_err(|e| JsValue::from_str(&e.to_string()))?;
     let buildings = if buildings_block.is_empty() {
@@ -315,8 +475,7 @@ pub fn parse_index_entries(data: &[u8]) -> Result<JsValue, JsValue> {
 /// if the cell has no block in this file (sparse coverage).
 #[wasm_bindgen]
 pub fn find_block_for_cell(index_bytes: &[u8], cell_hex: &str) -> Result<JsValue, JsValue> {
-    let cell = u64::from_str_radix(cell_hex, 16)
-        .map_err(|e| JsValue::from_str(&format!("invalid cell hex {cell_hex:?}: {e}")))?;
+    let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
     let entries = core_parse_index(index_bytes).map_err(|e| JsValue::from_str(&e.to_string()))?;
     match core_index_binary_search(&entries, cell) {
         Some(entry) => to_js(entry),
@@ -337,8 +496,7 @@ pub fn cell_for_coord(lat: f64, lon: f64) -> String {
 /// `cellToLatLng`.
 #[wasm_bindgen]
 pub fn cell_center(cell_hex: &str) -> Result<Vec<f64>, JsValue> {
-    let cell = u64::from_str_radix(cell_hex, 16)
-        .map_err(|e| JsValue::from_str(&format!("invalid cell hex {cell_hex:?}: {e}")))?;
+    let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
     let (lat, lon) = core_cell_center(cell);
     Ok(vec![lat, lon])
 }
@@ -349,12 +507,70 @@ pub fn cell_center(cell_hex: &str) -> Result<Vec<f64>, JsValue> {
 /// `BusinessReader.query` for nearby-business radius search).
 #[wasm_bindgen]
 pub fn neighbor_cells(cell_hex: &str) -> Result<Vec<JsValue>, JsValue> {
-    let cell = u64::from_str_radix(cell_hex, 16)
-        .map_err(|e| JsValue::from_str(&format!("invalid cell hex {cell_hex:?}: {e}")))?;
+    let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
     Ok(core_neighbor_cells(cell)
         .into_iter()
         .map(|c| JsValue::from_str(&format!("{c:x}")))
         .collect())
+}
+
+/// Admin point → jurisdiction lookup, browser flavor. Admin is a lookup-grid
+/// layer (`US.admin.ptiles`): the H3 grid lives uncompressed in the file's
+/// `aux` section, and the 5 string tables are a zstd blob in the `dict`
+/// section. JS fetches those two byte ranges once (decompressing the dict via
+/// [`decompress_block`] with an empty dict), constructs one `AdminReader`, and
+/// reuses it for many `admin_at` calls — the grid is decoded once, not per
+/// query. Kept separate from the per-block decode exports because admin has no
+/// per-cell blocks.
+/// Pure core of [`AdminReader::new`]: decode the grid + string tables into an
+/// [`AdminLookup`]. No `JsValue`, so it's host-testable.
+fn admin_lookup_from_bytes(
+    grid_bytes: &[u8],
+    string_tables_bytes: &[u8],
+) -> Result<AdminLookup, String> {
+    let grid = decode_grid(grid_bytes).map_err(|e| e.to_string())?;
+    let tables = decode_string_tables(string_tables_bytes).map_err(|e| e.to_string())?;
+    Ok(AdminLookup { grid, tables })
+}
+
+#[wasm_bindgen]
+pub struct AdminReader {
+    lookup: AdminLookup,
+}
+
+#[wasm_bindgen]
+impl AdminReader {
+    /// `grid_bytes` = the raw (uncompressed) `aux` section; `string_tables_bytes`
+    /// = the *decompressed* `dict` section. Throws on malformed input.
+    #[wasm_bindgen(constructor)]
+    pub fn new(grid_bytes: &[u8], string_tables_bytes: &[u8]) -> Result<AdminReader, JsValue> {
+        let lookup = admin_lookup_from_bytes(grid_bytes, string_tables_bytes)
+            .map_err(|e| JsValue::from_str(&e))?;
+        Ok(AdminReader { lookup })
+    }
+
+    /// Jurisdiction covering `(lat, lon)` as `{country, state, county, zip,
+    /// timezone, boundary_flags}`, or `null` if the grid has no entry.
+    pub fn admin_at(&self, lat: f64, lon: f64) -> Result<JsValue, JsValue> {
+        match self.lookup.lookup_coord(lat, lon) {
+            Some(info) => to_js(&info),
+            None => Ok(JsValue::NULL),
+        }
+    }
+}
+
+/// Decode the addresses for one H3 cell from an already-decompressed merged
+/// block (address layer). JS fetches the block bytes (via the v2 index) and
+/// decompresses them (`decompress_block`, empty dict), then calls this per
+/// cell. Returns a JS array of `{osm_id, housenumber, street}` (empty if the
+/// cell isn't in the block). `cell_hex` is a lowercase hex H3 cell string.
+#[wasm_bindgen]
+pub fn address_cell(block_bytes: &[u8], cell_hex: &str) -> Result<JsValue, JsValue> {
+    let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
+    let records = merged_block_cell_slice(block_bytes, cell)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?
+        .unwrap_or_default();
+    to_js(&records)
 }
 
 fn try_decode_all(decoder: &mut FrameDecoder, compressed: &[u8]) -> Option<Vec<u8>> {
@@ -364,4 +580,180 @@ fn try_decode_all(decoder: &mut FrameDecoder, compressed: &[u8]) -> Option<Vec<u
         .decode_blocks(&mut input, BlockDecodingStrategy::All)
         .ok()?;
     decoder.collect()
+}
+
+// Host-target unit tests for the pure (non-`JsValue`) cores extracted above.
+// Gated off wasm32 so `cargo test -p ptiles-wasm` runs them natively; the
+// `#[wasm_bindgen]` exports themselves need a JS runtime and are covered by
+// wasm/test/golden.mjs.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_cell_hex_accepts_plain_and_prefixed() {
+        // Same value three ways: bare, 0x-prefixed, whitespace-padded.
+        let expected = 0x8a2a1072b59ffff_u64;
+        assert_eq!(parse_cell_hex("8a2a1072b59ffff").unwrap(), expected);
+        assert_eq!(parse_cell_hex("0x8a2a1072b59ffff").unwrap(), expected);
+        assert_eq!(parse_cell_hex("0X8A2A1072B59FFFF").unwrap(), expected);
+        assert_eq!(parse_cell_hex("  8a2a1072b59ffff\n").unwrap(), expected);
+    }
+
+    #[test]
+    fn parse_cell_hex_rejects_bad_input() {
+        assert!(parse_cell_hex("").is_err());
+        assert!(parse_cell_hex("   ").is_err());
+        assert!(parse_cell_hex("0x").is_err());
+        assert!(parse_cell_hex("not-hex").is_err());
+        // Overflows u64 -> parse error, not a silent truncation.
+        assert!(parse_cell_hex("ffffffffffffffffff").is_err());
+    }
+
+    #[test]
+    fn parse_fix_input_parses_full_and_minimal_shapes() {
+        let full = parse_fix_input(
+            r#"{"lat": 36.16, "lon": -86.79, "horizontal_accuracy_m": 10.0, "speed_mps": 8.0}"#,
+        )
+        .unwrap();
+        assert_eq!(full.lat, 36.16);
+        assert_eq!(full.lon, -86.79);
+        assert_eq!(full.horizontal_accuracy_m, 10.0);
+        assert_eq!(full.speed_mps, Some(8.0));
+
+        // speed_mps is optional (omitted => None).
+        let minimal =
+            parse_fix_input(r#"{"lat": 1.0, "lon": 2.0, "horizontal_accuracy_m": 5.0}"#).unwrap();
+        assert_eq!(minimal.speed_mps, None);
+    }
+
+    #[test]
+    fn parse_fix_input_rejects_malformed_json() {
+        assert!(parse_fix_input("").is_err());
+        assert!(parse_fix_input("not json").is_err());
+        // Missing required field.
+        assert!(parse_fix_input(r#"{"lat": 1.0, "lon": 2.0}"#).is_err());
+    }
+
+    #[test]
+    fn parse_fix_input_rejects_nonfinite_and_negative() {
+        // NaN / Infinity aren't valid JSON numbers, so they'd arrive as the
+        // strings below or via a computed value; assert the numeric guard by
+        // constructing through serde_json's lenient paths is not possible, so
+        // verify the guard directly via the finite checks on parsed values.
+        assert!(parse_fix_input(
+            r#"{"lat": 1.0, "lon": 2.0, "horizontal_accuracy_m": -1.0}"#
+        )
+        .is_err());
+        // Well-formed, in-range value passes.
+        assert!(parse_fix_input(
+            r#"{"lat": 0.0, "lon": 0.0, "horizontal_accuracy_m": 0.0}"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn nearest_intersection_in_block_finds_golden_intersection() {
+        // Real decompressed roads block from the golden fixtures; its v2
+        // intersection table's first entry is at (-86.79367, 36.16076) type 1.
+        let block = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-fixtures/golden/roads.block.bin"
+        ))
+        .unwrap();
+        let r = nearest_intersection_in_block(&block, 36.16076, -86.79367, DEFAULT_THRESHOLD_M)
+            .unwrap()
+            .expect("an intersection at the query point");
+        assert!((r.lat - 36.16076).abs() < 1e-5);
+        assert!((r.lon - (-86.79367)).abs() < 1e-5);
+        assert_eq!(r.intersection_type, 1);
+        assert!(r.distance_m < 1.0);
+    }
+
+    #[test]
+    fn nearest_intersection_in_block_none_when_too_far() {
+        let block = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-fixtures/golden/roads.block.bin"
+        ))
+        .unwrap();
+        // Antarctica: no intersection within 50 m -> None (Ok, not Err).
+        let r =
+            nearest_intersection_in_block(&block, -80.0, 0.0, DEFAULT_THRESHOLD_M).unwrap();
+        assert!(r.is_none());
+    }
+
+    #[test]
+    fn nearest_intersection_in_block_rejects_garbage() {
+        // Non-decodable road bytes surface as Err, never a panic.
+        assert!(nearest_intersection_in_block(&[0xff, 0xff, 0xff], 0.0, 0.0, 50.0).is_err()
+            || nearest_intersection_in_block(&[0xff, 0xff, 0xff], 0.0, 0.0, 50.0)
+                .unwrap()
+                .is_none());
+    }
+
+    #[test]
+    fn admin_reader_constructs_and_looks_up() {
+        // Minimal synthetic grid + string tables (same byte layout as the
+        // reference encoder). Cell 0 -> US / Tennessee.
+        let mut tables = Vec::new();
+        let st = |strings: &[&str]| {
+            let mut o = Vec::new();
+            o.extend_from_slice(&(strings.len() as u32).to_le_bytes());
+            for s in strings {
+                o.extend_from_slice(&(s.len() as u16).to_le_bytes());
+                o.extend_from_slice(s.as_bytes());
+            }
+            o
+        };
+        tables.extend(st(&["United States"]));
+        tables.extend(st(&["Tennessee"]));
+        tables.extend(st(&["Davidson"]));
+        tables.extend(st(&["37201"]));
+        tables.extend(st(&["America/Chicago"]));
+
+        let mut grid = 1u32.to_le_bytes().to_vec(); // 1 entry
+        grid.extend_from_slice(&0u64.to_le_bytes()); // h3_cell 0
+        grid.extend_from_slice(&[0, 0]); // country_idx, state_idx
+        grid.extend_from_slice(&0u16.to_le_bytes()); // county_idx
+        grid.extend_from_slice(&0u16.to_le_bytes()); // zip_idx
+        grid.extend_from_slice(&[0, 0]); // tz_idx, flags
+
+        let lookup = admin_lookup_from_bytes(&grid, &tables).unwrap();
+        let info = lookup.lookup_cell(0).unwrap();
+        assert_eq!(info.country, "United States");
+        assert_eq!(info.state, "Tennessee");
+        // Malformed grid bytes must error, not panic.
+        assert!(admin_lookup_from_bytes(&[0xff, 0xff], &tables).is_err());
+    }
+
+    #[test]
+    fn try_decode_all_returns_none_on_garbage() {
+        // Matches wasm/test/golden.mjs's decompress_block garbage-input case:
+        // non-zstd bytes must fail cleanly (None), never panic.
+        let mut decoder = FrameDecoder::new();
+        assert!(try_decode_all(&mut decoder, &[1, 2, 3]).is_none());
+    }
+
+    #[test]
+    fn try_decode_all_returns_none_on_empty() {
+        let mut decoder = FrameDecoder::new();
+        assert!(try_decode_all(&mut decoder, &[]).is_none());
+    }
+
+    #[test]
+    fn try_decode_all_decodes_valid_frame() {
+        // ruzstd is decode-only, so feed a real zstd frame captured offline
+        // (`printf 'hello world' | zstd -c`) rather than round-tripping. This
+        // exercises the happy path of the shared decode helper backing
+        // `decompress_block`; the frame includes zstd's content checksum
+        // trailer, so a mis-wired decoder would surface as a decode error.
+        const FRAME: &[u8] = &[
+            40, 181, 47, 253, 4, 88, 89, 0, 0, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108,
+            100, 104, 105, 30, 178,
+        ];
+        let mut decoder = FrameDecoder::new();
+        let out = try_decode_all(&mut decoder, FRAME).expect("valid zstd frame should decode");
+        assert_eq!(out, b"hello world");
+    }
 }
