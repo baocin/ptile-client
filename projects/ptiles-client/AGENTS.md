@@ -18,6 +18,9 @@ build, and test instructions.
 - Related to ptile-client (main Rust client) and ptiles-browser (WASM viewer).
 - `src/lib.rs` is a legacy seed, superseded by `core/` + `wasm/`; kept until
   wasm parity is confirmed in the demo, then removed.
+- Browser corridor routing keeps the first pass within `ROUTE_MAX_CELLS`; a
+  failed route may use one denser arterial retry with an explicit bounded
+  budget in `/home/aoi/kino/projects/steele.red/ptiles2/index.html`.
 
 ## Child DOX Index
 

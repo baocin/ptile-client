@@ -45,10 +45,10 @@ use alloc::vec::Vec;
 
 use ruzstd::decoding::{BlockDecodingStrategy, Dictionary, FrameDecoder};
 
-use crate::header::{Header, HEADER_SIZE};
-use crate::index::{binary_search, parse_index, IndexEntry};
+use crate::header::{HEADER_SIZE, Header};
+use crate::index::{IndexEntry, binary_search, parse_index};
 use crate::source::{PtilesSource, SourceError};
-use crate::versions::{check_supported, UnsupportedVersion};
+use crate::versions::{UnsupportedVersion, check_supported};
 
 /// Errors from opening a `.ptiles` file or reading one of its blocks.
 #[derive(thiserror::Error, Debug)]
@@ -67,7 +67,9 @@ pub enum FileError {
     /// (see the `From` impl below).
     #[error("{0}")]
     UnsupportedVersion(UnsupportedVersion),
-    #[error("zstd decompress failed for block at offset {offset} (dict and plain both failed): {message}")]
+    #[error(
+        "zstd decompress failed for block at offset {offset} (dict and plain both failed): {message}"
+    )]
     Decompress { offset: u64, message: String },
 }
 
@@ -106,6 +108,15 @@ impl<S: PtilesSource> PtilesFile<S> {
         }
 
         check_supported(&header.magic, header.version)?;
+
+        // If the source can report its length, validate the header's declared
+        // regions against it *before* allocating buffers sized from those
+        // (untrusted) length fields. A corrupt/hostile header could otherwise
+        // name a multi-GB `index_length`/`dict_length` and force a huge
+        // allocation (or abort) before the read itself would have failed.
+        let source_len = source.len();
+        check_region(source_len, header.dict_offset, header.dict_length as u64)?;
+        check_region(source_len, header.index_offset, header.index_length as u64)?;
 
         let dict = if header.dict_length > 0 {
             let mut buf = alloc::vec![0u8; header.dict_length as usize];
@@ -160,11 +171,26 @@ impl<S: PtilesSource> PtilesFile<S> {
             return Ok(None);
         };
 
+        // Use checked arithmetic: a corrupt index entry could name a
+        // `block_offset` near u64::MAX that wraps when `blocks_offset` is added.
+        // Wrapping would produce a bogus-but-in-range offset and read the wrong
+        // bytes; surface it as an OutOfBounds error instead.
         let abs_offset = if self.relative_offsets {
-            self.header.blocks_offset + entry.block_offset
+            self.header
+                .blocks_offset
+                .checked_add(entry.block_offset)
+                .ok_or(SourceError::OutOfBounds {
+                    offset: entry.block_offset,
+                    needed: entry.block_length as usize,
+                    len: self.source.len().unwrap_or(0),
+                })?
         } else {
             entry.block_offset
         };
+
+        // Guard the block-length allocation against a corrupt index entry the
+        // same way `open` guards the dict/index buffers.
+        check_region(self.source.len(), abs_offset, entry.block_length as u64)?;
 
         let mut compressed = alloc::vec![0u8; entry.block_length as usize];
         self.source.read_exact_at(abs_offset, &mut compressed)?;
@@ -175,6 +201,28 @@ impl<S: PtilesSource> PtilesFile<S> {
                 offset: abs_offset,
                 message,
             })
+    }
+}
+
+/// Validate that a declared `[offset, offset+length)` region fits within a
+/// source of known length, before any buffer sized from `length` is allocated.
+/// If the source length is unknown (`None`), skip the check and let the read
+/// itself fail. Also catches `offset + length` overflow.
+fn check_region(source_len: Option<u64>, offset: u64, length: u64) -> Result<(), SourceError> {
+    let Some(total) = source_len else {
+        return Ok(());
+    };
+    let fits = offset.checked_add(length).is_some_and(|end| end <= total);
+    if fits {
+        Ok(())
+    } else {
+        Err(SourceError::OutOfBounds {
+            offset,
+            // `length` is a file-format field (u32-derived); clamp for the
+            // usize field without risking a panic on 32-bit targets.
+            needed: usize::try_from(length).unwrap_or(usize::MAX),
+            len: total,
+        })
     }
 }
 
@@ -210,10 +258,190 @@ fn try_decode_all(decoder: &mut FrameDecoder, compressed: &[u8]) -> Option<Vec<u
     decoder.collect()
 }
 
+/// Plain (dict-less) zstd decompress of a whole frame. Used by the `admin`
+/// and `address` layers, whose header sections (string tables / polygons)
+/// are plain-zstd blobs rather than dictionary-compressed per-cell blocks.
+/// Returns `Err` (never panics) on a malformed frame.
+pub(crate) fn zstd_decompress(compressed: &[u8]) -> Result<Vec<u8>, crate::codec::DecodeError> {
+    let mut decoder = FrameDecoder::new();
+    try_decode_all(&mut decoder, compressed).ok_or(crate::codec::DecodeError::UnexpectedEof {
+        offset: 0,
+        needed: 0,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::source::MemorySource;
+
+    /// A minimal, valid single-frame zstd stream (raw/uncompressed block) that
+    /// `ruzstd` decodes back to `content`. Built by hand because the workspace
+    /// has no zstd *encoder* (ruzstd is decode-only) — see this module's docs.
+    fn raw_zstd_frame(content: &[u8]) -> Vec<u8> {
+        assert!(content.len() < 256, "helper only encodes tiny payloads");
+        let mut frame = alloc::vec![0x28u8, 0xB5, 0x2F, 0xFD];
+        // Frame_Header_Descriptor: Single_Segment_flag set (0x20) => no
+        // Window_Descriptor, and a 1-byte Frame_Content_Size follows.
+        frame.push(0x20);
+        frame.push(content.len() as u8); // Frame_Content_Size (1 byte)
+        // Block_Header (3 bytes LE): Last_Block=1, Block_Type=0 (Raw),
+        // Block_Size=content.len().
+        let block_header: u32 = ((content.len() as u32) << 3) | 1;
+        frame.extend_from_slice(&block_header.to_le_bytes()[0..3]);
+        frame.extend_from_slice(content);
+        frame
+    }
+
+    fn encode_index_entry(
+        h3_cell: u64,
+        block_offset: u64,
+        block_length: u32,
+        feature_count: u16,
+    ) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&h3_cell.to_le_bytes());
+        buf.extend_from_slice(&block_offset.to_le_bytes()[0..6]);
+        buf.extend_from_slice(&block_length.to_le_bytes()[0..3]);
+        buf.extend_from_slice(&feature_count.to_le_bytes());
+        buf
+    }
+
+    /// Assemble a complete, valid in-memory `.ptiles` file with one index
+    /// entry (cell `100`) whose block decompresses to `content`. Offsets are
+    /// absolute (block_offset >= blocks_offset), so `relative_offsets` is false.
+    fn build_valid_file(content: &[u8]) -> Vec<u8> {
+        let frame = raw_zstd_frame(content);
+        let index_offset = HEADER_SIZE as u64;
+        let index = {
+            let mut v = Vec::new();
+            v.extend_from_slice(&1u32.to_le_bytes()); // entry_count = 1
+            // block placed immediately after the index section
+            v.extend_from_slice(&encode_index_entry(
+                100,
+                index_offset + 4 + 19,
+                frame.len() as u32,
+                1,
+            ));
+            v
+        };
+        let blocks_offset = index_offset + index.len() as u64;
+
+        let mut buf = alloc::vec![0u8; HEADER_SIZE];
+        buf[0..7].copy_from_slice(b"PTILESN");
+        buf[8] = 1;
+        buf[52..60].copy_from_slice(&index_offset.to_le_bytes());
+        buf[60..64].copy_from_slice(&(index.len() as u32).to_le_bytes());
+        buf[64..72].copy_from_slice(&blocks_offset.to_le_bytes());
+        buf.extend_from_slice(&index);
+        buf.extend_from_slice(&frame);
+        buf
+    }
+
+    #[test]
+    fn open_valid_in_memory_file_and_read_block_hit_and_miss() {
+        let content = b"hello ptiles world";
+        let src = MemorySource::new(build_valid_file(content));
+        let file = PtilesFile::open(src).expect("valid file must open");
+
+        assert_eq!(file.index().len(), 1);
+        assert!(!file.relative_offsets, "offsets here are absolute");
+
+        // Hit: cell present in the index decompresses to the original content.
+        let block = file
+            .read_block(100)
+            .expect("read_block must succeed")
+            .expect("cell 100 is in the index");
+        assert_eq!(block, content);
+
+        // Miss: a cell not in the index returns Ok(None), not an error.
+        assert_eq!(file.read_block(101).unwrap(), None);
+        assert_eq!(file.read_block(0).unwrap(), None);
+    }
+
+    #[test]
+    fn open_rejects_corrupt_index_length_without_huge_alloc() {
+        // Valid-looking header, but index_length claims ~1 TiB while the file
+        // is only the header. Must error (via the region guard) rather than
+        // attempt the allocation or panic.
+        let mut buf = alloc::vec![0u8; HEADER_SIZE];
+        buf[0..7].copy_from_slice(b"PTILESN");
+        buf[8] = 1;
+        buf[52..60].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes()); // index_offset
+        buf[60..64].copy_from_slice(&u32::MAX.to_le_bytes()); // index_length ~4 GiB
+        buf[64..72].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+        let src = MemorySource::new(buf);
+        assert!(matches!(
+            PtilesFile::open(src),
+            Err(FileError::Source(SourceError::OutOfBounds { .. }))
+        ));
+    }
+
+    #[test]
+    fn read_block_rejects_corrupt_block_length_without_huge_alloc() {
+        // Start from a valid file, then corrupt the index entry's block_length
+        // (3-byte field) to its max (~16 MiB) while the actual block is tiny.
+        // read_block must error via check_region, not attempt the allocation.
+        let mut buf = build_valid_file(b"hi");
+        // Index starts at HEADER_SIZE; entry begins after the u32 entry_count.
+        // Layout: h3_cell(8) + block_offset(6) + block_length(3) + feat(2).
+        let block_len_off = HEADER_SIZE + 4 + 8 + 6;
+        buf[block_len_off] = 0xFF;
+        buf[block_len_off + 1] = 0xFF;
+        buf[block_len_off + 2] = 0xFF;
+        let file = PtilesFile::open(MemorySource::new(buf)).expect("header/index still valid");
+        assert!(matches!(
+            file.read_block(100),
+            Err(FileError::Source(SourceError::OutOfBounds { .. }))
+        ));
+    }
+
+    #[test]
+    fn open_rejects_corrupt_dict_region() {
+        // dict_length points past EOF: caught before allocation/read.
+        let mut buf = alloc::vec![0u8; HEADER_SIZE];
+        buf[0..7].copy_from_slice(b"PTILESN");
+        buf[8] = 1;
+        buf[40..48].copy_from_slice(&0u64.to_le_bytes()); // dict_offset
+        buf[48..52].copy_from_slice(&10_000u32.to_le_bytes()); // dict_length > file
+        buf[52..60].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+        buf[64..72].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+        let src = MemorySource::new(buf);
+        assert!(matches!(
+            PtilesFile::open(src),
+            Err(FileError::Source(SourceError::OutOfBounds { .. }))
+        ));
+    }
+
+    #[test]
+    fn open_rejects_index_region_past_eof() {
+        // Header declares an index that would run off the end of the file
+        // (EOF mid-read). Must be an Err, not a panic.
+        let mut buf = alloc::vec![0u8; HEADER_SIZE];
+        buf[0..7].copy_from_slice(b"PTILESN");
+        buf[8] = 1;
+        buf[52..60].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+        buf[60..64].copy_from_slice(&23u32.to_le_bytes()); // needs 23 bytes but none follow
+        buf[64..72].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+        let src = MemorySource::new(buf);
+        assert!(PtilesFile::open(src).is_err());
+    }
+
+    #[test]
+    fn read_block_errors_when_block_region_past_eof() {
+        // Build a valid header+index, but truncate the file so the block the
+        // index points at is missing. read_block must return Err, not panic.
+        let mut file_bytes = build_valid_file(b"data");
+        // Drop the trailing block frame entirely.
+        let blocks_offset = u64::from_le_bytes(file_bytes[64..72].try_into().unwrap());
+        file_bytes.truncate(blocks_offset as usize);
+        let src = MemorySource::new(file_bytes);
+        let file = PtilesFile::open(src).expect("header+index still valid");
+        assert!(matches!(
+            file.read_block(100),
+            Err(FileError::Source(SourceError::OutOfBounds { .. }))
+        ));
+    }
 
     #[test]
     fn open_rejects_bad_magic() {
@@ -285,7 +513,8 @@ mod tests {
             .expect("cell from the index must resolve to a block");
         assert!(!block.is_empty(), "decompressed block must be non-empty");
 
-        let features = crate::water::decode_water(&block).expect("decode_water must parse the real block");
+        let features =
+            crate::water::decode_water(&block).expect("decode_water must parse the real block");
         assert!(
             !features.is_empty(),
             "real water block should decode to at least one feature"
@@ -333,7 +562,10 @@ mod tests {
     #[test]
     fn opens_every_real_ptiles_file() {
         let files: &[(&str, &str)] = &[
-            ("/home/aoi/kino/data/ptiles/TN.buildings_v8.ptiles", "PTILESF"),
+            (
+                "/home/aoi/kino/data/ptiles/TN.buildings_v8.ptiles",
+                "PTILESF",
+            ),
             ("/home/aoi/kino/data/ptiles/TN.roads.ptiles", "PTILESR"),
             ("/home/aoi/kino/data/ptiles/TN.business.ptiles", "PTILESB"),
             ("/home/aoi/kino/data/ptiles/TN.water.ptiles", "PTILESW"),
@@ -373,7 +605,9 @@ mod tests {
                 assert_eq!(e.supported, alloc::vec![8]);
             }
             Ok(_) => panic!("expected UnsupportedVersion, got Ok"),
-            Err(other) => panic!("expected UnsupportedVersion, got a different FileError variant: {other}"),
+            Err(other) => {
+                panic!("expected UnsupportedVersion, got a different FileError variant: {other}")
+            }
         }
     }
 
@@ -383,7 +617,7 @@ mod tests {
     #[test]
     fn open_rejects_unrecognized_magic_with_known_prefix() {
         let mut buf = alloc::vec![0u8; HEADER_SIZE];
-        buf[0..7].copy_from_slice(b"PTILESA"); // admin: PTILES-prefixed but not in SUPPORTED_FORMATS
+        buf[0..7].copy_from_slice(b"PTILESZ"); // PTILES-prefixed but not in SUPPORTED_FORMATS
         buf[8] = 1;
         buf[64..72].copy_from_slice(&256u64.to_le_bytes());
         let src = MemorySource::new(buf);
@@ -392,7 +626,9 @@ mod tests {
                 assert!(e.supported.is_empty());
             }
             Ok(_) => panic!("expected UnsupportedVersion, got Ok"),
-            Err(other) => panic!("expected UnsupportedVersion, got a different FileError variant: {other}"),
+            Err(other) => {
+                panic!("expected UnsupportedVersion, got a different FileError variant: {other}")
+            }
         }
     }
 }

@@ -9,9 +9,27 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::codec::{
-    decode_string_table, decode_table_ref, decode_varint, read_i16, read_u32, read_u8,
-    zigzag_decode, DecodeError,
+    DecodeError, decode_string_table, decode_table_ref, decode_varint, read_i16, read_u8, read_u32,
+    zigzag_decode,
 };
+
+/// The only buildings block schema version this decoder understands. v6/v7
+/// blocks use an incompatible record layout (raw-delta osm_id, u8 vertex
+/// count, i32 absolute first vertex, wall-segment geometry) and must not be
+/// fed to the v8 decoder. See `ptiles/buildings.py::BuildingsReader._read_block`,
+/// which dispatches on `version >= 8`.
+pub const SCHEMA_VERSION: u8 = 8;
+
+/// Error from the version-gated [`decode_buildings_v8`] entry point.
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+pub enum BuildingsError {
+    /// Block's declared schema version is not [`SCHEMA_VERSION`] (v8).
+    #[error("unsupported buildings schema version {found} (only v{SCHEMA_VERSION} is supported)")]
+    UnsupportedVersion { found: u8 },
+    /// The block byte-stream was malformed or truncated.
+    #[error(transparent)]
+    Decode(#[from] DecodeError),
+}
 
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -34,11 +52,7 @@ pub struct Building {
 fn round_f64(x: f64) -> f64 {
     let t = x as i64 as f64;
     if x >= 0.0 {
-        if x - t >= 0.5 {
-            t + 1.0
-        } else {
-            t
-        }
+        if x - t >= 0.5 { t + 1.0 } else { t }
     } else if t - x >= 0.5 {
         t - 1.0
     } else {
@@ -191,14 +205,20 @@ pub fn decode_buildings(
         if record_len == 0 {
             break;
         }
-        if p + record_len > data.len() {
-            return Err(DecodeError::RecordOverrun {
-                offset: p,
-                len: record_len,
-                block_len: data.len(),
-            });
-        }
-        let rec = &data[p..p + record_len];
+        // `checked_add` guards the (theoretical, 32-bit-usize) overflow of a
+        // hostile `record_len` near `usize::MAX`; on 64-bit it can't overflow
+        // but the bounds check is still required.
+        let end = match p.checked_add(record_len) {
+            Some(end) if end <= data.len() => end,
+            _ => {
+                return Err(DecodeError::RecordOverrun {
+                    offset: p,
+                    len: record_len,
+                    block_len: data.len(),
+                });
+            }
+        };
+        let rec = &data[p..end];
         if let Ok((bldg, new_prev)) = decode_building_record(
             rec,
             prev_osm_id,
@@ -209,15 +229,109 @@ pub fn decode_buildings(
             prev_osm_id = new_prev;
             buildings.push(bldg);
         }
-        p += record_len;
+        p = end;
     }
 
     Ok(buildings)
 }
 
+/// Version-gated wrapper around [`decode_buildings`]. Rejects any block whose
+/// declared schema `version` is not [`SCHEMA_VERSION`] (v8) *before* decoding,
+/// so a v6/v7 (or future) block can't be silently misdecoded under the v8
+/// record layout. `cell_center_{lat,lon}` are as in [`decode_buildings`].
+pub fn decode_buildings_v8(
+    data: &[u8],
+    version: u8,
+    cell_center_lat: f64,
+    cell_center_lon: f64,
+) -> Result<Vec<Building>, BuildingsError> {
+    if version != SCHEMA_VERSION {
+        return Err(BuildingsError::UnsupportedVersion { found: version });
+    }
+    Ok(decode_buildings(data, cell_center_lat, cell_center_lon)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+
+    // --- v8 block synthesis helpers (mirror the on-disk encoding) ---
+
+    /// LEB128-encode an unsigned varint.
+    fn put_uvarint(out: &mut Vec<u8>, mut v: u64) {
+        loop {
+            let mut b = (v & 0x7f) as u8;
+            v >>= 7;
+            if v != 0 {
+                b |= 0x80;
+            }
+            out.push(b);
+            if v == 0 {
+                break;
+            }
+        }
+    }
+
+    /// Zigzag-encode a signed 64-bit value (inverse of `zigzag_decode`).
+    fn zigzag_encode(n: i64) -> u64 {
+        ((n << 1) ^ (n >> 63)) as u64
+    }
+
+    fn put_svarint(out: &mut Vec<u8>, v: i64) {
+        put_uvarint(out, zigzag_encode(v));
+    }
+
+    /// A single v8 building record: osm_id delta, packed vertex count, cell-
+    /// relative first vertex (i16 offsets), then (n-1) zigzag delta pairs,
+    /// building-type index, and flags2 (no optional fields set here).
+    struct RecordSpec {
+        osm_delta: i64,
+        offset_lon: i16,
+        offset_lat: i16,
+        /// zigzag delta pairs (dlon_micro, dlat_micro) for vertices 2..=n.
+        deltas: Vec<(i32, i32)>,
+        btype_idx: u8,
+    }
+
+    fn encode_record(spec: &RecordSpec) -> Vec<u8> {
+        let mut body = Vec::new();
+        put_svarint(&mut body, spec.osm_delta);
+        let vertex_count = spec.deltas.len() + 1;
+        assert!(
+            (4..=18).contains(&vertex_count),
+            "helper only encodes the packed 4..=18 vertex range"
+        );
+        let vc_packed = (vertex_count - 4) as u8;
+        body.push(vc_packed << 4);
+        body.extend_from_slice(&spec.offset_lon.to_le_bytes());
+        body.extend_from_slice(&spec.offset_lat.to_le_bytes());
+        for (dlon, dlat) in &spec.deltas {
+            put_svarint(&mut body, *dlon as i64);
+            put_svarint(&mut body, *dlat as i64);
+        }
+        body.push(spec.btype_idx);
+        body.push(0x00); // flags2: no name/category/name_source/poi
+        body
+    }
+
+    /// Assemble a full v8 block: string table + length-prefixed records.
+    fn encode_block(string_table: &[&str], records: &[RecordSpec]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(string_table.len() as u8);
+        for s in string_table {
+            out.push(s.len() as u8);
+            out.extend_from_slice(s.as_bytes());
+        }
+        for r in records {
+            let body = encode_record(r);
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&body);
+        }
+        out
+    }
+
+    // --- empty / degenerate input ---
 
     #[test]
     fn empty_block_needs_at_least_string_table_count_byte() {
@@ -227,7 +341,259 @@ mod tests {
     }
 
     #[test]
+    fn empty_string_table_and_zero_terminator_yields_no_buildings() {
+        // table count 0, then a zero-length record terminator.
+        let data = [0x00u8, 0x00, 0x00, 0x00, 0x00];
+        assert_eq!(decode_buildings(&data, 1.0, 2.0).unwrap(), Vec::new());
+    }
+
+    #[test]
     fn truly_empty_input_errors_not_panics() {
         assert!(decode_buildings(&[], 0.0, 0.0).is_err());
+    }
+
+    // --- delta / coordinate decoding correctness ---
+
+    #[test]
+    fn coordinate_delta_decoding_is_exact() {
+        // cell center (lon=2.0, lat=1.0) -> micro (200000, 100000).
+        // first vertex offset (+50, -30) -> (200050, 99970).
+        // deltas walk the ring and close it back to the first vertex.
+        let deltas = vec![(100, 0), (0, 100), (-100, 0), (0, -100)];
+        let spec = RecordSpec {
+            osm_delta: 42,
+            offset_lon: 50,
+            offset_lat: -30,
+            deltas: deltas.clone(),
+            btype_idx: 0, // -> string_table[0]
+        };
+        let block = encode_block(&["house"], &[spec]);
+        let out = decode_buildings(&block, 1.0, 2.0).unwrap();
+        assert_eq!(out.len(), 1);
+        let b = &out[0];
+
+        assert_eq!(b.osm_id, 42);
+        assert_eq!(b.building_type, "house");
+
+        // Reconstruct expected coords in microdegrees.
+        let mut lon = 200_000i32 + 50;
+        let mut lat = 100_000i32 - 30;
+        let mut expected = vec![[lon as f64 / 1e5, lat as f64 / 1e5]];
+        for (dlon, dlat) in &deltas {
+            lon += dlon;
+            lat += dlat;
+            expected.push([lon as f64 / 1e5, lat as f64 / 1e5]);
+        }
+        assert_eq!(b.coords.len(), 5);
+        for (got, want) in b.coords.iter().zip(expected.iter()) {
+            assert!((got[0] - want[0]).abs() < 1e-9);
+            assert!((got[1] - want[1]).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn polygon_ring_is_closed_when_deltas_return_to_start() {
+        // Deltas summing to zero => last vertex == first vertex (closed ring).
+        let spec = RecordSpec {
+            osm_delta: 1,
+            offset_lon: 0,
+            offset_lat: 0,
+            deltas: vec![(10, 0), (0, 10), (-10, -10)],
+            btype_idx: 0xff, // inline custom type follows... handled below
+        };
+        // btype_idx 0xff needs an inline string; rebuild body manually since the
+        // helper only emits table-indexed types.
+        let mut body = Vec::new();
+        put_svarint(&mut body, spec.osm_delta);
+        body.push(((spec.deltas.len() + 1 - 4) as u8) << 4);
+        body.extend_from_slice(&spec.offset_lon.to_le_bytes());
+        body.extend_from_slice(&spec.offset_lat.to_le_bytes());
+        for (dlon, dlat) in &spec.deltas {
+            put_svarint(&mut body, *dlon as i64);
+            put_svarint(&mut body, *dlat as i64);
+        }
+        body.push(0xff);
+        body.push(3);
+        body.extend_from_slice(b"gym");
+        body.push(0x00); // flags2
+
+        let mut block = vec![0x00u8]; // empty string table
+        block.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        block.extend_from_slice(&body);
+
+        let out = decode_buildings(&block, 0.0, 0.0).unwrap();
+        assert_eq!(out.len(), 1);
+        let b = &out[0];
+        assert_eq!(b.building_type, "gym");
+        assert_eq!(b.coords.len(), 4);
+        assert_eq!(
+            b.coords.first(),
+            b.coords.last(),
+            "closed ring: first vertex must equal last"
+        );
+    }
+
+    #[test]
+    fn multiple_records_chain_osm_id_deltas_and_decode_independently() {
+        // Two buildings; osm_id is a running sum of zigzag deltas.
+        let r1 = RecordSpec {
+            osm_delta: 1000,
+            offset_lon: 10,
+            offset_lat: 10,
+            deltas: vec![(5, 0), (0, 5), (-5, -5)],
+            btype_idx: 0,
+        };
+        let r2 = RecordSpec {
+            osm_delta: -400, // osm_id = 1000 + (-400) = 600
+            offset_lon: -20,
+            offset_lat: 20,
+            deltas: vec![(7, 0), (0, 7), (-3, -3), (-4, -4)],
+            btype_idx: 1,
+        };
+        let block = encode_block(&["a", "b"], &[r1, r2]);
+        let out = decode_buildings(&block, 5.0, 5.0).unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].osm_id, 1000);
+        assert_eq!(out[0].building_type, "a");
+        assert_eq!(out[0].coords.len(), 4);
+        assert_eq!(out[1].osm_id, 600);
+        assert_eq!(out[1].building_type, "b");
+        assert_eq!(out[1].coords.len(), 5);
+    }
+
+    #[test]
+    fn out_of_range_building_type_index_falls_back_to_yes() {
+        let spec = RecordSpec {
+            osm_delta: 7,
+            offset_lon: 0,
+            offset_lat: 0,
+            deltas: vec![(1, 1), (1, 1), (-2, -2)],
+            btype_idx: 200, // no such table entry
+        };
+        let block = encode_block(&["only-one"], &[spec]);
+        let out = decode_buildings(&block, 0.0, 0.0).unwrap();
+        assert_eq!(out[0].building_type, "yes");
+    }
+
+    // --- truncation: Err, never panic ---
+
+    #[test]
+    fn record_length_overrunning_block_is_reported_not_panicked() {
+        // Empty string table, then a record claiming 100 bytes with no body.
+        let mut data = vec![0x00u8];
+        data.extend_from_slice(&100u32.to_le_bytes());
+        let err = decode_buildings(&data, 0.0, 0.0).unwrap_err();
+        assert!(matches!(err, DecodeError::RecordOverrun { .. }));
+    }
+
+    #[test]
+    fn truncated_record_body_does_not_panic() {
+        // Valid block, then chop the final byte so the last record's declared
+        // length overruns the buffer -> RecordOverrun, no panic.
+        let spec = RecordSpec {
+            osm_delta: 1,
+            offset_lon: 0,
+            offset_lat: 0,
+            deltas: vec![(1, 0), (0, 1), (-1, -1)],
+            btype_idx: 0,
+        };
+        let mut block = encode_block(&["x"], &[spec]);
+        block.pop();
+        let res = decode_buildings(&block, 0.0, 0.0);
+        assert!(matches!(res, Err(DecodeError::RecordOverrun { .. })));
+    }
+
+    #[test]
+    fn every_prefix_of_a_valid_block_returns_ok_or_err_never_panics() {
+        // Fuzz-lite: decoding any truncation of a real synthetic block must
+        // never panic.
+        let spec = RecordSpec {
+            osm_delta: 123,
+            offset_lon: 3,
+            offset_lat: -4,
+            deltas: vec![(2, 2), (2, -2), (-4, 0)],
+            btype_idx: 0,
+        };
+        let block = encode_block(&["shed"], &[spec]);
+        for n in 0..=block.len() {
+            let _ = decode_buildings(&block[..n], 1.0, 1.0);
+        }
+    }
+
+    // --- version gating ---
+
+    #[test]
+    fn decode_buildings_v8_accepts_version_8() {
+        let spec = RecordSpec {
+            osm_delta: 5,
+            offset_lon: 0,
+            offset_lat: 0,
+            deltas: vec![(1, 0), (0, 1), (-1, -1)],
+            btype_idx: 0,
+        };
+        let block = encode_block(&["y"], &[spec]);
+        let out = decode_buildings_v8(&block, SCHEMA_VERSION, 0.0, 0.0).unwrap();
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn decode_buildings_v8_rejects_non_v8_before_decoding() {
+        // Even valid-looking v8 bytes are refused under a v6/v7 version tag.
+        let block = [0x00u8];
+        for bad in [0u8, 1, 6, 7, 9, 255] {
+            let err = decode_buildings_v8(&block, bad, 0.0, 0.0).unwrap_err();
+            assert_eq!(err, BuildingsError::UnsupportedVersion { found: bad });
+        }
+    }
+
+    #[test]
+    fn decode_buildings_v8_propagates_decode_errors() {
+        let err = decode_buildings_v8(&[], SCHEMA_VERSION, 0.0, 0.0).unwrap_err();
+        assert!(matches!(err, BuildingsError::Decode(_)));
+    }
+
+    // --- golden fixture (std-only: reads the on-disk block) ---
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn decodes_golden_buildings_v8_block() {
+        // Decompressed v8 block + its cell center, from
+        // test-fixtures/golden/buildings_v8.{block.bin,meta.json}.
+        let block = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-fixtures/golden/buildings_v8.block.bin"
+        ))
+        .expect("read golden block");
+        let cell_center_lat = 36.166500290002354;
+        let cell_center_lon = -86.78319797133413;
+
+        let out = decode_buildings(&block, cell_center_lat, cell_center_lon)
+            .expect("golden block decodes");
+
+        // Sanity: the fixture holds many buildings.
+        assert!(
+            out.len() > 100,
+            "expected many buildings, got {}",
+            out.len()
+        );
+
+        // Known first record from buildings_v8.golden.json.
+        let first = &out[0];
+        assert_eq!(first.osm_id, 107627729);
+        assert_eq!(first.building_type, "commercial");
+        assert_eq!(first.name.as_deref(), Some("Music City Center"));
+        assert!((first.centroid_lat - 36.15689).abs() < 1e-5);
+        assert!((first.centroid_lon - (-86.77833875)).abs() < 1e-5);
+
+        // Every decoded footprint is a closed ring (first vertex == last).
+        for b in &out {
+            assert!(b.coords.len() >= 4, "polygon needs >= 4 vertices");
+            assert_eq!(
+                b.coords.first(),
+                b.coords.last(),
+                "building {} ring not closed",
+                b.osm_id
+            );
+        }
     }
 }

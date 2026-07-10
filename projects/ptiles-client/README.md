@@ -18,6 +18,8 @@ cli/     ptiles-cli    — native binary: one-shot lat/lon query, or a `--serve`
                           JSON-lines bridge for Rookery.
 ffi/     ptiles-ffi    — UniFFI bridge over ptiles-core, generating Swift and
                           Kotlin bindings for iOS/macOS/Android consumers.
+motion/  ptiles-motion — stateful GPS motion classification (stationary/walking/
+                          driving) over a timestamped fix sequence. no_std-optional.
 fuzz/    (not a workspace member — has its own [workspace] table)
                        — cargo-fuzz targets for buildings/roads/business decoders.
 src/lib.rs             — LEGACY SEED, the original monolithic wasm-bindgen prototype.
@@ -58,6 +60,20 @@ format into typed Rust structs (`RoadSegment`, `Building`, `Business`,
 - `cell_for_coord` / `neighbor_cells` / `cell_center` — H3 resolution-7 cell
   lookup (wraps `h3o`).
 - `nearest_road` — haversine point-to-linestring proximity search.
+- `nearest_intersection` — "am I at an intersection?": nearest labeled
+  intersection point from a roads block's v2 intersection table, within a
+  threshold, plus its traffic-control type (signal/stop/give_way/roundabout).
+  Reports a mapped intersection *point*, not junction degree — the format
+  stores no road-to-node topology.
+- `AdminFile` — point → jurisdiction lookup (`US.admin.ptiles`, a lookup-grid
+  layer): `admin_at(lat, lon)` returns country/state/county/zip/timezone.
+- `AddressFile` — address layer (`{STATE}.address.ptiles`, v2 merged-block
+  index): `addresses_at(lat, lon, ring)` (reverse enumeration) and
+  `find_address(lat, lon, ring, number, street)` (forward, accent/case-insensitive).
+- Business name search is now **accent- and case-insensitive** (`fold_name`:
+  NFD + diacritic strip + `ß`→`ss`), so `eclair` matches `Éclair`. The indexed
+  path probes both the folded-letter bucket and the legacy catch-all bucket so
+  it works against sidecars built before the fix.
 - `score_candidates` — GPS emission-probability scoring for a fix against
   road/building/business candidates (see "GPS candidate scoring" below).
 
@@ -113,6 +129,17 @@ Additional exports (road geometry + scoring, mirroring the CLI's):
   [lat, lon], distance_m, geometry: [[lat, lon], ...]}`, or `null` if nothing
   is within `threshold_m` (default 50m). Coordinates are `[lat, lon]` in the
   output (the on-disk/core representation is `[lon, lat]`).
+- `nearest_intersection(block_bytes, lat, lon, threshold_m?)` — decodes a
+  roads block's v2 intersection table and returns the nearest intersection as
+  `{lat, lon, distance_m, intersection_type}` (type 1 signal / 2 stop /
+  3 give_way / 4 roundabout), or `null` if nothing is within `threshold_m`
+  (default 50m).
+- `AdminReader` — constructed once from the admin file's `aux` (grid) and
+  decompressed `dict` (string tables) byte ranges; `admin_at(lat, lon)` returns
+  the jurisdiction. Kept as a reusable object so the ~28 MB grid is decoded
+  once, not per query.
+- `address_cell(block_bytes, cell_hex)` — decode the addresses for one cell
+  from a decompressed address merged-block.
 - `roads_in_block(block_bytes)` — full decoded segment list for one block
   (same shape as `decode_roads`). Ring-1 neighbor-cell lookup is a JS-side
   concern: call this once per cell you decide to fetch.
@@ -143,7 +170,7 @@ One-shot:
 
 ```sh
 ptiles-cli --path /path/to/TN.roads.ptiles --lat 36.16 --lon -86.78 \
-  --query road    # road (nearest single segment) | roads (bulk) | buildings | business | all | business-search
+  --query road    # road | roads | intersection | buildings | business | all | business-search | admin | address | address-find
   [--ring 1]      # 0 (default, center cell only) or 1 (also check the six neighboring res-7 cells)
   [--accuracy-m 10] [--speed-mps 8]   # optional: adds ranked "candidates" via score_candidates
 ```
@@ -151,6 +178,22 @@ ptiles-cli --path /path/to/TN.roads.ptiles --lat 36.16 --lon -86.78 \
 `--query road` returns the single nearest segment, enriched with geometry:
 `{"nearest_road":{"osm_id":...,"name":...,"road_class":...,
 "snapped":[lat,lon],"distance_m":...,"geometry":[[lat,lon],...]}}`.
+
+`--query intersection` answers "am I at an intersection?": the nearest
+labeled intersection within 50m from the roads block's v2 intersection table:
+`{"nearest_intersection":{"lat":...,"lon":...,"distance_m":...,
+"intersection_type":N}|null,"candidate_count":N}` (type 1 signal / 2 stop /
+3 give_way / 4 roundabout). It reports a mapped intersection point, not
+junction degree.
+
+`--query admin` (against `US.admin.ptiles`) returns the jurisdiction covering
+the point: `{"admin":{"country":...,"state":...,"county":...,"zip":...,
+"timezone":...,"boundary_flags":N}|null}`.
+
+`--query address` (against `{STATE}.address.ptiles`) enumerates addresses in
+the covering cell(s): `{"addresses":[{"osm_id":...,"housenumber":...,
+"street":...}, ...],"count":N}`. `--query address-find --number N --street S`
+returns only the accent/case-insensitive matches.
 
 `--query roads` returns every decoded segment in the query cell(s) (ring-0,
 or ring-0+1 with `--ring 1`): `{"roads":[{"osm_id":...,"name":...,
@@ -260,8 +303,13 @@ rationale) exposing `ptiles-core` to Swift and Kotlin. Two opaque objects:
 
 - `PtilesLayer` — opens one `.ptiles` file, layer inferred from the
   `<state>.<layer>.ptiles` filename convention (same rule as the CLI's
-  `Layer` enum). Methods: `nearest_road`, `roads` (ring 0/1), `building`,
-  `businesses_near`; each errors if called against a mismatched layer.
+  `Layer` enum). Methods: `nearest_road`, `nearest_intersection`, `roads`
+  (ring 0/1), `building`, `businesses_near`; each errors if called against a
+  mismatched layer.
+- `AdminLayer` — `admin_at(lat, lon)` → jurisdiction, for `US.admin.ptiles`.
+- `AddressLayer` — `addresses_at(lat, lon, ring)` (reverse) and
+  `find_address(lat, lon, ring, number, street)` (forward), for
+  `{STATE}.address.ptiles`.
 - `PtilesStack` — holds up to one roads/buildings/business `PtilesLayer`
   together and exposes `score(fix, ring)`, a thin wrapper over
   `ptiles_core::score_candidates`, for CoreLocation-style callers scoring one
@@ -272,6 +320,23 @@ Regeneration commands, the Android cross-compile recipe (verified on Linux
 with `cargo-ndk`), and the iOS/macOS recipe (**requires a Mac** — Apple
 targets cannot be built on this Linux host) are documented in
 [`ffi/README.md`](ffi/README.md).
+
+### `motion` (`ptiles-motion`)
+
+Stateful GPS motion classification, kept out of `ptiles-core` because core is
+deliberately stateless single-fix (its `Fix` has no timestamp). Feed a
+`MotionClassifier` a sequence of `TimedFix` (a core `Fix` + monotonic
+`t_ms`) via `push`, and read back a `MotionState` — `Unknown`, `Stationary`,
+`Walking`, or `Driving`. It prefers the platform `speed_mps` when present and
+otherwise derives speed from consecutive positions (`haversine_distance_m` /
+Δt), smooths over a window, and debounces band changes with a dwell counter so
+a single outlier can't flip the state. Low-accuracy fixes and large time gaps
+are gated out. `MotionClassifier::smoothed_speed_mps()` can populate
+`Fix.speed_mps` before a `score_candidates` call so core's existing binary
+road/stationary gate sees a denoised speed — no core scoring semantics change.
+`no_std + alloc`, same constraints as core (`cargo build -p ptiles-motion
+--no-default-features` builds). FFI/wasm handles for the stateful classifier
+are a planned follow-up.
 
 ```sh
 cargo test -p ptiles-ffi   # 9 integration tests against real TN.*.ptiles fixtures
@@ -374,3 +439,10 @@ entry is added.
   so there is no round-trip golden case for it yet.
 - `src/lib.rs` (the legacy seed) is unmaintained and only kept as a
   reference until `wasm/` parity is confirmed in the demo.
+- `nearest_intersection` reports a mapped intersection *point* and its
+  traffic-control type, but not junction *degree*: the roads format stores no
+  road-to-node topology, so a true multi-way junction and a tagged road
+  endpoint are indistinguishable from the data alone. Storing node degree is a
+  request for the next roads format version — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+- `ptiles-motion` classification is native-only for now; the stateful
+  `MotionClassifier` is not yet exposed through FFI (Swift/Kotlin) or wasm.

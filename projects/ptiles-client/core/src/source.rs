@@ -25,8 +25,13 @@ pub enum SourceError {
     /// positioned reads cannot work against it (it would otherwise silently
     /// fetch the whole file body for every "range").
     #[cfg(feature = "http")]
-    #[error("{url} does not support HTTP Range requests (got status {status}, expected 206 Partial Content)")]
-    RangeNotSupported { url: alloc::string::String, status: u16 },
+    #[error(
+        "{url} does not support HTTP Range requests (got status {status}, expected 206 Partial Content)"
+    )]
+    RangeNotSupported {
+        url: alloc::string::String,
+        status: u16,
+    },
     /// Any other unsuccessful HTTP status for a range fetch.
     #[cfg(feature = "http")]
     #[error("HTTP {status} fetching {url} (range {offset}..{end})")]
@@ -148,11 +153,12 @@ impl PtilesSource for FileSource {
             needed: buf.len(),
             message: alloc::format!("{e}"),
         })?;
-        f.seek(SeekFrom::Start(offset)).map_err(|e| SourceError::Io {
-            offset,
-            needed: buf.len(),
-            message: alloc::format!("{e}"),
-        })?;
+        f.seek(SeekFrom::Start(offset))
+            .map_err(|e| SourceError::Io {
+                offset,
+                needed: buf.len(),
+                message: alloc::format!("{e}"),
+            })?;
         f.read_exact(buf).map_err(|e| SourceError::Io {
             offset,
             needed: buf.len(),
@@ -184,5 +190,59 @@ mod tests {
         assert!(src.read_exact_at(0, &mut buf).is_err());
         let mut buf2 = [0u8; 1];
         assert!(src.read_exact_at(10, &mut buf2).is_err());
+    }
+
+    #[test]
+    fn memory_source_full_range_read() {
+        let src = MemorySource::new(alloc::vec![10, 20, 30, 40]);
+        let mut buf = [0u8; 4];
+        src.read_exact_at(0, &mut buf).unwrap();
+        assert_eq!(buf, [10, 20, 30, 40]);
+        assert_eq!(src.len(), Some(4));
+    }
+
+    #[test]
+    fn memory_source_partial_read_at_tail() {
+        // Read the final byte exactly at the boundary — no off-by-one error.
+        let src = MemorySource::new(alloc::vec![10, 20, 30, 40]);
+        let mut buf = [0u8; 1];
+        src.read_exact_at(3, &mut buf).unwrap();
+        assert_eq!(buf, [40]);
+    }
+
+    #[test]
+    fn memory_source_read_straddling_eof_errors() {
+        // Starts in-bounds but the requested length runs one byte past the end.
+        let src = MemorySource::new(alloc::vec![1, 2, 3, 4]);
+        let mut buf = [0u8; 3];
+        let err = src.read_exact_at(2, &mut buf).unwrap_err();
+        assert_eq!(
+            err,
+            SourceError::OutOfBounds {
+                offset: 2,
+                needed: 3,
+                len: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn memory_source_zero_length_reads() {
+        let src = MemorySource::new(alloc::vec![1, 2, 3]);
+        let mut empty: [u8; 0] = [];
+        // Zero-length read is a no-op success anywhere within [0, len].
+        src.read_exact_at(0, &mut empty).unwrap();
+        src.read_exact_at(3, &mut empty).unwrap(); // exactly at EOF is fine
+        // But a zero-length read starting past the end is still out of bounds.
+        assert!(src.read_exact_at(4, &mut empty).is_err());
+    }
+
+    #[test]
+    fn memory_source_offset_overflows_usize_errors_not_panics() {
+        // On 64-bit an offset > isize::MAX can't index a real buffer; must be a
+        // clean OutOfBounds error, never a panic.
+        let src = MemorySource::new(alloc::vec![1, 2, 3]);
+        let mut buf = [0u8; 1];
+        assert!(src.read_exact_at(u64::MAX, &mut buf).is_err());
     }
 }

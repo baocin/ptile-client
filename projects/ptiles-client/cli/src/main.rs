@@ -7,7 +7,7 @@
 //! (`~/.hermes/plans/ptiles-client-extraction-plan.md`, Addendum 2 item 1).
 //!
 //! Modes:
-//! - one-shot: `--path <file.ptiles|https://.../file.ptiles> --lat <f64> --lon <f64> [--query roads|buildings|business|all] [--ring 1]`
+//! - one-shot: `--path <file.ptiles|https://.../file.ptiles> --lat <f64> --lon <f64> [--query road|roads|intersection|buildings|business|all] [--ring 1]`
 //!   Opens a single `.ptiles` file (local or remote), resolves the H3 res-7
 //!   cell for the point (plus ring-1 neighbors if `--ring 1`), decodes the
 //!   block(s) with the decoder matching the file's layer (inferred from its
@@ -56,11 +56,12 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use ptiles_core::{
-    cell_center, cell_for_coord, decode_buildings, decode_business, decode_roads, nearest_road,
-    score_candidates, search_business_brute_force, search_business_indexed, Building, Business,
-    BusinessHit, Candidate, CandidateKind, FileSource, Fix, HttpSource, PtilesFile, RoadSegment,
-    ScoringParams,
+    cell_center, cell_for_coord, decode_buildings, decode_business, decode_road_block,
+    decode_roads, nearest_intersection, nearest_road, score_candidates,
+    search_business_brute_force, search_business_indexed, Building, Business, BusinessHit,
+    Candidate, CandidateKind, FileSource, Fix, HttpSource, PtilesFile, RoadSegment, ScoringParams,
 };
+use ptiles_core::{AddressFile, AdminFile, PtilesSource};
 use serde_json::{json, Value};
 
 /// USPS state/territory abbreviations + DC -- the full set `--national`
@@ -112,6 +113,7 @@ impl Layer {
 enum QueryKind {
     Road,
     Roads,
+    Intersection,
     Buildings,
     Business,
     All,
@@ -122,6 +124,7 @@ impl QueryKind {
         match s {
             "road" => Some(QueryKind::Road),
             "roads" => Some(QueryKind::Roads),
+            "intersection" => Some(QueryKind::Intersection),
             "building" | "buildings" => Some(QueryKind::Buildings),
             "business" => Some(QueryKind::Business),
             "all" => Some(QueryKind::All),
@@ -132,7 +135,7 @@ impl QueryKind {
     fn wants(self, layer: Layer) -> bool {
         match self {
             QueryKind::All => true,
-            QueryKind::Road | QueryKind::Roads => layer == Layer::Roads,
+            QueryKind::Road | QueryKind::Roads | QueryKind::Intersection => layer == Layer::Roads,
             QueryKind::Buildings => layer == Layer::BuildingsV8,
             QueryKind::Business => layer == Layer::Business,
         }
@@ -157,15 +160,8 @@ fn main() {
             eprintln!("ptiles-cli: --query cells requires --bounds min_lat,min_lon,max_lat,max_lon ({e})");
             std::process::exit(2);
         });
-        let parts: Vec<f64> = bounds.split(',').map(|s| s.trim().parse::<f64>()).collect::<Result<_, _>>().unwrap_or_else(|e| {
-            eprintln!("ptiles-cli: --bounds must be 4 comma-separated numbers min_lat,min_lon,max_lat,max_lon ({e})");
-            std::process::exit(2);
-        });
-        let [min_lat, min_lon, max_lat, max_lon]: [f64; 4] = parts.try_into().unwrap_or_else(|v: Vec<f64>| {
-            eprintln!(
-                "ptiles-cli: --bounds must be exactly 4 comma-separated numbers, got {}",
-                v.len()
-            );
+        let [min_lat, min_lon, max_lat, max_lon] = parse_bounds(&bounds).unwrap_or_else(|e| {
+            eprintln!("ptiles-cli: {e}");
             std::process::exit(2);
         });
         let result = match ptiles_core::cells_for_bounds(min_lat, min_lon, max_lat, max_lon) {
@@ -219,6 +215,37 @@ fn main() {
         eprintln!("ptiles-cli: --lon is required ({e})");
         std::process::exit(2);
     });
+    // `--query admin`: point -> jurisdiction lookup against an admin file
+    // (`US.admin.ptiles`). Admin is a lookup-grid layer, not block-per-cell, so
+    // it bypasses the `OpenedLayer`/`--ring` machinery entirely.
+    if query_peek.as_deref() == Some("admin") {
+        run_admin_query(&path, lat, lon);
+        return;
+    }
+
+    // `--query address` (reverse: addresses in the covering cell(s), honoring
+    // `--ring`) or `--query address-find --number N --street S` (forward). Like
+    // admin, address bypasses the block-per-cell `OpenedLayer` (it uses a v2
+    // merged-block index).
+    if matches!(query_peek.as_deref(), Some("address") | Some("address-find")) {
+        let ring: u32 = args.opt_value_from_str("--ring").unwrap_or(None).unwrap_or(0);
+        let find = if query_peek.as_deref() == Some("address-find") {
+            let number: String = args.value_from_str("--number").unwrap_or_else(|e| {
+                eprintln!("ptiles-cli: --query address-find requires --number ({e})");
+                std::process::exit(2);
+            });
+            let street: String = args.value_from_str("--street").unwrap_or_else(|e| {
+                eprintln!("ptiles-cli: --query address-find requires --street ({e})");
+                std::process::exit(2);
+            });
+            Some((number, street))
+        } else {
+            None
+        };
+        run_address_query(&path, lat, lon, ring as u8, find);
+        return;
+    }
+
     // `--query` was already consumed by the `cells` peek above (pico-args
     // removes matched flags from `args`), so reuse that parse rather than
     // asking `args` for it again (it would come back empty).
@@ -236,7 +263,7 @@ fn main() {
         Some(s) => match QueryKind::parse(s) {
             Some(q) => q,
             None => {
-                eprintln!("ptiles-cli: unknown --query {s:?} (expected roads|buildings|business|all)");
+                eprintln!("ptiles-cli: unknown --query {s:?} (expected road|roads|intersection|buildings|business|all)");
                 std::process::exit(2);
             }
         },
@@ -291,6 +318,22 @@ fn main() {
 /// Ring is opt-in and center-cell-default per the plan addendum; only 0 or 1
 /// are supported (ring-1 neighbors), so reject anything larger explicitly
 /// rather than silently truncating.
+/// Parse a `--bounds min_lat,min_lon,max_lat,max_lon` string into exactly four
+/// f64s. Pure (no process exit / no stderr) so it's unit-testable; the caller
+/// in `main` maps the `Err(String)` to an eprintln + exit(2).
+fn parse_bounds(bounds: &str) -> Result<[f64; 4], String> {
+    let parts: Vec<f64> = bounds
+        .split(',')
+        .map(|s| s.trim().parse::<f64>())
+        .collect::<Result<_, _>>()
+        .map_err(|e| {
+            format!("--bounds must be 4 comma-separated numbers min_lat,min_lon,max_lat,max_lon ({e})")
+        })?;
+    parts.try_into().map_err(|v: Vec<f64>| {
+        format!("--bounds must be exactly 4 comma-separated numbers, got {}", v.len())
+    })
+}
+
 fn validate_ring(ring: u32) -> Result<(), String> {
     if ring > 1 {
         Err(format!("ring {ring} not supported (only 0 or 1)"))
@@ -326,6 +369,81 @@ fn candidates_json(candidates: &[Candidate]) -> Value {
 /// `--path`, `--serve --data-dir`/`--remote-base` per-layer files).
 fn is_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
+}
+
+/// `--query admin`: open an admin file (local or URL) and print the
+/// jurisdiction covering `(lat, lon)` as JSON (`{"admin": {...}|null}`).
+fn run_admin_query(path_or_url: &str, lat: f64, lon: f64) {
+    let admin = if is_url(path_or_url) {
+        HttpSource::open(path_or_url)
+            .map_err(|e| e.to_string())
+            .and_then(|s| AdminFile::open(s).map_err(|e| e.to_string()))
+    } else {
+        FileSource::open(path_or_url)
+            .map_err(|e| e.to_string())
+            .and_then(|s| AdminFile::open(s).map_err(|e| e.to_string()))
+    };
+    let admin = match admin {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("ptiles-cli: could not open admin file {path_or_url:?}: {e}");
+            std::process::exit(2);
+        }
+    };
+    let value = match admin.admin_at(lat, lon) {
+        Some(info) => json!({"admin": {
+            "country": info.country,
+            "state": info.state,
+            "county": info.county,
+            "zip": info.zip,
+            "timezone": info.timezone,
+            "boundary_flags": info.boundary_flags,
+        }}),
+        None => json!({"admin": null}),
+    };
+    println!("{}", serde_json::to_string_pretty(&value).unwrap());
+}
+
+/// `--query address` / `address-find`: open an address file (local or URL) and
+/// print reverse (enumerate) or forward (match number+street) results.
+fn run_address_query(path_or_url: &str, lat: f64, lon: f64, ring: u8, find: Option<(String, String)>) {
+    let result = if is_url(path_or_url) {
+        HttpSource::open(path_or_url)
+            .map_err(|e| e.to_string())
+            .and_then(|s| address_result(s, lat, lon, ring, &find))
+    } else {
+        FileSource::open(path_or_url)
+            .map_err(|e| e.to_string())
+            .and_then(|s| address_result(s, lat, lon, ring, &find))
+    };
+    match result {
+        Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap()),
+        Err(e) => {
+            eprintln!("ptiles-cli: address query failed for {path_or_url:?}: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
+fn address_result<S: PtilesSource>(
+    source: S,
+    lat: f64,
+    lon: f64,
+    ring: u8,
+    find: &Option<(String, String)>,
+) -> Result<Value, String> {
+    let file = AddressFile::open(source).map_err(|e| e.to_string())?;
+    let records = match find {
+        Some((number, street)) => file
+            .find_address(lat, lon, ring, number, street)
+            .map_err(|e| e.to_string())?,
+        None => file.addresses_at(lat, lon, ring).map_err(|e| e.to_string())?,
+    };
+    let addresses: Vec<Value> = records
+        .iter()
+        .map(|r| json!({"osm_id": r.osm_id, "housenumber": r.housenumber, "street": r.street}))
+        .collect();
+    Ok(json!({"addresses": addresses, "count": records.len()}))
 }
 
 /// Infer the `<state>.<layer>.ptiles` layer token from a local path or a
@@ -369,6 +487,15 @@ impl AnyFile {
         match self {
             AnyFile::File(f) => f.read_block(cell).map_err(|e| e.to_string()),
             AnyFile::Http(f) => f.read_block(cell).map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Header schema version — `decode_road_block` needs it to know whether a
+    /// trailing intersection table is present (v2+).
+    fn version(&self) -> u8 {
+        match self {
+            AnyFile::File(f) => f.header().version,
+            AnyFile::Http(f) => f.header().version,
         }
     }
 
@@ -483,6 +610,40 @@ impl OpenedLayer {
         match self.layer {
             Layer::Roads => {
                 let blocks = self.blocks_for(&cells);
+                // "am I at an intersection?" — decode the v2 intersection
+                // table (needs `decode_road_block` + the header version) and
+                // return the nearest labeled intersection within threshold.
+                if query_kind == QueryKind::Intersection {
+                    let version = self.file.version();
+                    let mut intersections = Vec::new();
+                    for block in &blocks {
+                        match decode_road_block(block, version) {
+                            Ok((_roads, mut ix)) => intersections.append(&mut ix),
+                            Err(e) => {
+                                return json!({"error": format!("decode_road_block: {e}")})
+                            }
+                        }
+                    }
+                    let nearest = nearest_intersection(
+                        lat,
+                        lon,
+                        &intersections,
+                        ptiles_core::DEFAULT_THRESHOLD_M,
+                    )
+                    .map(|ni| {
+                        let [ix_lon, ix_lat] = intersections[ni.index].coords();
+                        json!({
+                            "lat": ix_lat,
+                            "lon": ix_lon,
+                            "distance_m": ni.distance_m,
+                            "intersection_type": ni.intersection_type,
+                        })
+                    });
+                    return json!({
+                        "nearest_intersection": nearest,
+                        "candidate_count": intersections.len(),
+                    });
+                }
                 let mut roads: Vec<RoadSegment> = Vec::new();
                 for block in &blocks {
                     match decode_roads(block) {
@@ -1128,4 +1289,212 @@ fn handle_serve_line(line: &str, states: &HashMap<String, StateFiles>) -> Value 
     }
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_kind_parse_known_and_unknown() {
+        assert_eq!(QueryKind::parse("road"), Some(QueryKind::Road));
+        assert_eq!(QueryKind::parse("roads"), Some(QueryKind::Roads));
+        assert_eq!(QueryKind::parse("intersection"), Some(QueryKind::Intersection));
+        assert_eq!(QueryKind::parse("building"), Some(QueryKind::Buildings));
+        assert_eq!(QueryKind::parse("buildings"), Some(QueryKind::Buildings));
+        assert_eq!(QueryKind::parse("business"), Some(QueryKind::Business));
+        assert_eq!(QueryKind::parse("all"), Some(QueryKind::All));
+        assert_eq!(QueryKind::parse("nope"), None);
+        assert_eq!(QueryKind::parse(""), None);
+    }
+
+    #[test]
+    fn query_kind_wants_layer_routing() {
+        assert!(QueryKind::All.wants(Layer::Roads));
+        assert!(QueryKind::All.wants(Layer::BuildingsV8));
+        assert!(QueryKind::All.wants(Layer::Business));
+        assert!(QueryKind::Road.wants(Layer::Roads));
+        assert!(!QueryKind::Road.wants(Layer::Business));
+        assert!(QueryKind::Roads.wants(Layer::Roads));
+        assert!(!QueryKind::Buildings.wants(Layer::Roads));
+        assert!(QueryKind::Buildings.wants(Layer::BuildingsV8));
+        assert!(QueryKind::Business.wants(Layer::Business));
+        assert!(!QueryKind::Business.wants(Layer::BuildingsV8));
+    }
+
+    #[test]
+    fn layer_from_filename_token_and_roundtrip() {
+        assert_eq!(Layer::from_filename_token("roads"), Some(Layer::Roads));
+        assert_eq!(Layer::from_filename_token("buildings_v8"), Some(Layer::BuildingsV8));
+        assert_eq!(Layer::from_filename_token("business"), Some(Layer::Business));
+        assert_eq!(Layer::from_filename_token("water"), None);
+        assert_eq!(Layer::from_filename_token("business_name_index"), None);
+        assert_eq!(Layer::Roads.as_str(), "roads");
+        assert_eq!(Layer::BuildingsV8.as_str(), "buildings_v8");
+        assert_eq!(Layer::Business.as_str(), "business");
+    }
+
+    #[test]
+    fn layer_from_path_local_and_url() {
+        assert_eq!(layer_from_path("/data/TN.roads.ptiles"), Some(Layer::Roads));
+        assert_eq!(
+            layer_from_path("https://host/maps/TN.buildings_v8.ptiles"),
+            Some(Layer::BuildingsV8)
+        );
+        assert_eq!(layer_from_path("http://host/US.business.ptiles"), Some(Layer::Business));
+        // Unknown 2nd token and missing token both yield None.
+        assert_eq!(layer_from_path("/data/TN.water.ptiles"), None);
+        assert_eq!(layer_from_path("/data/noextension"), None);
+    }
+
+    #[test]
+    fn is_url_scheme_sniff() {
+        assert!(is_url("http://x/y"));
+        assert!(is_url("https://x/y"));
+        assert!(!is_url("/local/path.ptiles"));
+        assert!(!is_url("ftp://x"));
+        assert!(!is_url(""));
+    }
+
+    #[test]
+    fn validate_ring_bounds() {
+        assert!(validate_ring(0).is_ok());
+        assert!(validate_ring(1).is_ok());
+        assert!(validate_ring(2).is_err());
+        assert!(validate_ring(99).is_err());
+    }
+
+    #[test]
+    fn parse_bounds_valid() {
+        assert_eq!(
+            parse_bounds("36.0, -87.0, 36.2, -86.6").unwrap(),
+            [36.0, -87.0, 36.2, -86.6]
+        );
+        assert_eq!(parse_bounds("1,2,3,4").unwrap(), [1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn parse_bounds_wrong_arity_and_nonnumeric() {
+        assert!(parse_bounds("1,2,3").is_err(), "3 values must be rejected");
+        assert!(parse_bounds("1,2,3,4,5").is_err(), "5 values must be rejected");
+        assert!(parse_bounds("1,2,three,4").is_err(), "non-numeric must be rejected");
+        assert!(parse_bounds("").is_err());
+    }
+
+    #[test]
+    fn point_in_polygon_basics() {
+        // Unit square (lon/lat pairs). Point inside, outside, and a degenerate
+        // ring (<3 points) which must never be "inside".
+        let square = [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]];
+        assert!(point_in_polygon(0.5, 0.5, &square));
+        assert!(!point_in_polygon(2.0, 2.0, &square));
+        assert!(!point_in_polygon(0.5, 0.5, &[[0.0, 0.0], [1.0, 1.0]]));
+    }
+
+    #[test]
+    fn index_location_helpers_local_and_remote() {
+        let dir = Path::new("/data");
+        assert_eq!(
+            business_name_index_location("TN", None, dir),
+            "/data/TN.business_name_index.ptiles"
+        );
+        assert_eq!(
+            business_name_index_location("TN", Some("https://h/maps/"), dir),
+            "https://h/maps/TN.business_name_index.ptiles"
+        );
+        assert_eq!(business_location("TN", None, dir), "/data/TN.business.ptiles");
+        assert_eq!(
+            business_location("TN", Some("https://h/maps/"), dir),
+            "https://h/maps/TN.business.ptiles"
+        );
+    }
+
+    #[test]
+    fn candidates_json_shape() {
+        let cands = vec![Candidate {
+            kind: CandidateKind::Road,
+            osm_id: 42,
+            name: Some("Main St".to_string()),
+            distance_m: 5.0,
+            score: 0.9,
+        }];
+        let v = candidates_json(&cands);
+        let arr = v.as_array().expect("array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["kind"], "road");
+        assert_eq!(arr[0]["osm_id"], 42);
+        assert_eq!(arr[0]["name"], "Main St");
+    }
+
+    // --- serve-line dispatch error paths (no data files needed) ------------
+
+    fn empty_states() -> HashMap<String, StateFiles> {
+        HashMap::new()
+    }
+
+    #[test]
+    fn serve_line_invalid_json_errors() {
+        let r = handle_serve_line("not json", &empty_states());
+        assert!(r.get("error").is_some(), "invalid JSON must produce an error line: {r}");
+    }
+
+    #[test]
+    fn serve_line_missing_lat_lon_errors() {
+        let r = handle_serve_line(r#"{"lon":-86.78}"#, &empty_states());
+        assert!(r["error"].as_str().unwrap().contains("lat"));
+        let r = handle_serve_line(r#"{"lat":36.16}"#, &empty_states());
+        assert!(r["error"].as_str().unwrap().contains("lon"));
+    }
+
+    #[test]
+    fn serve_line_unknown_query_errors() {
+        let r = handle_serve_line(r#"{"lat":36.16,"lon":-86.78,"query":"bogus"}"#, &empty_states());
+        assert!(r["error"].as_str().unwrap().contains("unknown query"));
+    }
+
+    #[test]
+    fn serve_line_bad_ring_errors() {
+        let r = handle_serve_line(
+            r#"{"lat":36.16,"lon":-86.78,"query":"all","ring":2}"#,
+            &empty_states(),
+        );
+        assert!(r["error"].as_str().unwrap().contains("ring"));
+    }
+
+    #[test]
+    fn serve_line_unknown_state_errors() {
+        let r = handle_serve_line(
+            r#"{"lat":36.16,"lon":-86.78,"state":"ZZ"}"#,
+            &empty_states(),
+        );
+        assert!(r["error"].as_str().unwrap().contains("unknown state"));
+    }
+
+    #[test]
+    fn serve_line_no_state_with_zero_loaded_errors() {
+        // No state specified and zero states loaded -> ambiguity error, not a
+        // panic on states.values().next().
+        let r = handle_serve_line(r#"{"lat":36.16,"lon":-86.78}"#, &empty_states());
+        assert!(r.get("error").is_some());
+    }
+
+    #[test]
+    fn business_search_line_missing_name_errors() {
+        let r = handle_business_search_line(
+            &json!({"query": "business_search"}),
+            &empty_states(),
+        );
+        assert!(r["error"].as_str().unwrap().contains("name"));
+    }
+
+    #[test]
+    fn business_search_line_no_layers_errors() {
+        // Name present but no state/layers loaded -> ambiguity error (zero
+        // states), exercising the state-selection branch without I/O.
+        let r = handle_business_search_line(
+            &json!({"query": "business_search", "name": "waffle"}),
+            &empty_states(),
+        );
+        assert!(r.get("error").is_some());
+    }
 }

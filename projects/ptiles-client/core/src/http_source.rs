@@ -36,8 +36,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::source::{PtilesSource, SourceError};
 
@@ -108,37 +108,75 @@ impl HttpSource {
     }
 }
 
+/// Where a positioned read should be served from, decided purely from the
+/// request geometry and the source's known length/prefetch -- no I/O. Split
+/// out so the range math (overflow, bounds, prefetch-window containment) is
+/// unit-testable without any HTTP layer.
+#[derive(Debug, PartialEq, Eq)]
+enum ReadPlan {
+    /// The whole `[offset, offset+needed)` range lies inside the prefetch
+    /// buffer; copy from `prefetch[start..start+needed]`.
+    Prefetch { start: usize },
+    /// The range is valid but past the prefetch; fetch bytes `offset..=range_end`.
+    Fetch { range_end: u64 },
+}
+
+/// Decide how to serve a read of `needed` bytes at `offset` against a source
+/// of total length `len` with `prefetch_len` eagerly-cached leading bytes.
+/// Returns `OutOfBounds` for reads that overflow `u64` or run past `len`.
+/// A zero-length read is always in bounds and served from the prefetch
+/// (`start = offset`), matching a no-op `copy_from_slice`.
+fn plan_read(
+    offset: u64,
+    needed: usize,
+    len: u64,
+    prefetch_len: usize,
+) -> Result<ReadPlan, SourceError> {
+    let end = offset
+        .checked_add(needed as u64)
+        .ok_or(SourceError::OutOfBounds {
+            offset,
+            needed,
+            len,
+        })?;
+    if end > len {
+        return Err(SourceError::OutOfBounds {
+            offset,
+            needed,
+            len,
+        });
+    }
+    if end <= prefetch_len as u64 {
+        // `end <= prefetch_len <= usize::MAX`, so `offset` fits in usize.
+        Ok(ReadPlan::Prefetch {
+            start: offset as usize,
+        })
+    } else {
+        // `end >= 1` here (end > prefetch_len >= 0), so `end - 1` can't wrap.
+        Ok(ReadPlan::Fetch { range_end: end - 1 })
+    }
+}
+
 impl PtilesSource for HttpSource {
     fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), SourceError> {
         let needed = buf.len();
-        let end = offset.checked_add(needed as u64).ok_or(SourceError::OutOfBounds {
-            offset,
-            needed,
-            len: self.len,
-        })?;
-        if end > self.len {
-            return Err(SourceError::OutOfBounds {
-                offset,
-                needed,
-                len: self.len,
-            });
-        }
 
-        // Served from the eager prefetch when the whole request falls
-        // inside it -- the common case for header/index reads on
-        // small-to-medium layers (see module doc).
-        if end <= self.prefetch.len() as u64 {
-            let start = offset as usize;
-            buf.copy_from_slice(&self.prefetch[start..start + needed]);
-            return Ok(());
-        }
+        let range_end = match plan_read(offset, needed, self.len, self.prefetch.len())? {
+            // Served from the eager prefetch when the whole request falls
+            // inside it -- the common case for header/index reads on
+            // small-to-medium layers (see module doc).
+            ReadPlan::Prefetch { start } => {
+                buf.copy_from_slice(&self.prefetch[start..start + needed]);
+                return Ok(());
+            }
+            ReadPlan::Fetch { range_end } => range_end,
+        };
 
         if let Some(cached) = self.cache.lock().unwrap().get(&(offset, needed)) {
             buf.copy_from_slice(cached);
             return Ok(());
         }
 
-        let range_end = end - 1;
         self.request_count.fetch_add(1, Ordering::Relaxed);
         let (status, _total, body) = fetch_range(&self.agent, &self.url, offset, range_end)?;
         if status != 206 {
@@ -195,12 +233,11 @@ fn fetch_range(
     };
 
     let status = response.status().as_u16();
-    let total_len = response
+    let content_range = response
         .headers()
         .get("Content-Range")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.rsplit('/').next())
-        .and_then(|s| s.parse::<u64>().ok());
+        .map(|s| s.to_string());
 
     let mut body = Vec::new();
     response
@@ -212,8 +249,19 @@ fn fetch_range(
             message: format!("{e}"),
         })?;
 
-    let total_len = total_len.unwrap_or(body.len() as u64);
+    let total_len = parse_content_range_total(content_range.as_deref(), body.len());
     Ok((status, total_len, body))
+}
+
+/// Extract the total resource length from a `Content-Range` header value of
+/// the form `bytes START-END/TOTAL` (RFC 7233). Falls back to `body_len` when
+/// the header is absent, malformed, or reports an unknown total (`*`). Pure so
+/// the parsing is testable without a live server.
+fn parse_content_range_total(content_range: Option<&str>, body_len: usize) -> u64 {
+    content_range
+        .and_then(|s| s.rsplit('/').next())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(body_len as u64)
 }
 
 #[cfg(test)]
@@ -243,7 +291,10 @@ mod tests {
                 return;
             }
         };
-        assert!(source.len().unwrap_or(0) > 0, "remote file must report a nonzero length");
+        assert!(
+            source.len().unwrap_or(0) > 0,
+            "remote file must report a nonzero length"
+        );
 
         let file = match crate::file::PtilesFile::open(source) {
             Ok(f) => f,
@@ -263,7 +314,10 @@ mod tests {
         match file.read_block(cell) {
             Ok(Some(block)) => match crate::rail::decode_rail(&block) {
                 Ok(features) => {
-                    assert!(!features.is_empty(), "rail block should decode to at least one feature");
+                    assert!(
+                        !features.is_empty(),
+                        "rail block should decode to at least one feature"
+                    );
                 }
                 Err(e) => {
                     eprintln!(
@@ -272,10 +326,14 @@ mod tests {
                 }
             },
             Ok(None) => {
-                eprintln!("skipping: read_block found no entry (likely v2 index misparse, not an HTTP bug)");
+                eprintln!(
+                    "skipping: read_block found no entry (likely v2 index misparse, not an HTTP bug)"
+                );
             }
             Err(e) => {
-                eprintln!("skipping: read_block failed (network or v2-index mismatch, not necessarily HTTP transport): {e}");
+                eprintln!(
+                    "skipping: read_block failed (network or v2-index mismatch, not necessarily HTTP transport): {e}"
+                );
             }
         }
     }
@@ -343,5 +401,137 @@ mod tests {
     fn open_of_nonexistent_host_is_a_clean_error_not_a_panic() {
         let result = HttpSource::open("https://this-host-should-not-resolve.invalid/x.ptiles");
         assert!(result.is_err());
+    }
+
+    // ---- Pure range-math tests (no network) -------------------------------
+
+    #[test]
+    fn plan_read_serves_range_fully_inside_prefetch() {
+        // len 1000, 64 bytes prefetched; a read of [10,20) is inside it.
+        assert_eq!(
+            plan_read(10, 10, 1000, 64).unwrap(),
+            ReadPlan::Prefetch { start: 10 }
+        );
+    }
+
+    #[test]
+    fn plan_read_exact_prefetch_boundary_is_prefetch_but_one_past_is_fetch() {
+        // Read ending exactly at prefetch_len stays in the prefetch...
+        assert_eq!(
+            plan_read(60, 4, 1000, 64).unwrap(),
+            ReadPlan::Prefetch { start: 60 }
+        );
+        // ...but ending one byte later must be fetched. range_end = end-1 = 64.
+        assert_eq!(
+            plan_read(61, 4, 1000, 64).unwrap(),
+            ReadPlan::Fetch { range_end: 64 }
+        );
+    }
+
+    #[test]
+    fn plan_read_range_straddling_prefetch_end_is_fetched_whole() {
+        // Starts inside prefetch, ends past it -> a single fetch of the
+        // whole requested range (no partial-prefetch stitching).
+        assert_eq!(
+            plan_read(60, 20, 1000, 64).unwrap(),
+            ReadPlan::Fetch { range_end: 79 }
+        );
+    }
+
+    #[test]
+    fn plan_read_past_prefetch_computes_inclusive_range_end() {
+        // [100,150) with a 64-byte prefetch -> fetch bytes 100..=149.
+        assert_eq!(
+            plan_read(100, 50, 1000, 64).unwrap(),
+            ReadPlan::Fetch { range_end: 149 }
+        );
+    }
+
+    #[test]
+    fn plan_read_zero_length_read_is_in_bounds_never_oob() {
+        // Zero-length reads are always in bounds (never OOB), even at the
+        // exact end of the resource. Within the prefetch window they resolve
+        // to a no-op prefetch copy.
+        assert_eq!(
+            plan_read(0, 0, 0, 0).unwrap(),
+            ReadPlan::Prefetch { start: 0 }
+        );
+        assert_eq!(
+            plan_read(50, 0, 1000, 64).unwrap(),
+            ReadPlan::Prefetch { start: 50 }
+        );
+        // Past the prefetch window a zero-length read is still in bounds
+        // (Ok, not an error) -- it just isn't classified as a prefetch hit.
+        assert!(plan_read(1000, 0, 1000, 64).is_ok());
+    }
+
+    #[test]
+    fn plan_read_end_exactly_at_len_is_allowed() {
+        // Reading the final byte(s) up to and including EOF is in bounds.
+        assert_eq!(
+            plan_read(996, 4, 1000, 64).unwrap(),
+            ReadPlan::Fetch { range_end: 999 }
+        );
+    }
+
+    #[test]
+    fn plan_read_one_past_len_is_out_of_bounds() {
+        let err = plan_read(996, 5, 1000, 64).unwrap_err();
+        match err {
+            SourceError::OutOfBounds {
+                offset,
+                needed,
+                len,
+            } => {
+                assert_eq!((offset, needed, len), (996, 5, 1000));
+            }
+            other => panic!("expected OutOfBounds, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn plan_read_offset_beyond_len_is_out_of_bounds() {
+        assert!(matches!(
+            plan_read(2000, 1, 1000, 64),
+            Err(SourceError::OutOfBounds { .. })
+        ));
+    }
+
+    #[test]
+    fn plan_read_offset_plus_len_overflow_is_out_of_bounds_not_panic() {
+        // offset near u64::MAX + a nonzero len overflows the addition; must be
+        // reported as OutOfBounds, never a wrapping-add panic.
+        let err = plan_read(u64::MAX, 1, u64::MAX, 64).unwrap_err();
+        assert!(matches!(err, SourceError::OutOfBounds { .. }));
+    }
+
+    // ---- Content-Range parsing tests (no network) -------------------------
+
+    #[test]
+    fn content_range_total_parsed_from_well_formed_header() {
+        assert_eq!(parse_content_range_total(Some("bytes 0-63/2048"), 64), 2048);
+        assert_eq!(
+            parse_content_range_total(Some("bytes 100-199/12345"), 100),
+            12345
+        );
+    }
+
+    #[test]
+    fn content_range_absent_falls_back_to_body_len() {
+        assert_eq!(parse_content_range_total(None, 512), 512);
+    }
+
+    #[test]
+    fn content_range_unknown_total_star_falls_back_to_body_len() {
+        // RFC 7233 allows `bytes 0-63/*` when the total is unknown.
+        assert_eq!(parse_content_range_total(Some("bytes 0-63/*"), 64), 64);
+    }
+
+    #[test]
+    fn content_range_malformed_falls_back_to_body_len() {
+        // No slash, or non-numeric tail, or empty -> use the body length.
+        assert_eq!(parse_content_range_total(Some("garbage"), 77), 77);
+        assert_eq!(parse_content_range_total(Some("bytes 0-63/abc"), 88), 88);
+        assert_eq!(parse_content_range_total(Some(""), 99), 99);
     }
 }

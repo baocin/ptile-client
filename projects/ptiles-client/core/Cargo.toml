@@ -13,6 +13,12 @@ serde = { version = "1", features = ["derive"], optional = true }
 # takes the same libm-under-no_std approach (see h3o's src/math/functions-libm.rs).
 libm = "0.2"
 
+# Accent-folding for business-name search (fold_name in business_search.rs):
+# NFD decomposition so diacritics can be stripped. `default-features = false`
+# keeps it no_std (it uses `alloc` internally) so `ptiles-core --no-default-features`
+# still builds.
+unicode-normalization = { version = "0.1", default-features = false }
+
 # `http` feature: HttpSource (PtilesSource over HTTP Range requests). ureq
 # chosen over reqwest/hyper/isahc/attohttpc: no async runtime (this workspace
 # is sync-only everywhere -- CLI, FFI, tests), rustls-by-default (no OpenSSL/

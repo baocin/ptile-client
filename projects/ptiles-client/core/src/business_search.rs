@@ -44,7 +44,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::codec::{decode_string_u16, decode_string_u8, read_i32, read_u32, read_u8, DecodeError};
+use crate::codec::{DecodeError, decode_string_u8, decode_string_u16, read_i32, read_u8, read_u32};
 use crate::file::{FileError, PtilesFile};
 use crate::source::PtilesSource;
 
@@ -68,15 +68,34 @@ pub struct BusinessHit {
     pub score: u8,
 }
 
-fn score_match(name_lower: &str, query_lower: &str) -> Option<u8> {
-    if query_lower.is_empty() {
+/// Accent-insensitive, case-insensitive normalization applied to both queries
+/// and stored names before matching/bucketing. Steps: NFD-decompose, drop
+/// combining diacritical marks (`U+0300..=U+036F` — the block that covers Latin
+/// accents; a pragmatic range, not the full Unicode `Mn` category, so
+/// non-Latin combining marks pass through unchanged), lowercase, then fold
+/// `ß`→`ss` (which `to_lowercase` alone does not do). So `Café`, `CAFE`, and a
+/// decomposed `Cafe\u{0301}` all fold to `cafe`, and `Éclair`→`eclair`.
+///
+/// Does NOT trim — callers trim the query first where they want to.
+pub(crate) fn fold_name(s: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    let stripped: String = s
+        .nfd()
+        .filter(|c| !('\u{0300}'..='\u{036F}').contains(c))
+        .collect();
+    stripped.to_lowercase().replace('ß', "ss")
+}
+
+/// Score a match between two already-[`fold_name`]-normalized strings.
+fn score_match(name_folded: &str, query_folded: &str) -> Option<u8> {
+    if query_folded.is_empty() {
         return None;
     }
-    if name_lower == query_lower {
+    if name_folded == query_folded {
         Some(2)
-    } else if name_lower.starts_with(query_lower) {
+    } else if name_folded.starts_with(query_folded) {
         Some(1)
-    } else if name_lower.contains(query_lower) {
+    } else if name_folded.contains(query_folded) {
         Some(0)
     } else {
         None
@@ -93,17 +112,29 @@ fn score_match(name_lower: &str, query_lower: &str) -> Option<u8> {
 /// boundary, where JS owns file I/O and index lookup, see `wasm/src/lib.rs`
 /// -- can compute which block key to fetch without re-deriving this table.
 pub fn name_to_key(query: &str) -> u8 {
-    let trimmed = query.trim();
-    match trimmed.chars().next() {
+    // Fold first so accented first letters bucket to their base letter
+    // (`Éclair` -> `eclair` -> bucket 4), not the catch-all 26.
+    let folded = fold_name(query.trim());
+    match folded.chars().next() {
         None => 27,
-        Some(c) => {
-            let lower = c.to_ascii_lowercase();
-            if lower.is_ascii_lowercase() {
-                (lower as u8) - b'a'
-            } else {
-                26
-            }
-        }
+        // `folded` is already lowercase.
+        Some(c) if c.is_ascii_lowercase() => (c as u8) - b'a',
+        Some(_) => 26,
+    }
+}
+
+/// Bucket keys an indexed search should fetch for `query`: the folded-letter
+/// bucket, plus bucket 26 as a fallback. Sidecars built by the pre-folding
+/// reference builder bucket accented-first-letter names (e.g. `Éclair`) into 26
+/// by their raw first char, so a folded query (`eclair` -> bucket 4) would miss
+/// them without also scanning 26. Buckets are disjoint, so callers need no
+/// dedup. Returns just `[26]` when the query already targets 26.
+fn probe_bucket_keys(query: &str) -> Vec<u64> {
+    let key = name_to_key(query) as u64;
+    if key == 26 {
+        alloc::vec![26]
+    } else {
+        alloc::vec![key, 26]
     }
 }
 
@@ -124,7 +155,10 @@ struct NameIndexRecord {
 /// `uid: u32`, `category_idx: u8`, `flags: u8`, then optional
 /// `phone`/`website`/`brand` (u8-length strings) gated on `flags` bits
 /// 0x01/0x02/0x08 respectively (the only flags the builder keeps).
-fn decode_name_index_record(data: &[u8], pos: usize) -> Result<(NameIndexRecord, usize), DecodeError> {
+fn decode_name_index_record(
+    data: &[u8],
+    pos: usize,
+) -> Result<(NameIndexRecord, usize), DecodeError> {
     let start = pos;
     let mut p = pos;
 
@@ -183,7 +217,11 @@ fn decode_name_index_block(data: &[u8]) -> Result<Vec<NameIndexRecord>, DecodeEr
         if record_len == 0 {
             break;
         }
-        if p + record_len > data.len() {
+        // `p + record_len` can wrap on 32-bit targets (wasm) when a corrupt
+        // `record_len` is near `u32::MAX`, silently bypassing the overrun
+        // guard. Compare against remaining bytes instead — `p <= data.len()`
+        // here (loop invariant), so `data.len() - p` cannot underflow.
+        if record_len > data.len() - p {
             return Err(DecodeError::RecordOverrun {
                 offset: p,
                 len: record_len,
@@ -212,30 +250,36 @@ pub fn search_business_indexed<S: PtilesSource>(
     query: &str,
     limit: usize,
 ) -> Result<Vec<BusinessHit>, FileError> {
-    let query_lower = query.trim().to_lowercase();
-    if query_lower.is_empty() || limit == 0 {
+    let query_trimmed = query.trim();
+    let query_folded = fold_name(query_trimmed);
+    if query_folded.is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
 
-    let key = name_to_key(&query_lower) as u64;
-    let Some(block) = name_index.read_block(key)? else {
-        return Ok(Vec::new());
-    };
+    let mut records = Vec::new();
+    for k in probe_bucket_keys(query_trimmed) {
+        if let Some(block) = name_index.read_block(k)? {
+            records.extend(decode_name_index_block(&block)?);
+        }
+    }
 
-    let records = decode_name_index_block(&block)?;
-    Ok(match_records(records, &query_lower, limit))
+    Ok(match_records(records, &query_folded, limit))
 }
 
 /// Score, rank, and truncate already-decoded name-index records against
 /// `query_lower` (expected pre-lowercased/trimmed by the caller). Shared by
 /// [`search_business_indexed`] and [`match_business_name_block`] so the two
 /// entry points (I/O-backed vs. pure-block) can't drift in ranking behavior.
-fn match_records(records: Vec<NameIndexRecord>, query_lower: &str, limit: usize) -> Vec<BusinessHit> {
+fn match_records(
+    records: Vec<NameIndexRecord>,
+    query_folded: &str,
+    limit: usize,
+) -> Vec<BusinessHit> {
     let mut hits: Vec<BusinessHit> = records
         .into_iter()
         .filter_map(|rec| {
-            let name_lower = rec.name.to_lowercase();
-            score_match(&name_lower, query_lower).map(|score| BusinessHit {
+            let name_folded = fold_name(&rec.name);
+            score_match(&name_folded, query_folded).map(|score| BusinessHit {
                 name: rec.name,
                 category_idx: rec.category_idx,
                 lat: rec.lat,
@@ -265,12 +309,12 @@ pub fn match_business_name_block(
     query: &str,
     limit: usize,
 ) -> Result<Vec<BusinessHit>, DecodeError> {
-    let query_lower = query.trim().to_lowercase();
-    if query_lower.is_empty() || limit == 0 {
+    let query_folded = fold_name(query.trim());
+    if query_folded.is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
     let records = decode_name_index_block(block)?;
-    Ok(match_records(records, &query_lower, limit))
+    Ok(match_records(records, &query_folded, limit))
 }
 
 /// Brute-force fallback: scan every block in the main `.business.ptiles`
@@ -284,9 +328,9 @@ pub fn search_business_brute_force<S: PtilesSource>(
     query: &str,
     limit: usize,
 ) -> Result<Vec<BusinessHit>, FileError> {
-    let query_lower = query.trim().to_lowercase();
+    let query_folded = fold_name(query.trim());
     let mut hits: Vec<BusinessHit> = Vec::new();
-    if query_lower.is_empty() || limit == 0 {
+    if query_folded.is_empty() || limit == 0 {
         return Ok(hits);
     }
 
@@ -301,8 +345,8 @@ pub fn search_business_brute_force<S: PtilesSource>(
         };
         let records = crate::business::decode_business(&block)?;
         for biz in records {
-            let name_lower = biz.name.to_lowercase();
-            if let Some(score) = score_match(&name_lower, &query_lower) {
+            let name_folded = fold_name(&biz.name);
+            if let Some(score) = score_match(&name_folded, &query_folded) {
                 hits.push(BusinessHit {
                     name: biz.name,
                     category_idx: biz.category_idx,
@@ -376,9 +420,21 @@ mod tests {
         assert_eq!(hits[0].score, 1); // prefix match
         assert_eq!(hits[0].cell, None);
 
-        assert!(match_business_name_block(&block, "", 10).unwrap().is_empty());
-        assert!(match_business_name_block(&block, "pancake", 10).unwrap().is_empty());
-        assert!(match_business_name_block(&block, "waffle", 0).unwrap().is_empty());
+        assert!(
+            match_business_name_block(&block, "", 10)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            match_business_name_block(&block, "pancake", 10)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            match_business_name_block(&block, "waffle", 0)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -434,6 +490,202 @@ mod tests {
         assert!((records[0].lon - (-86.80)).abs() < 1e-9);
     }
 
+    // --- helpers + additional pure-logic coverage --------------------------
+
+    /// Build one name-index record body (no length prefix); no optional fields.
+    fn name_record_body(name: &str, lat_micro: i32, lon_micro: i32, uid: u32, cat: u8) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        b.extend_from_slice(name.as_bytes());
+        b.extend_from_slice(&lat_micro.to_le_bytes());
+        b.extend_from_slice(&lon_micro.to_le_bytes());
+        b.extend_from_slice(&uid.to_le_bytes());
+        b.push(cat);
+        b.push(0); // flags
+        b
+    }
+
+    /// Frame a set of record bodies into a name-index block.
+    fn name_block(bodies: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for body in bodies {
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(body);
+        }
+        out
+    }
+
+    #[test]
+    fn score_match_is_case_insensitive() {
+        // Callers pass pre-lowercased query; the name is lowercased in
+        // match_records. Verify score_match itself on lowercased inputs and
+        // the end-to-end lowercasing via match_business_name_block.
+        assert_eq!(
+            score_match("waffle house", "WAFFLE HOUSE".to_lowercase().as_str()),
+            Some(2)
+        );
+
+        let block = name_block(&[name_record_body("Waffle House", 0, 0, 1, 0)]);
+        for q in ["WAFFLE", "waffle", "WaFfLe"] {
+            let hits = match_business_name_block(&block, q, 10).unwrap();
+            assert_eq!(hits.len(), 1, "query {q:?} should match case-insensitively");
+            assert_eq!(hits[0].score, 1);
+        }
+    }
+
+    #[test]
+    fn unicode_names_lowercase_and_match() {
+        let block = name_block(&[name_record_body("Café Roma", 0, 0, 1, 0)]);
+        // Uppercase accented query matches via Unicode lowercasing.
+        let hits = match_business_name_block(&block, "CAFÉ", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].name, "Café Roma");
+        assert_eq!(hits[0].score, 1); // prefix
+        // Substring on the accented segment.
+        let sub = match_business_name_block(&block, "é ro", 10).unwrap();
+        assert_eq!(sub.len(), 1);
+        assert_eq!(sub[0].score, 0);
+        assert_eq!(name_to_key("Café"), 2); // 'c' - 'a'
+    }
+
+    #[test]
+    fn accent_folding_makes_search_accent_insensitive() {
+        let block = name_block(&[name_record_body("Café Roma", 0, 0, 1, 0)]);
+        // Un-accented query now matches an accented stored name (exact fold).
+        let hits = match_business_name_block(&block, "cafe roma", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits[0].score, 2,
+            "cafe roma should exactly fold-match Café Roma"
+        );
+        // And prefix.
+        assert_eq!(
+            match_business_name_block(&block, "cafe", 10).unwrap()[0].score,
+            1
+        );
+    }
+
+    #[test]
+    fn accented_first_letter_buckets_to_base_letter() {
+        // The bug this fix targets: `Éclair` must bucket to 'e' (4), so an
+        // `eclair` query can find it, not the catch-all 26.
+        assert_eq!(name_to_key("Éclair"), 4);
+        assert_eq!(name_to_key("éclair"), 4);
+        assert_eq!(name_to_key("eclair"), 4);
+        // Digits/punctuation still bucket to 26; empty to 27.
+        assert_eq!(name_to_key("7-Eleven"), 26);
+        assert_eq!(name_to_key(""), 27);
+    }
+
+    #[test]
+    fn fold_name_folds_accents_case_and_eszett() {
+        assert_eq!(fold_name("Café"), "cafe");
+        assert_eq!(fold_name("CAFÉ"), "cafe");
+        assert_eq!(fold_name("naïve"), "naive");
+        assert_eq!(fold_name("José"), "jose");
+        // ß / ẞ -> ss (to_lowercase alone leaves ß).
+        assert_eq!(fold_name("Straße"), "strasse");
+        assert_eq!(fold_name("STRASSE"), "strasse");
+        // Precomposed vs decomposed é fold identically (NFD normalizes both).
+        assert_eq!(fold_name("caf\u{00e9}"), fold_name("cafe\u{0301}"));
+        // Idempotent.
+        let once = fold_name("Éclair");
+        assert_eq!(fold_name(&once), once);
+    }
+
+    #[test]
+    fn indexed_search_probes_folded_bucket_plus_legacy_26() {
+        // The dual-bucket probe that keeps accented names findable against
+        // pre-folding sidecars (where `Éclair` sits in bucket 26 while a
+        // folded `eclair` query targets bucket 4).
+        assert_eq!(probe_bucket_keys("eclair"), std::vec![4, 26]);
+        assert_eq!(probe_bucket_keys("Éclair"), std::vec![4, 26]);
+        assert_eq!(probe_bucket_keys("waffle"), std::vec![22, 26]);
+        // A query already in bucket 26 is fetched once, not twice.
+        assert_eq!(probe_bucket_keys("7-Eleven"), std::vec![26]);
+    }
+
+    #[test]
+    fn empty_and_whitespace_query_yield_no_hits() {
+        let block = name_block(&[name_record_body("Anything", 0, 0, 1, 0)]);
+        for q in ["", "   ", "\t\n"] {
+            assert!(
+                match_business_name_block(&block, q, 10).unwrap().is_empty(),
+                "query {q:?} must produce no hits"
+            );
+        }
+        // score_match guards empty directly too.
+        assert_eq!(score_match("anything", ""), None);
+    }
+
+    #[test]
+    fn query_is_trimmed_before_matching() {
+        let block = name_block(&[name_record_body("Waffle House", 0, 0, 1, 0)]);
+        let hits = match_business_name_block(&block, "  Waffle House  ", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].score, 2, "trimmed query should be an exact match");
+    }
+
+    #[test]
+    fn no_match_returns_empty() {
+        let block = name_block(&[name_record_body("Waffle House", 0, 0, 1, 0)]);
+        assert!(
+            match_business_name_block(&block, "pancake", 10)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn ranking_orders_exact_then_prefix_then_substring() {
+        let block = name_block(&[
+            name_record_body("Sunny Waffle", 0, 0, 1, 0), // substring -> 0
+            name_record_body("Waffle House", 0, 0, 2, 0), // prefix -> 1
+            name_record_body("Waffle", 0, 0, 3, 0),       // exact -> 2
+        ]);
+        let hits = match_business_name_block(&block, "waffle", 10).unwrap();
+        assert_eq!(hits.len(), 3);
+        assert_eq!(hits[0].name, "Waffle");
+        assert_eq!(hits[0].score, 2);
+        assert_eq!(hits[1].name, "Waffle House");
+        assert_eq!(hits[1].score, 1);
+        assert_eq!(hits[2].name, "Sunny Waffle");
+        assert_eq!(hits[2].score, 0);
+    }
+
+    #[test]
+    fn equal_score_ties_break_by_name_ascending() {
+        let block = name_block(&[
+            name_record_body("Walmart", 0, 0, 1, 0),      // prefix "wa"
+            name_record_body("Waffle House", 0, 0, 2, 0), // prefix "wa"
+            name_record_body("Wawa", 0, 0, 3, 0),         // prefix "wa"
+        ]);
+        let hits = match_business_name_block(&block, "wa", 10).unwrap();
+        let names: Vec<&str> = hits.iter().map(|h| h.name.as_str()).collect();
+        assert_eq!(names, ["Waffle House", "Walmart", "Wawa"]);
+        assert!(hits.iter().all(|h| h.score == 1));
+    }
+
+    #[test]
+    fn limit_truncates_after_ranking() {
+        let block = name_block(&[
+            name_record_body("Sunny Waffle", 0, 0, 1, 0), // substring
+            name_record_body("Waffle", 0, 0, 2, 0),       // exact -> should survive limit=1
+        ]);
+        let hits = match_business_name_block(&block, "waffle", 1).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].name, "Waffle"); // highest score kept
+    }
+
+    #[test]
+    fn overflowing_record_len_errors_not_panics() {
+        let block = [0xFFu8, 0xFF, 0xFF, 0xFF, 1, 2, 3];
+        assert!(matches!(
+            decode_name_index_block(&block),
+            Err(DecodeError::RecordOverrun { .. })
+        ));
+    }
+
     // --- Integration tests against real fixtures ---------------------------
     //
     // Skip (pass trivially) when the fixture isn't present, matching the
@@ -452,6 +704,57 @@ mod tests {
 
     #[cfg(feature = "std")]
     #[test]
+    fn golden_block_search_ranking_on_real_data() {
+        // The main-business golden block is always present. Decode it and run
+        // the shared score/rank logic (the same code path both search entry
+        // points use) over real records, confirming case-insensitive matching
+        // and exact > prefix > substring ordering hold on real data.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("test-fixtures")
+            .join("golden")
+            .join("business.block.bin");
+        let block = std::fs::read(&path).expect("read golden business block");
+        let businesses = crate::business::decode_business(&block).expect("decode golden block");
+        assert!(!businesses.is_empty());
+
+        // Case-insensitive: mixed-case query finds "Drug Store Coffee".
+        let query = "drug store coffee";
+        let mut scored: Vec<(u8, &str)> = businesses
+            .iter()
+            .filter_map(|b| {
+                score_match(&b.name.to_lowercase(), query).map(|s| (s, b.name.as_str()))
+            })
+            .collect();
+        assert!(
+            scored
+                .iter()
+                .any(|(s, n)| *s == 2 && *n == "Drug Store Coffee"),
+            "exact case-insensitive match expected on real data"
+        );
+
+        // Ranking invariant: same sort as match_records; scores must be
+        // non-increasing once sorted highest-first.
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+        assert!(scored.windows(2).all(|w| w[0].0 >= w[1].0));
+
+        // A prefix query returns matches all starting with it (score >= 1).
+        let prefix = "coffee";
+        let prefix_hits: Vec<&str> = businesses
+            .iter()
+            .filter(|b| score_match(&b.name.to_lowercase(), prefix) == Some(1))
+            .map(|b| b.name.as_str())
+            .collect();
+        assert!(
+            prefix_hits
+                .iter()
+                .all(|n| n.to_lowercase().starts_with(prefix)),
+            "prefix-scored hits must all start with the query"
+        );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
     fn indexed_search_finds_a_known_chain_in_tn() {
         let Some(name_index) =
             open_real("/home/aoi/kino/data/ptiles/TN.business_name_index.ptiles")
@@ -463,14 +766,25 @@ mod tests {
         let start = std::time::Instant::now();
         let hits = search_business_indexed(&name_index, "Waffle House", 20).unwrap();
         let elapsed = start.elapsed();
-        eprintln!("indexed search for 'Waffle House' took {elapsed:?}, {} hits", hits.len());
+        eprintln!(
+            "indexed search for 'Waffle House' took {elapsed:?}, {} hits",
+            hits.len()
+        );
 
         assert!(!hits.is_empty(), "expected at least one Waffle House in TN");
         for hit in &hits {
             assert!(hit.name.to_lowercase().contains("waffle"));
             // Tennessee's bounding box, roughly.
-            assert!((34.9..=36.7).contains(&hit.lat), "lat {} out of TN range", hit.lat);
-            assert!((-90.4..=-81.6).contains(&hit.lon), "lon {} out of TN range", hit.lon);
+            assert!(
+                (34.9..=36.7).contains(&hit.lat),
+                "lat {} out of TN range",
+                hit.lat
+            );
+            assert!(
+                (-90.4..=-81.6).contains(&hit.lon),
+                "lon {} out of TN range",
+                hit.lon
+            );
         }
         assert!(
             elapsed.as_secs_f64() < 1.0,
@@ -498,7 +812,11 @@ mod tests {
         else {
             return;
         };
-        assert!(search_business_indexed(&name_index, "", 10).unwrap().is_empty());
+        assert!(
+            search_business_indexed(&name_index, "", 10)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[cfg(feature = "std")]
@@ -509,7 +827,8 @@ mod tests {
         else {
             return;
         };
-        let hits = search_business_indexed(&name_index, "zzzzzznonexistentbusinessxyz", 10).unwrap();
+        let hits =
+            search_business_indexed(&name_index, "zzzzzznonexistentbusinessxyz", 10).unwrap();
         assert!(hits.is_empty());
     }
 
@@ -528,9 +847,15 @@ mod tests {
             assert!(hit.cell.is_some());
         }
 
-        assert!(search_business_brute_force(&business_file, "", 10).unwrap().is_empty());
-        assert!(search_business_brute_force(&business_file, "zzzzzznonexistentxyz", 10)
-            .unwrap()
-            .is_empty());
+        assert!(
+            search_business_brute_force(&business_file, "", 10)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            search_business_brute_force(&business_file, "zzzzzznonexistentxyz", 10)
+                .unwrap()
+                .is_empty()
+        );
     }
 }

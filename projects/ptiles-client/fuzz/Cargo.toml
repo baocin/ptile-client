@@ -37,3 +37,66 @@ path = "fuzz_targets/decode_business.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "decode_file"
+path = "fuzz_targets/decode_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_header"
+path = "fuzz_targets/parse_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_index"
+path = "fuzz_targets/parse_index.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_water"
+path = "fuzz_targets/decode_water.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_parks"
+path = "fuzz_targets/decode_parks.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_rail"
+path = "fuzz_targets/decode_rail.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_name_index"
+path = "fuzz_targets/decode_name_index.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_admin"
+path = "fuzz_targets/decode_admin.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_address"
+path = "fuzz_targets/decode_address.rs"
+test = false
+doc = false
+bench = false

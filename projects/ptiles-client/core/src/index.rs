@@ -52,7 +52,18 @@ pub fn parse_index(data: &[u8]) -> Result<Vec<IndexEntry>, DecodeError> {
     }
     let entry_count = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
 
-    let needed = 4 + entry_count * ENTRY_SIZE;
+    // `entry_count` is attacker/corruption-controlled: compute the required
+    // size with checked arithmetic so a huge count can't overflow `usize`
+    // (wrapping to a small `needed` that then passes the length check and
+    // reads out of bounds), and validate the length *before* the
+    // `with_capacity` below so a bogus count can't trigger a giant allocation.
+    let needed = entry_count
+        .checked_mul(ENTRY_SIZE)
+        .and_then(|body| body.checked_add(4))
+        .ok_or(DecodeError::UnexpectedEof {
+            offset: 0,
+            needed: usize::MAX,
+        })?;
     if data.len() < needed {
         return Err(DecodeError::UnexpectedEof {
             offset: data.len(),
@@ -91,7 +102,12 @@ pub fn binary_search(index: &[IndexEntry], cell: u64) -> Option<&IndexEntry> {
 mod tests {
     use super::*;
 
-    fn encode_entry(h3_cell: u64, block_offset: u64, block_length: u32, feature_count: u16) -> Vec<u8> {
+    fn encode_entry(
+        h3_cell: u64,
+        block_offset: u64,
+        block_length: u32,
+        feature_count: u16,
+    ) -> Vec<u8> {
         let mut buf = Vec::new();
         buf.extend_from_slice(&h3_cell.to_le_bytes());
         buf.extend_from_slice(&block_offset.to_le_bytes()[0..6]);
@@ -119,5 +135,89 @@ mod tests {
         data.extend_from_slice(&5u32.to_le_bytes()); // claims 5 entries
         data.extend_from_slice(&encode_entry(100, 1000, 50, 3)); // only 1 present
         assert!(parse_index(&data).is_err());
+    }
+
+    #[test]
+    fn empty_index_parses_to_zero_entries() {
+        let data = 0u32.to_le_bytes(); // count 0, no entries
+        let index = parse_index(&data).unwrap();
+        assert!(index.is_empty());
+        // Any lookup on an empty index misses, never panics.
+        assert!(binary_search(&index, 0).is_none());
+        assert!(binary_search(&index, u64::MAX).is_none());
+    }
+
+    #[test]
+    fn too_short_for_count_header_is_error() {
+        // Fewer than the 4 bytes needed even to read entry_count.
+        assert!(parse_index(&[]).is_err());
+        assert!(parse_index(&[0u8, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn count_header_present_but_no_entry_bytes_is_error() {
+        let data = 1u32.to_le_bytes(); // claims 1 entry, zero entry bytes follow
+        assert!(parse_index(&data).is_err());
+    }
+
+    #[test]
+    fn huge_entry_count_does_not_overflow_or_over_allocate() {
+        // entry_count = u32::MAX: `count * 19` overflows 32-bit usize if
+        // computed unchecked. Must be a clean Err, never a panic/OOM.
+        let data = u32::MAX.to_le_bytes();
+        assert!(parse_index(&data).is_err());
+    }
+
+    #[test]
+    fn all_fields_round_trip_including_max_widths() {
+        // Exercise the 6-byte offset and 3-byte length decoders at their
+        // full stored widths (values that fill every byte they occupy).
+        let off_6b: u64 = (1u64 << 48) - 1; // max 6-byte LE value
+        let len_3b: u32 = (1u32 << 24) - 1; // max 3-byte LE value
+        let mut data = Vec::new();
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&encode_entry(
+            0xDEAD_BEEF_CAFE_F00D,
+            off_6b,
+            len_3b,
+            u16::MAX,
+        ));
+        let index = parse_index(&data).unwrap();
+        assert_eq!(index.len(), 1);
+        let e = index[0];
+        assert_eq!(e.h3_cell, 0xDEAD_BEEF_CAFE_F00D);
+        assert_eq!(e.block_offset, off_6b);
+        assert_eq!(e.block_length, len_3b);
+        assert_eq!(e.feature_count, u16::MAX);
+    }
+
+    #[test]
+    fn binary_search_hits_first_last_and_misses_between_and_outside() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&encode_entry(10, 100, 5, 1));
+        data.extend_from_slice(&encode_entry(20, 200, 6, 2));
+        data.extend_from_slice(&encode_entry(30, 300, 7, 3));
+        let index = parse_index(&data).unwrap();
+
+        assert_eq!(binary_search(&index, 10).unwrap().block_offset, 100); // first
+        assert_eq!(binary_search(&index, 30).unwrap().block_offset, 300); // last
+        assert_eq!(binary_search(&index, 20).unwrap().feature_count, 2); // middle
+        assert!(binary_search(&index, 15).is_none()); // gap between
+        assert!(binary_search(&index, 5).is_none()); // below range
+        assert!(binary_search(&index, 40).is_none()); // above range
+    }
+
+    #[test]
+    fn trailing_bytes_after_declared_entries_are_ignored() {
+        // A file whose index section is followed by more data must parse
+        // exactly `entry_count` entries and not choke on the extra bytes.
+        let mut data = Vec::new();
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&encode_entry(42, 500, 9, 4));
+        data.extend_from_slice(&[0xFF; 32]); // trailing junk
+        let index = parse_index(&data).unwrap();
+        assert_eq!(index.len(), 1);
+        assert_eq!(binary_search(&index, 42).unwrap().block_offset, 500);
     }
 }

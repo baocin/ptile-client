@@ -102,6 +102,110 @@ fn ring_greater_than_one_is_rejected() {
     assert!(v.get("error").is_some(), "expected an \"error\" field, got {v}");
 }
 
+fn run_raw(args: &[&str]) -> std::process::Output {
+    let exe = env!("CARGO_BIN_EXE_ptiles-cli");
+    Command::new(exe).args(args).output().expect("failed to spawn ptiles-cli")
+}
+
+#[test]
+fn missing_path_exits_nonzero() {
+    // One-shot mode requires --path; omitting it must fail cleanly (exit 2),
+    // not panic.
+    let out = run_raw(&["--lat", "36.16", "--lon", "-86.78"]);
+    assert!(!out.status.success(), "missing --path must exit non-zero");
+}
+
+#[test]
+fn unknown_query_exits_nonzero() {
+    let out = run_raw(&[
+        "--path", "/data/TN.roads.ptiles", "--lat", "36.16", "--lon", "-86.78",
+        "--query", "bogus",
+    ]);
+    assert!(!out.status.success(), "unknown --query must exit non-zero");
+}
+
+#[test]
+fn unknown_layer_filename_exits_nonzero() {
+    let out = run_raw(&[
+        "--path", "/data/TN.water.ptiles", "--lat", "36.16", "--lon", "-86.78",
+    ]);
+    assert!(!out.status.success(), "un-inferable layer filename must exit non-zero");
+}
+
+#[test]
+fn supported_formats_prints_and_exits_zero() {
+    // No data file involved; --supported-formats is handled before any file
+    // is required and must print something on stdout.
+    let out = run_raw(&["--supported-formats"]);
+    assert!(out.status.success(), "--supported-formats must exit zero");
+    assert!(!out.stdout.is_empty(), "--supported-formats must print to stdout");
+}
+
+#[test]
+fn cells_bounds_query_shape() {
+    // Pure H3 geometry, no .ptiles file needed: --query cells --bounds ...
+    // must emit a JSON object with a non-empty "cells" array.
+    let out = run_raw(&[
+        "--query", "cells", "--bounds", "36.10,-86.82,36.20,-86.74",
+    ]);
+    assert!(
+        out.status.success(),
+        "cells query failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON");
+    let cells = v.get("cells").and_then(|c| c.as_array()).expect("cells array");
+    assert!(!cells.is_empty(), "expected at least one cell for a Nashville viewport");
+}
+
+#[test]
+fn cells_query_bad_bounds_exits_nonzero() {
+    let out = run_raw(&["--query", "cells", "--bounds", "1,2,3"]);
+    assert!(!out.status.success(), "3-value --bounds must exit non-zero");
+}
+
+#[test]
+fn intersection_query_shape() {
+    if !Path::new(DATA_FILE).exists() {
+        eprintln!("skipping intersection_query_shape: {DATA_FILE} not present");
+        return;
+    }
+
+    // Query exactly at the golden fixture's first intersection (a signalized
+    // junction in downtown Nashville): it must be found at ~0 m, type 1.
+    let v = run_cli(&[
+        "--path", DATA_FILE, "--lat", "36.16076", "--lon", "-86.79367",
+        "--query", "intersection",
+    ]);
+    assert!(v.get("candidate_count").and_then(|c| c.as_u64()).is_some());
+    let ni = v
+        .get("nearest_intersection")
+        .expect("missing nearest_intersection field");
+    assert!(!ni.is_null(), "expected an intersection at the golden point, got null");
+    for field in ["lat", "lon", "distance_m", "intersection_type"] {
+        assert!(ni.get(field).is_some(), "nearest_intersection missing {field:?}: {ni}");
+    }
+    assert!(ni["distance_m"].as_f64().unwrap() < 1.0, "expected ~0m: {ni}");
+    assert_eq!(ni["intersection_type"].as_u64().unwrap(), 1);
+}
+
+#[test]
+fn intersection_query_far_point_is_null() {
+    if !Path::new(DATA_FILE).exists() {
+        eprintln!("skipping intersection_query_far_point_is_null: {DATA_FILE} not present");
+        return;
+    }
+    // A point in the Cumberland River: query succeeds, nearest is null.
+    let v = run_cli(&[
+        "--path", DATA_FILE, "--lat", "36.16600", "--lon", "-86.77300",
+        "--query", "intersection",
+    ]);
+    assert!(
+        v.get("nearest_intersection").expect("field present").is_null(),
+        "expected null for a river point: {v}"
+    );
+}
+
 #[test]
 fn nearest_road_query_shape() {
     if !Path::new(DATA_FILE).exists() {

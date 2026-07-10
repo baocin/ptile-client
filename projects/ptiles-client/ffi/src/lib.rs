@@ -30,12 +30,14 @@
 use std::sync::Arc;
 
 use ptiles_core::{
-    cell_center, cell_for_coord, decode_buildings, decode_business, decode_roads,
-    haversine_distance_m, nearest_road as core_nearest_road, neighbor_cells, score_candidates,
-    search_business_indexed, Building, Business, Candidate as CoreCandidate,
-    CandidateKind as CoreCandidateKind, FileSource, Fix as CoreFix, HttpSource, PtilesFile,
-    RoadSegment, ScoringParams,
+    cell_center, cell_for_coord, decode_buildings, decode_business, decode_road_block,
+    decode_roads, haversine_distance_m, nearest_intersection as core_nearest_intersection,
+    nearest_road as core_nearest_road, neighbor_cells, score_candidates, search_business_indexed,
+    Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind, FileSource,
+    Fix as CoreFix, HttpSource, Intersection, PtilesFile, RoadSegment, ScoringParams,
 };
+use ptiles_core::{AdminFile as CoreAdminFile, AdminInfo as CoreAdminInfo};
+use ptiles_core::{AddressFile as CoreAddressFile, AddressRecord as CoreAddressRecord};
 
 uniffi::setup_scaffolding!();
 
@@ -77,6 +79,43 @@ pub struct NearestRoad {
     pub snapped_lon: f64,
     pub distance_m: f64,
     pub geometry: Vec<LatLon>,
+}
+
+/// Nearest labeled intersection to a query point (the "am I at an
+/// intersection?" answer). `intersection_type`: 1 = traffic_signals,
+/// 2 = stop, 3 = give_way, 4 = roundabout (0/other = untyped). Reports a
+/// mapped intersection *point*, not junction degree — the format stores no
+/// road-to-node topology.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NearestIntersection {
+    pub lat: f64,
+    pub lon: f64,
+    pub distance_m: f64,
+    pub intersection_type: u8,
+}
+
+/// Resolved jurisdiction for a point, from the admin layer.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AdminInfo {
+    pub country: String,
+    pub state: String,
+    pub county: String,
+    pub zip: String,
+    pub timezone: String,
+    pub boundary_flags: u8,
+}
+
+impl From<CoreAdminInfo> for AdminInfo {
+    fn from(a: CoreAdminInfo) -> Self {
+        AdminInfo {
+            country: a.country,
+            state: a.state,
+            county: a.county,
+            zip: a.zip,
+            timezone: a.timezone,
+            boundary_flags: a.boundary_flags,
+        }
+    }
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -245,6 +284,16 @@ impl AnyFile {
         };
         result.map_err(|message| PtilesError::Decode { message })
     }
+
+    /// Format/schema version from the file header — needed by
+    /// `decode_road_block` to know whether a trailing intersection table is
+    /// present (v2+).
+    fn version(&self) -> u8 {
+        match self {
+            AnyFile::File(f) => f.header().version,
+            AnyFile::Http(f) => f.header().version,
+        }
+    }
 }
 
 /// One opened `.ptiles` file (local path or `http(s)://` URL), its layer
@@ -309,7 +358,7 @@ impl PtilesLayer {
     fn decoded_roads(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<RoadSegment>, PtilesError> {
         let mut roads = Vec::new();
         for cell in self.cells_for(lat, lon, ring) {
-            let Some(block) = self.file.read_block(cell).unwrap_or(None) else {
+            let Some(block) = self.file.read_block(cell)? else {
                 continue;
             };
             let mut r = decode_roads(&block).map_err(|e| PtilesError::Decode {
@@ -320,10 +369,33 @@ impl PtilesLayer {
         Ok(roads)
     }
 
+    /// Intersections from the road blocks covering `(lat, lon)` (+ ring-1
+    /// neighbors when `ring == 1`). Uses `decode_road_block` with the file's
+    /// header version so the trailing v2 intersection table is read.
+    fn decoded_intersections(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Vec<Intersection>, PtilesError> {
+        let version = self.file.version();
+        let mut intersections = Vec::new();
+        for cell in self.cells_for(lat, lon, ring) {
+            let Some(block) = self.file.read_block(cell)? else {
+                continue;
+            };
+            let (_roads, mut ix) = decode_road_block(&block, version).map_err(|e| {
+                PtilesError::Decode { message: e.to_string() }
+            })?;
+            intersections.append(&mut ix);
+        }
+        Ok(intersections)
+    }
+
     fn decoded_buildings(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<Building>, PtilesError> {
         let mut buildings = Vec::new();
         for cell in self.cells_for(lat, lon, ring) {
-            let Some(block) = self.file.read_block(cell).unwrap_or(None) else {
+            let Some(block) = self.file.read_block(cell)? else {
                 continue;
             };
             let (center_lat, center_lon) = cell_center(cell);
@@ -338,7 +410,7 @@ impl PtilesLayer {
     fn decoded_business(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<Business>, PtilesError> {
         let mut businesses = Vec::new();
         for cell in self.cells_for(lat, lon, ring) {
-            let Some(block) = self.file.read_block(cell).unwrap_or(None) else {
+            let Some(block) = self.file.read_block(cell)? else {
                 continue;
             };
             let mut b = decode_business(&block).map_err(|e| PtilesError::Decode {
@@ -395,6 +467,41 @@ impl PtilesLayer {
             snapped_lon: nr.snapped.1,
             distance_m: nr.distance_m,
             geometry: geometry_of(&road.coords),
+        }))
+    }
+
+    /// Nearest labeled intersection to `(lat, lon)` within `threshold_m`
+    /// (defaults to `ptiles_core::DEFAULT_THRESHOLD_M` when `threshold_m <= 0`).
+    /// Answers "am I at an intersection?" — returns the nearest mapped
+    /// intersection point and its traffic-control type, or `None`. Roads-layer
+    /// only. Searches ring-1 neighbors so a point near a cell edge still finds
+    /// an intersection in the adjacent cell.
+    pub fn nearest_intersection(
+        &self,
+        lat: f64,
+        lon: f64,
+        threshold_m: f64,
+    ) -> Result<Option<NearestIntersection>, PtilesError> {
+        if self.kind != LayerKind::Roads {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        let threshold = if threshold_m > 0.0 {
+            threshold_m
+        } else {
+            ptiles_core::DEFAULT_THRESHOLD_M
+        };
+        let intersections = self.decoded_intersections(lat, lon, 1)?;
+        let Some(ni) = core_nearest_intersection(lat, lon, &intersections, threshold) else {
+            return Ok(None);
+        };
+        let [ix_lon, ix_lat] = intersections[ni.index].coords();
+        Ok(Some(NearestIntersection {
+            lat: ix_lat,
+            lon: ix_lon,
+            distance_m: ni.distance_m,
+            intersection_type: ni.intersection_type,
         }))
     }
 
@@ -532,6 +639,112 @@ fn point_in_polygon(x: f64, y: f64, coords: &[[f64; 2]]) -> bool {
         j = i;
     }
     inside
+}
+
+// --- AdminLayer: point -> jurisdiction lookup -------------------------------
+
+/// An opened admin file (`US.admin.ptiles`). Separate from `PtilesLayer`
+/// because admin is a lookup-grid layer, not block-per-cell.
+#[derive(uniffi::Object)]
+pub struct AdminLayer {
+    file: CoreAdminFile,
+}
+
+#[uniffi::export]
+impl AdminLayer {
+    /// Open an admin file, local path or `http(s)://` URL.
+    #[uniffi::constructor]
+    pub fn open(path: String) -> Result<Arc<Self>, PtilesError> {
+        let open_err = |e: String| PtilesError::Open { path: path.clone(), message: e };
+        let file = if is_url(&path) {
+            let source = HttpSource::open(&path).map_err(|e| open_err(e.to_string()))?;
+            CoreAdminFile::open(source).map_err(|e| open_err(e.to_string()))?
+        } else {
+            let source = FileSource::open(&path).map_err(|e| open_err(e.to_string()))?;
+            CoreAdminFile::open(source).map_err(|e| open_err(e.to_string()))?
+        };
+        Ok(Arc::new(AdminLayer { file }))
+    }
+
+    /// Jurisdiction (country/state/county/zip/timezone) covering `(lat, lon)`,
+    /// or `None` if the lookup grid has no entry for that cell.
+    pub fn admin_at(&self, lat: f64, lon: f64) -> Option<AdminInfo> {
+        self.file.admin_at(lat, lon).map(AdminInfo::from)
+    }
+}
+
+// --- AddressLayer: reverse/forward address lookup ---------------------------
+
+/// One decoded address (`{osm_id, housenumber, street}`; location is the cell).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AddressRecord {
+    pub osm_id: i64,
+    pub housenumber: String,
+    pub street: String,
+}
+
+impl From<CoreAddressRecord> for AddressRecord {
+    fn from(r: CoreAddressRecord) -> Self {
+        AddressRecord { osm_id: r.osm_id, housenumber: r.housenumber, street: r.street }
+    }
+}
+
+enum AnyAddress {
+    File(CoreAddressFile<FileSource>),
+    Http(CoreAddressFile<HttpSource>),
+}
+
+/// An opened `.address.ptiles` file. Separate from `PtilesLayer` because
+/// address uses a v2 merged-block index, not the v1 block reader.
+#[derive(uniffi::Object)]
+pub struct AddressLayer {
+    file: AnyAddress,
+}
+
+#[uniffi::export]
+impl AddressLayer {
+    /// Open an address file, local path or `http(s)://` URL.
+    #[uniffi::constructor]
+    pub fn open(path: String) -> Result<Arc<Self>, PtilesError> {
+        let open_err = |e: String| PtilesError::Open { path: path.clone(), message: e };
+        let file = if is_url(&path) {
+            let s = HttpSource::open(&path).map_err(|e| open_err(e.to_string()))?;
+            AnyAddress::Http(CoreAddressFile::open(s).map_err(|e| open_err(e.to_string()))?)
+        } else {
+            let s = FileSource::open(&path).map_err(|e| open_err(e.to_string()))?;
+            AnyAddress::File(CoreAddressFile::open(s).map_err(|e| open_err(e.to_string()))?)
+        };
+        Ok(Arc::new(AddressLayer { file }))
+    }
+
+    /// Reverse lookup: all addresses in the cell(s) covering `(lat, lon)`
+    /// (`ring == 1` adds neighbors).
+    pub fn addresses_at(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<AddressRecord>, PtilesError> {
+        let recs = match &self.file {
+            AnyAddress::File(f) => f.addresses_at(lat, lon, ring),
+            AnyAddress::Http(f) => f.addresses_at(lat, lon, ring),
+        }
+        .map_err(|e| PtilesError::Decode { message: e.to_string() })?;
+        Ok(recs.into_iter().map(AddressRecord::from).collect())
+    }
+
+    /// Forward lookup: addresses near `(lat, lon)` matching `housenumber` +
+    /// `street` (accent/case-insensitive).
+    pub fn find_address(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+        housenumber: String,
+        street: String,
+    ) -> Result<Vec<AddressRecord>, PtilesError> {
+        let recs = match &self.file {
+            AnyAddress::File(f) => f.find_address(lat, lon, ring, &housenumber, &street),
+            AnyAddress::Http(f) => f.find_address(lat, lon, ring, &housenumber, &street),
+        }
+        .map_err(|e| PtilesError::Decode { message: e.to_string() })?;
+        Ok(recs.into_iter().map(AddressRecord::from).collect())
+    }
 }
 
 // --- PtilesStack: cross-layer scoring for one state -------------------------

@@ -140,8 +140,8 @@ fn point_in_polygon(lat: f64, lon: f64, coords: &[[f64; 2]]) -> bool {
     for i in 0..n {
         let (xi, yi) = (coords[i][0], coords[i][1]);
         let (xj, yj) = (coords[j][0], coords[j][1]);
-        let intersects = ((yi > lat) != (yj > lat))
-            && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+        let intersects =
+            ((yi > lat) != (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
         if intersects {
             inside = !inside;
         }
@@ -246,8 +246,39 @@ pub fn score_candidates(
         });
     }
 
-    out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
+    // Rank by score descending. Ties (equal scores, common when two features
+    // sit at the same distance, or when both scores underflow to 0.0) are
+    // broken deterministically so the ordering is stable across runs and
+    // platforms: closer feature first, then a fixed kind order, then osm_id.
+    // A NaN score (shouldn't happen post-guarding, but be defensive) sorts to
+    // the end rather than corrupting the comparison.
+    out.sort_by(|a, b| {
+        let by_score = match (a.score.is_nan(), b.score.is_nan()) {
+            (false, false) => b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal),
+            (true, false) => Ordering::Greater, // NaN after real scores
+            (false, true) => Ordering::Less,
+            (true, true) => Ordering::Equal,
+        };
+        by_score
+            .then_with(|| {
+                a.distance_m
+                    .partial_cmp(&b.distance_m)
+                    .unwrap_or(Ordering::Equal)
+            })
+            .then_with(|| kind_rank(a.kind).cmp(&kind_rank(b.kind)))
+            .then_with(|| a.osm_id.cmp(&b.osm_id))
+    });
     out
+}
+
+/// Stable ordering key for tie-breaking equal-scored candidates of different
+/// kinds. Arbitrary but fixed.
+fn kind_rank(kind: CandidateKind) -> u8 {
+    match kind {
+        CandidateKind::Road => 0,
+        CandidateKind::Building => 1,
+        CandidateKind::Business => 2,
+    }
 }
 
 #[cfg(test)]
@@ -285,6 +316,23 @@ mod tests {
         }
     }
 
+    fn business(osm_id: i64, lat: f64, lon: f64) -> Business {
+        Business {
+            osm_id,
+            lat,
+            lon,
+            name: String::from("Test Business"),
+            category_idx: 0,
+            phone: None,
+            website: None,
+            address: None,
+            brand: None,
+            operating_status: String::from("open"),
+            emails: Vec::new(),
+            socials: Vec::new(),
+        }
+    }
+
     /// Small square footprint (lon, lat) centered near `(clat, clon)`,
     /// ~`half_deg` degrees on a side.
     fn square(clat: f64, clon: f64, half_deg: f64) -> Vec<[f64; 2]> {
@@ -315,7 +363,11 @@ mod tests {
         let buildings = vec![building(2, square(0.0, -b_offset, 0.0001))];
 
         let candidates = score_candidates(&fix, &roads, &buildings, &[], &ScoringParams::default());
-        assert_eq!(candidates[0].kind, CandidateKind::Road, "candidates={candidates:?}");
+        assert_eq!(
+            candidates[0].kind,
+            CandidateKind::Road,
+            "candidates={candidates:?}"
+        );
         assert_eq!(candidates[0].osm_id, 1);
     }
 
@@ -334,7 +386,11 @@ mod tests {
         let roads = vec![road(2, vec![[d_offset, -0.01], [d_offset, 0.01]])];
 
         let candidates = score_candidates(&fix, &roads, &buildings, &[], &ScoringParams::default());
-        assert_eq!(candidates[0].kind, CandidateKind::Building, "candidates={candidates:?}");
+        assert_eq!(
+            candidates[0].kind,
+            CandidateKind::Building,
+            "candidates={candidates:?}"
+        );
         assert_eq!(candidates[0].osm_id, 1);
         assert_eq!(candidates[0].distance_m, 0.0);
     }
@@ -369,5 +425,174 @@ mod tests {
              ratio_tight={ratio_tight} ratio_wide={ratio_wide}"
         );
         assert!(ratio_wide <= 1.0 + 1e-9);
+    }
+
+    // --- empty / degenerate input ---
+
+    #[test]
+    fn empty_input_yields_no_candidates() {
+        let fix = Fix {
+            lat: 0.0,
+            lon: 0.0,
+            horizontal_accuracy_m: 10.0,
+            speed_mps: None,
+        };
+        let out = score_candidates(&fix, &[], &[], &[], &ScoringParams::default());
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn degenerate_building_footprint_is_skipped() {
+        let fix = Fix {
+            lat: 0.0,
+            lon: 0.0,
+            horizontal_accuracy_m: 10.0,
+            speed_mps: None,
+        };
+        // Building with <2 coords -> distance_to_polygon_m returns MAX -> skip.
+        let buildings = vec![building(1, vec![[0.0, 0.0]])];
+        let out = score_candidates(&fix, &[], &buildings, &[], &ScoringParams::default());
+        assert!(out.is_empty(), "out={out:?}");
+    }
+
+    // --- scoring ordering / ranking correctness ---
+
+    #[test]
+    fn businesses_ranked_by_distance_ascending() {
+        // Three businesses at increasing distance east of the fix. Same kind,
+        // so score is monotone in distance -> closest ranks first.
+        let fix = Fix {
+            lat: 0.0,
+            lon: 0.0,
+            horizontal_accuracy_m: 20.0,
+            speed_mps: None,
+        };
+        let d = 1.0 / 111_320.0; // ~1m in lon at equator
+        let businesses = vec![
+            business(30, 0.0, 30.0 * d),
+            business(10, 0.0, 10.0 * d),
+            business(20, 0.0, 20.0 * d),
+        ];
+        let out = score_candidates(&fix, &[], &[], &businesses, &ScoringParams::default());
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0].osm_id, 10);
+        assert_eq!(out[1].osm_id, 20);
+        assert_eq!(out[2].osm_id, 30);
+        // Scores strictly descending.
+        assert!(out[0].score > out[1].score && out[1].score > out[2].score);
+    }
+
+    #[test]
+    fn map_matching_picks_geometrically_closest_road() {
+        // Among several roads, the ranking's top candidate must be the nearest.
+        let fix = Fix {
+            lat: 0.0,
+            lon: 0.0,
+            horizontal_accuracy_m: 15.0,
+            speed_mps: Some(10.0), // moving -> road weighting
+        };
+        let d = 1.0 / 111_320.0;
+        let roads = vec![
+            road(1, vec![[40.0 * d, -0.001], [40.0 * d, 0.001]]),
+            road(2, vec![[5.0 * d, -0.001], [5.0 * d, 0.001]]), // closest
+            road(3, vec![[20.0 * d, -0.001], [20.0 * d, 0.001]]),
+        ];
+        let out = score_candidates(&fix, &roads, &[], &[], &ScoringParams::default());
+        assert_eq!(out[0].osm_id, 2, "out={out:?}");
+        // Its distance is the minimum of all candidates' distances.
+        let min_d = out.iter().map(|c| c.distance_m).fold(f64::MAX, f64::min);
+        assert!((out[0].distance_m - min_d).abs() < 1e-9);
+    }
+
+    // --- tie-breaking determinism ---
+
+    #[test]
+    fn equal_score_ties_broken_deterministically() {
+        // Two businesses at the *same* distance (mirror images E/W of the fix)
+        // -> identical scores. Tie-break must give a stable, repeatable order
+        // (by our rule: equal distance, equal kind -> lower osm_id first).
+        let fix = Fix {
+            lat: 0.0,
+            lon: 0.0,
+            horizontal_accuracy_m: 10.0,
+            speed_mps: None,
+        };
+        let d = 5.0 / 111_320.0;
+        let businesses = vec![business(99, 0.0, d), business(7, 0.0, -d)];
+        let params = ScoringParams::default();
+        let a = score_candidates(&fix, &[], &[], &businesses, &params);
+        // Reversed input order must produce the identical ranking.
+        let businesses_rev = vec![business(7, 0.0, -d), business(99, 0.0, d)];
+        let b = score_candidates(&fix, &[], &[], &businesses_rev, &params);
+        assert!((a[0].score - a[1].score).abs() < 1e-12, "scores should tie");
+        assert_eq!(a[0].osm_id, 7, "lower osm_id first on tie");
+        assert_eq!(a[1].osm_id, 99);
+        assert_eq!(
+            a.iter().map(|c| c.osm_id).collect::<Vec<_>>(),
+            b.iter().map(|c| c.osm_id).collect::<Vec<_>>(),
+            "ranking must be independent of input order"
+        );
+    }
+
+    #[test]
+    fn all_scores_zero_still_sorts_by_distance() {
+        // Very tight sigma + far candidates -> all emission scores underflow
+        // to 0.0. Tie-break by distance keeps the closest on top.
+        let fix = Fix {
+            lat: 0.0,
+            lon: 0.0,
+            horizontal_accuracy_m: 3.0,
+            speed_mps: None,
+        };
+        let d = 1.0 / 111_320.0;
+        let businesses = vec![business(2, 0.0, 500.0 * d), business(1, 0.0, 300.0 * d)];
+        let out = score_candidates(&fix, &[], &[], &businesses, &ScoringParams::default());
+        assert_eq!(out[0].score, 0.0);
+        assert_eq!(out[1].score, 0.0);
+        assert_eq!(
+            out[0].osm_id, 1,
+            "closer candidate first even when scores tie at 0"
+        );
+    }
+
+    // --- speed gating ---
+
+    #[test]
+    fn stationary_unknown_speed_uses_stationary_weights() {
+        // Same geometry, speed None -> stationary weighting favors building.
+        let fix = Fix {
+            lat: 0.0,
+            lon: 0.0,
+            horizontal_accuracy_m: 10.0,
+            speed_mps: None,
+        };
+        let buildings = vec![building(1, square(0.0, 0.0, 0.0005))]; // fix inside
+        let d_offset = 5.0 / 111_320.0;
+        let roads = vec![road(2, vec![[d_offset, -0.01], [d_offset, 0.01]])];
+        let out = score_candidates(&fix, &roads, &buildings, &[], &ScoringParams::default());
+        assert_eq!(out[0].kind, CandidateKind::Building, "out={out:?}");
+    }
+
+    // --- out-of-range GPS coords ---
+
+    #[test]
+    fn out_of_range_fix_does_not_panic_and_ranks() {
+        // Absurd lat/lon (beyond valid range) must not panic; math stays
+        // finite and the closer feature still wins.
+        let fix = Fix {
+            lat: 91.0,
+            lon: 200.0,
+            horizontal_accuracy_m: 50.0,
+            speed_mps: None,
+        };
+        let businesses = vec![business(1, 91.0, 200.0), business(2, 88.0, 150.0)];
+        let out = score_candidates(&fix, &[], &[], &businesses, &ScoringParams::default());
+        assert_eq!(out.len(), 2);
+        for c in &out {
+            assert!(c.score.is_finite(), "score not finite: {c:?}");
+            assert!(c.distance_m.is_finite(), "distance not finite: {c:?}");
+        }
+        // The business colocated with the fix is nearer -> ranks first.
+        assert_eq!(out[0].osm_id, 1, "out={out:?}");
     }
 }

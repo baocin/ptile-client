@@ -40,7 +40,9 @@ pub enum BoundsError {
         max_lon: OrderedF64,
         max: usize,
     },
-    #[error("invalid bounding box: min ({min_lat}, {min_lon}) must be <= max ({max_lat}, {max_lon}) and all coordinates finite")]
+    #[error(
+        "invalid bounding box: min ({min_lat}, {min_lon}) must be <= max ({max_lat}, {max_lon}) and all coordinates finite"
+    )]
     InvalidBounds {
         min_lat: OrderedF64,
         min_lon: OrderedF64,
@@ -104,7 +106,11 @@ pub fn cell_center(cell: u64) -> (f64, f64) {
 /// `0` sentinel from `cell_for_coord` on invalid input).
 pub fn neighbor_cells(cell: u64) -> Vec<u64> {
     match CellIndex::try_from(cell) {
-        Ok(idx) => idx.grid_ring::<Vec<_>>(1).into_iter().map(u64::from).collect(),
+        Ok(idx) => idx
+            .grid_ring::<Vec<_>>(1)
+            .into_iter()
+            .map(u64::from)
+            .collect(),
         Err(_) => Vec::new(),
     }
 }
@@ -129,18 +135,31 @@ pub fn neighbor_cells(cell: u64) -> Vec<u64> {
 /// queries (which are never that pathological); exact polygon coverage is
 /// `h3o::geom::TilerBuilder`, not used here for the reason above.
 ///
+/// A zero-area bbox (`min == max`, i.e. a single point) is valid and returns
+/// exactly the one cell covering that point; a sub-cell bbox likewise returns
+/// its covering cell. Only an inverted bbox (`min > max`) or non-finite input
+/// is rejected.
+///
 /// Errors if any input is non-finite, `min` is not `<=` `max`, or covering
 /// the box would need more than [`MAX_BOUNDS_CELLS`] cells (a bbox that
 /// large means the caller should zoom in rather than pull hundreds of
 /// blocks at once).
-pub fn cells_for_bounds(min_lat: f64, min_lon: f64, max_lat: f64, max_lon: f64) -> Result<Vec<u64>, BoundsError> {
+pub fn cells_for_bounds(
+    min_lat: f64,
+    min_lon: f64,
+    max_lat: f64,
+    max_lon: f64,
+) -> Result<Vec<u64>, BoundsError> {
     let invalid = || BoundsError::InvalidBounds {
         min_lat: OrderedF64(min_lat),
         min_lon: OrderedF64(min_lon),
         max_lat: OrderedF64(max_lat),
         max_lon: OrderedF64(max_lon),
     };
-    if ![min_lat, min_lon, max_lat, max_lon].iter().all(|v| v.is_finite()) {
+    if ![min_lat, min_lon, max_lat, max_lon]
+        .iter()
+        .all(|v| v.is_finite())
+    {
         return Err(invalid());
     }
     if min_lat > max_lat || min_lon > max_lon {
@@ -164,8 +183,21 @@ pub fn cells_for_bounds(min_lat: f64, min_lon: f64, max_lat: f64, max_lon: f64) 
     let mut queue: alloc::collections::VecDeque<CellIndex> = alloc::collections::VecDeque::new();
     let mut result = Vec::new();
 
+    // The bbox center is by definition inside its own cell, so the start cell
+    // always covers (part of) the box -- include it unconditionally rather
+    // than gating it on the boundary-vertex overlap test. Without this, a bbox
+    // smaller than a single res-7 cell (a zero-area point query, or any
+    // viewport a few metres across) has *none* of the start cell's boundary
+    // vertices inside it and would return an empty list, silently dropping the
+    // one cell that actually contains the query. Neighbors are still gated on
+    // `overlaps` so the fill stays bounded to the box's footprint.
     visited.insert(u64::from(start));
-    queue.push_back(start);
+    result.push(u64::from(start));
+    for neighbor in start.grid_ring::<Vec<_>>(1) {
+        if visited.insert(u64::from(neighbor)) {
+            queue.push_back(neighbor);
+        }
+    }
 
     while let Some(cell) = queue.pop_front() {
         if !overlaps(cell) {
@@ -240,7 +272,10 @@ mod tests {
         let neighbors = neighbor_cells(cell);
         // Ring-1 excluding center is 6 cells away from any pentagon.
         assert_eq!(neighbors.len(), 6);
-        assert!(!neighbors.contains(&cell), "ring must exclude the center cell");
+        assert!(
+            !neighbors.contains(&cell),
+            "ring must exclude the center cell"
+        );
         for n in &neighbors {
             let idx = CellIndex::try_from(*n).expect("neighbor must be a valid cell index");
             assert_eq!(idx.resolution(), Resolution::Seven);
@@ -258,7 +293,8 @@ mod tests {
     #[test]
     fn cells_for_bounds_small_bbox_contains_downtown_cell() {
         let downtown_cell = cell_for_coord(NASHVILLE_LAT, NASHVILLE_LON);
-        let cells = cells_for_bounds(36.14, -86.80, 36.18, -86.76).expect("small bbox must not error");
+        let cells =
+            cells_for_bounds(36.14, -86.80, 36.18, -86.76).expect("small bbox must not error");
         assert!(!cells.is_empty());
         assert!(
             cells.contains(&downtown_cell),
@@ -289,5 +325,106 @@ mod tests {
             cells_for_bounds(10.0, 10.0, 5.0, 5.0),
             Err(BoundsError::InvalidBounds { .. })
         ));
+    }
+
+    /// Only lon inverted (lat ok) must still be rejected -- the check is
+    /// per-axis, not a single combined comparison.
+    #[test]
+    fn cells_for_bounds_partially_inverted_errors() {
+        // min_lat <= max_lat but min_lon > max_lon.
+        assert!(matches!(
+            cells_for_bounds(36.14, -86.70, 36.18, -86.80),
+            Err(BoundsError::InvalidBounds { .. })
+        ));
+    }
+
+    #[test]
+    fn cells_for_bounds_infinite_bound_errors() {
+        assert!(matches!(
+            cells_for_bounds(0.0, 0.0, f64::INFINITY, 1.0),
+            Err(BoundsError::InvalidBounds { .. })
+        ));
+        assert!(matches!(
+            cells_for_bounds(0.0, 0.0, 1.0, f64::NEG_INFINITY),
+            Err(BoundsError::InvalidBounds { .. })
+        ));
+    }
+
+    /// A zero-area bbox (a single point) is valid and must return exactly the
+    /// one cell that covers the point -- the same cell `cell_for_coord`
+    /// resolves. Regression test for the sub-cell-bbox-returns-empty bug: the
+    /// point is smaller than a res-7 cell so none of that cell's boundary
+    /// vertices fall inside the (degenerate) box, yet the covering cell must
+    /// still be returned.
+    #[test]
+    fn cells_for_bounds_zero_area_returns_covering_cell() {
+        let cell = cell_for_coord(NASHVILLE_LAT, NASHVILLE_LON);
+        let cells = cells_for_bounds(NASHVILLE_LAT, NASHVILLE_LON, NASHVILLE_LAT, NASHVILLE_LON)
+            .expect("point bbox must be valid");
+        assert_eq!(
+            cells,
+            alloc::vec![cell],
+            "point query must yield its one covering cell"
+        );
+    }
+
+    /// A bbox a few metres across (far smaller than a ~5.16 km^2 res-7 cell)
+    /// must not return empty -- same regression as the zero-area case for a
+    /// non-degenerate but sub-cell box.
+    #[test]
+    fn cells_for_bounds_tiny_bbox_is_not_empty() {
+        let cell = cell_for_coord(NASHVILLE_LAT, NASHVILLE_LON);
+        // ~11 m in latitude, ~9 m in longitude at this latitude.
+        let cells = cells_for_bounds(
+            NASHVILLE_LAT - 0.0001,
+            NASHVILLE_LON - 0.0001,
+            NASHVILLE_LAT + 0.0001,
+            NASHVILLE_LON + 0.0001,
+        )
+        .expect("tiny bbox must be valid");
+        assert!(!cells.is_empty(), "sub-cell bbox must not return empty");
+        assert!(cells.contains(&cell), "must include the covering cell");
+    }
+
+    /// Every returned cell must be unique -- the flood fill dedups via the
+    /// `visited` set, and the unconditionally-seeded start cell must not be
+    /// re-added by a neighbor expansion.
+    #[test]
+    fn cells_for_bounds_returns_no_duplicates() {
+        let cells = cells_for_bounds(36.10, -86.85, 36.22, -86.72).expect("bbox must be valid");
+        let mut sorted = cells.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            cells.len(),
+            "result must contain no duplicate cells"
+        );
+        assert!(
+            cells.len() > 1,
+            "a multi-cell viewport must expand past the start cell"
+        );
+    }
+
+    /// The center cell of a normal viewport is included, and it matches the
+    /// cell the point-resolver returns for the bbox center.
+    #[test]
+    fn cells_for_bounds_includes_center_cell() {
+        let center_cell = cell_for_coord((36.14 + 36.18) / 2.0, (-86.80 + -86.76) / 2.0);
+        let cells = cells_for_bounds(36.14, -86.80, 36.18, -86.76).expect("bbox must be valid");
+        assert!(cells.contains(&center_cell), "center cell must be covered");
+    }
+
+    #[test]
+    fn cell_center_roundtrips_through_cell_for_coord() {
+        let cell = cell_for_coord(NASHVILLE_LAT, NASHVILLE_LON);
+        let (clat, clon) = cell_center(cell);
+        // The cell center resolves back to the same cell.
+        assert_eq!(cell_for_coord(clat, clon), cell);
+    }
+
+    #[test]
+    fn cell_center_invalid_cell_is_origin_not_panic() {
+        assert_eq!(cell_center(0), (0.0, 0.0));
     }
 }

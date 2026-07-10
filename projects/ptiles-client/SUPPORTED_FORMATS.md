@@ -18,12 +18,16 @@ The table is generated from `ptiles_core::SUPPORTED_FORMATS` (see
 matches that function's output verbatim, so the table and the code can't
 drift apart.
 
-Only magics with a real sample file inspected under `~/kino/data/ptiles/` are
-listed. `PTILESA` (admin, `US.admin.ptiles`), `PTILESD` (addr, planned per
-SPEC.md), and `PTILESU` (routing, planned per SPEC.md) have no local sample
-and are therefore absent -- any file with one of those magics is rejected
-today (empty `supported` list) until a real sample is inspected and a table
-entry is added.
+`PTILESA` (admin, `US.admin.ptiles`) has a real sample inspected and is now
+supported. The address layer (`{STATE}.address.ptiles`, magic `PTILESA2`) also
+lands on this same 7-byte magic: the reference `write_header` packs `magic[:7]`,
+so `PTILESA2` truncates to `PTILESA` on disk. Admin and address are therefore
+distinguished by structure (admin has `block_count == 0` and `aux_length > 0`;
+address uses a v2 merged-block index with `block_count > 0`) and by filename,
+not by magic. `PTILESD` (the SPEC.md TIGER addr format) was never built, and
+`PTILESU` (routing, planned per SPEC.md) has no sample -- both remain absent and
+any file with one of those magics is rejected (empty `supported` list) until a
+real sample is inspected.
 
 Note: SPEC.md's "Schema version" row (line 71) lists business as magic
 `PTILESI\x00` version 2. The real `TN.business.ptiles` file inspected for
@@ -40,5 +44,6 @@ real file, not the (apparently stale) doc.
 | places | `PTILESP\x00` | 1 | matches SPEC.md (v1) |
 | parks | `PTILESN\x00` | 1 | matches SPEC.md (v1) |
 | rail | `PTILEST\x00` | 1 | matches SPEC.md (v1) |
+| admin_or_address | `PTILESA\x00` | 1 | US.admin.ptiles (real sample inspected) AND {STATE}.address.ptiles both land on 7-byte magic PTILESA v1 -- the address encoder's PTILESA2 truncates to PTILESA via write_header's magic[:7]. Disambiguated by structure (admin: block_count 0, aux_length>0) and filename, not magic |
 | business_name_index | `PTILESX\x00` | 1 | sidecar {STATE}.business_name_index.ptiles from scripts/build_business_name_index.py; not in SPEC.md's file table, but matches the real bytes the reference builder produced from TN.business.ptiles during this task (magic PTILESX v1, no dict) |
 <!-- END GENERATED SUPPORTED_FORMATS TABLE -->

@@ -11,7 +11,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::codec::{decode_indexed_or_custom, decode_varint, read_i32, read_u16, read_u32, read_u8, tables, DecodeError};
+use crate::codec::{
+    DecodeError, decode_indexed_or_custom, decode_varint, read_i32, read_u8, read_u16, read_u32,
+    tables,
+};
 
 /// An intersection point (v2+ road blocks carry a trailing table of these
 /// after the road records). Matches `ptiles/roads.py::Intersection`.
@@ -22,6 +25,19 @@ pub struct Intersection {
     pub lat_micro: i32,
     /// 1 = traffic_signals, 2 = stop, 3 = give_way, 4 = roundabout.
     pub intersection_type: u8,
+}
+
+impl Intersection {
+    /// `(lon, lat)` in degrees. The stored `*_micro` fields are named "micro"
+    /// but are actually at the same `/100_000` scale as road coordinates
+    /// (verified against the golden fixture: `-8_679_367` -> `-86.79367`), so
+    /// this is the one place that divisor lives.
+    pub fn coords(&self) -> [f64; 2] {
+        [
+            self.lon_micro as f64 / 100_000.0,
+            self.lat_micro as f64 / 100_000.0,
+        ]
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -253,9 +269,273 @@ mod tests {
         assert_eq!(roads[0].coords, vec![[-86.78, 36.16]]);
     }
 
+    /// zigzag-encode an i32 delta the way `decode_coordinates` expects to read it.
+    fn zigzag_encode_i32(v: i32) -> u64 {
+        ((v << 1) ^ (v >> 31)) as u32 as u64
+    }
+
+    /// Encode a full road record body given absolute-micro first vertex and
+    /// (dlon, dlat) micro deltas for the remaining vertices.
+    fn build_road_record(
+        osm_delta: u64,
+        first_lon: i32,
+        first_lat: i32,
+        deltas: &[(i32, i32)],
+        flags: u8,
+        road_class_idx: u8,
+        tail: &[u8],
+    ) -> Vec<u8> {
+        let mut rec = Vec::new();
+        encode_varint(osm_delta, &mut rec);
+        let vertex_count = (1 + deltas.len()) as u16;
+        rec.extend_from_slice(&vertex_count.to_le_bytes());
+        rec.extend_from_slice(&first_lon.to_le_bytes());
+        rec.extend_from_slice(&first_lat.to_le_bytes());
+        for (dlon, dlat) in deltas {
+            encode_varint(zigzag_encode_i32(*dlon), &mut rec);
+            encode_varint(zigzag_encode_i32(*dlat), &mut rec);
+        }
+        rec.push(flags);
+        rec.push(road_class_idx);
+        rec.extend_from_slice(tail);
+        rec
+    }
+
+    /// Wrap one-or-more record bodies into a block with u32 length prefixes.
+    fn frame_records(recs: &[Vec<u8>]) -> Vec<u8> {
+        let mut block = Vec::new();
+        for rec in recs {
+            block.extend_from_slice(&(rec.len() as u32).to_le_bytes());
+            block.extend_from_slice(rec);
+        }
+        block
+    }
+
+    #[test]
+    fn multi_vertex_polyline_preserves_point_order_and_deltas() {
+        // 3 vertices; deltas chosen so the reconstructed polyline is a known
+        // ordered sequence -- the routing layer relies on point order.
+        let rec = build_road_record(
+            7,
+            -8_678_000,
+            3_616_000,
+            &[(100, 50), (-200, 30)],
+            0x00,
+            0, // motorway
+            &[],
+        );
+        let block = frame_records(&[rec]);
+        let roads = decode_roads(&block).unwrap();
+        assert_eq!(roads.len(), 1);
+        let r = &roads[0];
+        assert_eq!(r.road_class, "motorway");
+        // Absolute micro sequence: 3616000 lat etc, /1e5 into degrees.
+        let expect = vec![[-86.78, 36.16], [-86.779, 36.1605], [-86.781, 36.1608]];
+        assert_eq!(r.coords.len(), 3);
+        for (got, want) in r.coords.iter().zip(expect.iter()) {
+            assert!((got[0] - want[0]).abs() < 1e-9, "lon {got:?} vs {want:?}");
+            assert!((got[1] - want[1]).abs() < 1e-9, "lat {got:?} vs {want:?}");
+        }
+    }
+
+    #[test]
+    fn osm_id_is_delta_accumulated_across_records() {
+        // Two records; second osm_id = first + its delta (delta varint, not zigzag).
+        let r1 = build_road_record(1000, -8_678_000, 3_616_000, &[(1, 1)], 0, 8, &[]);
+        let r2 = build_road_record(25, -8_678_000, 3_616_000, &[(1, 1)], 0, 8, &[]);
+        let block = frame_records(&[r1, r2]);
+        let roads = decode_roads(&block).unwrap();
+        assert_eq!(roads.len(), 2);
+        assert_eq!(roads[0].osm_id, 1000);
+        assert_eq!(roads[1].osm_id, 1025);
+    }
+
+    #[test]
+    fn decodes_all_optional_fields() {
+        // flags: name(0x01) ref(0x02) oneway(0x04) speed(0x08) lanes(0x10)
+        //        surface(0x20) bridge_tunnel(0x40) = 0x7f
+        let mut tail = Vec::new();
+        // name (u16-len)
+        let name = "Broadway";
+        tail.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        tail.extend_from_slice(name.as_bytes());
+        // ref_tag (u8-len)
+        let reft = "US-70";
+        tail.push(reft.len() as u8);
+        tail.extend_from_slice(reft.as_bytes());
+        // oneway = 1 -> forward
+        tail.push(1);
+        // speed_limit
+        tail.push(50);
+        // lanes
+        tail.push(4);
+        // surface idx 1 -> asphalt
+        tail.push(1);
+        // bridge_tunnel 2 -> tunnel
+        tail.push(2);
+
+        let rec = build_road_record(42, -8_678_000, 3_616_000, &[(10, 10)], 0x7f, 6, &tail);
+        let block = frame_records(&[rec]);
+        let roads = decode_roads(&block).unwrap();
+        assert_eq!(roads.len(), 1);
+        let r = &roads[0];
+        assert_eq!(r.road_class, "secondary");
+        assert_eq!(r.name.as_deref(), Some("Broadway"));
+        assert_eq!(r.ref_tag.as_deref(), Some("US-70"));
+        assert_eq!(r.oneway.as_deref(), Some("forward"));
+        assert_eq!(r.speed_limit_kmh, Some(50));
+        assert_eq!(r.lanes, Some(4));
+        assert_eq!(r.surface.as_deref(), Some("asphalt"));
+        assert_eq!(r.bridge_tunnel.as_deref(), Some("tunnel"));
+    }
+
+    #[test]
+    fn custom_road_class_via_escape_index() {
+        // road_class idx 255 -> u8-len-prefixed custom string.
+        let custom = "raceway";
+        let mut tail = Vec::new();
+        tail.push(custom.len() as u8);
+        tail.extend_from_slice(custom.as_bytes());
+        // Build manually: reuse build helper with road_class_idx=255 then append custom in tail.
+        let rec = build_road_record(1, -8_678_000, 3_616_000, &[(1, 1)], 0x00, 255, &tail);
+        let block = frame_records(&[rec]);
+        let roads = decode_roads(&block).unwrap();
+        assert_eq!(roads[0].road_class, "raceway");
+    }
+
+    #[test]
+    fn bad_record_is_skipped_not_fatal() {
+        // First record is well-formed; second claims 20 vertices but supplies
+        // no delta bytes -> its decode fails and is skipped, but framing keeps
+        // the scan aligned so the block still yields the good record.
+        let good = build_road_record(5, -8_678_000, 3_616_000, &[(1, 1)], 0, 8, &[]);
+        // Bad body: osm delta + vertex_count=20 + first coord, then nothing.
+        let mut bad = Vec::new();
+        encode_varint(9, &mut bad);
+        bad.extend_from_slice(&20u16.to_le_bytes());
+        bad.extend_from_slice(&(-8_678_000_i32).to_le_bytes());
+        bad.extend_from_slice(&(3_616_000_i32).to_le_bytes());
+        let block = frame_records(&[good, bad]);
+        let roads = decode_roads(&block).unwrap();
+        assert_eq!(roads.len(), 1, "malformed record skipped, good one kept");
+        assert_eq!(roads[0].osm_id, 5);
+    }
+
+    #[test]
+    fn zero_length_record_terminates_scan() {
+        let good = build_road_record(5, -8_678_000, 3_616_000, &[(1, 1)], 0, 8, &[]);
+        let mut block = frame_records(&[good]);
+        block.extend_from_slice(&0u32.to_le_bytes()); // terminator
+        block.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef]); // garbage after terminator ignored
+        let roads = decode_roads(&block).unwrap();
+        assert_eq!(roads.len(), 1);
+    }
+
+    #[test]
+    fn record_len_overrun_is_error() {
+        // Length prefix claims more bytes than the block holds.
+        let block = [200u8, 0, 0, 0, 1, 2, 3];
+        let err = decode_roads(&block).unwrap_err();
+        assert!(matches!(err, DecodeError::RecordOverrun { .. }));
+    }
+
+    #[test]
+    fn empty_block_is_empty_not_error() {
+        assert!(decode_roads(&[]).unwrap().is_empty());
+        // Fewer than 4 bytes: no record can start, no panic.
+        assert!(decode_roads(&[1, 2, 3]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn decode_road_block_reads_intersection_table_v2() {
+        let good = build_road_record(5, -8_678_000, 3_616_000, &[(1, 1)], 0, 8, &[]);
+        let mut block = frame_records(&[good]);
+        block.extend_from_slice(&0u32.to_le_bytes()); // record terminator
+        // intersection table: count=2, then two 9-byte entries.
+        block.extend_from_slice(&2u16.to_le_bytes());
+        for (lon, lat, ty) in [
+            (-8_679_367_i32, 3_616_076_i32, 1u8),
+            (-8_677_437, 3_616_225, 3),
+        ] {
+            block.extend_from_slice(&lon.to_le_bytes());
+            block.extend_from_slice(&lat.to_le_bytes());
+            block.push(ty);
+        }
+        let (roads, ints) = decode_road_block(&block, 2).unwrap();
+        assert_eq!(roads.len(), 1);
+        assert_eq!(ints.len(), 2);
+        assert_eq!(
+            ints[0],
+            Intersection {
+                lon_micro: -8_679_367,
+                lat_micro: 3_616_076,
+                intersection_type: 1
+            }
+        );
+        assert_eq!(ints[1].intersection_type, 3);
+    }
+
+    #[test]
+    fn decode_road_block_v1_ignores_intersection_table() {
+        let good = build_road_record(5, -8_678_000, 3_616_000, &[(1, 1)], 0, 8, &[]);
+        let mut block = frame_records(&[good]);
+        block.extend_from_slice(&0u32.to_le_bytes());
+        block.extend_from_slice(&1u16.to_le_bytes());
+        block.extend_from_slice(&(-8_679_367_i32).to_le_bytes());
+        block.extend_from_slice(&(3_616_076_i32).to_le_bytes());
+        block.push(1);
+        let (roads, ints) = decode_road_block(&block, 1).unwrap();
+        assert_eq!(roads.len(), 1);
+        assert!(ints.is_empty(), "v1 must not decode an intersection table");
+    }
+
+    #[test]
+    fn truncated_intersection_entry_does_not_panic() {
+        let good = build_road_record(5, -8_678_000, 3_616_000, &[(1, 1)], 0, 8, &[]);
+        let mut block = frame_records(&[good]);
+        block.extend_from_slice(&0u32.to_le_bytes());
+        block.extend_from_slice(&5u16.to_le_bytes()); // claims 5 intersections
+        block.extend_from_slice(&(-8_679_367_i32).to_le_bytes()); // only a partial first entry
+        // decode must stop cleanly at the truncation, not panic.
+        let (_roads, ints) = decode_road_block(&block, 2).unwrap();
+        assert!(ints.is_empty(), "partial intersection entry is dropped");
+    }
+
     #[test]
     fn truncated_block_does_not_panic() {
         let block = [5u8, 0, 0, 0, 1, 2]; // claims 5-byte record, only 2 present
         assert!(decode_roads(&block).is_err());
+    }
+
+    /// Decode the real Nashville roads block fixture and cross-check a couple
+    /// of routing-relevant invariants against the golden JSON. The full
+    /// field-by-field comparison lives in `core/tests/golden.rs`; this is a
+    /// std-only smoke test that the in-crate decoder handles a real,
+    /// multi-thousand-record block without error and preserves point order.
+    #[cfg(feature = "std")]
+    #[test]
+    fn golden_roads_block_smoke() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("test-fixtures")
+            .join("golden")
+            .join("roads.block.bin");
+        let data = std::fs::read(&path).expect("read roads.block.bin");
+        let (roads, ints) = decode_road_block(&data, 2).expect("decode real roads block");
+        // meta.json: feature_count_in_index = 3552 roads, 129 intersections.
+        assert_eq!(roads.len(), 3552);
+        assert_eq!(ints.len(), 129);
+        // First golden road: osm_id 19443101, motorway_link, bridge, forward,
+        // 2 coords starting at (-86.79397, 36.16412).
+        let first = &roads[0];
+        assert_eq!(first.osm_id, 19_443_101);
+        assert_eq!(first.road_class, "motorway_link");
+        assert_eq!(first.bridge_tunnel.as_deref(), Some("bridge"));
+        assert_eq!(first.oneway.as_deref(), Some("forward"));
+        assert_eq!(first.coords.len(), 2);
+        assert!((first.coords[0][0] - -86.79397).abs() < 1e-5);
+        assert!((first.coords[0][1] - 36.16412).abs() < 1e-5);
+        // Every road has at least two points (a routable polyline).
+        assert!(roads.iter().all(|r| r.coords.len() >= 2));
     }
 }

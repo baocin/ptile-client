@@ -103,6 +103,28 @@ mod tests {
         buf
     }
 
+    // Populate every field with a distinct sentinel to catch offset mistakes.
+    fn build_full_header() -> [u8; HEADER_SIZE] {
+        let mut buf = [0u8; HEADER_SIZE];
+        buf[0..7].copy_from_slice(b"PTILESB");
+        buf[7] = 0;
+        buf[8] = 8;
+        buf[12..16].copy_from_slice(&(-36.5f32).to_le_bytes()); // min_lat
+        buf[16..20].copy_from_slice(&(-120.25f32).to_le_bytes()); // min_lon
+        buf[20..24].copy_from_slice(&37.75f32.to_le_bytes()); // max_lat
+        buf[24..28].copy_from_slice(&(-119.0f32).to_le_bytes()); // max_lon
+        buf[28..36].copy_from_slice(&123_456_789u64.to_le_bytes()); // feature_count
+        buf[36..40].copy_from_slice(&4242u32.to_le_bytes()); // block_count
+        buf[40..48].copy_from_slice(&1000u64.to_le_bytes()); // dict_offset
+        buf[48..52].copy_from_slice(&200u32.to_le_bytes()); // dict_length
+        buf[52..60].copy_from_slice(&2000u64.to_le_bytes()); // index_offset
+        buf[60..64].copy_from_slice(&300u32.to_le_bytes()); // index_length
+        buf[64..72].copy_from_slice(&4096u64.to_le_bytes()); // blocks_offset
+        buf[72..80].copy_from_slice(&8000u64.to_le_bytes()); // aux_offset
+        buf[80..84].copy_from_slice(&400u32.to_le_bytes()); // aux_length
+        buf
+    }
+
     #[test]
     fn parses_valid_header() {
         let buf = build_header(b"PTILEST", 1);
@@ -115,8 +137,81 @@ mod tests {
     }
 
     #[test]
+    fn parses_all_fields_at_correct_offsets() {
+        let buf = build_full_header();
+        let h = Header::parse(&buf).unwrap();
+        assert_eq!(&h.magic, b"PTILESB");
+        assert_eq!(h.magic_str(), "PTILESB");
+        assert_eq!(h.version, 8);
+        assert_eq!(h.min_lat, -36.5);
+        assert_eq!(h.min_lon, -120.25);
+        assert_eq!(h.max_lat, 37.75);
+        assert_eq!(h.max_lon, -119.0);
+        assert_eq!(h.feature_count, 123_456_789);
+        assert_eq!(h.block_count, 4242);
+        assert_eq!(h.dict_offset, 1000);
+        assert_eq!(h.dict_length, 200);
+        assert_eq!(h.index_offset, 2000);
+        assert_eq!(h.index_length, 300);
+        assert_eq!(h.blocks_offset, 4096);
+        assert_eq!(h.aux_offset, 8000);
+        assert_eq!(h.aux_length, 400);
+    }
+
+    #[test]
+    fn parse_at_exact_size_boundary_ok() {
+        let buf = build_header(b"PTILESW", 3);
+        assert_eq!(buf.len(), HEADER_SIZE);
+        assert!(Header::parse(&buf).is_ok());
+    }
+
+    #[test]
+    fn parse_ignores_trailing_bytes() {
+        let hdr = build_full_header();
+        let mut buf = hdr.to_vec();
+        buf.extend_from_slice(&[0xab; 512]); // block data after header
+        let h = Header::parse(&buf).unwrap();
+        assert_eq!(h.version, 8);
+        assert_eq!(h.aux_length, 400);
+    }
+
+    #[test]
     fn truncated_header_is_error() {
         let buf = [0u8; 100];
+        assert!(matches!(
+            Header::parse(&buf),
+            Err(DecodeError::UnexpectedEof {
+                offset: 0,
+                needed: HEADER_SIZE
+            })
+        ));
+    }
+
+    #[test]
+    fn one_byte_short_is_error() {
+        let buf = [0u8; HEADER_SIZE - 1];
         assert!(Header::parse(&buf).is_err());
+    }
+
+    #[test]
+    fn empty_input_is_error() {
+        let empty: [u8; 0] = [];
+        assert!(Header::parse(&empty).is_err());
+    }
+
+    #[test]
+    fn magic_str_invalid_utf8_falls_back() {
+        let mut buf = build_full_header();
+        buf[0..7].copy_from_slice(&[0xff, 0xfe, 0xfd, 0x00, 0x01, 0x02, 0x03]);
+        let h = Header::parse(&buf).unwrap();
+        assert_eq!(h.magic_str(), "<invalid>");
+    }
+
+    #[test]
+    fn version_zero_and_max_parse() {
+        let h0 = Header::parse(&build_header(b"PTILESR", 0)).unwrap();
+        assert_eq!(h0.version, 0);
+        let h255 = Header::parse(&build_header(b"PTILESR", 255)).unwrap();
+        assert_eq!(h255.version, 255);
     }
 }

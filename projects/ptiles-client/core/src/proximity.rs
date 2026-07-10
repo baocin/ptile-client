@@ -15,7 +15,7 @@
 //! projection formula SPEC.md gives, rather than truncating to raw
 //! microdegree deltas.
 
-use crate::roads::RoadSegment;
+use crate::roads::{Intersection, RoadSegment};
 
 /// `sin`/`cos`/`sqrt`/`atan2` aren't in libcore -- they need either `std` or
 /// a software implementation. Mirrors h3o's own no_std strategy
@@ -76,12 +76,32 @@ pub fn haversine_distance_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     EARTH_RADIUS_M * c
 }
 
+/// Normalize a longitude *difference* (degrees) into `[-180, 180]` so a pair
+/// straddling the antimeridian (e.g. `+179.9` and `-179.9`) reads as the
+/// 0.2-degree gap it physically is, not a ~360-degree jump. Without this,
+/// `project_m` would compute kilometre-scale bogus distances near +/-180 lon.
+fn normalize_lon_delta(mut d: f64) -> f64 {
+    // Guard against NaN/inf: only wrap finite values.
+    if !d.is_finite() {
+        return d;
+    }
+    while d > 180.0 {
+        d -= 360.0;
+    }
+    while d < -180.0 {
+        d += 360.0;
+    }
+    d
+}
+
 /// Project a lat/lon point to meters on a local equirectangular tangent
 /// plane centered at `(origin_lat, origin_lon)`. Accurate for the
 /// sub-kilometer distances this module is used at; degrades over long
 /// ranges (that's what `haversine_distance_m` is for).
 fn project_m(origin_lat: f64, origin_lon: f64, lat: f64, lon: f64) -> (f64, f64) {
-    let x = (lon - origin_lon).to_radians() * math::cos(origin_lat.to_radians()) * EARTH_RADIUS_M;
+    let x = normalize_lon_delta(lon - origin_lon).to_radians()
+        * math::cos(origin_lat.to_radians())
+        * EARTH_RADIUS_M;
     let y = (lat - origin_lat).to_radians() * EARTH_RADIUS_M;
     (x, y)
 }
@@ -167,6 +187,12 @@ pub fn point_to_linestring_distance_m(
         let [lon1, lat1] = coords[i];
         let [lon2, lat2] = coords[i + 1];
         let proj = point_to_segment_distance_m(p_lat, p_lon, lat1, lon1, lat2, lon2);
+        // Skip NaN/inf distances (NaN inputs, projection blow-ups) so a bad
+        // segment can't lodge itself as "best" and shadow finite ones -- a
+        // NaN comparison is always false, so it would never be replaced.
+        if !proj.distance_m.is_finite() {
+            continue;
+        }
         if best.is_none_or(|(_, b)| proj.distance_m < b.distance_m) {
             best = Some((i, proj));
         }
@@ -200,12 +226,17 @@ pub const DEFAULT_THRESHOLD_M: f64 = 50.0;
 /// Does not do H3 lookup or neighbor-cell expansion itself (steps 1-2, 6)
 /// — those live in `query.rs`; callers pass in the road segments already
 /// fetched for the relevant cell(s).
-pub fn nearest_road(lat: f64, lon: f64, roads: &[RoadSegment], threshold_m: f64) -> Option<NearestRoad> {
+pub fn nearest_road(
+    lat: f64,
+    lon: f64,
+    roads: &[RoadSegment],
+    threshold_m: f64,
+) -> Option<NearestRoad> {
     let mut best: Option<NearestRoad> = None;
     for (road_index, road) in roads.iter().enumerate() {
-        if let Some((segment_index, proj)) = point_to_linestring_distance_m(lat, lon, &road.coords) {
-            if proj.distance_m <= threshold_m
-                && best.is_none_or(|b| proj.distance_m < b.distance_m)
+        if let Some((segment_index, proj)) = point_to_linestring_distance_m(lat, lon, &road.coords)
+        {
+            if proj.distance_m <= threshold_m && best.is_none_or(|b| proj.distance_m < b.distance_m)
             {
                 best = Some(NearestRoad {
                     road_index,
@@ -214,6 +245,52 @@ pub fn nearest_road(lat: f64, lon: f64, roads: &[RoadSegment], threshold_m: f64)
                     distance_m: proj.distance_m,
                 });
             }
+        }
+    }
+    best
+}
+
+/// An intersection found by [`nearest_intersection`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NearestIntersection {
+    /// Index into the `intersections` slice passed to `nearest_intersection`.
+    pub index: usize,
+    /// Distance from the query point to the intersection, in meters.
+    pub distance_m: f64,
+    /// Traffic-control classification: 1 = traffic_signals, 2 = stop,
+    /// 3 = give_way, 4 = roundabout (0/other = untyped).
+    pub intersection_type: u8,
+}
+
+/// Find the closest labeled intersection to `(lat, lon)` within `threshold_m`
+/// — the "am I at an intersection?" query. Point-to-point analogue of
+/// [`nearest_road`]: `.roads.ptiles` v2 blocks carry an intersection table
+/// (see [`crate::decode_road_block`]); callers pass the decoded intersections
+/// for the relevant cell(s).
+///
+/// Answers "is there a mapped intersection point near me (and what control
+/// type)?". It does NOT report junction degree — the format stores no
+/// topology, so a 4-way junction and a tagged road endpoint are
+/// indistinguishable from this data alone.
+pub fn nearest_intersection(
+    lat: f64,
+    lon: f64,
+    intersections: &[Intersection],
+    threshold_m: f64,
+) -> Option<NearestIntersection> {
+    let mut best: Option<NearestIntersection> = None;
+    for (index, ix) in intersections.iter().enumerate() {
+        let [ix_lon, ix_lat] = ix.coords();
+        let distance_m = haversine_distance_m(lat, lon, ix_lat, ix_lon);
+        if distance_m.is_finite()
+            && distance_m <= threshold_m
+            && best.is_none_or(|b| distance_m < b.distance_m)
+        {
+            best = Some(NearestIntersection {
+                index,
+                distance_m,
+                intersection_type: ix.intersection_type,
+            });
         }
     }
     best
@@ -308,5 +385,243 @@ mod tests {
     fn point_to_linestring_empty_and_single_point() {
         assert!(point_to_linestring_distance_m(0.0, 0.0, &[]).is_none());
         assert!(point_to_linestring_distance_m(0.0, 0.0, &[[0.0, 0.0]]).is_none());
+    }
+
+    // --- distance math: hand-computed expected values ---
+
+    #[test]
+    fn haversine_one_degree_lat_is_about_111km() {
+        // One degree of latitude is ~111.19 km on a sphere of radius 6371 km
+        // (R * 1deg-in-rad = 6_371_000 * pi/180 = 111_194.9 m).
+        let d = haversine_distance_m(0.0, 0.0, 1.0, 0.0);
+        assert!((d - 111_194.9).abs() < 1.0, "d={d}");
+    }
+
+    #[test]
+    fn haversine_lon_shrinks_with_latitude() {
+        // A degree of longitude at 60N is ~half its equatorial length
+        // (cos 60 = 0.5).
+        let eq = haversine_distance_m(0.0, 0.0, 0.0, 1.0);
+        let hi = haversine_distance_m(60.0, 0.0, 60.0, 1.0);
+        assert!((hi / eq - 0.5).abs() < 0.01, "eq={eq} hi={hi}");
+    }
+
+    #[test]
+    fn haversine_is_symmetric() {
+        let a = haversine_distance_m(36.16, -86.78, 35.15, -90.05);
+        let b = haversine_distance_m(35.15, -90.05, 36.16, -86.78);
+        assert!((a - b).abs() < 1e-6);
+    }
+
+    #[test]
+    fn point_to_segment_on_start_endpoint_is_zero() {
+        // Query point exactly on the segment's start endpoint.
+        let proj = point_to_segment_distance_m(10.0, 20.0, 10.0, 20.0, 10.0, 21.0);
+        assert!(proj.distance_m < 1e-6, "distance_m={}", proj.distance_m);
+        assert!((proj.t - 0.0).abs() < 1e-9, "t={}", proj.t);
+    }
+
+    #[test]
+    fn point_to_segment_on_end_endpoint_is_zero() {
+        let proj = point_to_segment_distance_m(10.0, 21.0, 10.0, 20.0, 10.0, 21.0);
+        assert!(proj.distance_m < 1e-6, "distance_m={}", proj.distance_m);
+        assert!((proj.t - 1.0).abs() < 1e-9, "t={}", proj.t);
+    }
+
+    #[test]
+    fn point_exactly_on_segment_midpoint_is_zero() {
+        // Point sitting on the segment (its midpoint) -> zero distance, t=0.5.
+        let proj = point_to_segment_distance_m(0.0, 0.5, 0.0, 0.0, 0.0, 1.0);
+        assert!(proj.distance_m < 1e-6, "distance_m={}", proj.distance_m);
+        assert!((proj.t - 0.5).abs() < 1e-6, "t={}", proj.t);
+    }
+
+    #[test]
+    fn point_to_segment_perpendicular_distance_known() {
+        // Segment along the equator from lon 0 to lon 1; query point 0.001 deg
+        // north of the midpoint. Perpendicular distance == 0.001 deg of
+        // latitude ~= 111.19 m.
+        let proj = point_to_segment_distance_m(0.001, 0.5, 0.0, 0.0, 0.0, 1.0);
+        let expected = 111_194.9 * 0.001; // ~111.19 m
+        assert!(
+            (proj.distance_m - expected).abs() < 0.5,
+            "distance_m={}",
+            proj.distance_m
+        );
+    }
+
+    // --- antimeridian / poles ---
+
+    #[test]
+    fn antimeridian_segment_distance_is_small() {
+        // A short segment straddling +/-180 lon, near the equator. Physically
+        // ~0.2 deg (~22 km) wide; a naive (lon-lon) delta would blow this up
+        // to ~360 deg. Query point sits between the endpoints.
+        let proj = point_to_segment_distance_m(0.0, 179.95, 0.0, 179.9, 0.0, -179.9);
+        // Snapped somewhere on the segment; perpendicular distance ~0.
+        assert!(proj.distance_m < 10_000.0, "distance_m={}", proj.distance_m);
+    }
+
+    #[test]
+    fn antimeridian_projection_matches_haversine_scale() {
+        // Two points 0.2 deg apart straddling the antimeridian at the equator.
+        let hav = haversine_distance_m(0.0, 179.9, 0.0, -179.9);
+        // Degenerate "segment" == single point at 179.9, measure to -179.9.
+        let proj = point_to_segment_distance_m(0.0, -179.9, 0.0, 179.9, 0.0, 179.9);
+        assert!(
+            (proj.distance_m - hav).abs() < 50.0,
+            "proj={} hav={hav}",
+            proj.distance_m
+        );
+    }
+
+    #[test]
+    fn near_pole_haversine_finite_and_small() {
+        // Two points near the north pole, 1 deg of longitude apart. Longitude
+        // spacing collapses toward the pole, so the distance is tiny.
+        let d = haversine_distance_m(89.999, 0.0, 89.999, 1.0);
+        assert!(d.is_finite(), "d={d}");
+        assert!(d < 5.0, "d={d}");
+    }
+
+    // --- NaN guards ---
+
+    #[test]
+    fn nan_coordinate_segment_is_skipped() {
+        // First segment has a NaN coordinate (would yield NaN distance); the
+        // second is a real, close segment. The NaN must not shadow it.
+        let coords = [
+            [f64::NAN, 0.0],
+            [0.0002, 0.0],
+            [0.0002, 0.001], // finite, close segment (idx 1)
+        ];
+        let (idx, proj) = point_to_linestring_distance_m(0.0, 0.0, &coords).unwrap();
+        assert_eq!(idx, 1);
+        assert!(proj.distance_m.is_finite());
+    }
+
+    // --- nearest_road ---
+
+    #[test]
+    fn nearest_road_empty_roads_is_none() {
+        assert!(nearest_road(36.16, -86.78, &[], DEFAULT_THRESHOLD_M).is_none());
+    }
+
+    #[test]
+    fn nearest_road_picks_geometrically_closest_of_three() {
+        let roads = vec![
+            road(vec![[-86.7810, 36.16], [-86.7809, 36.16]]), // ~90m W
+            road(vec![[-86.78005, 36.16], [-86.78003, 36.16]]), // ~4m W (closest)
+            road(vec![[-86.7799, 36.16], [-86.7798, 36.16]]), // ~9-18m E
+        ];
+        let result = nearest_road(36.16, -86.78, &roads, DEFAULT_THRESHOLD_M).unwrap();
+        assert_eq!(result.road_index, 1, "result={result:?}");
+        // Cross-check it really is the minimum over all roads.
+        let mut min_d = f64::MAX;
+        for r in &roads {
+            if let Some((_, p)) = point_to_linestring_distance_m(36.16, -86.78, &r.coords) {
+                if p.distance_m < min_d {
+                    min_d = p.distance_m;
+                }
+            }
+        }
+        assert!((result.distance_m - min_d).abs() < 1e-9);
+    }
+
+    #[test]
+    fn nearest_road_respects_threshold() {
+        let roads = vec![road(vec![[-86.7803, 36.16], [-86.7802, 36.16]])]; // ~18-27m W
+        // Loose threshold: found. Tight threshold: rejected.
+        assert!(nearest_road(36.16, -86.78, &roads, 50.0).is_some());
+        assert!(nearest_road(36.16, -86.78, &roads, 5.0).is_none());
+    }
+
+    #[test]
+    fn normalize_lon_delta_wraps() {
+        assert!((normalize_lon_delta(359.8) - (-0.2)).abs() < 1e-9);
+        assert!((normalize_lon_delta(-359.8) - 0.2).abs() < 1e-9);
+        assert!((normalize_lon_delta(10.0) - 10.0).abs() < 1e-9);
+        assert!(normalize_lon_delta(f64::NAN).is_nan());
+    }
+
+    fn ix(lon_micro: i32, lat_micro: i32, intersection_type: u8) -> Intersection {
+        Intersection {
+            lon_micro,
+            lat_micro,
+            intersection_type,
+        }
+    }
+
+    #[test]
+    fn intersection_coords_scale_is_1e5() {
+        // Golden first-intersection value from roads.rs decodes to Nashville.
+        assert_eq!(ix(-8_679_367, 3_616_076, 1).coords(), [-86.79367, 36.16076]);
+    }
+
+    #[test]
+    fn nearest_intersection_exact_hit_is_zero_distance() {
+        let ints = vec![ix(-8_679_367, 3_616_076, 1)];
+        let r = nearest_intersection(36.16076, -86.79367, &ints, DEFAULT_THRESHOLD_M).unwrap();
+        assert_eq!(r.index, 0);
+        assert_eq!(r.intersection_type, 1);
+        assert!(r.distance_m < 1e-6, "distance={}", r.distance_m);
+    }
+
+    #[test]
+    fn nearest_intersection_picks_closest_of_three() {
+        // At lat 36.16, 1e-5 deg lon ~= 0.9 m; space them clearly apart.
+        let ints = vec![
+            ix(-8_678_000, 3_616_076, 2), // ~far W
+            ix(-8_679_364, 3_616_076, 1), // ~3m from query (closest)
+            ix(-8_681_000, 3_616_076, 3), // ~far E
+        ];
+        let r = nearest_intersection(36.16076, -86.79367, &ints, DEFAULT_THRESHOLD_M).unwrap();
+        assert_eq!(r.index, 1);
+        assert_eq!(r.intersection_type, 1);
+        // Cross-check it is truly the minimum over all entries.
+        let min_d = ints
+            .iter()
+            .map(|i| {
+                let [ilon, ilat] = i.coords();
+                haversine_distance_m(36.16076, -86.79367, ilat, ilon)
+            })
+            .fold(f64::MAX, f64::min);
+        assert!((r.distance_m - min_d).abs() < 1e-9);
+    }
+
+    #[test]
+    fn nearest_intersection_respects_threshold() {
+        let ints = vec![ix(-8_679_000, 3_616_076, 1)]; // ~330m E of query
+        assert!(nearest_intersection(36.16076, -86.79367, &ints, 1000.0).is_some());
+        assert!(nearest_intersection(36.16076, -86.79367, &ints, 50.0).is_none());
+    }
+
+    #[test]
+    fn nearest_intersection_empty_is_none() {
+        assert!(nearest_intersection(36.16, -86.78, &[], DEFAULT_THRESHOLD_M).is_none());
+    }
+
+    #[test]
+    fn nearest_intersection_skips_non_finite_query() {
+        let ints = vec![ix(-8_679_367, 3_616_076, 1)];
+        // A NaN query produces NaN distances, which must never be selected.
+        assert!(nearest_intersection(f64::NAN, -86.79367, &ints, DEFAULT_THRESHOLD_M).is_none());
+    }
+
+    #[test]
+    fn nearest_intersection_from_real_roads_block() {
+        let data = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-fixtures/golden/roads.block.bin"
+        ))
+        .unwrap();
+        let (_roads, ints) = crate::decode_road_block(&data, 2).expect("decode real roads block");
+        assert!(!ints.is_empty());
+        // Query exactly at the first intersection: it must be found at ~0 m.
+        let [q_lon, q_lat] = ints[0].coords();
+        let r = nearest_intersection(q_lat, q_lon, &ints, DEFAULT_THRESHOLD_M).unwrap();
+        assert_eq!(r.index, 0);
+        assert_eq!(r.intersection_type, ints[0].intersection_type);
+        assert!(r.distance_m < 1.0, "distance={}", r.distance_m);
     }
 }
