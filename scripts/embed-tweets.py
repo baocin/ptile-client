@@ -1,1 +1,0 @@
-../projects/yt-transcript-pipeline/embed/tweets.py

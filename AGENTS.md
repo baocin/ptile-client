@@ -1,129 +1,27 @@
-# DOX Framework — Kino Home Directory
+# ptiles-client
 
-DOX is a hierarchical AGENTS.md framework installed here. Agent must follow DOX instructions across any edits.
+## Purpose
 
-## Core Contract
+Rust workspace decoding the PTiles binary geospatial format: `core` (decoder
+library), `wasm` (browser wasm-bindgen bridge), `cli` (native JSON bridge for
+Rookery), `fuzz` (crash-testing harness). See README.md for full layout,
+build, and test instructions.
 
-- AGENTS.md files are binding work contracts for their subtrees.
-- Work products, source materials, instructions, records, assets, and durable docs must stay understandable from the nearest applicable AGENTS.md plus every parent AGENTS.md above it.
+## Ownership
 
-## Read Before Editing
+- Kino infrastructure.
 
-1. Read the root AGENTS.md.
-2. Identify every file or folder you expect to touch.
-3. Walk from repository root to each target path.
-4. Read every AGENTS.md found along each route.
-5. If a parent AGENTS.md lists a child AGENTS.md whose scope contains the path, read that child and continue from there.
-6. Use the nearest AGENTS.md as the local contract and parent docs for repo-wide rules.
-7. If docs conflict, the closer doc controls local work details, but no child doc may weaken DOX.
+## Local Contracts
 
-Do not rely on memory. Re-read the applicable DOX chain in the current session before editing.
-
-## Update After Editing
-
-Every meaningful change requires a DOX pass before the task is done.
-
-Update the closest owning AGENTS.md when a change affects:
-
-- purpose, scope, ownership, or responsibilities
-- durable structure, contracts, workflows, or operating rules
-- required inputs, outputs, permissions, constraints, side effects, or artifacts
-- user preferences about behavior, communication, process, organization, or quality
-- AGENTS.md creation, deletion, move, rename, or index contents
-
-Update parent docs when parent-level structure, ownership, workflow, or child index changes. Update child docs when parent changes alter local rules. Remove stale or contradictory text immediately. Small edits that do not change behavior or contracts may leave docs unchanged, but the DOX pass still must happen.
-
-## Hierarchy
-
-- Root AGENTS.md is the DOX rail: project-wide instructions, global preferences, durable workflow rules, and the top-level Child DOX Index.
-- Child AGENTS.md files own domain-specific instructions and their own Child DOX Index.
-- Each parent explains what its direct children cover and what stays owned by the parent.
-- The closer a doc is to the work, the more specific and practical it must be.
-
-## Child Doc Shape
-
-Default section order:
-
-- Purpose
-- Ownership
-- Local Contracts
-- Work Guidance
-- Verification
-- Child DOX Index
-
-## Style
-
-- Keep docs concise, current, and operational.
-- Document stable contracts, not diary entries.
-- Put broad rules in parent docs and concrete details in child docs.
-- Prefer direct bullets with explicit names.
-- Do not duplicate rules across many files unless each scope needs a local version.
-- Delete stale notes instead of explaining history.
-- Trim obvious statements, repeated rules, misplaced detail, and warnings for risks that no longer exist.
-
-## Closeout
-
-1. Re-check changed paths against the DOX chain.
-2. Update nearest owning docs and any affected parents or children.
-3. Refresh every affected Child DOX Index.
-4. Remove stale or contradictory text.
-5. Run existing verification when relevant.
-6. Report any docs intentionally left unchanged and why.
-
-## User Preferences
-
-- User michael@steele.red. GitHub baocin. Kino agent: kino@steele.red.
-- Prefers local/offline data over APIs. Self-hosted data.
-- Fast execution over explanation. Parallel work, background processes, minimal status updates.
-- No emojis in any output. No poetry, no affectation.
-- When asked to update project documentation, update both the Obsidian KB note AND the project's top-level agent instructions file.
-- Corrects fast and tersely. Wants experimentation: try, measure, move on.
-- Always say full paths (absolute paths) when talking about a file or directory — never just filenames.
+- Tracked inside the `/home/aoi/kino` git repository (this directory has no
+  git dir of its own).
+- Related to ptile-client (main Rust client) and ptiles-browser (WASM viewer).
+- `src/lib.rs` is a legacy seed, superseded by `core/` + `wasm/`; kept until
+  wasm parity is confirmed in the demo, then removed.
+- Browser corridor routing keeps the first pass within `ROUTE_MAX_CELLS`; a
+  failed route may use one denser arterial retry with an explicit bounded
+  budget in `/home/aoi/kino/projects/steele.red/ptiles2/index.html`.
 
 ## Child DOX Index
 
-| Directory                | Has AGENTS.md                          |
-| ------------------------ | -------------------------------------- |
-| agent-skills-eval/       | yes                                    |
-| archive/                 | yes                                    |
-| backups/                 | yes                                    |
-| books/                   | yes                                    |
-| contacts/                | yes                                    |
-| dashboard/               | yes                                    |
-| data/                    | yes                                    |
-| docker/                  | yes                                    |
-| envs/                    | yes                                    |
-| financial/               | yes                                    |
-| goals/                   | yes                                    |
-| hermes-repo/             | yes (external repo, has own AGENTS.md) |
-| honcho-repo/             | yes (external repo, has own AGENTS.md) |
-| ideas/                   | yes                                    |
-| injest/                  | yes                                    |
-| introspection/           | yes                                    |
-| kb/                      | yes                                    |
-| keynote/                 | yes                                    |
-| llm-proxy/               | yes                                    |
-| logs/                    | yes                                    |
-| meta/                    | yes                                    |
-| models/                  | yes                                    |
-| old-claude-code-configs/ | yes                                    |
-| papers/                  | yes                                    |
-| pidev/                   | yes                                    |
-| projects/                | yes                                    |
-| prompts/                 | yes                                    |
-| **pycache**/             | skip (auto-generated)                  |
-| references/              | yes                                    |
-| reports/                 | yes                                    |
-| research/                | yes                                    |
-| scripts/                 | yes                                    |
-| services/                | yes                                    |
-| ssh-backups/             | yes                                    |
-| ssh-mounts/              | yes                                    |
-| template/                | yes                                    |
-| tmp-del-staging/         | yes                                    |
-| transcripts/             | yes                                    |
-| venvs/                   | yes                                    |
-| active_models/           | yes                                    |
-| inactive-models/         | yes                                    |
-| core/                    | yes (symlinks to NFS/SSD stores)       |
-| .hermes/                 | yes (Hermes agent state)               |
+No subdirectories with their own AGENTS.md.

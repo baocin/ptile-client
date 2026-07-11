@@ -1,1 +1,0 @@
-../projects/yt-transcript-pipeline/embed/to_mem0.py
