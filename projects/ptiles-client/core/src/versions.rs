@@ -41,8 +41,8 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
     FormatEntry {
         magic: b"PTILESF",
         file_kind: "buildings_v8",
-        versions: &[8],
-        notes: "SPEC.md and real TN.buildings_v8.ptiles agree (v8)",
+        versions: &[8, 9],
+        notes: "v8 from original build; v9 adds business_tag/opening_hours (flags2 0x20/0x40), skipped by v8 decoder",
     },
     FormatEntry {
         magic: b"PTILESR",
@@ -53,8 +53,8 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
     FormatEntry {
         magic: b"PTILESB",
         file_kind: "business",
-        versions: &[3],
-        notes: "real TN.business.ptiles: magic PTILESB v3, NOT SPEC.md's PTILESI v2 -- doc is stale",
+        versions: &[3, 4],
+        notes: "v3: u32 record_len, i32 abs coords. v4: no record_len, sequential uid, i16 cell-relative coords, chain_count instead of operating_status/emails/socials",
     },
     FormatEntry {
         magic: b"PTILESW",
@@ -183,19 +183,25 @@ mod tests {
     #[test]
     fn known_magic_known_version_ok() {
         assert!(check_supported(b"PTILESF", 8).is_ok());
+        assert!(check_supported(b"PTILESF", 9).is_ok()); // v9 now accepted
         assert!(check_supported(b"PTILESR", 2).is_ok());
         assert!(check_supported(b"PTILESB", 3).is_ok());
+        assert!(check_supported(b"PTILESB", 4).is_ok()); // v4 now accepted
     }
 
     #[test]
     fn known_magic_wrong_version_rejected() {
-        let err = check_supported(b"PTILESF", 9).unwrap_err();
-        assert_eq!(err.found, 9);
-        assert_eq!(err.supported, alloc::vec![8]);
+        // v9 is now accepted.
+        assert!(check_supported(b"PTILESF", 9).is_ok());
+        // v10 is rejected.
+        let err = check_supported(b"PTILESF", 10).unwrap_err();
+        assert_eq!(err.found, 10);
+        assert_eq!(err.supported, alloc::vec![8, 9]);
         let msg = alloc::format!("{err}");
         assert!(msg.contains("PTILESF"));
-        assert!(msg.contains('9'));
+        assert!(msg.contains("10"));
         assert!(msg.contains('8'));
+        assert!(msg.contains('9'));
     }
 
     #[test]
@@ -245,11 +251,16 @@ mod tests {
 
     #[test]
     fn version_just_below_and_above_supported_is_rejected() {
-        // PTILESF supports exactly {8}: 7 and 9 must both fail closed.
-        for bad in [0u8, 7, 9, 255] {
+        // PTILESF supports {8, 9}: 7 and 10 must both fail closed.
+        for (bad, expected) in [
+            (0u8, &[8u8, 9][..]),
+            (7, &[8, 9][..]),
+            (10, &[8, 9][..]),
+            (255, &[8, 9][..]),
+        ] {
             let err = check_supported(b"PTILESF", bad).unwrap_err();
             assert_eq!(err.found, bad);
-            assert_eq!(err.supported, alloc::vec![8]);
+            assert_eq!(err.supported, expected);
         }
         // Water/places/parks/rail/business_name_index all support only v1:
         // v0 and v2 must be rejected for each.
@@ -262,8 +273,9 @@ mod tests {
 
     #[test]
     fn business_magic_follows_real_bytes_not_stale_spec() {
-        // SPEC.md claims business is PTILESI v2; real files are PTILESB v3.
+        // SPEC.md claims business is PTILESI v2; real files are PTILESB v3/v4.
         assert!(check_supported(b"PTILESB", 3).is_ok());
+        assert!(check_supported(b"PTILESB", 4).is_ok()); // v4 now accepted
         assert!(check_supported(b"PTILESB", 2).is_err()); // the doc's version
         // The doc's (wrong) magic is unknown entirely -> empty supported set.
         let err = check_supported(b"PTILESI", 2).unwrap_err();

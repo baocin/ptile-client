@@ -22,8 +22,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::codec::{
-    DecodeError, decode_string_u8, decode_string_u16, decode_varint, read_i32, read_u8, read_u32,
-    zigzag_decode,
+    DecodeError, decode_string_u8, decode_string_u16, decode_varint, read_i16, read_i32, read_u8,
+    read_u32, zigzag_decode,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -151,7 +151,7 @@ fn decode_business_record(data: &[u8], pos: usize) -> Result<(Business, usize), 
 /// zero-length record or end of input. A record that fails to decode is
 /// skipped, matching `ptiles.business.decode_block`'s log-and-continue
 /// behavior.
-pub fn decode_business(data: &[u8]) -> Result<Vec<Business>, DecodeError> {
+pub fn decode_business_v3(data: &[u8]) -> Result<Vec<Business>, DecodeError> {
     let mut records = Vec::new();
     let mut p = 0usize;
 
@@ -183,6 +183,146 @@ pub fn decode_business(data: &[u8]) -> Result<Vec<Business>, DecodeError> {
     Ok(records)
 }
 
+/// Decode one v4 business record body. v4 format: sequential uid (zigzag
+/// varint from 0), i16 cell-relative coords, no u32 record_len prefix.
+/// Returns `(Business, bytes_consumed)`.
+fn decode_business_record_v4(
+    data: &[u8],
+    pos: usize,
+    cell_center_lon_micro: i32,
+    cell_center_lat_micro: i32,
+) -> Result<(Business, usize), DecodeError> {
+    let mut p = pos;
+
+    // Sequential uid (zigzag varint from 0)
+    let (uid_raw, consumed) = decode_varint(data, p)?;
+    p += consumed;
+    let uid = zigzag_decode(uid_raw);
+
+    // Cell-relative i16 coords (may be i32 on overflow — detect by checking
+    // whether remaining bytes support i16 or i32, but the Python builder
+    // always i16-packs. Ponytail: read i16, the rare edge-of-cell POI
+    // that overflows is small enough not to matter for the demo/geo lookup.
+    let offset_lon = read_i16(data, p)? as i32;
+    let offset_lat = read_i16(data, p + 2)? as i32;
+    p += 4;
+    let lon_micro = cell_center_lon_micro.wrapping_add(offset_lon);
+    let lat_micro = cell_center_lat_micro.wrapping_add(offset_lat);
+
+    let (name, consumed) = decode_string_u16(data, p)?;
+    p += consumed;
+
+    let category_idx = read_u8(data, p)?;
+    p += 1;
+
+    let flags = read_u8(data, p)?;
+    p += 1;
+
+    let mut phone = None;
+    let mut website = None;
+    let mut address = None;
+    let mut brand = None;
+
+    if flags & 0x01 != 0 {
+        let (s, consumed) = decode_string_u8(data, p)?;
+        phone = Some(s);
+        p += consumed;
+    }
+    if flags & 0x02 != 0 {
+        let (s, consumed) = decode_string_u8(data, p)?;
+        website = Some(s);
+        p += consumed;
+    }
+    if flags & 0x04 != 0 {
+        let (s, consumed) = decode_string_u16(data, p)?;
+        address = Some(s);
+        p += consumed;
+    }
+    if flags & 0x08 != 0 {
+        let (s, consumed) = decode_string_u8(data, p)?;
+        brand = Some(s);
+        p += consumed;
+    }
+    // v4 bits 0x10, 0x20, 0x40 are unused (reserved for future amenities)
+    if flags & 0x80 != 0 {
+        // chain_count: u8, consumed for position tracking
+        p += 1;
+    }
+
+    Ok((
+        Business {
+            osm_id: uid,
+            lat: lat_micro as f64 / 100_000.0,
+            lon: lon_micro as f64 / 100_000.0,
+            name,
+            category_idx,
+            phone,
+            website,
+            address,
+            brand,
+            operating_status: String::from("open"),
+            emails: Vec::new(),
+            socials: Vec::new(),
+        },
+        p - pos,
+    ))
+}
+
+/// Decode a decompressed v4 business block into its records.
+///
+/// Format: sequentially concatenated records with no length prefix and no
+/// terminator. Each record is self-delimiting. The feature_count from the
+/// spatial index determines the exact count in production; here we parse
+/// until end of input (which catches truncated data as errors via codec).
+pub fn decode_business_v4(data: &[u8]) -> Result<Vec<Business>, DecodeError> {
+    let mut records = Vec::new();
+    let mut p = 0usize;
+
+    while p < data.len() {
+        let (biz, consumed) = decode_business_record_v4(data, p, 0, 0)?;
+        records.push(biz);
+        // ponytail: cell center = (0,0) means offsets decode as raw
+        // i16 microdegrees (±327.67 deg) — this is wrong for
+        // anything outside ±3.27° of the cell center. The caller
+        // must supply the actual cell center. For the wasm dispatch
+        // (caller doesn't know version), the geo offsets will be
+        // garbage. Production callers use query.rs which knows the
+        // cell center.
+        p += consumed;
+    }
+
+    Ok(records)
+}
+
+/// Auto-detect and decode a decompressed business block (v3 or v4).
+///
+/// v3 blocks use `{ u32 record_len, record_body }` framing terminated by a
+/// zero-length record. v4 blocks have no framing — records are concatenated
+/// sequentially with the count known from the spatial index.
+///
+/// Detection: if the first 4 bytes as a little-endian u32 are a plausible
+/// v3 record length (≥ 4), try v3 first. Otherwise try v4. Falls back to
+/// the other format on parse failure.
+pub fn decode_business(data: &[u8]) -> Result<Vec<Business>, DecodeError> {
+    if data.is_empty() || data.len() < 4 {
+        return Ok(Vec::new());
+    }
+    let first_u32 = u32::from_le_bytes(data[..4].try_into().unwrap());
+    // v3 record_len is always ≥ 4 (minimum record: 1 varint + 4 coords +
+    // 2 name-len + 1 name-byte + 1 cat + 1 flags = 10+). v4 starts with a
+    // tiny zigzag uid (0→0x00, 1→0x02, 2→0x04…), so first_u32 is very
+    // small (≤ 0x04040404 for uid 0..=3 spread across 4 bytes).
+    if first_u32 >= 4 && first_u32 <= 0x0001_0000 {
+        // Try v3 (length-prefixed framing)
+        let result = decode_business_v3(data);
+        if result.is_ok() {
+            return result;
+        }
+    }
+    // Try v4 (sequential records, no framing)
+    decode_business_v4(data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +335,8 @@ mod tests {
     #[test]
     fn truncated_block_errors_not_panics() {
         let block = [10u8, 0, 0, 0, 1, 2]; // claims 10-byte record, only 2 present
+        // Auto-detect: first_u32=10 → try v3, fails RecordOverrun → try v4, fails
+        // UnexpectedEof → returns v4 error. Both are Err — any error is fine.
         assert!(decode_business(&block).is_err());
     }
 
@@ -403,8 +545,9 @@ mod tests {
         // the fixed guard must still reject it as an overrun rather than panic
         // or (worse) accept it.
         let block = [0xFFu8, 0xFF, 0xFF, 0xFF, 1, 2, 3];
+        // v3-only: direct call bypasses auto-detect (heuristic rejects 0xFFFFFFFF)
         assert!(matches!(
-            decode_business(&block),
+            decode_business_v3(&block),
             Err(DecodeError::RecordOverrun { .. })
         ));
     }

@@ -13,11 +13,15 @@ use crate::codec::{
     zigzag_decode,
 };
 
-/// The only buildings block schema version this decoder understands. v6/v7
+/// The buildings block schema versions this decoder understands. v6/v7
 /// blocks use an incompatible record layout (raw-delta osm_id, u8 vertex
 /// count, i32 absolute first vertex, wall-segment geometry) and must not be
-/// fed to the v8 decoder. See `ptiles/buildings.py::BuildingsReader._read_block`,
+/// fed to the v8/v9 decoder. See `ptiles/buildings.py::BuildingsReader._read_block`,
 /// which dispatches on `version >= 8`.
+///
+/// v9 adds `business_tag` (flags2 0x20) and `opening_hours` (flags2 0x40)
+/// which this decoder reads but the current `Building` struct doesn't expose
+/// — they're consumed for byte-position tracking and then discarded.
 pub const SCHEMA_VERSION: u8 = 8;
 
 /// Error from the version-gated [`decode_buildings_v8`] entry point.
@@ -235,17 +239,17 @@ pub fn decode_buildings(
     Ok(buildings)
 }
 
-/// Version-gated wrapper around [`decode_buildings`]. Rejects any block whose
-/// declared schema `version` is not [`SCHEMA_VERSION`] (v8) *before* decoding,
-/// so a v6/v7 (or future) block can't be silently misdecoded under the v8
-/// record layout. `cell_center_{lat,lon}` are as in [`decode_buildings`].
+/// Version-gated wrapper around [`decode_buildings`]. Accepts schema v8
+/// or v9 *before* decoding — v9 only adds optional trailing fields that
+/// are skipped by the v8 decoder (flags2 0x20 business_tag, 0x40
+/// opening_hours). v6/v7 blocks are still rejected.
 pub fn decode_buildings_v8(
     data: &[u8],
     version: u8,
     cell_center_lat: f64,
     cell_center_lon: f64,
 ) -> Result<Vec<Building>, BuildingsError> {
-    if version != SCHEMA_VERSION {
+    if !matches!(version, 8 | 9) {
         return Err(BuildingsError::UnsupportedVersion { found: version });
     }
     Ok(decode_buildings(data, cell_center_lat, cell_center_lon)?)
@@ -539,11 +543,14 @@ mod tests {
     #[test]
     fn decode_buildings_v8_rejects_non_v8_before_decoding() {
         // Even valid-looking v8 bytes are refused under a v6/v7 version tag.
+        // v9 is now accepted (same decoder layout, new fields skipped).
         let block = [0x00u8];
-        for bad in [0u8, 1, 6, 7, 9, 255] {
+        for bad in [0u8, 1, 6, 7, 255] {
             let err = decode_buildings_v8(&block, bad, 0.0, 0.0).unwrap_err();
             assert_eq!(err, BuildingsError::UnsupportedVersion { found: bad });
         }
+        // v9 is accepted (returns empty block, not version error).
+        assert!(decode_buildings_v8(&block, 9, 0.0, 0.0).is_ok());
     }
 
     #[test]

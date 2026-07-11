@@ -592,17 +592,17 @@ mod tests {
     /// not silently accepted -- the fail-closed contract from Addendum 2.
     #[test]
     fn open_rejects_bumped_version() {
-        // Real TN.buildings_v8.ptiles header is magic PTILESF version 8; bump
-        // to 9, which is not in SUPPORTED_FORMATS.
+        // Real TN.buildings_v9.ptiles header is magic PTILESF version 9; bump
+        // to 10, which is not in SUPPORTED_FORMATS (only {8, 9}).
         let mut buf = alloc::vec![0u8; HEADER_SIZE];
         buf[0..7].copy_from_slice(b"PTILESF");
-        buf[8] = 9;
+        buf[8] = 10;
         buf[64..72].copy_from_slice(&256u64.to_le_bytes()); // blocks_offset
         let src = MemorySource::new(buf);
         match PtilesFile::open(src) {
             Err(FileError::UnsupportedVersion(e)) => {
-                assert_eq!(e.found, 9);
-                assert_eq!(e.supported, alloc::vec![8]);
+                assert_eq!(e.found, 10);
+                assert_eq!(e.supported, alloc::vec![8, 9]);
             }
             Ok(_) => panic!("expected UnsupportedVersion, got Ok"),
             Err(other) => {

@@ -37,9 +37,9 @@ real file, not the (apparently stale) doc.
 <!-- BEGIN GENERATED SUPPORTED_FORMATS TABLE -->
 | File kind | Magic | Supported versions | Notes |
 | --- | --- | --- | --- |
-| buildings_v8 | `PTILESF\x00` | 8 | SPEC.md and real TN.buildings_v8.ptiles agree (v8) |
+| buildings_v8 | `PTILESF\x00` | 8, 9 | v8 from original build; v9 adds business_tag/opening_hours (flags2 0x20/0x40), skipped by v8 decoder |
 | roads | `PTILESR\x00` | 2 | SPEC.md and real TN.roads.ptiles agree (v2) |
-| business | `PTILESB\x00` | 3 | real TN.business.ptiles: magic PTILESB v3, NOT SPEC.md's PTILESI v2 -- doc is stale |
+| business | `PTILESB\x00` | 3, 4 | v3: u32 record_len, i32 abs coords. v4: no record_len, sequential uid, i16 cell-relative coords, chain_count instead of emails/socials |
 | water | `PTILESW\x00` | 1 | matches SPEC.md (v1) |
 | places | `PTILESP\x00` | 1 | matches SPEC.md (v1) |
 | parks | `PTILESN\x00` | 1 | matches SPEC.md (v1) |
