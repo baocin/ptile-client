@@ -22,8 +22,13 @@
 const HEADER_SIZE = 256;
 
 async function rangeFetch(url, start, endInclusive) {
-  const resp = await fetch(url, { headers: { Range: `bytes=${start}-${endInclusive}` } });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url} bytes=${start}-${endInclusive}`);
+  const resp = await fetch(url, {
+    headers: { Range: `bytes=${start}-${endInclusive}` },
+  });
+  if (!resp.ok)
+    throw new Error(
+      `HTTP ${resp.status} fetching ${url} bytes=${start}-${endInclusive}`,
+    );
   return new Uint8Array(await resp.arrayBuffer());
 }
 
@@ -72,5 +77,5 @@ export class PtilesRemoteFile {
 
 /** State postal code -> `{STATE}.{layer}.ptiles` URL on the real dataset host. */
 export function stateLayerUrl(state, layer) {
-  return `https://maps.mydatatimeline.com/maps/${state}.${layer}.ptiles`;
+  return `https://maps.mydatatimeline.com/maps/v4-20260711/${state}.${layer}.ptiles`;
 }
