@@ -1,0 +1,13 @@
+{
+  "block_length_compressed": 3224,
+  "block_length_decompressed": 1856,
+  "cell_center_lat": 36.166500290002354,
+  "cell_center_lon": -86.78319797133413,
+  "cell_id_hex": "87264d106ffffff",
+  "cell_id_int": 608659748576821247,
+  "feature_count_in_index": 23,
+  "file_version": 1,
+  "index_version": 2,
+  "layer": "parks",
+  "source_file": "TN.parks.ptiles"
+}

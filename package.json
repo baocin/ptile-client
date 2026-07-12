@@ -1,0 +1,18 @@
+{
+  "name": "@baocin/ptiles-client",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser WASM decoder for PTiles geospatial format — buildings, roads, water, parks, rail, business",
+  "main": "pkg/ptiles_client.js",
+  "types": "pkg/ptiles_client.d.ts",
+  "files": ["pkg/", "src/", "Cargo.toml"],
+  "scripts": {
+    "build": "wasm-pack build --target web",
+    "build:release": "wasm-pack build --target web --release"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baocin/ptiles-client.git"
+  },
+  "license": "MIT"
+}

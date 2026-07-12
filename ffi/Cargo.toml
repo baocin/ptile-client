@@ -1,0 +1,25 @@
+[package]
+name = "ptiles-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "UniFFI (Swift/Kotlin) mobile bindings over ptiles-core: opaque PtilesLayer/PtilesStack wrapping PtilesFile<FileSource>"
+
+[lib]
+name = "ptiles_ffi"
+# "lib" keeps `cargo test -p ptiles-ffi` working against the Rust API directly;
+# cdylib/staticlib are what a real iOS/Android build links against (not
+# produced by this host — no Apple toolchain here, see ffi/README.md).
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[dependencies]
+ptiles-core = { path = "../core", features = ["std", "http"] }
+uniffi = "0.29.4"
+thiserror = "2.0.18"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["uniffi/cli"]
+
+[dev-dependencies]
+uniffi = { version = "0.29.4", features = ["bindgen-tests"] }
