@@ -5,6 +5,22 @@ client spans multiple `.ptiles` file kinds, each with its own version
 number) -- see `~/.hermes/plans/ptiles-client-extraction-plan.md`, Addendum 2,
 decisions 2-3.
 
+**Every `.ptiles` file kind is versioned independently.** The version byte at
+header offset 8 is scoped to that file's magic and nothing else. There is no
+global "PTiles release version": `buildings_v8` being at 8/9 says nothing
+about what version `signals` or `water` should be, and adding a new layer
+never requires bumping any existing layer. A new file kind starts at 1.
+
+The practical consequences:
+
+- A proposal to "ship these layers at v8 so they match the release" is a
+  category error -- there is no release-wide version to match.
+- Readers gate on the (magic, version) *pair*. A reader that doesn't know a
+  magic simply never fetches that file, so new layers are additive and need
+  no coordination with existing readers.
+- Version numbers may therefore be freely reused across kinds. Two files both
+  reading "version 1" are not the same format and are not comparable.
+
 `PtilesFile::open` fails closed: any magic/version pair not listed in the
 table below is rejected with `FileError::UnsupportedVersion`, naming both the
 version found and the versions this client supports. No forward
