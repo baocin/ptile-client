@@ -1052,6 +1052,35 @@ map.on("moveend", function() {
 // --- Search ---
 var searchAbortRef = { aborted: false };
 var searchResultCount = 0;
+var SEARCH_HIT_CAP = 200;
+
+function makeSearchResultRow(r) {
+  var dist = r._dist;
+  var distStr = dist < 1000 ? Math.round(dist) + "m" : (dist/1000).toFixed(1) + "km";
+  var el = document.createElement("div");
+  el.className = "search-result";
+  el.innerHTML = "<div class='r-name'>" + osmBizLink(r, r.name) + "</div>" +
+    "<div class='r-loc'>" + distStr + "</div>";
+  el.addEventListener("click", function() {
+    map.flyTo([r.lat, r.lon], 16, {duration: 0.8});
+    coordInput.value = r.lat.toFixed(6) + ", " + r.lon.toFixed(6);
+    setTimeout(function() { doLookup(r.lat, r.lon); }, 900);
+  });
+  return el;
+}
+
+// Insert at sorted position by _dist so the list is closest-first at every
+// instant. searchAll scans cells origin-outward, so arrival is near-sorted and
+// inserts land at or near the tail. Keeps listEl.children[i] <-> results[i].
+function insertSearchResult(listEl, results, r) {
+  var lo = 0, hi = results.length;
+  while (lo < hi) {
+    var mid = (lo + hi) >> 1;
+    if (results[mid]._dist <= r._dist) lo = mid + 1; else hi = mid;
+  }
+  results.splice(lo, 0, r);
+  listEl.insertBefore(makeSearchResultRow(r), listEl.children[lo] || null);
+}
 
 async function doSearch() {
   var query = document.getElementById("searchInput").value.trim();
@@ -1074,6 +1103,17 @@ async function doSearch() {
   var total = bizReader.entries.length;
 
   var results = [];
+  var listEl = document.getElementById("searchResultsList");
+  var scanDone = 0, scanTotal = 0;
+  var progressEl = document.getElementById("searchProgress");
+
+  function updateSearchProgress() {
+    var pct = scanTotal ? Math.round(scanDone / scanTotal * 100) : 0;
+    progressEl.textContent = searchResultCount === 0
+      ? "Scanning rings from origin... " + pct + "% (" + scanDone + "/" + scanTotal + ")"
+      : searchResultCount + " results found — scanning " + pct + "%";
+  }
+
   // ponytail: spiral origin = coordInput if set, else map center
   var origin = parseCoords(coordInput.value);
   if (!origin) { var c = map.getCenter(); origin = [c.lat, c.lng]; }
@@ -1081,7 +1121,6 @@ async function doSearch() {
     function(result) {
       if (abortRef.aborted) return;
       searchResultCount++;
-      if (searchResultCount > 200) return; // cap DOM at 200
       // Enrich with distance from spiral origin
       var center = { lat: origin[0], lng: origin[1] };
       var dlat = (result.lat - center.lat) * Math.PI / 180;
@@ -1089,45 +1128,26 @@ async function doSearch() {
       var a = Math.sin(dlat/2)**2 + Math.cos(center.lat*Math.PI/180)*Math.cos(result.lat*Math.PI/180)*Math.sin(dlon/2)**2;
       var dist = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       result._dist = dist;
-      results.push(result);
-      document.getElementById("searchProgress").textContent =
-        searchResultCount + " results found (scanning...)\n";
+      // Render immediately so hits are clickable while the scan continues
+      insertSearchResult(listEl, results, result);
+      updateSearchProgress();
     },
     function(done, tot) {
       if (abortRef.aborted) return;
-      var pct = Math.round(done / tot * 100);
-      if (searchResultCount === 0)
-        document.getElementById("searchProgress").textContent =
-          "Scanning rings from origin... " + pct + "% (" + done + "/" + tot + ")";
+      scanDone = done; scanTotal = tot;
+      updateSearchProgress();
     },
     abortRef,
-    origin[0], origin[1]
+    origin[0], origin[1],
+    SEARCH_HIT_CAP
   );
 
-  // Sort by distance, closest first
-  results.sort(function(a, b) { return a._dist - b._dist; });
-  var listEl = document.getElementById("searchResultsList");
-  for (var ri = 0; ri < results.length; ri++) {
-    (function(r) {
-      var dist = r._dist;
-      var distStr = dist < 1000 ? Math.round(dist) + "m" : (dist/1000).toFixed(1) + "km";
-      var el = document.createElement("div");
-      el.className = "search-result";
-      el.innerHTML = "<div class='r-name'>" + osmBizLink(r, r.name) + "</div>" +
-        "<div class='r-loc'>" + distStr + "</div>";
-      el.addEventListener("click", function() {
-        map.flyTo([r.lat, r.lon], 16, {duration: 0.8});
-        coordInput.value = r.lat.toFixed(6) + ", " + r.lon.toFixed(6);
-        setTimeout(function() { doLookup(r.lat, r.lon); }, 900);
-      });
-      listEl.appendChild(el);
-    })(results[ri]);
-  }
-
   if (!abortRef.aborted) {
-    document.getElementById("searchProgress").textContent =
+    progressEl.textContent =
       searchResultCount === 0 ? "No results for \"" + query + "\""
-      : searchResultCount + " results" + (searchResultCount > 200 ? " (showing first 200)" : "");
+      : searchResultCount >= SEARCH_HIT_CAP
+        ? SEARCH_HIT_CAP + " results (nearest " + SEARCH_HIT_CAP + " shown)"
+        : searchResultCount + " results";
   }
 }
 
