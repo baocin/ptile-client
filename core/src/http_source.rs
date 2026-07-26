@@ -305,37 +305,32 @@ mod tests {
         };
         assert_eq!(file.header().magic_str(), "PTILEST");
 
-        let Some(entry) = file.index().first() else {
-            eprintln!("skipping: rail index is empty (or v2 index misparsed as v1 with 0 entries)");
-            return;
-        };
-        let cell = entry.h3_cell;
+        // rail uses a 38-byte index and merged blocks. Both are now detected
+        // and handled, so the outcome is asserted rather than excused: the
+        // escape hatches this test used to carry ("skipping: likely the known
+        // v2-index mismatch") would now hide a real regression.
+        assert_eq!(
+            file.layout().entry_size,
+            crate::index::ENTRY_SIZE_V2,
+            "rail is a 38-byte-index layer"
+        );
+        let entry = file
+            .index()
+            .iter()
+            .find(|e| e.block_length > 0)
+            .expect("rail index must name at least one non-empty block");
 
-        match file.read_block(cell) {
-            Ok(Some(block)) => match crate::rail::decode_rail(&block) {
-                Ok(features) => {
-                    assert!(
-                        !features.is_empty(),
-                        "rail block should decode to at least one feature"
-                    );
-                }
-                Err(e) => {
-                    eprintln!(
-                        "skipping: decode_rail failed, likely the known v2-index/offset mismatch, not an HTTP bug: {e}"
-                    );
-                }
-            },
-            Ok(None) => {
-                eprintln!(
-                    "skipping: read_block found no entry (likely v2 index misparse, not an HTTP bug)"
-                );
-            }
-            Err(e) => {
-                eprintln!(
-                    "skipping: read_block failed (network or v2-index mismatch, not necessarily HTTP transport): {e}"
-                );
-            }
-        }
+        // read_cell, not read_block: on a merged-block layer the latter hands
+        // the decoder a cell table it will parse as records.
+        let block = file
+            .read_cell(entry.h3_cell)
+            .expect("read_cell over HTTP")
+            .expect("a cell named by the index must resolve");
+        let features = crate::rail::decode_rail(&block).expect("decode_rail on a real block");
+        assert!(
+            !features.is_empty(),
+            "rail block should decode to at least one feature"
+        );
     }
 
     /// Evidence test (not a strict assertion, since it depends on network

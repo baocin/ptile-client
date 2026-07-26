@@ -22,23 +22,31 @@
 //! `ruzstd::decoding::{FrameDecoder, Dictionary}` to reproduce the same
 //! try-dict-then-try-plain fallback.
 //!
-//! Scope note: this module implements the SPEC.md v1 index/block format only.
-//! Some real files use an undocumented v2 "merged block" format (see
-//! `index.rs` doc comment) — `PtilesFile` will fail to find cells in those
-//! files' indexes (`parse_index` will misinterpret v2 entries as v1 and
-//! either error on a length mismatch or return corrupt entries). That's
-//! flagged as a follow-up, not fixed here — see task report.
+//! Index layout is detected per file, never assumed. Two things vary
+//! independently and both are properties of the generator that wrote the file,
+//! not of the layer:
 //!
-//! Block offset relativity: every reader in the Python reference
-//! (`ptiles/buildings.py`, `roads.py`, `water.py`, `business.py`,
-//! `places.py`, `reader.py`) detects whether `IndexEntry::block_offset`
-//! values are absolute file offsets or relative to `header.blocks_offset`,
-//! using the same rule: `relative = index[0].block_offset < header.blocks_offset`.
-//! This is a per-file property, not a per-layer one — `PtilesFile::open`
-//! runs the same detection and `read_block` adds `blocks_offset` back in
-//! when relative. Layers whose `blocks_offset` happens to be 0 (or whose
-//! first block offset happens to already exceed it) look "absolute" only
-//! by coincidence; the general rule handles both cases uniformly.
+//! - **Entry width**, 19 or 38 bytes — see `index.rs`. Detected from the
+//!   header's `index_length` when that divides evenly into a known width, and
+//!   by structural probing when it doesn't.
+//! - **Offset base**, absolute or relative to `blocks_offset` — every reader
+//!   in the Python reference (`ptiles/buildings.py`, `roads.py`, `water.py`,
+//!   `business.py`, `places.py`, `reader.py`) uses the same rule:
+//!   `relative = index[0].block_offset < header.blocks_offset`. Layers whose
+//!   `blocks_offset` is 0 (or whose first block offset already exceeds it)
+//!   look "absolute" only by coincidence; the rule handles both uniformly.
+//!
+//! On top of those, `blocks_offset` itself can be **wrong**. The published
+//! `US.signals.ptiles` and `US.camera.ptiles` had `index_length` computed at a
+//! 42-byte stride while the encoder emitted 38-byte entries, so the header's
+//! `blocks_offset` — and every absolute `block_offset` derived from it —
+//! overshot the real block region by `count * 4` bytes (432,692 and 145,580
+//! respectively) and not one block was reachable. `open()` recomputes where
+//! the index actually ends and, when the header disagrees, applies the
+//! difference as a correction. See [`BlockOffsetBase`].
+//!
+//! Everything here is structural and costs no extra reads: the header and the
+//! whole index section are already in memory before any of it runs.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -46,7 +54,9 @@ use alloc::vec::Vec;
 use ruzstd::decoding::{BlockDecodingStrategy, Dictionary, FrameDecoder};
 
 use crate::header::{HEADER_SIZE, Header};
-use crate::index::{IndexEntry, binary_search, parse_index};
+use crate::index::{
+    EntrySizeSource, IndexEntry, binary_search, parse_index_detected,
+};
 use crate::source::{PtilesSource, SourceError};
 use crate::versions::{UnsupportedVersion, check_supported};
 
@@ -79,6 +89,47 @@ impl From<UnsupportedVersion> for FileError {
     }
 }
 
+/// How a stored `block_offset` becomes an absolute file offset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockOffsetBase {
+    /// Stored offsets are already absolute and the header agrees with the
+    /// index. The overwhelmingly common case.
+    Absolute,
+    /// Stored offsets are relative to `header.blocks_offset`. Observed on
+    /// `buildings_v8`.
+    Relative,
+    /// Stored offsets are absolute but were computed from a `blocks_offset`
+    /// that overshoots where the index actually ends; subtract the difference.
+    /// Observed on the published `US.signals`/`US.camera`.
+    AbsoluteCorrected { overshoot: u64 },
+}
+
+/// What `open()` concluded about a file's index layout. Exposed so callers and
+/// tests can assert the decision rather than only its consequences: a reader
+/// that lands on the right bytes via the wrong reasoning is one generator
+/// change away from breaking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IndexLayout {
+    pub entry_size: usize,
+    pub entry_size_source: EntrySizeSource,
+    pub offset_base: BlockOffsetBase,
+    /// Entry width implied by the header's `index_length`, when it divided
+    /// evenly. `Some(42)` on the two broken published files.
+    pub declared_stride: Option<usize>,
+}
+
+impl IndexLayout {
+    /// True when the header's own numbers contradict the bytes that follow
+    /// them. Worth surfacing: the file is readable, but whatever wrote it has
+    /// a bug and other files from the same generator are suspect.
+    pub fn header_is_inconsistent(&self) -> bool {
+        matches!(self.offset_base, BlockOffsetBase::AbsoluteCorrected { .. })
+            || self
+                .declared_stride
+                .is_some_and(|s| s != self.entry_size)
+    }
+}
+
 /// An open `.ptiles` file: header, spatial index, and (if present) zstd
 /// dictionary, backed by any `PtilesSource`. Not tied to `std::fs::File` —
 /// works with `MemorySource` in `no_std`/wasm/MCU contexts too.
@@ -87,10 +138,7 @@ pub struct PtilesFile<S: PtilesSource> {
     header: Header,
     index: Vec<IndexEntry>,
     dict: Vec<u8>,
-    /// True if `IndexEntry::block_offset` values are relative to
-    /// `header.blocks_offset` rather than absolute file offsets. Detected
-    /// in `open()` — see this module's doc comment.
-    relative_offsets: bool,
+    layout: IndexLayout,
 }
 
 impl<S: PtilesSource> PtilesFile<S> {
@@ -128,23 +176,81 @@ impl<S: PtilesSource> PtilesFile<S> {
 
         let mut index_buf = alloc::vec![0u8; header.index_length as usize];
         source.read_exact_at(header.index_offset, &mut index_buf)?;
-        let index = parse_index(&index_buf)?;
+        let parsed =
+            parse_index_detected(&index_buf, Some(header.index_length as usize))?;
+        let index = parsed.entries;
 
-        // Same detection the Python reference readers use (buildings.py,
-        // roads.py, water.py, business.py, places.py, reader.py): if the
-        // first block's offset is less than blocks_offset, offsets are
-        // relative to blocks_offset, not absolute file offsets.
-        let relative_offsets = index
+        // Where the index actually ends, from the entries as parsed rather
+        // than from the header's arithmetic about them.
+        let real_blocks_offset = header
+            .index_offset
+            .saturating_add(4)
+            .saturating_add((index.len() as u64).saturating_mul(parsed.entry_size as u64));
+
+        let offset_base = if index
             .first()
-            .is_some_and(|e| e.block_offset < header.blocks_offset);
+            .is_some_and(|e| e.block_offset < header.blocks_offset)
+        {
+            // Same rule the Python reference readers use.
+            BlockOffsetBase::Relative
+        } else if header.blocks_offset > real_blocks_offset {
+            // The header claims the blocks start later than the index really
+            // ends. Absolute offsets were derived from that same wrong number,
+            // so they carry the identical overshoot.
+            BlockOffsetBase::AbsoluteCorrected {
+                overshoot: header.blocks_offset - real_blocks_offset,
+            }
+        } else {
+            BlockOffsetBase::Absolute
+        };
 
         Ok(PtilesFile {
             source,
             header,
             index,
             dict,
-            relative_offsets,
+            layout: IndexLayout {
+                entry_size: parsed.entry_size,
+                entry_size_source: parsed.entry_size_source,
+                offset_base,
+                declared_stride: parsed.declared_stride,
+            },
         })
+    }
+
+    /// What `open()` concluded about this file's index layout.
+    pub fn layout(&self) -> IndexLayout {
+        self.layout
+    }
+
+    /// True when this file's blocks pack several cells together and must be
+    /// sliced before their records can be read. Tied to the index width: a
+    /// 38-byte index and merged blocks are two halves of the same generator
+    /// format.
+    pub fn has_merged_blocks(&self) -> bool {
+        self.layout.entry_size == crate::index::ENTRY_SIZE_V2
+    }
+
+    /// Read the record bytes belonging to `cell` -- the input every layer's
+    /// `decode_*` expects.
+    ///
+    /// Prefer this over [`read_block`](Self::read_block). On a v1 layer the two
+    /// are identical, but on a v2 layer `read_block` returns a *merged* block
+    /// holding several cells behind a header, and feeding that to a record
+    /// decoder produces a run of garbage records before the stream
+    /// resynchronises rather than an error. `read_cell` slices the requested
+    /// cell out first.
+    ///
+    /// `Ok(None)` if the cell is not in the index, or is indexed to a block
+    /// that turns out not to contain it.
+    pub fn read_cell(&self, cell: u64) -> Result<Option<Vec<u8>>, FileError> {
+        let Some(block) = self.read_block(cell)? else {
+            return Ok(None);
+        };
+        if !self.has_merged_blocks() {
+            return Ok(Some(block));
+        }
+        Ok(crate::merged::cell_slice(&block, cell)?.map(|s| s.to_vec()))
     }
 
     pub fn header(&self) -> &Header {
@@ -175,17 +281,22 @@ impl<S: PtilesSource> PtilesFile<S> {
         // `block_offset` near u64::MAX that wraps when `blocks_offset` is added.
         // Wrapping would produce a bogus-but-in-range offset and read the wrong
         // bytes; surface it as an OutOfBounds error instead.
-        let abs_offset = if self.relative_offsets {
-            self.header
+        let oob = || SourceError::OutOfBounds {
+            offset: entry.block_offset,
+            needed: entry.block_length as usize,
+            len: self.source.len().unwrap_or(0),
+        };
+        let abs_offset = match self.layout.offset_base {
+            BlockOffsetBase::Relative => self
+                .header
                 .blocks_offset
                 .checked_add(entry.block_offset)
-                .ok_or(SourceError::OutOfBounds {
-                    offset: entry.block_offset,
-                    needed: entry.block_length as usize,
-                    len: self.source.len().unwrap_or(0),
-                })?
-        } else {
-            entry.block_offset
+                .ok_or_else(oob)?,
+            BlockOffsetBase::Absolute => entry.block_offset,
+            BlockOffsetBase::AbsoluteCorrected { overshoot } => entry
+                .block_offset
+                .checked_sub(overshoot)
+                .ok_or_else(oob)?,
         };
 
         // Guard the block-length allocation against a corrupt index entry the
@@ -345,7 +456,11 @@ mod tests {
         let file = PtilesFile::open(src).expect("valid file must open");
 
         assert_eq!(file.index().len(), 1);
-        assert!(!file.relative_offsets, "offsets here are absolute");
+        assert_eq!(
+            file.layout().offset_base,
+            BlockOffsetBase::Absolute,
+            "offsets here are absolute"
+        );
 
         // Hit: cell present in the index decompresses to the original content.
         let block = file
@@ -541,8 +656,9 @@ mod tests {
         let file = PtilesFile::open(src).expect("parse header/dict/index");
 
         assert!(!file.index().is_empty(), "index must have entries");
-        assert!(
-            file.relative_offsets,
+        assert_eq!(
+            file.layout().offset_base,
+            BlockOffsetBase::Relative,
             "TN.buildings_v8.ptiles is expected to use relative block offsets"
         );
 

@@ -26,6 +26,7 @@ pub mod buildings;
 pub mod business;
 pub mod business_search;
 pub mod camera;
+pub mod merged;
 pub mod parks;
 pub mod rail;
 pub mod roads;
@@ -52,6 +53,7 @@ pub use business_search::{
     search_business_indexed,
 };
 pub use camera::{Camera, cameras_near_road, decode_cameras};
+pub use merged::{cell_ids as merged_cell_ids, cell_slice as merged_cell_slice};
 pub use parks::{ParkFeature, decode_parks};
 pub use rail::{RailFeature, decode_rail};
 pub use roads::{Intersection, RoadSegment, decode_road_block, decode_roads};
