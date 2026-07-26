@@ -161,6 +161,21 @@
         <span><span style="color:#da3633">●</span> Nearby</span>
       </div>
     </div>
+    <div id="intxSection" style="display:none">
+      <div class="name" id="intxName"></div>
+      <div class="row"><span>Control</span><span id="intxControl"></span></div>
+      <div class="row"><span>Distance</span><span id="intxDist"></span></div>
+      <div class="row" id="intxApproachRow" style="display:none"><span>Approaches</span><span id="intxApproach"></span></div>
+      <div class="row" id="intxDirRow" style="display:none"><span>Direction</span><span id="intxDir"></span></div>
+      <div class="row"><span>OSM ID</span><span><a id="intxOsmLink" href="#" target="_blank" rel="noopener"></a></span></div>
+      <div class="row" id="intxCamRow" style="display:none"><span>Cameras</span><span id="intxCam"></span></div>
+      <div id="intxNodes" style="margin-top:8px;border-top:1px solid #30363d;padding-top:8px"></div>
+      <div style="font-size:0.68rem;color:#8b949e;margin-top:6px;display:flex;gap:10px;flex-wrap:wrap">
+        <span><span style="color:#58a6ff">●</span> signal</span>
+        <span><span style="color:#d29922">●</span> crossing</span>
+        <span><span style="color:#da3633">●</span> stop / give way</span>
+      </div>
+    </div>
     <pre id="metaDump" style="display:none;margin-top:8px;max-height:220px;overflow:auto;font-size:0.68rem;color:#c9d1d9;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;white-space:pre-wrap;word-break:break-word"></pre>
   </div>
 
@@ -867,16 +882,11 @@ async function renderPtilesForCells(cells) {
       ptilesLayers.signal.rendered.add(cellInt);
       try {
         var raw = await ptilesLayers.signal.reader.decompressCell(cellInt);
-        if (raw) { var rp=0; while(rp<raw.length) {
-          var dr=decodeVarint(raw,rp); rp+=dr.consumed; var osm=zigzagDecode(dr.value);
-          var lon=raw[rp]|raw[rp+1]<<8|raw[rp+2]<<16|raw[rp+3]<<24; rp+=4;
-          var lat=raw[rp]|raw[rp+1]<<8|raw[rp+2]<<16|raw[rp+3]<<24; rp+=4;
-          var st=raw[rp++]; var fl=raw[rp++];
-          var col="#58a6ff"; if(st===2||st===3)col="#da3633"; // stop/give_way=red
-          if(st===1)col="#d29922"; // crossing=yellow
-          L.circleMarker([lat/100000,lon/100000],{radius:3,color:col,fillColor:col,fillOpacity:0.6,weight:1}).addTo(ptilesLayers.signal.group);
-          rp+=((fl&0x01)?2:0);
-        }}
+        decodeSignalRecords(raw).forEach(function(s) {
+          var col = signalColor(s.signalType);
+          L.circleMarker([s.lat, s.lon], {radius:3, color:col, fillColor:col,
+            fillOpacity:0.6, weight:1}).addTo(ptilesLayers.signal.group);
+        });
       } catch(e) {}
     }
     if (chkBldgs && ptilesLayers.bldgs.reader && !ptilesLayers.bldgs.rendered.has(cellInt)) {
@@ -1065,7 +1075,10 @@ var buildingPoly = null, queryMarker = null, bizMarkers = null, tileBuildingLaye
 var lastQueryLat = null, lastQueryLon = null, lastReader = null;
 var lastBldg = null, lastBiz = null, lastBizList = null, metaOpen = false;
 
+var intxMarkers = [];
 function clearOverlays() {
+  intxMarkers.forEach(function(m) { map.removeLayer(m); });
+  intxMarkers = [];
   if (buildingPoly) { map.removeLayer(buildingPoly); buildingPoly = null; }
   if (queryMarker) { map.removeLayer(queryMarker); queryMarker = null; }
   if (bizMarkers) bizMarkers.clearLayers();
@@ -1364,14 +1377,123 @@ document.getElementById("btnCloseSearch").addEventListener("click", function() {
 document.getElementById("btnMeta").addEventListener("click", showMeta);
 
 // --- Lookup ---
+// Hide every building/business row so the intersection view is not a panel
+// with two unrelated halves.
+function hideBuildingBusinessRows() {
+  ["bldgOsmLinkRow","bldgCatRow","bldgGmapsRow","bizRow","bizCatRow",
+   "bizBrandRow","bizChainRow","bizPhoneRow","bizAddrRow","bizWebRow",
+   "bizDistRow","bizList"].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = "none";
+  });
+  bldgName.textContent = "";
+  ["bldgOsm","bldgType","bldgTagName"].forEach(function(id) {
+    document.getElementById(id).textContent = "--";
+  });
+  document.querySelectorAll("#infoPanel > .row").forEach(function(r) {
+    r.style.display = "none";
+  });
+}
+
+function showIntersection(hit, lat, lon) {
+  hideBuildingBusinessRows();
+  document.getElementById("intxSection").style.display = "block";
+
+  var a = hit.anchor, members = hit.members;
+  var label = SIGNAL_LABELS[a.signalType] || a.signalType;
+  infoStatus.textContent = "Intersection";
+  document.getElementById("intxName").textContent =
+    members.length > 1 ? label + " junction" : label;
+  document.getElementById("intxControl").textContent = label;
+  document.getElementById("intxDist").textContent = a.distM.toFixed(1) + " m";
+
+  // The count that matters downstream: several control nodes means a junction
+  // with multiple approaches, so a vehicle stopped here is very likely waiting
+  // at it rather than having arrived somewhere.
+  var approachRow = document.getElementById("intxApproachRow");
+  if (members.length > 1) {
+    document.getElementById("intxApproach").textContent =
+      members.length + " control nodes within " + INTERSECTION_GROUP_M + " m";
+    approachRow.style.display = "flex";
+  } else {
+    approachRow.style.display = "none";
+  }
+
+  var dirRow = document.getElementById("intxDirRow");
+  if (a.direction != null) {
+    document.getElementById("intxDir").textContent = a.direction + "°";
+    dirRow.style.display = "flex";
+  } else {
+    dirRow.style.display = "none";
+  }
+
+  var link = document.getElementById("intxOsmLink");
+  link.href = "https://www.openstreetmap.org/node/" + Math.abs(Number(a.osmId));
+  link.textContent = "node/" + Math.abs(Number(a.osmId));
+
+  var list = document.getElementById("intxNodes");
+  list.innerHTML = "";
+  members.slice(0, 12).forEach(function(s) {
+    var row = document.createElement("div");
+    row.className = "row";
+    var col = signalColor(s.signalType);
+    row.innerHTML = "<span><span style='color:" + col + "'>●</span> " +
+      esc(SIGNAL_LABELS[s.signalType] || s.signalType) + "</span>" +
+      "<span>" + s.distM.toFixed(0) + " m</span>";
+    row.style.cursor = "pointer";
+    row.addEventListener("click", function() {
+      map.setView([s.lat, s.lon], Math.max(map.getZoom(), 18));
+    });
+    list.appendChild(row);
+  });
+
+  // Draw the junction so the panel and the map agree about what was clicked.
+  members.forEach(function(s) {
+    var col = signalColor(s.signalType);
+    intxMarkers.push(L.circleMarker([s.lat, s.lon], {
+      radius: s.osmId === a.osmId ? 8 : 5, color: col, fillColor: col,
+      fillOpacity: 0.55, weight: 2
+    }).addTo(map));
+  });
+
+  camerasNear(a.lat, a.lon, 120).then(function(cams) {
+    var row = document.getElementById("intxCamRow");
+    if (!cams.length) { row.style.display = "none"; return; }
+    cams.sort(function(x, y) { return x.distM - y.distM; });
+    document.getElementById("intxCam").textContent =
+      cams.length + " within 120 m (nearest " + cams[0].distM.toFixed(0) + " m)";
+    row.style.display = "flex";
+  });
+}
+
 async function doLookup(lat, lon) {
   btnQuery.disabled = true; btnGps.disabled = true;
   clearOverlays();
   infoPanel.classList.remove("show");
+  document.getElementById("intxSection").style.display = "none";
+  document.querySelectorAll("#infoPanel > .row").forEach(function(r) {
+    r.style.display = "flex";
+  });
 
   try {
     await zstdReady;
     setStatus("Loading data...");
+
+    // Intersections take precedence. Clicking a junction to be told which
+    // building is nearest is the wrong answer to the question being asked.
+    var intx = null;
+    try { intx = await queryIntersection(lat, lon); } catch (e) { intx = null; }
+    if (intx) {
+      lastQueryLat = lat; lastQueryLon = lon;
+      lastBldg = null; lastBiz = null; lastBizList = null;
+      addMarker(lat, lon);
+      updateHash(lat, lon);
+      showIntersection(intx, lat, lon);
+      infoPanel.classList.add("show");
+      setStatus("");
+      btnQuery.disabled = false; btnGps.disabled = false;
+      return;
+    }
     // ponytail: buildings only on click; business loaded only if building found
     var bldgReader = await ensureBldgReader();
     setStatus("Querying...");
@@ -1561,6 +1683,141 @@ var ROUTE_MAX_CELLS = 400;
 var ROUTE_END_CAP_K = 2;
 var routeMode = false;
 var routeA = null, routeB = null, routeLayer = null, routeBusy = false;
+
+// --- Signals / intersections ---
+//
+// Record layout is PTILESS v1, the same one core/src/signals.rs decodes and
+// scripts/build_points.py writes: osm_id zigzag-delta varint, lon i32, lat i32
+// (microdegrees), signal_type u8, flags u8, [direction u16 when flags & 0x01].
+// Kept in one place -- the layer renderer and the intersection lookup both call
+// this. A second hand-inlined copy is how the reader and the generator drifted
+// apart in the first place.
+var SIGNAL_TYPES = ["traffic_signals", "crossing_signals", "stop", "give_way",
+                    "railway_signals"];
+var SIGNAL_LABELS = {
+  traffic_signals: "Traffic signal", crossing_signals: "Pedestrian signal",
+  stop: "Stop sign", give_way: "Give way", railway_signals: "Railway signal"
+};
+
+function signalColor(t) {
+  if (t === "stop" || t === "give_way") return "#da3633";
+  if (t === "crossing_signals") return "#d29922";
+  return "#58a6ff";
+}
+
+function decodeSignalRecords(raw) {
+  var out = [];
+  if (!raw) return out;
+  var p = 0, prev = 0;
+  while (p < raw.length) {
+    var d = decodeVarint(raw, p); p += d.consumed;
+    prev += zigzagDecode(d.value);
+    var lon = raw[p] | raw[p+1]<<8 | raw[p+2]<<16 | raw[p+3]<<24; p += 4;
+    var lat = raw[p] | raw[p+1]<<8 | raw[p+2]<<16 | raw[p+3]<<24; p += 4;
+    var st = raw[p++], fl = raw[p++];
+    var dir = null;
+    if (fl & 0x01) { dir = raw[p] | raw[p+1]<<8; p += 2; }
+    out.push({
+      osmId: prev, lat: lat/100000, lon: lon/100000,
+      signalType: SIGNAL_TYPES[st] || ("unknown(" + st + ")"), direction: dir
+    });
+  }
+  return out;
+}
+
+// US-wide readers held open across lookups; the index is ~4 MB and refetching
+// it per click would dominate the query.
+var signalReaderPromise = null, cameraReaderPromise = null;
+function ensureSignalReader() {
+  if (!signalReaderPromise) {
+    signalReaderPromise = LayerReader.fromUrl(
+      "https://maps.mydatatimeline.com/maps/US.signals.ptiles");
+  }
+  return signalReaderPromise;
+}
+function ensureCameraReader() {
+  if (!cameraReaderPromise) {
+    cameraReaderPromise = LayerReader.fromUrl(
+      "https://maps.mydatatimeline.com/maps/US.camera.ptiles");
+  }
+  return cameraReaderPromise;
+}
+
+// An intersection is the cluster of control nodes around the nearest one, not
+// a single node: a four-way signalised crossing is typically 4-8 separate OSM
+// nodes (per approach, plus pedestrian heads). Reporting only the closest one
+// would undercount the approaches, which is the number that says whether a
+// stop here is a controlled stop.
+// A click is a coarse pointer: at z16 one pixel is ~2 m, and users aim at the
+// junction rather than at a specific control node. 60 m is generous enough to
+// hit what was aimed at while still being unambiguously "this junction" --
+// note this is a UI snap radius, not the ~30 m proximity the movement
+// classifier uses to decide a stop was controlled.
+var INTERSECTION_SNAP_M = 60;   // click must land this close to be an intersection
+var INTERSECTION_GROUP_M = 45;  // nodes within this of the anchor are the same junction
+
+async function queryIntersection(lat, lon) {
+  var reader = await ensureSignalReader();
+  var centre = h3.latLngToCell(lat, lon, 7);
+  var cells = h3.gridDisk(centre, 1); // clicked cell plus its ring-1 neighbours
+  var found = [];
+  for (var i = 0; i < cells.length; i++) {
+    var raw = null;
+    try {
+      raw = await reader.decompressCell(BigInt("0x" + cells[i]) & 0xffffffffffe00000n);
+    } catch (e) { continue; }
+    decodeSignalRecords(raw).forEach(function(s) {
+      s.distM = haversineM(lat, lon, s.lat, s.lon);
+      if (s.distM <= 400) found.push(s);
+    });
+  }
+  if (!found.length) return null;
+  found.sort(function(a, b) { return a.distM - b.distM; });
+  var anchor = found[0];
+  if (anchor.distM > INTERSECTION_SNAP_M) return null;
+
+  // Collapse nodes that share a coordinate. The published US.signals.ptiles
+  // contains repeated points (its index was rebuilt badly), and without this a
+  // junction lists the same control four times at 0 m, which reads as a UI bug
+  // rather than the data problem it is.
+  var seen = {}, members = [];
+  found.forEach(function(s) {
+    if (haversineM(anchor.lat, anchor.lon, s.lat, s.lon) > INTERSECTION_GROUP_M) return;
+    var k = s.lat.toFixed(5) + "," + s.lon.toFixed(5) + "," + s.signalType;
+    if (seen[k]) return;
+    seen[k] = 1;
+    members.push(s);
+  });
+  return { anchor: anchor, members: members };
+}
+
+async function camerasNear(lat, lon, radiusM) {
+  try {
+    var reader = await ensureCameraReader();
+    var cell = BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & 0xffffffffffe00000n;
+    var raw = await reader.decompressCell(cell);
+    if (!raw) return [];
+    // PTILESC v1: osm_id, lon, lat, device_type u8, placement u8,
+    // camera_type u8, flags u8, then the optional fields flags selects.
+    var out = [], p = 0, prev = 0;
+    while (p < raw.length) {
+      var d = decodeVarint(raw, p); p += d.consumed;
+      prev += zigzagDecode(d.value);
+      var lo = raw[p] | raw[p+1]<<8 | raw[p+2]<<16 | raw[p+3]<<24; p += 4;
+      var la = raw[p] | raw[p+1]<<8 | raw[p+2]<<16 | raw[p+3]<<24; p += 4;
+      var dev = raw[p]; p += 3;
+      var fl = raw[p++];
+      if (fl & 0x01) p += 2;
+      if (fl & 0x02) p += 1 + raw[p];
+      if (fl & 0x04) { p += 2 + (raw[p] | raw[p+1]<<8); }
+      if (fl & 0x08) p += 1 + raw[p];
+      if (fl & 0x10) p += 1;
+      var dist = haversineM(lat, lon, la/100000, lo/100000);
+      if (dist <= radiusM) out.push({ osmId: prev, dev: dev, distM: dist });
+    }
+    return out;
+  } catch (e) { return []; }
+}
 
 function haversineM(lat1, lon1, lat2, lon2) {
   var dlat = (lat2 - lat1) * Math.PI / 180, dlon = (lon2 - lon1) * Math.PI / 180;
@@ -2172,7 +2429,23 @@ window.__ptiles = {
     return f ? { entrySize: f.entrySize, merged: f.merged,
                  offsetBase: f.offsetBase.kind, entries: f.entries.length } : null;
   },
-  view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; }
+  view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; },
+  intersectionAt: function(lat, lon) { return queryIntersection(lat, lon); },
+  signalsNear: async function(lat, lon) {
+    var reader = await ensureSignalReader();
+    var cells = h3.gridDisk(h3.latLngToCell(lat, lon, 7), 1);
+    var all = [];
+    for (var i = 0; i < cells.length; i++) {
+      var raw = await reader.decompressCell(
+        BigInt("0x" + cells[i]) & 0xffffffffffe00000n);
+      decodeSignalRecords(raw).forEach(function(s) {
+        s.distM = haversineM(lat, lon, s.lat, s.lon);
+        all.push(s);
+      });
+    }
+    all.sort(function(a, b) { return a.distM - b.distM; });
+    return { count: all.length, nearest: all.slice(0, 5) };
+  }
 };
 
   </script>
