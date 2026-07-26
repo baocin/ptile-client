@@ -2145,6 +2145,36 @@ setTimeout(function() { map.invalidateSize(); }, 200);
   }
 })();
 
+// Test hook. This script is a module, so nothing above is reachable from
+// window and an automated check has no way to ask "did that layer draw
+// anything?" -- counting DOM nodes cannot attribute a shape to a layer, and
+// toggling a checkbox off does not remove what it drew, so before/after
+// diffing across layers silently measures nothing. Exposing the layer groups
+// makes the question directly answerable. Read-only, a few hundred bytes, and
+// the alternative is having no way to verify the page works.
+// Used by demo/test/render_check.py.
+window.__ptiles = {
+  featureCounts: function() {
+    var out = {};
+    Object.keys(ptilesLayers).forEach(function(k) {
+      var l = ptilesLayers[k];
+      out[k] = {
+        features: l.group && l.group.getLayers ? l.group.getLayers().length : 0,
+        hasReader: !!l.reader,
+        loading: !!l.loading,
+        onMap: !!(l.group && map.hasLayer(l.group))
+      };
+    });
+    return out;
+  },
+  layerInfo: function(key) {
+    var f = ptilesLayers[key] && ptilesLayers[key].reader && ptilesLayers[key].reader.file;
+    return f ? { entrySize: f.entrySize, merged: f.merged,
+                 offsetBase: f.offsetBase.kind, entries: f.entries.length } : null;
+  },
+  view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; }
+};
+
   </script>
 </body>
 </html>
