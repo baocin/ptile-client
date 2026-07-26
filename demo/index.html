@@ -326,23 +326,123 @@ function parsePtilesHeader(buf) {
     auxOffset: u64(dv, 72), auxLength: u32(dv, 80)
   };
 }
+// Index entry widths. Which one a file uses is a property of the generator
+// that wrote it, not of the layer:
+//   19 B  roads, water, business, buildings_v8
+//   38 B  parks, rail, places, signals, camera
+// The 38-byte entry prefixes the v1 fields with a 16-byte bbox (written as
+// zeros by every real builder) and appends a cell_index. Reading a 38-byte
+// index as 19-byte does not throw -- it reads blockOffset/blockLength out of
+// that zeroed bbox, so every cell looks empty and the layer renders nothing
+// with no error anywhere. This file did exactly that until now, which is why
+// detection below validates against the bytes instead of trusting the header.
+var ENTRY_SIZE_V1 = 19, ENTRY_SIZE_V2 = 38;
+var KNOWN_ENTRY_SIZES = [ENTRY_SIZE_V1, ENTRY_SIZE_V2];
+
+function readIndexEntry(sl, dv2, pos, size) {
+  var cb = 0n;
+  for (var j = 0; j < 8; j++) cb |= BigInt(sl[pos + j]) << BigInt(j * 8);
+  if (size === ENTRY_SIZE_V2) {
+    return {
+      h3Cell: cb,
+      blockOffset: readPacked(sl, pos + 24, 6) + sl[pos + 32] * 281474976710656, // + high byte << 48
+      blockLength: readPacked(sl, pos + 30, 2) + sl[pos + 33] * 65536,
+      featureCount: u16(dv2, pos + 34)
+    };
+  }
+  return {
+    h3Cell: cb,
+    blockOffset: readPacked(sl, pos + 8, 6),
+    blockLength: readPacked(sl, pos + 14, 3),
+    featureCount: u16(dv2, pos + 17)
+  };
+}
+
+// Does the index parse cleanly at this width? Two checks, both false at the
+// wrong width and true at the right one:
+//  1. entry 0 names a non-empty block. Deterministic: at the wrong stride
+//     entry 0's length is read from inside the zeroed bbox. Checking "some
+//     entry" is not enough -- later entries read misaligned bytes that can be
+//     nonzero by luck.
+//  2. cells are non-descending, which the format guarantees.
+function indexIsStructurallyValid(sl, dv2, cnt, size) {
+  if (cnt === 0) return true;
+  if (4 + cnt * size > sl.length) return false;
+  if (readIndexEntry(sl, dv2, 4, size).blockLength === 0) return false;
+  var prev = 0n;
+  for (var i = 0; i < cnt; i++) {
+    var c = readIndexEntry(sl, dv2, 4 + i * size, size).h3Cell;
+    if (c < prev) return false;
+    prev = c;
+  }
+  return true;
+}
+
 function parsePtilesIndex(buf, h) {
   var sl = buf.subarray(h.indexOffset, h.indexOffset + h.indexLength);
   var dv2 = new DataView(sl.buffer, sl.byteOffset, sl.length);
   var cnt = u32(dv2, 0);
+
+  // Width implied by the header, when it divides evenly. Settles every
+  // well-formed file at zero cost. The published US.signals/US.camera declare
+  // a 42-byte stride over 38-byte entries, so this yields a width we have
+  // never heard of and the probe below takes over.
+  var declaredStride = (cnt > 0 && h.indexLength > 4 && (h.indexLength - 4) % cnt === 0)
+    ? (h.indexLength - 4) / cnt : null;
+
+  var entrySize = null, entrySizeSource = null;
+  if (declaredStride !== null && KNOWN_ENTRY_SIZES.indexOf(declaredStride) >= 0 &&
+      indexIsStructurallyValid(sl, dv2, cnt, declaredStride)) {
+    entrySize = declaredStride; entrySizeSource = "declared";
+  } else {
+    for (var k = 0; k < KNOWN_ENTRY_SIZES.length; k++) {
+      if (indexIsStructurallyValid(sl, dv2, cnt, KNOWN_ENTRY_SIZES[k])) {
+        entrySize = KNOWN_ENTRY_SIZES[k]; entrySizeSource = "probed"; break;
+      }
+    }
+  }
+  if (entrySize === null) {
+    throw new Error("PTILES index: no known entry width fits (" + cnt +
+      " entries, " + sl.length + " bytes, header implies " + declaredStride + ")");
+  }
+
   var entries = [], cellMap = new Map();
   var off = 4;
-  for (var i = 0; i < cnt && off + 19 <= sl.length; i++) {
-    var cb = 0n;
-    for (var j = 0; j < 8; j++) cb |= BigInt(sl[off + j]) << BigInt(j * 8);
-    var bo = readPacked(sl, off + 8, 6);
-    var bl = readPacked(sl, off + 14, 3);
-    var fc = u16(dv2, off + 17);
-    entries.push({ h3Cell: cb, blockOffset: bo, blockLength: bl, featureCount: fc });
-    cellMap.set(cb & 0xffffffffffe00000n, i);
-    off += 19;
+  for (var i = 0; i < cnt && off + entrySize <= sl.length; i++) {
+    var e = readIndexEntry(sl, dv2, off, entrySize);
+    entries.push(e);
+    cellMap.set(e.h3Cell & 0xffffffffffe00000n, i);
+    off += entrySize;
   }
-  return { entries, cellMap };
+  return { entries, cellMap, entrySize, entrySizeSource, declaredStride };
+}
+
+// A 38-byte index comes with merged blocks: several cells packed behind a
+// header, so a decompressed block is not a record stream.
+//   0..4 center_lon i32, 4..8 center_lat i32, 8..12 cell_count u32,
+//   then cell_count x (u64 cell_id, u32 rel_offset), then record data.
+// Handing a whole merged block to a record decoder decodes that header as
+// records -- plausible-looking garbage, not an error.
+function mergedCellSlice(block, cellId) {
+  var dv = new DataView(block.buffer, block.byteOffset, block.byteLength);
+  var cellCount = dv.getUint32(8, true);
+  var tableStart = 12, dataStart = tableStart + cellCount * 12;
+  if (dataStart > block.length) throw new Error("PTILES merged block: truncated cell table");
+  var found = -1;
+  for (var i = 0; i < cellCount; i++) {
+    var id = dv.getBigUint64(tableStart + i * 12, true);
+    if (id === cellId) { found = i; break; }
+  }
+  if (found < 0) return null;
+  var start = dv.getUint32(tableStart + found * 12 + 8, true);
+  var end = (found + 1 < cellCount)
+    ? dv.getUint32(tableStart + (found + 1) * 12 + 8, true)
+    : block.length - dataStart;
+  if (end < start || dataStart + end > block.length) {
+    throw new Error("PTILES merged block: cell " + cellId + " range " + start + ".." + end +
+      " does not fit " + block.length + " bytes");
+  }
+  return block.subarray(dataStart + start, dataStart + end);
 }
 
 // --- Range-backed PTILES open (header+dict+index only; blocks on demand) ---
@@ -366,13 +466,47 @@ async function openPtilesRemote(url) {
   return {
     url: url, header: h, dict: dict,
     entries: parsed.entries, cellMap: parsed.cellMap,
-    relOff: parsed.entries.length > 0 && parsed.entries[0].blockOffset < h.blocksOffset,
+    entrySize: parsed.entrySize,
+    merged: parsed.entrySize === ENTRY_SIZE_V2,
+    // Three offset bases, not two. "corrected" is for files whose
+    // blocks_offset overshoots where the index really ends because it was
+    // computed at the wrong stride -- the published US.signals/US.camera
+    // overshoot by count*4 (432,692 and 145,580 bytes) and are otherwise
+    // completely unreadable.
+    offsetBase: pickOffsetBase(parsed, h),
     blockCache: new Map()
   };
 }
+function pickOffsetBase(parsed, h) {
+  if (parsed.entries.length === 0) return { kind: "absolute", adjust: 0 };
+  if (parsed.entries[0].blockOffset < h.blocksOffset) {
+    return { kind: "relative", adjust: h.blocksOffset };
+  }
+  // Where the index actually ends, from the entries as parsed rather than
+  // from the header's arithmetic about them.
+  var realBlocksOffset = h.indexOffset + 4 + parsed.entries.length * parsed.entrySize;
+  if (h.blocksOffset > realBlocksOffset) {
+    return { kind: "corrected", adjust: -(h.blocksOffset - realBlocksOffset) };
+  }
+  return { kind: "absolute", adjust: 0 };
+}
+
+// The record bytes for one cell -- what every decoder expects. On a 19-byte
+// layer that is the whole decompressed block; on a 38-byte layer the block
+// holds several cells and must be sliced first. Use this rather than
+// fetchDecompressEntry directly.
+async function fetchCellRecords(file, cellInt) {
+  var ei = file.cellMap.get(cellInt);
+  if (ei === undefined) return null;
+  var entry = file.entries[ei];
+  var block = await fetchDecompressEntry(file, entry);
+  if (!block || !file.merged) return block;
+  return mergedCellSlice(block, entry.h3Cell);
+}
+
 async function fetchDecompressEntry(file, entry) {
   if (!entry || !entry.blockLength) return null;
-  var abs = file.relOff ? file.header.blocksOffset + entry.blockOffset : entry.blockOffset;
+  var abs = entry.blockOffset + file.offsetBase.adjust;
   var key = abs + ":" + entry.blockLength;
   var hit = file.blockCache.get(key);
   if (hit) return hit;
@@ -409,10 +543,7 @@ PtilesWasmReader.fromUrl = async function(url) {
   return new PtilesWasmReader(await openPtilesRemote(url));
 };
 PtilesWasmReader.prototype._decompressBlock = async function(cellHex) {
-  var cellInt = BigInt("0x" + cellHex) & 0xffffffffffe00000n;
-  var ei = this.file.cellMap.get(cellInt);
-  if (ei === undefined) return null;
-  return fetchDecompressEntry(this.file, this.file.entries[ei]);
+  return fetchCellRecords(this.file, BigInt("0x" + cellHex) & 0xffffffffffe00000n);
 };
 PtilesWasmReader.prototype.query = async function(lat, lon) {
   await wasmInit;
@@ -608,9 +739,7 @@ LayerReader.fromUrl = async function(url) {
   return new LayerReader(await openPtilesRemote(url));
 };
 LayerReader.prototype.decompressCell = async function(cellInt) {
-  var ei = this.file.cellMap.get(cellInt);
-  if (ei === undefined) return null;
-  return fetchDecompressEntry(this.file, this.file.entries[ei]);
+  return fetchCellRecords(this.file, cellInt);
 };
 
 // --- Map setup ---
