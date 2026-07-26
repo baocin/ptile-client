@@ -46,4 +46,6 @@ real file, not the (apparently stale) doc.
 | rail | `PTILEST\x00` | 1 | matches SPEC.md (v1) |
 | admin_or_address | `PTILESA\x00` | 1 | US.admin.ptiles (real sample inspected) AND {STATE}.address.ptiles both land on 7-byte magic PTILESA v1 -- the address encoder's PTILESA2 truncates to PTILESA via write_header's magic[:7]. Disambiguated by structure (admin: block_count 0, aux_length>0) and filename, not magic |
 | business_name_index | `PTILESX\x00` | 1 | sidecar {STATE}.business_name_index.ptiles from scripts/build_business_name_index.py; not in SPEC.md's file table, but matches the real bytes the reference builder produced from TN.business.ptiles during this task (magic PTILESX v1, no dict) |
+| signals | `PTILESS\x00` | 1 | NEW -- {ST}.signals.ptiles, traffic stops/give_ways from OSM highway=* nodes |
+| camera | `PTILESC\x00` | 1 | NEW -- {ST}.camera.ptiles, surveillance cameras / ALPR from OSM man_made=surveillance |
 <!-- END GENERATED SUPPORTED_FORMATS TABLE -->

@@ -25,9 +25,11 @@ pub mod admin;
 pub mod buildings;
 pub mod business;
 pub mod business_search;
+pub mod camera;
 pub mod parks;
 pub mod rail;
 pub mod roads;
+pub mod signals;
 pub mod water;
 
 pub mod proximity;
@@ -49,9 +51,11 @@ pub use business_search::{
     BusinessHit, match_business_name_block, name_to_key, search_business_brute_force,
     search_business_indexed,
 };
+pub use camera::{Camera, cameras_near_road, decode_cameras};
 pub use parks::{ParkFeature, decode_parks};
 pub use rail::{RailFeature, decode_rail};
 pub use roads::{Intersection, RoadSegment, decode_road_block, decode_roads};
+pub use signals::{Signal, decode_signals};
 pub use water::{WaterFeature, decode_water};
 
 pub use proximity::{

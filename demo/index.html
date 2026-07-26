@@ -128,6 +128,8 @@
     <label><input type="checkbox" id="chkParks"> Parks</label>
     <label><input type="checkbox" id="chkRail"> Rail</label>
     <label><input type="checkbox" id="chkBldgs"> Buildings</label>
+    <label><input type="checkbox" id="chkCamera"> Cameras</label>
+    <label><input type="checkbox" id="chkSignal"> Signals</label>
     <span id="layerStatus"></span>
   </div>
   <div id="map"></div>
@@ -624,6 +626,8 @@ var ptilesLayers = {
   parks: { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   rail:  { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   bldgs: { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
+  camera:{ reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
+  signal:{ reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
 };
 var ptilesModeActive = false;
 var ptilesViewportTimer = null;
@@ -658,6 +662,8 @@ async function renderPtilesForCells(cells) {
   var chkParks = document.getElementById("chkParks").checked;
   var chkRail  = document.getElementById("chkRail").checked;
   var chkBldgs = document.getElementById("chkBldgs").checked;
+  var chkCamera = document.getElementById("chkCamera").checked;
+  var chkSignal = document.getElementById("chkSignal").checked;
   var count = 0;
 
   for (var ci = 0; ci < cells.length; ci++) {
@@ -710,6 +716,38 @@ async function renderPtilesForCells(cells) {
           else if (gt === 1 && feat.coords && feat.coords.length === 1)
             L.circleMarker([feat.coords[0][1],feat.coords[0][0]], {radius:4,color:"#484f58",fillColor:"#484f58",fillOpacity:0.8,weight:1}).addTo(ptilesLayers.rail.group);
         }); count += feats.length; }
+      } catch(e) {}
+    }
+    if (chkCamera && ptilesLayers.camera.reader && !ptilesLayers.camera.rendered.has(cellInt)) {
+      ptilesLayers.camera.rendered.add(cellInt);
+      try {
+        var raw = await ptilesLayers.camera.reader.decompressCell(cellInt);
+        if (raw) { var rp=0; while(rp<raw.length) {
+          var dr=decodeVarint(raw,rp); rp+=dr.consumed; var osm=zigzagDecode(dr.value);
+          var lon=raw[rp]|raw[rp+1]<<8|raw[rp+2]<<16|raw[rp+3]<<24; rp+=4;
+          var lat=raw[rp]|raw[rp+1]<<8|raw[rp+2]<<16|raw[rp+3]<<24; rp+=4;
+          var dt=raw[rp++], pl=raw[rp++], ct=raw[rp++];
+          var fl=raw[rp++]; var col="#f0883e"; if(dt===1)col="#da3633"; // ALPR=red
+          if(dt===2)col="#d29922"; // guard=yellow
+          L.circleMarker([lat/100000,lon/100000],{radius:4,color:col,fillColor:col,fillOpacity:0.7,weight:1.5}).addTo(ptilesLayers.camera.group);
+          rp+=((fl&0x01)?2:0)+((fl&0x02)?1+raw[rp]+1:0)+((fl&0x04)?2+((raw[rp]|raw[rp+1]<<8)+2):0)+((fl&0x08)?1+raw[rp]+1:0)+((fl&0x10)?1:0);
+        }}
+      } catch(e) {}
+    }
+    if (chkSignal && ptilesLayers.signal.reader && !ptilesLayers.signal.rendered.has(cellInt)) {
+      ptilesLayers.signal.rendered.add(cellInt);
+      try {
+        var raw = await ptilesLayers.signal.reader.decompressCell(cellInt);
+        if (raw) { var rp=0; while(rp<raw.length) {
+          var dr=decodeVarint(raw,rp); rp+=dr.consumed; var osm=zigzagDecode(dr.value);
+          var lon=raw[rp]|raw[rp+1]<<8|raw[rp+2]<<16|raw[rp+3]<<24; rp+=4;
+          var lat=raw[rp]|raw[rp+1]<<8|raw[rp+2]<<16|raw[rp+3]<<24; rp+=4;
+          var st=raw[rp++]; var fl=raw[rp++];
+          var col="#58a6ff"; if(st===2||st===3)col="#da3633"; // stop/give_way=red
+          if(st===1)col="#d29922"; // crossing=yellow
+          L.circleMarker([lat/100000,lon/100000],{radius:3,color:col,fillColor:col,fillOpacity:0.6,weight:1}).addTo(ptilesLayers.signal.group);
+          rp+=((fl&0x01)?2:0);
+        }}
       } catch(e) {}
     }
     if (chkBldgs && ptilesLayers.bldgs.reader && !ptilesLayers.bldgs.rendered.has(cellInt)) {
@@ -785,10 +823,26 @@ async function loadPtilesLayer(key, filename) {
   layer.loading = false;
 }
 
+async function loadPtilesLayerUS(key, filename) {
+  var layer = ptilesLayers[key];
+  if (layer.loading) return;
+  layer.loading = true;
+  setLayerStatus(key + " loading...");
+  try {
+    layer.reader = await LayerReader.fromUrl("https://maps.mydatatimeline.com/maps/US." + filename + ".ptiles");
+    setLayerStatus(key + " ready");
+    scheduleViewportRender();
+  } catch(e) {
+    layer.reader = null;
+    setLayerStatus(key + " error: " + e.message.slice(0, 40));
+  }
+  layer.loading = false;
+}
+
 // Track active PTILES layer loads per key so we can cancel on state change
 var ptilesLayerRevision = 0;
 
-var LAYER_CHK_MAP = {roads:"chkRoads",water:"chkWater",parks:"chkParks",rail:"chkRail",bldgs:"chkBldgs"};
+var LAYER_CHK_MAP = {roads:"chkRoads",water:"chkWater",parks:"chkParks",rail:"chkRail",bldgs:"chkBldgs",camera:"chkCamera",signal:"chkSignal"};
 
 async function activatePtilesMode() {
   ptilesLayerRevision++;
@@ -806,6 +860,8 @@ async function activatePtilesMode() {
   ptilesModeActive = true;
   if (myRev === ptilesLayerRevision) await loadPtilesLayer("roads", "roads");
   if (myRev === ptilesLayerRevision) await loadPtilesLayer("water", "water");
+  if (myRev === ptilesLayerRevision) await loadPtilesLayerUS("camera", "camera");
+  if (myRev === ptilesLayerRevision) await loadPtilesLayerUS("signal", "signals");
 }
 
 function deactivatePtilesMode() {
@@ -853,6 +909,23 @@ document.getElementById("chkBldgs").addEventListener("change", async function() 
   } else {
     ptilesLayers.bldgs.group.remove();
   }
+});
+
+// Camera/signal checkboxes use US-wide files. Name convention: layer key "signal" -> filename "signals".
+var US_LAYER_FILES = {camera:"camera",signal:"signals"};
+["chkCamera","chkSignal"].forEach(function(id) {
+  var layerKeys = {chkCamera:"camera",chkSignal:"signal"};
+  document.getElementById(id).addEventListener("change", async function() {
+    var key = layerKeys[id];
+    if (this.checked) {
+      ptilesLayers[key].group.addTo(map);
+      if (!ptilesLayers[key].reader && !ptilesLayers[key].loading) {
+        await loadPtilesLayerUS(key, US_LAYER_FILES[key]);
+      }
+    } else {
+      ptilesLayers[key].group.remove();
+    }
+  });
 });
 
 // For buildings PTILES layer, use PtilesWasmReader (WASM decode_buildings)
@@ -1052,6 +1125,35 @@ map.on("moveend", function() {
 // --- Search ---
 var searchAbortRef = { aborted: false };
 var searchResultCount = 0;
+var SEARCH_HIT_CAP = 200;
+
+function makeSearchResultRow(r) {
+  var dist = r._dist;
+  var distStr = dist < 1000 ? Math.round(dist) + "m" : (dist/1000).toFixed(1) + "km";
+  var el = document.createElement("div");
+  el.className = "search-result";
+  el.innerHTML = "<div class='r-name'>" + osmBizLink(r, r.name) + "</div>" +
+    "<div class='r-loc'>" + distStr + "</div>";
+  el.addEventListener("click", function() {
+    map.flyTo([r.lat, r.lon], 16, {duration: 0.8});
+    coordInput.value = r.lat.toFixed(6) + ", " + r.lon.toFixed(6);
+    setTimeout(function() { doLookup(r.lat, r.lon); }, 900);
+  });
+  return el;
+}
+
+// Insert at sorted position by _dist so the list is closest-first at every
+// instant. searchAll scans cells origin-outward, so arrival is near-sorted and
+// inserts land at or near the tail. Keeps listEl.children[i] <-> results[i].
+function insertSearchResult(listEl, results, r) {
+  var lo = 0, hi = results.length;
+  while (lo < hi) {
+    var mid = (lo + hi) >> 1;
+    if (results[mid]._dist <= r._dist) lo = mid + 1; else hi = mid;
+  }
+  results.splice(lo, 0, r);
+  listEl.insertBefore(makeSearchResultRow(r), listEl.children[lo] || null);
+}
 
 async function doSearch() {
   var query = document.getElementById("searchInput").value.trim();
@@ -1074,6 +1176,17 @@ async function doSearch() {
   var total = bizReader.entries.length;
 
   var results = [];
+  var listEl = document.getElementById("searchResultsList");
+  var scanDone = 0, scanTotal = 0;
+  var progressEl = document.getElementById("searchProgress");
+
+  function updateSearchProgress() {
+    var pct = scanTotal ? Math.round(scanDone / scanTotal * 100) : 0;
+    progressEl.textContent = searchResultCount === 0
+      ? "Scanning rings from origin... " + pct + "% (" + scanDone + "/" + scanTotal + ")"
+      : searchResultCount + " results found — scanning " + pct + "%";
+  }
+
   // ponytail: spiral origin = coordInput if set, else map center
   var origin = parseCoords(coordInput.value);
   if (!origin) { var c = map.getCenter(); origin = [c.lat, c.lng]; }
@@ -1081,7 +1194,6 @@ async function doSearch() {
     function(result) {
       if (abortRef.aborted) return;
       searchResultCount++;
-      if (searchResultCount > 200) return; // cap DOM at 200
       // Enrich with distance from spiral origin
       var center = { lat: origin[0], lng: origin[1] };
       var dlat = (result.lat - center.lat) * Math.PI / 180;
@@ -1089,45 +1201,26 @@ async function doSearch() {
       var a = Math.sin(dlat/2)**2 + Math.cos(center.lat*Math.PI/180)*Math.cos(result.lat*Math.PI/180)*Math.sin(dlon/2)**2;
       var dist = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       result._dist = dist;
-      results.push(result);
-      document.getElementById("searchProgress").textContent =
-        searchResultCount + " results found (scanning...)\n";
+      // Render immediately so hits are clickable while the scan continues
+      insertSearchResult(listEl, results, result);
+      updateSearchProgress();
     },
     function(done, tot) {
       if (abortRef.aborted) return;
-      var pct = Math.round(done / tot * 100);
-      if (searchResultCount === 0)
-        document.getElementById("searchProgress").textContent =
-          "Scanning rings from origin... " + pct + "% (" + done + "/" + tot + ")";
+      scanDone = done; scanTotal = tot;
+      updateSearchProgress();
     },
     abortRef,
-    origin[0], origin[1]
+    origin[0], origin[1],
+    SEARCH_HIT_CAP
   );
 
-  // Sort by distance, closest first
-  results.sort(function(a, b) { return a._dist - b._dist; });
-  var listEl = document.getElementById("searchResultsList");
-  for (var ri = 0; ri < results.length; ri++) {
-    (function(r) {
-      var dist = r._dist;
-      var distStr = dist < 1000 ? Math.round(dist) + "m" : (dist/1000).toFixed(1) + "km";
-      var el = document.createElement("div");
-      el.className = "search-result";
-      el.innerHTML = "<div class='r-name'>" + osmBizLink(r, r.name) + "</div>" +
-        "<div class='r-loc'>" + distStr + "</div>";
-      el.addEventListener("click", function() {
-        map.flyTo([r.lat, r.lon], 16, {duration: 0.8});
-        coordInput.value = r.lat.toFixed(6) + ", " + r.lon.toFixed(6);
-        setTimeout(function() { doLookup(r.lat, r.lon); }, 900);
-      });
-      listEl.appendChild(el);
-    })(results[ri]);
-  }
-
   if (!abortRef.aborted) {
-    document.getElementById("searchProgress").textContent =
+    progressEl.textContent =
       searchResultCount === 0 ? "No results for \"" + query + "\""
-      : searchResultCount + " results" + (searchResultCount > 200 ? " (showing first 200)" : "");
+      : searchResultCount >= SEARCH_HIT_CAP
+        ? SEARCH_HIT_CAP + " results (nearest " + SEARCH_HIT_CAP + " shown)"
+        : searchResultCount + " results";
   }
 }
 

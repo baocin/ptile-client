@@ -54,7 +54,7 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
         magic: b"PTILESB",
         file_kind: "business",
         versions: &[3, 4],
-        notes: "v3: u32 record_len, i32 abs coords. v4: no record_len, sequential uid, i16 cell-relative coords, chain_count instead of operating_status/emails/socials",
+        notes: "v3: u32 record_len, i32 abs coords. v4: no record_len, sequential uid, i16 cell-relative coords, chain_count instead of emails/socials",
     },
     FormatEntry {
         magic: b"PTILESW",
@@ -91,6 +91,18 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
         file_kind: "business_name_index",
         versions: &[1],
         notes: "sidecar {STATE}.business_name_index.ptiles from scripts/build_business_name_index.py; not in SPEC.md's file table, but matches the real bytes the reference builder produced from TN.business.ptiles during this task (magic PTILESX v1, no dict)",
+    },
+    FormatEntry {
+        magic: b"PTILESS",
+        file_kind: "signals",
+        versions: &[1],
+        notes: "NEW -- {ST}.signals.ptiles, traffic stops/give_ways from OSM highway=* nodes",
+    },
+    FormatEntry {
+        magic: b"PTILESC",
+        file_kind: "camera",
+        versions: &[1],
+        notes: "NEW -- {ST}.camera.ptiles, surveillance cameras / ALPR from OSM man_made=surveillance",
     },
 ];
 
@@ -183,17 +195,15 @@ mod tests {
     #[test]
     fn known_magic_known_version_ok() {
         assert!(check_supported(b"PTILESF", 8).is_ok());
-        assert!(check_supported(b"PTILESF", 9).is_ok()); // v9 now accepted
+        assert!(check_supported(b"PTILESF", 9).is_ok());
         assert!(check_supported(b"PTILESR", 2).is_ok());
         assert!(check_supported(b"PTILESB", 3).is_ok());
-        assert!(check_supported(b"PTILESB", 4).is_ok()); // v4 now accepted
+        assert!(check_supported(b"PTILESB", 4).is_ok());
     }
 
     #[test]
     fn known_magic_wrong_version_rejected() {
-        // v9 is now accepted.
         assert!(check_supported(b"PTILESF", 9).is_ok());
-        // v10 is rejected.
         let err = check_supported(b"PTILESF", 10).unwrap_err();
         assert_eq!(err.found, 10);
         assert_eq!(err.supported, alloc::vec![8, 9]);
@@ -206,7 +216,6 @@ mod tests {
 
     #[test]
     fn unrecognized_magic_rejected_with_empty_supported() {
-        // PTILESU (routing) is still deliberately absent from the table.
         let err = check_supported(b"PTILESU", 1).unwrap_err();
         assert!(err.supported.is_empty());
         let msg = alloc::format!("{err}");
@@ -215,8 +224,6 @@ mod tests {
 
     #[test]
     fn admin_address_shared_magic_is_supported() {
-        // Admin (PTILESA) and address (PTILESA2 -> truncates to PTILESA) share
-        // this magic/version; both must be accepted by open.
         assert!(check_supported(b"PTILESA", 1).is_ok());
         assert!(check_supported(b"PTILESA", 2).is_err());
     }
@@ -235,8 +242,6 @@ mod tests {
 
     #[test]
     fn every_listed_version_of_every_entry_is_accepted() {
-        // Fail-open regression guard: each version byte in the table must
-        // pass check_supported for its own magic.
         for entry in SUPPORTED_FORMATS {
             for &v in entry.versions {
                 assert!(
@@ -251,7 +256,6 @@ mod tests {
 
     #[test]
     fn version_just_below_and_above_supported_is_rejected() {
-        // PTILESF supports {8, 9}: 7 and 10 must both fail closed.
         for (bad, expected) in [
             (0u8, &[8u8, 9][..]),
             (7, &[8, 9][..]),
@@ -262,8 +266,6 @@ mod tests {
             assert_eq!(err.found, bad);
             assert_eq!(err.supported, expected);
         }
-        // Water/places/parks/rail/business_name_index all support only v1:
-        // v0 and v2 must be rejected for each.
         for magic in [b"PTILESW", b"PTILESP", b"PTILESN", b"PTILEST", b"PTILESX"] {
             assert!(check_supported(magic, 1).is_ok());
             assert!(check_supported(magic, 0).is_err());
@@ -273,38 +275,30 @@ mod tests {
 
     #[test]
     fn business_magic_follows_real_bytes_not_stale_spec() {
-        // SPEC.md claims business is PTILESI v2; real files are PTILESB v3/v4.
         assert!(check_supported(b"PTILESB", 3).is_ok());
-        assert!(check_supported(b"PTILESB", 4).is_ok()); // v4 now accepted
-        assert!(check_supported(b"PTILESB", 2).is_err()); // the doc's version
-        // The doc's (wrong) magic is unknown entirely -> empty supported set.
+        assert!(check_supported(b"PTILESB", 4).is_ok());
+        assert!(check_supported(b"PTILESB", 2).is_err());
         let err = check_supported(b"PTILESI", 2).unwrap_err();
         assert!(err.supported.is_empty());
     }
 
     #[test]
     fn versions_for_distinguishes_unknown_magic_from_wrong_version() {
-        // Known magic -> Some(non-empty set).
         assert_eq!(versions_for(b"PTILESR"), Some(&[2u8][..]));
-        // admin/address now share the supported PTILESA magic.
         assert_eq!(versions_for(b"PTILESA"), Some(&[1u8][..]));
-        // Deliberately-absent magics (addr TIGER, routing) -> None.
-        assert!(versions_for(b"PTILESD").is_none()); // addr (unbuilt TIGER format)
-        assert!(versions_for(b"PTILESU").is_none()); // routing
-        // A totally bogus magic -> None as well.
+        assert!(versions_for(b"PTILESD").is_none());
+        assert!(versions_for(b"PTILESU").is_none());
         assert!(versions_for(b"XXXXXXX").is_none());
     }
 
     #[test]
     fn unsupported_display_variants_read_correctly() {
-        // Populated-supported branch.
         let known = check_supported(b"PTILESR", 99).unwrap_err();
         let msg = alloc::format!("{known}");
         assert!(msg.contains("PTILESR"));
         assert!(msg.contains("supported: [2]"));
         assert!(!msg.contains("no versions of this magic are supported yet"));
 
-        // Empty-supported branch.
         let unknown = check_supported(b"PTILESZ", 1).unwrap_err();
         let msg = alloc::format!("{unknown}");
         assert!(msg.contains("no versions of this magic are supported yet"));
@@ -312,8 +306,6 @@ mod tests {
 
     #[test]
     fn magic_bytes_are_all_distinct() {
-        // Two entries sharing a magic would make versions_for ambiguous
-        // (find() returns the first, silently shadowing the rest).
         for (i, a) in SUPPORTED_FORMATS.iter().enumerate() {
             for b in &SUPPORTED_FORMATS[i + 1..] {
                 assert_ne!(a.magic, b.magic, "duplicate magic {:?}", a.magic);
