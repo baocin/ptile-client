@@ -90,11 +90,19 @@ struct Layout {
     overshoot: u64,
     /// Stride to declare in the header, overriding the true one.
     declared_stride: Option<usize>,
+    /// Bytes of an `aux` region placed between the header and the index, as
+    /// the coarse index does. Readers must locate everything from the header's
+    /// declared offsets rather than assuming the index follows the header.
+    aux: usize,
 }
 
 impl Layout {
     fn new(entry_size: usize) -> Self {
-        Layout { entry_size, relative: false, overshoot: 0, declared_stride: None }
+        Layout { entry_size, relative: false, overshoot: 0, declared_stride: None, aux: 0 }
+    }
+    fn aux(mut self, n: usize) -> Self {
+        self.aux = n;
+        self
     }
     fn relative(mut self) -> Self {
         self.relative = true;
@@ -117,7 +125,7 @@ fn build_file(layout: Layout, payloads: &[&[u8]]) -> (Vec<u8>, Vec<u64>) {
     let frames: Vec<Vec<u8>> = payloads.iter().map(|p| zstd_frame(p)).collect();
     let cells: Vec<u64> = (0..payloads.len()).map(|i| 100 + i as u64 * 100).collect();
 
-    let index_offset = HEADER_SIZE as u64;
+    let index_offset = (HEADER_SIZE + layout.aux) as u64;
     let true_index_len = 4 + payloads.len() * layout.entry_size;
     let real_blocks_offset = index_offset + true_index_len as u64;
     // A generator with a wrong stride computes blocks_offset from it, and then
@@ -155,9 +163,14 @@ fn build_file(layout: Layout, payloads: &[&[u8]]) -> (Vec<u8>, Vec<u64>) {
     buf[40..48].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes()); // dict_offset
     buf[48..52].copy_from_slice(&0u32.to_le_bytes()); // dict_length: none
     buf[52..60].copy_from_slice(&index_offset.to_le_bytes());
+    if layout.aux > 0 {
+        buf[72..80].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes()); // aux_offset
+        buf[80..84].copy_from_slice(&(layout.aux as u32).to_le_bytes()); // aux_length
+    }
     buf[60..64].copy_from_slice(&(declared_index_len as u32).to_le_bytes());
     buf[64..72].copy_from_slice(&header_blocks_offset.to_le_bytes());
 
+    buf.extend_from_slice(&vec![0xAAu8; layout.aux]);
     buf.extend_from_slice(&index);
     // Only the real index bytes were appended; if the header over-declares the
     // index length, the block region still starts where the entries end.
@@ -462,4 +475,29 @@ fn detected_parse_finds_a_real_block_in_a_v2_index() {
     assert_eq!(hit.block_offset, 900_000);
     assert_eq!(hit.block_length, 512, "must name a real block, not zero");
     assert_eq!(hit.feature_count, 7);
+}
+
+/// A file carrying a coarse index in the `aux` region must open exactly as it
+/// did without one. `aux` sits between the header and the index, so anything
+/// that assumed the index starts right after the header -- rather than at the
+/// header's declared `index_offset` -- breaks here.
+///
+/// This is what makes the coarse index additive: no version bump, and readers
+/// that know nothing about it are unaffected.
+#[test]
+fn an_aux_region_does_not_disturb_the_index() {
+    let payloads: [&[u8]; 3] = [b"alpha", b"beta", b"gamma"];
+    let (plain, cells) = build_file(Layout::new(ENTRY_SIZE_V2), &payloads);
+    let (with_aux, cells2) = build_file(Layout::new(ENTRY_SIZE_V2).aux(5096), &payloads);
+    assert_eq!(cells, cells2);
+
+    let a = open(plain);
+    let b = open(with_aux);
+    assert_eq!(a.layout().entry_size, b.layout().entry_size);
+    assert_eq!(a.layout().offset_base, b.layout().offset_base);
+    assert_eq!(a.index().len(), b.index().len());
+    assert!(!b.layout().header_is_inconsistent());
+    for (i, want) in payloads.iter().enumerate() {
+        assert_eq!(&b.read_block(cells[i]).unwrap().unwrap(), want);
+    }
 }

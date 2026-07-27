@@ -1815,20 +1815,134 @@ function decodeSignalRecords(raw) {
 // US-wide readers held open across lookups; the index is ~4 MB and refetching
 // it per click would dominate the query.
 var signalReaderPromise = null, cameraReaderPromise = null;
+// A click needs about seven cells. Prefer the coarse index, which fetches
+// ~5 KiB of samples plus one ~10 KiB run of the real index, over the ordinary
+// open, which pulls the whole 4014 KiB index first. Falls back automatically
+// for files built before the coarse index existed.
+async function openPointReader(url) {
+  var coarse = null;
+  try { coarse = await CoarseReader.open(url); } catch (e) { coarse = null; }
+  return coarse || LayerReader.fromUrl(url);
+}
 function ensureSignalReader() {
   if (!signalReaderPromise) {
-    signalReaderPromise = LayerReader.fromUrl(
+    signalReaderPromise = openPointReader(
       "https://maps.mydatatimeline.com/maps/US.signals.ptiles");
   }
   return signalReaderPromise;
 }
 function ensureCameraReader() {
   if (!cameraReaderPromise) {
-    cameraReaderPromise = LayerReader.fromUrl(
+    cameraReaderPromise = openPointReader(
       "https://maps.mydatatimeline.com/maps/US.camera.ptiles");
   }
   return cameraReaderPromise;
 }
+
+// --- Coarse-index reader: open a layer without fetching its whole index ---
+//
+// A point lookup needs a handful of cells. Opening US.signals.ptiles the
+// ordinary way fetches all 4014 KiB of its index first, because entries are
+// only locatable by position. Builders now write a sampled index to the
+// header's `aux` region (scripts/build_points.py::build_coarse_index): every
+// 256th entry as (h3_cell, entry_index), ~5 KiB, placed immediately after the
+// header so one range request gets both.
+//
+// A lookup becomes: header+aux, binary-search the samples to bracket the
+// wanted cell, then fetch just that run of the real index -- 256 entries,
+// under 10 KiB. Falls back to the full-index open for files without aux,
+// which is every layer built before this.
+var COARSE_MAGIC = 0x49435450; // "PTCI", little-endian
+
+function parseCoarseIndex(aux) {
+  if (!aux || aux.length < 20) return null;
+  var dv = new DataView(aux.buffer, aux.byteOffset, aux.length);
+  if (dv.getUint32(0, true) !== COARSE_MAGIC) return null;
+  var stride = dv.getUint32(8, true);
+  var sampleCount = dv.getUint32(12, true);
+  var entryCount = dv.getUint32(16, true);
+  if (20 + sampleCount * 12 > aux.length) return null;
+  var cells = new BigUint64Array(sampleCount), idx = new Uint32Array(sampleCount);
+  for (var i = 0; i < sampleCount; i++) {
+    cells[i] = dv.getBigUint64(20 + i * 12, true);
+    idx[i] = dv.getUint32(20 + i * 12 + 8, true);
+  }
+  return { stride: stride, cells: cells, entryIndex: idx, entryCount: entryCount };
+}
+
+// Entry positions bracketing `cell`: the last sample at or below it, through
+// the next one.
+function coarseBracket(coarse, cell) {
+  var lo = 0, hi = coarse.cells.length - 1, best = -1;
+  while (lo <= hi) {
+    var mid = (lo + hi) >> 1;
+    if (coarse.cells[mid] <= cell) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  if (best < 0) return null; // below the first sample: not in this file
+  return {
+    start: coarse.entryIndex[best],
+    end: best + 1 < coarse.cells.length
+      ? coarse.entryIndex[best + 1]
+      : coarse.entryCount - 1
+  };
+}
+
+function CoarseReader(url, header, coarse, dict, etag) {
+  this.url = url; this.header = header; this.coarse = coarse;
+  this.dict = dict; this.etag = etag;
+  this.entrySize = ENTRY_SIZE_V2;
+  this.merged = true;
+  this.slices = new Map();   // bracket start -> parsed entries for that run
+  this.blockCache = new Map();
+  // Files carrying a coarse index come from the current builder, which
+  // verifies its own offsets on write, so they need no correction.
+  this.offsetBase = { kind: "absolute", adjust: 0 };
+}
+
+CoarseReader.open = async function(url) {
+  var head = await rangeFetchMeta(url, 0, 255);
+  var h = parsePtilesHeader(head.bytes);
+  if (!h.auxLength) return null;             // caller falls back to a full open
+  var auxBytes = await cachedRangeFetch(
+    url, h.auxOffset, h.auxOffset + h.auxLength - 1, head.etag);
+  var coarse = parseCoarseIndex(auxBytes);
+  if (!coarse) return null;                  // aux holds something else
+  var dict = h.dictLength > 0
+    ? await cachedRangeFetch(url, h.dictOffset, h.dictOffset + h.dictLength - 1, head.etag)
+    : new Uint8Array(0);
+  return new CoarseReader(url, h, coarse, dict, head.etag);
+};
+
+CoarseReader.prototype._entriesFor = async function(cell) {
+  var br = coarseBracket(this.coarse, cell);
+  if (!br) return null;
+  var have = this.slices.get(br.start);
+  if (!have) {
+    var h = this.header;
+    var from = h.indexOffset + 4 + br.start * ENTRY_SIZE_V2;
+    var to = h.indexOffset + 4 + (br.end + 1) * ENTRY_SIZE_V2 - 1;
+    var bytes = await cachedRangeFetch(this.url, from, to, this.etag);
+    var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
+    have = [];
+    for (var off = 0; off + ENTRY_SIZE_V2 <= bytes.length; off += ENTRY_SIZE_V2) {
+      have.push(readIndexEntry(bytes, dv, off, ENTRY_SIZE_V2));
+    }
+    this.slices.set(br.start, have);
+  }
+  return have;
+};
+
+CoarseReader.prototype.decompressCell = async function(cellInt) {
+  var entries = await this._entriesFor(cellInt);
+  if (!entries) return null;
+  var entry = null;
+  for (var i = 0; i < entries.length; i++) {
+    if ((entries[i].h3Cell & 0xffffffffffe00000n) === cellInt) { entry = entries[i]; break; }
+  }
+  if (!entry) return null;
+  var block = await fetchDecompressEntry(this, entry);
+  return block ? mergedCellSlice(block, entry.h3Cell) : null;
+};
 
 // An intersection is the cluster of control nodes around the nearest one, not
 // a single node: a four-way signalised crossing is typically 4-8 separate OSM
@@ -2518,6 +2632,7 @@ window.__ptiles = {
   },
   view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; },
   openRemote: function(u) { return openPtilesRemote(u); },
+  openCoarse: function(u) { return CoarseReader.open(u); },
   intersectionAt: function(lat, lon) { return queryIntersection(lat, lon); },
   signalsNear: async function(lat, lon) {
     var reader = await ensureSignalReader();
