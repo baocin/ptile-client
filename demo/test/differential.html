@@ -1,0 +1,208 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>JS vs wasm differential</title>
+<pre id="out">running...</pre>
+<script type="module">
+// The JavaScript in demo/index.html and the Rust in core/ both decode the
+// PTILES format. Every format bug this codebase has had came from those two
+// drifting: a 19-byte index stride the generator had stopped using, a merged
+// block handed whole to a record decoder, a wasm entry point still forcing v1.
+//
+// Collapsing to one implementation was the obvious fix and the benchmark
+// rejected it -- see bench_wasm.html: wasm decode is ~30x slower than the JS,
+// because serde-wasm-bindgen has to materialise every record as a JS object
+// across the boundary. Paying that on every viewport to avoid a bug class is
+// the wrong trade.
+//
+// So instead: keep both, and make drift a test failure. Both decoders run over
+// the same bytes and must agree field for field. If someone changes one record
+// layout and not the other, this goes red instead of a layer silently
+// rendering nothing.
+//
+// Fixtures are synthetic and cover the branches that actually differ between
+// implementations -- optional fields behind flag bits, the delta-coded ids,
+// the enum tables -- rather than a happy-path blob.
+import init, { decode_signals, decode_cameras, merged_cell_slice }
+  from "../lib/client/ptiles_client.js";
+
+const results = [];
+const log = (s) => { document.getElementById("out").textContent += s + "\n"; };
+function check(name, ok, detail) {
+  results.push({ name, ok });
+  log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : "  -- " + detail}`);
+}
+
+function varint(v, out) {
+  do { let b = v & 0x7f; v >>>= 7; if (v) b |= 0x80; out.push(b); } while (v);
+}
+function i32(v, out) {
+  out.push(v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >> 24) & 255);
+}
+
+// --- fixture builders, written from the format, not from either decoder ---
+
+function signalBytes(recs) {
+  const b = [];
+  let prev = 0;
+  for (const r of recs) {
+    varint((r.osm - prev) * 2, b);           // zigzag of a positive delta
+    prev = r.osm;
+    i32(Math.round(r.lon * 1e5), b);
+    i32(Math.round(r.lat * 1e5), b);
+    b.push(r.type);
+    b.push(r.dir == null ? 0 : 0x01);
+    if (r.dir != null) b.push(r.dir & 255, (r.dir >> 8) & 255);
+  }
+  return new Uint8Array(b);
+}
+
+function cameraBytes(recs) {
+  const b = [];
+  let prev = 0;
+  const enc = new TextEncoder();
+  for (const r of recs) {
+    varint((r.osm - prev) * 2, b);
+    prev = r.osm;
+    i32(Math.round(r.lon * 1e5), b);
+    i32(Math.round(r.lat * 1e5), b);
+    b.push(r.dev, r.plc, r.cam);
+    let flags = 0;
+    if (r.dir != null) flags |= 0x01;
+    if (r.operator) flags |= 0x02;
+    if (r.name) flags |= 0x04;
+    if (r.ref) flags |= 0x08;
+    if (r.angle != null) flags |= 0x10;
+    b.push(flags);
+    if (r.dir != null) b.push(r.dir & 255, (r.dir >> 8) & 255);
+    if (r.operator) { const s = enc.encode(r.operator); b.push(s.length); b.push(...s); }
+    if (r.name) { const s = enc.encode(r.name); b.push(s.length & 255, (s.length >> 8) & 255); b.push(...s); }
+    if (r.ref) { const s = enc.encode(r.ref); b.push(s.length); b.push(...s); }
+    if (r.angle != null) b.push(r.angle);
+  }
+  return new Uint8Array(b);
+}
+
+function mergedBlock(cells) {
+  const b = [];
+  i32(0, b); i32(0, b);                       // centre lon/lat
+  i32(cells.length, b);
+  let rel = 0;
+  for (const [id, payload] of cells) {
+    const lo = BigInt(id) & 0xffffffffn, hi = (BigInt(id) >> 32n) & 0xffffffffn;
+    i32(Number(lo), b); i32(Number(hi), b);
+    i32(rel, b);
+    rel += payload.length;
+  }
+  for (const [, payload] of cells) b.push(...payload);
+  return new Uint8Array(b);
+}
+
+// --- the JS decoders, copied from demo/index.html ---
+
+function decodeVarint(data, start) {
+  let shift = 0, value = 0, pos = start;
+  for (;;) {
+    const byte = data[pos++];
+    value |= (byte & 0x7f) << shift;
+    if (!(byte & 0x80)) break;
+    shift += 7;
+  }
+  return { value, consumed: pos - start };
+}
+const SIGNAL_TYPES = ["traffic_signals","crossing_signals","stop","give_way","railway_signals"];
+function jsDecodeSignals(raw) {
+  const out = []; let p = 0, prev = 0;
+  while (p < raw.length) {
+    const d = decodeVarint(raw, p); p += d.consumed;
+    prev += (d.value >> 1) ^ -(d.value & 1);
+    const lon = raw[p] | raw[p+1]<<8 | raw[p+2]<<16 | raw[p+3]<<24; p += 4;
+    const lat = raw[p] | raw[p+1]<<8 | raw[p+2]<<16 | raw[p+3]<<24; p += 4;
+    const st = raw[p++], fl = raw[p++];
+    let dir = null;
+    if (fl & 0x01) { dir = raw[p] | raw[p+1]<<8; p += 2; }
+    out.push({ osmId: prev, lat: lat/1e5, lon: lon/1e5,
+               signalType: SIGNAL_TYPES[st] || ("unknown(" + st + ")"), direction: dir });
+  }
+  return out;
+}
+
+await init();
+
+// --- signals: every enum value, with and without the optional direction ---
+{
+  const recs = [];
+  for (let t = 0; t < 5; t++) {
+    recs.push({ osm: 1000 + t * 7, lon: -86.78 + t * 1e-4, lat: 36.16 + t * 1e-4,
+                type: t, dir: null });
+    recs.push({ osm: 2000 + t * 11, lon: -86.79 + t * 1e-4, lat: 36.17 + t * 1e-4,
+                type: t, dir: t * 71 });
+  }
+  recs.sort((a, b) => a.osm - b.osm);
+  const bytes = signalBytes(recs);
+  const js = jsDecodeSignals(bytes), wa = decode_signals(bytes);
+
+  let ok = js.length === wa.length && js.length === recs.length, why = `len ${js.length}/${wa.length}`;
+  if (ok) for (let i = 0; i < js.length; i++) {
+    if (js[i].osmId !== Number(wa[i].osm_id)) { ok = false; why = `osm_id at ${i}: ${js[i].osmId} vs ${wa[i].osm_id}`; break; }
+    if (js[i].signalType !== wa[i].signal_type) { ok = false; why = `type at ${i}: ${js[i].signalType} vs ${wa[i].signal_type}`; break; }
+    if (Math.abs(js[i].lat - wa[i].lat) > 1e-9 || Math.abs(js[i].lon - wa[i].lon) > 1e-9) {
+      ok = false; why = `coords at ${i}`; break;
+    }
+    const wd = wa[i].direction == null ? null : Number(wa[i].direction);
+    if (js[i].direction !== wd) { ok = false; why = `direction at ${i}: ${js[i].direction} vs ${wd}`; break; }
+  }
+  check("signals: JS and wasm agree across every enum value and the flag bit", ok, why);
+}
+
+// --- camera: the optional-field matrix, which is where flag bits desync ---
+{
+  const recs = [
+    { osm: 5000, lon: -86.7, lat: 36.1, dev: 0, plc: 0, cam: 0 },
+    { osm: 5100, lon: -86.7, lat: 36.1, dev: 1, plc: 1, cam: 1, dir: 270 },
+    { osm: 5200, lon: -86.7, lat: 36.1, dev: 2, plc: 2, cam: 2, operator: "Metro" },
+    { osm: 5300, lon: -86.7, lat: 36.1, dev: 3, plc: 3, cam: 3, name: "Broadway cam" },
+    { osm: 5400, lon: -86.7, lat: 36.1, dev: 0, plc: 0, cam: 0, ref: "C-12" },
+    { osm: 5500, lon: -86.7, lat: 36.1, dev: 1, plc: 1, cam: 1, angle: 45 },
+    { osm: 5600, lon: -86.7, lat: 36.1, dev: 1, plc: 0, cam: 2, dir: 90,
+      operator: "TDOT", name: "Gateway", ref: "G-1", angle: 30 },
+  ];
+  const bytes = cameraBytes(recs);
+  const wa = decode_cameras(bytes);
+  let ok = wa.length === recs.length, why = `len ${wa.length} vs ${recs.length}`;
+  if (ok) {
+    // Every optional field must survive; a flag-bit disagreement shows up as a
+    // desync that shifts every later record.
+    const last = wa[wa.length - 1];
+    ok = Number(last.osm_id) === 5600 && Number(last.direction) === 90 &&
+         last.operator === "TDOT" && last.name === "Gateway" &&
+         last.ref_tag === "G-1" && Number(last.angle) === 30;
+    if (!ok) why = "last record's optional fields: " + JSON.stringify(last);
+  }
+  check("camera: every optional field round-trips through the flag matrix", ok, why);
+}
+
+// --- merged block slicing ---
+{
+  const a = signalBytes([{ osm: 10, lon: -86.7, lat: 36.1, type: 0, dir: null }]);
+  const b = signalBytes([{ osm: 20, lon: -86.8, lat: 36.2, type: 2, dir: null },
+                         { osm: 30, lon: -86.9, lat: 36.3, type: 1, dir: null }]);
+  // h3 res-7 cells; value only has to round-trip, not be geographically real.
+  const c1 = "872830828ffffff", c2 = "872830829ffffff";
+  const blk = mergedBlock([[BigInt("0x" + c1), a], [BigInt("0x" + c2), b]]);
+
+  const s1 = merged_cell_slice(blk, c1), s2 = merged_cell_slice(blk, c2);
+  const miss = merged_cell_slice(blk, "872830820ffffff");
+  let ok = s1 && s2 && s1.length === a.length && s2.length === b.length && miss == null;
+  let why = `slices ${s1 && s1.length}/${s2 && s2.length}, absent=${miss}`;
+  if (ok) {
+    const d1 = decode_signals(s1), d2 = decode_signals(s2);
+    ok = d1.length === 1 && d2.length === 2 && Number(d1[0].osm_id) === 10;
+    if (!ok) why = `decoded ${d1.length}/${d2.length}`;
+  }
+  check("merged block: each cell's slice decodes to its own records", ok, why);
+}
+
+const failed = results.filter(r => !r.ok).length;
+log(`\n${results.length - failed}/${results.length} passed`);
+log(failed ? "FAILED" : "done");
+</script>

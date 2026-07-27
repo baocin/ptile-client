@@ -33,7 +33,11 @@ use ptiles_core::{
     cell_center as core_cell_center, cell_for_coord as core_cell_for_coord,
     neighbor_cells as core_neighbor_cells,
 };
-use ptiles_core::{index_binary_search as core_index_binary_search, parse_index_detected as core_parse_index_detected, Header};
+use ptiles_core::{
+    index_binary_search as core_index_binary_search, merged_cell_slice as core_merged_cell_slice,
+    parse_index_detected as core_parse_index_detected, decode_cameras as core_decode_cameras,
+    decode_signals as core_decode_signals, Header,
+};
 
 // `business.rs`'s `osm_id: i64` (unlike every other layer's delta-coded u64,
 // see business.rs doc) can exceed 2^53 on real data, which the default
@@ -119,6 +123,38 @@ pub fn decode_business(data: &[u8]) -> Result<JsValue, JsValue> {
 pub fn decode_parks(data: &[u8]) -> Result<JsValue, JsValue> {
     let parks = core_decode_parks(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
     to_js(&parks)
+}
+
+/// Decode a `signals` cell's records (PTILESS v1). Input is the byte range for
+/// one cell, i.e. the output of `merged_cell_slice` -- signals files carry a
+/// 38-byte index and therefore merged blocks, so passing a whole decompressed
+/// block here decodes its cell table as records.
+#[wasm_bindgen]
+pub fn decode_signals(data: &[u8]) -> Result<JsValue, JsValue> {
+    let signals = core_decode_signals(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&signals)
+}
+
+/// Decode a `camera` cell's records (PTILESC v1). Same merged-block caveat as
+/// `decode_signals`.
+#[wasm_bindgen]
+pub fn decode_cameras(data: &[u8]) -> Result<JsValue, JsValue> {
+    let cams = core_decode_cameras(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&cams)
+}
+
+/// The record bytes for one cell inside a decompressed merged block.
+///
+/// Layers with a 38-byte index pack several cells per block behind a cell
+/// table; a record decoder handed the whole block parses that table as
+/// records and yields plausible garbage rather than an error. Returns `null`
+/// if the block does not contain the cell.
+#[wasm_bindgen]
+pub fn merged_cell_slice(block: &[u8], cell_hex: &str) -> Result<Option<Vec<u8>>, JsValue> {
+    let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
+    Ok(core_merged_cell_slice(block, cell)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?
+        .map(|b| b.to_vec()))
 }
 
 #[wasm_bindgen]
