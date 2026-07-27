@@ -463,17 +463,104 @@ function mergedCellSlice(block, cellId) {
 // --- Range-backed PTILES open (header+dict+index only; blocks on demand) ---
 // ponytail: no full-file download — maps.mydatatimeline supports Accept-Ranges
 async function rangeFetch(url, start, endInclusive) {
+  return (await rangeFetchMeta(url, start, endInclusive)).bytes;
+}
+
+async function rangeFetchMeta(url, start, endInclusive) {
   var resp = await fetch(url, { headers: { Range: "bytes=" + start + "-" + endInclusive } });
   if (!resp.ok) throw new Error("HTTP " + resp.status + " range " + start + "-" + endInclusive);
-  return new Uint8Array(await resp.arrayBuffer());
+  return { bytes: new Uint8Array(await resp.arrayBuffer()), etag: resp.headers.get("ETag") };
+}
+
+// --- Persistent cache for the fixed regions of a layer (header, dict, index) ---
+//
+// Opening one layer costs about 4.5 MB and ~1.1 s against the live host:
+// header 256 B / ~210 ms, dict 512 KiB / ~350 ms, index 4014 KiB / ~460 ms,
+// then ~96 ms to parse 108,166 entries. None of it survived a reload, so every
+// page load paid all of it again, per layer.
+//
+// Measured on that host: a 38-byte range request costs the same ~210 ms as a
+// 14 KiB one, so the cost is latency, not size, and fetching less of the index
+// per lookup would not help (three narrowing round trips beat one bulk fetch
+// only on a slow link). Not re-fetching at all is the win.
+//
+// Entries are keyed by ETag, so a rebuilt file misses rather than serving stale
+// bytes and no revalidation round trip is needed. Blocks are deliberately not
+// cached here -- there are thousands of them per layer and they would evict
+// the regions that matter; they keep the existing in-memory blockCache.
+var PTILES_CACHE = "ptiles-regions-v1";
+var cacheOpenPromise = null;
+var rangeInflight = new Map();
+
+function ptilesCache() {
+  // `caches` is undefined on insecure origins (file://, plain http beyond
+  // localhost). Everything below treats a null cache as "just fetch".
+  if (typeof caches === "undefined") return Promise.resolve(null);
+  if (!cacheOpenPromise) {
+    cacheOpenPromise = caches.open(PTILES_CACHE).catch(function() { return null; });
+  }
+  return cacheOpenPromise;
+}
+
+function rangeCacheKey(url, etag, start, end) {
+  return location.origin + "/__ptiles/" + encodeURIComponent(url) + "/" +
+    encodeURIComponent(etag || "no-etag") + "/" + start + "-" + end;
+}
+
+// Drop entries for this url under any other ETag. Without this the cache grows
+// by a full copy of every region each time a layer is rebuilt.
+async function purgeStaleEtags(cache, url, etag) {
+  try {
+    var prefix = location.origin + "/__ptiles/" + encodeURIComponent(url) + "/";
+    var keep = prefix + encodeURIComponent(etag || "no-etag") + "/";
+    var keys = await cache.keys();
+    for (var i = 0; i < keys.length; i++) {
+      var u = keys[i].url;
+      if (u.indexOf(prefix) === 0 && u.indexOf(keep) !== 0) await cache.delete(keys[i]);
+    }
+  } catch (e) { /* best effort */ }
+}
+
+async function cachedRangeFetch(url, start, endInclusive, etag) {
+  var key = rangeCacheKey(url, etag, start, endInclusive);
+  // Several layers opening at once used to issue duplicate identical GETs.
+  var pending = rangeInflight.get(key);
+  if (pending) return pending;
+
+  var p = (async function() {
+    var cache = await ptilesCache();
+    if (cache) {
+      try {
+        var hit = await cache.match(key);
+        if (hit) return new Uint8Array(await hit.arrayBuffer());
+      } catch (e) { /* fall through to network */ }
+    }
+    var got = await rangeFetchMeta(url, start, endInclusive);
+    if (cache) {
+      // Quota failures must not break the read that already succeeded.
+      try {
+        await cache.put(key, new Response(got.bytes));
+        purgeStaleEtags(cache, url, etag);
+      } catch (e) { /* over quota, or storage denied */ }
+    }
+    return got.bytes;
+  })();
+
+  rangeInflight.set(key, p);
+  try { return await p; } finally { rangeInflight.delete(key); }
 }
 async function openPtilesRemote(url) {
-  var hdrBytes = await rangeFetch(url, 0, 255);
-  var h = parsePtilesHeader(hdrBytes);
+  // The header is always fetched live: it is 256 bytes, and its ETag is what
+  // keys everything below. That one small request is the entire cost of a warm
+  // open -- the 512 KiB dict and 4 MB index come from the cache.
+  var head = await rangeFetchMeta(url, 0, 255);
+  var h = parsePtilesHeader(head.bytes);
+  var etag = head.etag;
   var dict = h.dictLength > 0
-    ? await rangeFetch(url, h.dictOffset, h.dictOffset + h.dictLength - 1)
+    ? await cachedRangeFetch(url, h.dictOffset, h.dictOffset + h.dictLength - 1, etag)
     : new Uint8Array(0);
-  var idxBytes = await rangeFetch(url, h.indexOffset, h.indexOffset + h.indexLength - 1);
+  var idxBytes = await cachedRangeFetch(
+    url, h.indexOffset, h.indexOffset + h.indexLength - 1, etag);
   // parsePtilesIndex expects full-file layout offsets; fake a buffer with index at h.indexOffset
   var fake = new Uint8Array(h.indexOffset + h.indexLength);
   fake.set(idxBytes, h.indexOffset);
@@ -2430,6 +2517,7 @@ window.__ptiles = {
                  offsetBase: f.offsetBase.kind, entries: f.entries.length } : null;
   },
   view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; },
+  openRemote: function(u) { return openPtilesRemote(u); },
   intersectionAt: function(lat, lon) { return queryIntersection(lat, lon); },
   signalsNear: async function(lat, lon) {
     var reader = await ensureSignalReader();
