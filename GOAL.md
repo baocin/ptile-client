@@ -1,99 +1,39 @@
-# GOAL: prove it renders, then finish the edges
+# GOAL: publish the rebuilt data, then finish the Rookery API
 
-The index-layout work is done and committed. What's missing is the criterion
-that actually matters: **nobody has confirmed a layer draws on screen.** Two
-readers now agree on nine real files at the byte level, and that is still
-compatible with the map showing nothing.
+The reader work is done and verified. What blocks everything now is data: the
+host still serves files whose index records **one point per cell**, so every
+fix below is reading a file that is ~95% empty.
 
 This directory has no git dir of its own — it is tracked inside `~/kino`.
 Commit there. New files under `projects/` need `git add -f`: `.gitignore:57`
 in `~/kino` ignores `/projects/`, so untracked additions are refused while
 tracked files stage normally.
 
-## Already done — do not redo
+## Task 1 — Publish the rebuilt national files
 
-- `cd23579` — Rust core reads both index widths (19 B and 38 B), three offset
-  bases (absolute, relative, and corrected for a `blocks_offset` that
-  overshoots), and slices merged blocks via `PtilesFile::read_cell`.
-  `core/tests/index_layout.rs` (19 tests) + `core/tests/real_layers.rs` (11).
-- `9a3aaa2` — the same detection in `demo/index.html`, plus `mergedCellSlice`
-  and `fetchCellRecords`. `demo/test/index_reader.test.mjs` (21 tests).
-- `cargo test --workspace && node --test "demo/test/*.test.mjs"` is green.
-- Detected layouts, identical in both readers: roads/water/business 19 B
-  absolute, buildings_v8 19 B relative, parks/rail/places/signals/camera 38 B
-  absolute.
+`~/kino/projects/ptiles/tiles/US.{signals,camera}.ptiles` are built, verified,
+and carry the coarse index. The host serves the old ones.
 
-See `AGENTS.md` for the index-layout reference and how to run both suites.
+| | published | built |
+| --- | --- | --- |
+| signals | 108,173 points (1/cell) | **2,107,809** points, 108,166 cells |
+| camera | 36,395 points (1/cell) | **129,251** points, 36,632 cells |
 
-## Task 1 — browser confirmation (the point of this goal)
+Consequences of not shipping them, all currently visible:
 
-Confirm each of roads, water, parks, rail, buildings, camera, signals puts
-shapes on the map.
+- The intersection sidebar's "approaches" row never appears, because the
+  published file gives duplicate co-located nodes that dedupe to one. With real
+  data a four-way junction shows 4.
+- `CoarseReader` in `demo/index.html` always falls back — the published files
+  have no aux region, so none of the coarse-index work is live.
+- Both point layers resolve through the `AbsoluteCorrected` offset path, which
+  exists solely to read around those files' broken headers.
 
-**Parks and Rail are the tell.** They use the 38-byte index and have been dark
-far longer than signals/camera. If they now render, the fix is real end to end.
-If they don't, there is a second failure downstream of the index that every
-existing test passes straight through — find that.
+Rebuild with `python3 scripts/build_points.py` in `~/kino/projects/ptiles`
+(~8 min, national, both layers). I have no upload path to
+`maps.mydatatimeline.com`; that is the missing piece.
 
-Three attempts were burned on this harness. Do not repeat them:
-
-- **The page wraps its script in an IIFE.** `page.evaluate` cannot reach `map`,
-  `ptilesLayers`, or any reader. `map.setView is not a function` is what that
-  looks like. Either measure the DOM, or add a small deliberate test hook to
-  `demo/index.html` (something like `window.__ptiles = {...}` set once at the
-  end) — a hook is honest and worth committing if it makes this checkable
-  forever.
-- **The checkboxes are not Playwright-visible.** `page.check()` times out on
-  "element is not visible". Set `.checked` and dispatch
-  `new Event('change', {bubbles:true})` instead.
-- **Unchecking a layer does not clear its Leaflet group.** This invalidated the
-  whole measurement: baseline read 1238 shapes with every layer off. Do not
-  diff before/after within one page load. **Reload the page for each layer**
-  and count with only that one enabled.
-- **Do not zoom by mouse wheel.** Blind wheel-zoom put the map over empty
-  forest at max zoom, where every layer correctly draws nothing — including
-  roads. Navigate with the page's own `#coordInput` + the Lookup button
-  (`36.1627, -86.7816` for Nashville), then click `.leaflet-control-zoom-out`
-  about five times to reach ~z14.
-- **Screenshot before trusting any count.** The forest screenshot is what
-  revealed the harness was lying; a number alone would not have.
-- Serve with `python3 -m http.server 8899 --bind 127.0.0.1` from `demo/`, and
-  confirm `curl -s -o /dev/null -w '%{http_code}'` returns 200 before driving
-  the browser.
-
-A run where roads and water report zero is a broken harness, not a finding.
-Treat them as the control: if the control fails, fix the harness first.
-
-### What the live data will and won't prove
-
-The demo fetches from `maps.mydatatimeline.com`, which **still serves the
-broken `US.signals`/`US.camera`** — 42-byte declared stride, and an index
-recording one point per cell. Loading those exercises the `corrected` offset
-path against real bytes, which is genuinely useful, but they will render sparse
-and that is the data's fault, not the reader's.
-
-To exercise the good data, serve the freshly built files from
-`~/kino/projects/ptiles/tiles/US.{signals,camera}.ptiles` locally and point the
-demo at them. Worth doing both — broken-file and correct-file are different
-code paths now.
-
-## Task 2 — index parse performance
-
-`US.signals.ptiles` has 108,166 entries and `parsePtilesIndex` builds an object
-literal per entry. Typed arrays (`BigUint64Array` for cells, `Float64Array` for
-offsets, `Uint32Array` for lengths) plus a lazy accessor would avoid that.
-
-This was left undone deliberately: `BusinessReader` indexes into `.entries` in
-five places (`demo/index.html` around lines 552-585 and 1176), and changing the
-shape under it risked breaking business search to chase an unmeasured win.
-Either migrate those call sites properly or leave it — do not half-do it.
-
-**Benchmark first.** Measure index parse and block decode against the local
-`US.signals.ptiles` before changing anything, and report both numbers. If the
-parse is already cheap relative to the range fetch, say so and skip the
-rewrite; that is a fine outcome.
-
-## Task 3 — Rookery consumers
+## Task 2 — Rookery consumers
 
 `cli/` is the native JSON bridge. Rookery snaps GPS to roads via
 `server/src/server/location/ptiles/RoadsReader.ts` -> `/api/location/road` and
@@ -105,35 +45,82 @@ wants the same for the new layers:
 - `queryNearestCamera(lat, lon)` -> `{ osmId, deviceType, distanceMeters, direction }`.
 - `ptilesFetch.ts` `FILE_ALLOWLIST` needs `signals` and `camera`.
 
-Build on `PtilesFile::read_cell`, not `read_block` — the latter hands back a
-merged block, and a record decoder will parse its header as records rather than
-erroring. `cameras_near_road` in `core/src/camera.rs` is O(cameras x segments)
-with a bbox cull; check it against a dense real cell before calling it done.
+Build on `PtilesFile::read_cell`, not `read_block` — the latter returns a
+merged block, and a record decoder will parse its cell table as records rather
+than erroring. `cameras_near_road` in `core/src/camera.rs` is O(cameras x
+segments) with a bbox cull; check it against a dense real cell before calling
+it done.
+
+The Rust core does not yet use the coarse index — `PtilesFile::open` still
+reads the whole index. For a native consumer doing one lookup per open that is
+the same 4 MB the browser used to pay, so it is worth doing here; see
+`core/src/file.rs:147` and the `aux_offset`/`aux_length` fields already parsed
+into `Header`.
+
+## Already done — do not redo
+
+- `cd23579` / `9a3aaa2` — both readers detect index entry width (19 or 38 B)
+  and all three block-offset bases, and slice merged blocks.
+- `2ca7dcf` — every layer confirmed rendering in a browser
+  (`demo/test/render_check.py`). **PTILES Mode gates all rendering**; with it
+  off a layer fetches its index and never requests a block, which reads as a
+  dead layer. That cost three harness attempts.
+- `1d0dfcd` — intersection sidebar on click (`demo/test/intersection_check.py`).
+- `0c888a9` — dict and index cached across page loads, ETag-keyed. Cold open
+  ~950 ms, warm ~85 ms, one range request (`demo/test/cache_check.py`).
+- `17ee394` — wasm `find_block_for_cell` no longer forces the 19-byte layout.
+- `e227cc2` / ptiles `c946069` — coarse index in the aux region; a point lookup
+  pulls 12% of a full open (`demo/test/coarse_check.py`).
+
+Measured and deliberately **not** done, with the numbers, so nobody re-derives
+them:
+
+- **Typed-array index parse.** Parsing 108,166 entries is ~96 ms against ~460 ms
+  to fetch the index and ~210 ms of latency before that. Not worth
+  destabilising `BusinessReader`'s five `.entries` call sites. Where it would
+  pay is as a *serialisation* format — caching the parsed index in IndexedDB to
+  skip the ~85 ms warm open entirely.
+- **HTTP-range binary search over the index.** A 38-byte range request costs the
+  same ~210 ms as a 14 KiB one on this host, so narrowing takes ~3 round trips
+  (~645 ms) against one 460 ms bulk fetch. The coarse index solves this
+  properly instead, in one extra request.
+- **Shrinking the zstd dictionary.** 4.03x block compression with it, 1.74x
+  without. It is now the largest part of a coarse open (512 KiB of 543 KiB), so
+  if anything else is attacked, attack that — but per-layer sizing trades
+  against Rookery's bulk scans.
 
 ## Standing constraints
 
-- Do not change any on-disk format. signals and camera are v1 and stay v1.
-  Every `.ptiles` kind is versioned independently — the version byte is scoped
-  to its magic and there is no release-wide version. See
+- Do not change any on-disk format incompatibly. signals and camera are v1 and
+  stay v1. Every `.ptiles` kind is versioned independently — the version byte is
+  scoped to its magic and there is no release-wide version. See
   `SUPPORTED_FORMATS.md`.
-- Do not touch `~/kino/projects/ptiles/scripts/build_points.py` unless a test
-  proves the builder wrong.
-- Do not publish anything to `maps.mydatatimeline.com`.
 - `demo/index.html` is the only source for the UI. `steele.red/ptiles` is a
   symlink to `demo/` that steele.red's `build.py` dereferences into `output/`.
-  There is deliberately no `index.html` at this repo's root; do not recreate
-  one.
-- Check `demo/index.html`'s mtime before and after editing — another session
-  has had it open recently.
+  There is deliberately no `index.html` at this repo's root; do not recreate one.
+- `demo/js/app.js` and `demo/js/ptiles-remote.js` are unreferenced — an
+  alternative wasm-first architecture never wired up, and missing offset-base
+  handling, merged-block slicing and caching. Read the header on
+  `ptiles-remote.js` before reviving either.
+- Check `demo/index.html`'s mtime before and after editing — other sessions
+  have had it open.
 - `maps.mydatatimeline.com` 403s the default python-urllib User-Agent; send a
   browser UA. Blocks carry no content size, so use a streaming zstd
   decompressor, not one-shot `decompress()`.
+- `python3 -m http.server` **ignores Range** and answers 200 with the whole
+  file. Any byte-level measurement against it is meaningless; `coarse_check.py`
+  carries a Range-capable handler to borrow.
 
-## Done means
+## Verification
 
-- A committed, repeatable harness that loads the page per layer and reports
-  shapes drawn, with roads and water passing as controls.
-- Every layer confirmed rendering, or a named defect for any that doesn't.
-- A screenshot in the report, not just counts.
-- Benchmark numbers recorded, whatever they say.
-- `cargo test --workspace && node --test "demo/test/*.test.mjs"` still green.
+```sh
+cargo test --workspace && node --test "demo/test/*.test.mjs"
+# with `python3 -m http.server 8899 --bind 127.0.0.1` running in demo/:
+python3 demo/test/render_check.py        # all seven layers draw
+python3 demo/test/intersection_check.py  # junction panel, and no leak into it
+python3 demo/test/cache_check.py         # warm open makes one request
+python3 demo/test/coarse_check.py        # coarse lookup pulls a fraction
+```
+
+`render_check.py` treats roads and water as controls: if they report zero, the
+harness is broken, not the code.
