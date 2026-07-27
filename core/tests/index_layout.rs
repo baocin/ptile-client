@@ -437,3 +437,29 @@ fn unsupported_version_fails_closed_and_names_both_sides() {
     };
     assert!(msg.contains("99"), "error must name the version found: {msg}");
 }
+
+/// The wasm boundary (`find_block_for_cell`, `parse_index_entries`) used to
+/// call `parse_index`, which forces v1. This asserts the detected path returns
+/// a usable entry for a 38-byte index, i.e. the thing that silently returned a
+/// zero-length block before. Exercised through the same core call the wasm
+/// wrappers now make.
+#[test]
+fn detected_parse_finds_a_real_block_in_a_v2_index() {
+    let mut index = Vec::new();
+    index.extend_from_slice(&2u32.to_le_bytes());
+    index.extend_from_slice(&entry_v2(0x872830828ffffff, 900_000, 512, 7));
+    index.extend_from_slice(&entry_v2(0x872830829ffffff, 900_512, 256, 3));
+
+    let forced_v1 = ptiles_core::parse_index(&index).expect("parses, wrongly");
+    assert_eq!(
+        forced_v1[0].block_length, 0,
+        "v1-forced parse of a v2 index reads the zeroed bbox -- the old wasm bug"
+    );
+
+    let detected = parse_index_detected(&index, None).expect("detect");
+    let hit = ptiles_core::index_binary_search(&detected.entries, 0x872830828ffffff)
+        .expect("cell must be found");
+    assert_eq!(hit.block_offset, 900_000);
+    assert_eq!(hit.block_length, 512, "must name a real block, not zero");
+    assert_eq!(hit.feature_count, 7);
+}

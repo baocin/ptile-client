@@ -75,7 +75,10 @@ pub use file::{FileError, PtilesFile};
 pub use header::Header;
 #[cfg(feature = "http")]
 pub use http_source::HttpSource;
-pub use index::{IndexEntry, binary_search as index_binary_search, parse_index};
+pub use index::{
+    ENTRY_SIZE_V1, ENTRY_SIZE_V2, EntrySizeSource, IndexEntry, ParsedIndex,
+    binary_search as index_binary_search, parse_index, parse_index_detected,
+};
 #[cfg(feature = "std")]
 pub use source::FileSource;
 pub use source::{MemorySource, PtilesSource, SourceError};

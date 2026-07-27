@@ -33,7 +33,7 @@ use ptiles_core::{
     cell_center as core_cell_center, cell_for_coord as core_cell_for_coord,
     neighbor_cells as core_neighbor_cells,
 };
-use ptiles_core::{index_binary_search as core_index_binary_search, parse_index as core_parse_index, Header};
+use ptiles_core::{index_binary_search as core_index_binary_search, parse_index_detected as core_parse_index_detected, Header};
 
 // `business.rs`'s `osm_id: i64` (unlike every other layer's delta-coded u64,
 // see business.rs doc) can exceed 2^53 on real data, which the default
@@ -459,25 +459,39 @@ pub fn parse_header(data: &[u8]) -> Result<JsValue, JsValue> {
 
 /// Parse a `.ptiles` file's spatial index section (the `index_offset`..
 /// `index_offset+index_length` byte range from the header) into its full
-/// entry list. Demo/browser boundary for `ptiles_core::parse_index` so JS
-/// never has to hand-roll the 19-byte entry layout.
+/// entry list. Demo/browser boundary for `ptiles_core::parse_index_detected`
+/// so JS never has to hand-roll either entry layout.
+///
+/// Entry width is detected, not assumed. This used to call `parse_index`,
+/// which forces the 19-byte v1 layout: on the 38-byte layers (parks, rail,
+/// places, signals, camera) that reads `block_offset` and `block_length` out
+/// of the zeroed bbox field, so every cell came back with a zero-length block
+/// and the caller saw "no data here" rather than an error.
 #[wasm_bindgen]
 pub fn parse_index_entries(data: &[u8]) -> Result<JsValue, JsValue> {
-    let entries = core_parse_index(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    to_js(&entries)
+    let parsed =
+        core_parse_index_detected(data, None).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&parsed.entries)
 }
 
-/// Binary-search an already-parsed index (pass the raw index bytes again;
-/// re-parses internally -- the demo caches those bytes per open file, so
-/// this stays O(log n) per call with no network cost) for the block
-/// offset/length covering `cell_hex` (lowercase hex H3 res-7 cell, same
-/// string form `cells_for_bounds`/`cell_for_coord` return). Returns `null`
-/// if the cell has no block in this file (sparse coverage).
+/// Find the block offset/length covering `cell_hex` (lowercase hex H3 res-7
+/// cell, the string form `cells_for_bounds`/`cell_for_coord` return). Returns
+/// `null` if the cell has no block in this file (sparse coverage).
+///
+/// Takes the raw index bytes and re-parses them. The search itself is
+/// O(log n), but the parse is O(n) and happens on **every call** -- an earlier
+/// doc comment here claimed the call was O(log n) with no network cost, which
+/// was only ever true of the search half. Callers doing more than an occasional
+/// lookup should use `parse_index_entries` once and search the result, or hold
+/// a `PtilesFile`, which parses on open.
+///
+/// Entry width is detected rather than assumed; see `parse_index_entries`.
 #[wasm_bindgen]
 pub fn find_block_for_cell(index_bytes: &[u8], cell_hex: &str) -> Result<JsValue, JsValue> {
     let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
-    let entries = core_parse_index(index_bytes).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    match core_index_binary_search(&entries, cell) {
+    let parsed = core_parse_index_detected(index_bytes, None)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    match core_index_binary_search(&parsed.entries, cell) {
         Some(entry) => to_js(entry),
         None => Ok(JsValue::NULL),
     }
