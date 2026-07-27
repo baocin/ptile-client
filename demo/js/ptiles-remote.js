@@ -1,3 +1,20 @@
+// UNREFERENCED. demo/index.html -- the only page served, and the one
+// steele.red/ptiles publishes -- does not load this file or its consumer
+// demo/js/app.js. They are an alternative wasm-first architecture that was
+// never wired up. Kept because that direction may still be wanted; read this
+// before reviving either:
+//
+//   - No index entry-width detection. `open()` below reads the index and hands
+//     it to wasm, which is now correct (see wasm/src/lib.rs), but nothing here
+//     handles the three block-offset bases -- notably `corrected`, without
+//     which the published US.signals/US.camera are unreadable.
+//   - No merged-block slicing, so the 38-byte layers (parks, rail, places,
+//     signals, camera) would hand a cell table to a record decoder.
+//   - No block cache and no persistent region cache, so it re-fetches the
+//     512 KiB dict and 4 MB index on every page load.
+//
+// index.html has all three. Porting from it beats extending this.
+//
 // Thin range-request + framing glue around the ptiles-wasm exports.
 //
 // This file does NOT decode any PTILES record format -- every byte of
