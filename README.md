@@ -3,8 +3,12 @@
 Rust workspace for the [PTiles binary geospatial format](https://github.com/baocin/ptiles).
 `no_std` decoder core, WASM browser bridge, native CLI, fuzz harness.
 
-> Development happens in the `kino` monorepo under `projects/ptile-client`.
-> This repository is a mirror; it has no `.git` of its own locally.
+> This is the canonical repository. It is normally checked out at
+> `~/kino/projects/ptile-client`, but it is its own git repo — the surrounding
+> `kino` tree ignores `/projects/` and tracks nothing here.
+>
+> Remotes: `origin` → `github.com/baocin/ptile-client`, `gitea` →
+> `gitea:kino/ptile-client.git`. Push to both.
 
 ## Crates
 
