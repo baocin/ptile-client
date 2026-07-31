@@ -70,10 +70,10 @@ do not edit a copy elsewhere and sync back.
 Deploy chain to <https://steele.red/ptiles/>:
 
 ```
-projects/ptile-client/demo/          <- edit here
+ptile-client/demo/          <- edit here
   ^
   |  absolute symlink, tracked in the steele.red repo (mode 120000)
-projects/steele.red/ptiles  ->  /home/aoi/kino/projects/ptile-client/demo
+steele.red/ptiles  ->  <ptile-client checkout>/demo
   |
   |  build.py STATIC_DIRS includes "ptiles"; shutil.copytree defaults to
   |  symlinks=False, so the link is dereferenced and the real files land in
@@ -91,14 +91,14 @@ Two consequences worth knowing:
   is published.
 
 There is no longer a GitHub Pages workflow -- `.github/workflows/pages.yml`
-was removed in kino commit `193bd75`, and `.github/` is now empty.
+was removed in commit `193bd75`, and `.github/` is now empty.
 
 There is deliberately **no `index.html` at the repo root**. One existed as
 a stale orphan copy of this file, referenced by nothing -- every doc in
 this repo (`AGENTS.md`, `docs/INTEGRATION.md`,
 `docs/HANDOFF-browser-routing.md`) points at `demo/index.html`, and
 `build.py` never read it. It was deleted on 2026-07-26 and survives only in
-kino git history. Do not recreate it: a second copy of this UI is always a
+git history. Do not recreate it: a second copy of this UI is always a
 bug.
 
 ## What's implemented

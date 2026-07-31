@@ -13,8 +13,6 @@ build, and test instructions.
 
 ## Local Contracts
 
-- Tracked inside the `/home/aoi/kino` git repository (this directory has no
-  git dir of its own).
 - Related to ptile-client (main Rust client) and ptiles-browser (WASM viewer).
 - `src/lib.rs` is a legacy seed, superseded by `core/` + `wasm/`; kept until
   wasm parity is confirmed in the demo, then removed.
@@ -22,7 +20,7 @@ build, and test instructions.
   failed route may use one denser arterial retry with an explicit bounded
   budget in `demo/index.html`.
 - `demo/index.html` is the single source of truth for the browser UI.
-  `projects/steele.red/ptiles` is an absolute symlink to `demo/`, and
+  `steele.red/ptiles` is an absolute symlink to `demo/`, and
   steele.red's `build.py` dereferences it (`shutil.copytree`,
   `symlinks=False`) into `output/ptiles/`, which is what Cloudflare Pages
   serves at <https://steele.red/ptiles/>. Edits are not live until
@@ -30,7 +28,7 @@ build, and test instructions.
   nowhere else. See `demo/README.md` for the full chain.
 - There is deliberately no `index.html` at the repo root. One existed as a
   stale orphan copy of `demo/index.html`, referenced by nothing; it was
-  deleted on 2026-07-26 and survives only in kino git history. Do not
+  deleted on 2026-07-26 and survives only in git history. Do not
   recreate it -- a second copy of this UI is always a bug.
 
 ## Index layouts
@@ -75,10 +73,6 @@ cargo test --workspace && node --test "demo/test/*.test.mjs"
   fixture is found, so an empty data directory can't look green.
 - `demo/test/index_reader.test.mjs` — extracts the reader functions out of
   `index.html` by name and runs them against the same real files.
-
-New files under `projects/` need `git add -f`: `.gitignore:57` in `~/kino`
-ignores `/projects/`, so untracked additions are refused (tracked files stage
-normally).
 
 ## Child DOX Index
 

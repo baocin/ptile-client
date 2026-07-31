@@ -4,14 +4,9 @@ The reader work is done and verified. What blocks everything now is data: the
 host still serves files whose index records **one point per cell**, so every
 fix below is reading a file that is ~95% empty.
 
-This directory has no git dir of its own — it is tracked inside `~/kino`.
-Commit there. New files under `projects/` need `git add -f`: `.gitignore:57`
-in `~/kino` ignores `/projects/`, so untracked additions are refused while
-tracked files stage normally.
-
 ## Task 1 — Publish the rebuilt national files
 
-`~/kino/projects/ptiles/tiles/US.{signals,camera}.ptiles` are built, verified,
+the ptiles repo's `tiles/US.{signals,camera}.ptiles` are built, verified,
 and carry the coarse index. The host serves the old ones.
 
 | | published | built |
@@ -29,7 +24,7 @@ Consequences of not shipping them, all currently visible:
 - Both point layers resolve through the `AbsoluteCorrected` offset path, which
   exists solely to read around those files' broken headers.
 
-Rebuild with `python3 scripts/build_points.py` in `~/kino/projects/ptiles`
+Rebuild with `python3 scripts/build_points.py` in the ptiles repo
 (~8 min, national, both layers). I have no upload path to
 `maps.mydatatimeline.com`; that is the missing piece.
 

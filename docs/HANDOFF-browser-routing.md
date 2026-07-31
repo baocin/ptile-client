@@ -24,7 +24,7 @@ Point-to-point on-road routing in the browser using only Range-fetched `*.roads.
 
 **Commits (approx):**
 
-- monorepo: `68074a2` — core graph + densified path
+- `68074a2` — core graph + densified path
 - steele.red: `de451da` … `fa983c8` — UI wire, multi-state, sparse corridor
 
 ---
@@ -59,9 +59,9 @@ route_from_segments(
 Rebuild wasm:
 
 ```bash
-cd /home/aoi/kino/projects/ptile-client/wasm
+cd wasm
 wasm-pack build --target web \
-  --out-dir /home/aoi/kino/projects/ptile-client/demo/lib/client \
+  --out-dir demo/lib/client \
   --out-name ptiles_client
 ```
 
@@ -69,7 +69,7 @@ Deploy UI:
 
 ```bash
 AWS_PROFILE=steele-red-deploy \
-  aws s3 sync /home/aoi/kino/projects/steele.red/output/ptiles/ s3://steele.red/ptiles/
+  aws s3 sync <steele.red checkout>/output/ptiles/ s3://steele.red/ptiles/
 # invalidate CF dist E1X2E2N30TVNGX paths /ptiles/*
 ```
 
@@ -180,7 +180,7 @@ cd ptiles-client/wasm && wasm-pack build --target web \
   --out-dir ../../demo/lib/client --out-name ptiles_client
 
 # data
-# /home/aoi/kino/data/ptiles/TN.roads.ptiles  (~32 MB)
+# TN.roads.ptiles  (~32 MB)
 # or Range: maps.mydatatimeline.com/maps/TN.roads.ptiles
 
 # UI local
