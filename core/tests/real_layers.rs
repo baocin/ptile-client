@@ -23,10 +23,19 @@ static OPENED: AtomicUsize = AtomicUsize::new(0);
 
 /// Where per-state layers live, and where the freshly built national point
 /// layers land (`scripts/build_points.py` writes to `ptiles/tiles`).
-const SEARCH_DIRS: [&str; 3] = [
+///
+/// The committed corpus comes last on purpose. Where the full published layers
+/// exist they are the better test -- megabytes of real index, thousands of
+/// cells -- and this suite should use them. Where they don't (any CI runner,
+/// any fresh clone) the corpus stands in, so `layer_coverage_is_asserted_somewhere`
+/// still has something real to assert against instead of failing the build.
+/// The corpus files are slices of these same published layers and detect the
+/// same layout; see `conformance/slice.py`.
+const SEARCH_DIRS: [&str; 4] = [
     "/home/aoi/kino/data/ptiles",
     "/home/aoi/kino/projects/ptiles/tiles",
     "/mnt/core/kino/ptiles/data/states",
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../conformance/corpus"),
 ];
 
 fn find(name: &str) -> Option<PathBuf> {

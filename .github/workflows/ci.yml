@@ -17,9 +17,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
-      # real_layers.rs and the ffi integration tests skip when their data
-      # directory is absent, which it is on a runner. index_layout.rs and the
-      # rest are self-contained and do the load-bearing work here.
+      # An earlier version of this comment claimed real_layers.rs simply skips
+      # on a runner. It does not, and this job was red because of it: the
+      # individual cases skip, but `layer_coverage_is_asserted_somewhere`
+      # deliberately FAILS when nothing was found, so that an empty data
+      # directory cannot pass for real coverage.
+      #
+      # That guard is right and stays. What it needed was fixtures, which
+      # conformance/corpus/ now provides -- committed slices of the real
+      # published layers, last in SEARCH_DIRS so full local data still wins.
       - run: cargo test --workspace
 
   no_std:
@@ -119,5 +125,24 @@ jobs:
         with:
           node-version: '22'
       # These extract the reader functions out of demo/index.html and run them
-      # against synthetic fixtures; the real-file cases skip when absent.
+      # against synthetic fixtures, then against the real bytes in
+      # conformance/corpus/. `fixtures_were_actually_exercised` fails if no
+      # real file was parsed -- it is the JS half of the same guard that made
+      # the cargo test job red, and it is satisfied by the corpus, not waived.
       - run: node --test "demo/test/*.test.mjs"
+
+  conformance:
+    name: conformance corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The corpus is the cross-language contract: committed slices of real
+      # published layers, each carrying a layout the readers must agree on.
+      # Run separately from `cargo test` so a corpus regression is legible on
+      # its own rather than buried in 435 results.
+      #
+      # This job does NOT run conformance/slice.py -- that reads machine-local
+      # published data which no runner has. CI consumes only its output.
+      - run: cargo test -p ptiles-core --test conformance_corpus -- --nocapture

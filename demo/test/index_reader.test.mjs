@@ -22,10 +22,16 @@ import { dirname, join } from "node:path";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = join(HERE, "..", "index.html");
 
+// The committed corpus comes last: where the full published layers exist they
+// are the better test, and where they don't (CI, a fresh clone) the corpus
+// stands in so `fixtures_were_actually_exercised` has real generator bytes to
+// parse rather than failing the build. Corpus files are slices of these same
+// layers and carry the same index layout -- see conformance/slice.py.
 const SEARCH_DIRS = [
   "/home/aoi/kino/data/ptiles",
   "/home/aoi/kino/projects/ptiles/tiles",
   "/mnt/core/kino/ptiles/data/states",
+  join(HERE, "..", "..", "conformance", "corpus"),
 ];
 let fixturesUsed = 0;
 

@@ -18,3 +18,13 @@
 # NOT ignored: test-fixtures/ (including test-fixtures/golden/) — golden
 # fixtures are checked in so `cargo test --workspace` is reproducible without
 # a data-regen step.
+
+# NOT ignored either: conformance/corpus/ — committed slices of real published
+# layers. They are what makes `cargo test` and `node --test` pass on a runner
+# with no data directory; see conformance/README.md.
+
+# Python bytecode. ffi/bindings/python/__pycache__/ptiles_ffi.cpython-314.pyc
+# was committed by accident: CI copies the cdylib next to the generated module
+# and imports it, which leaves this behind.
+__pycache__/
+*.pyc
