@@ -36,7 +36,7 @@ use ptiles_core::{
 use ptiles_core::{
     index_binary_search as core_index_binary_search, merged_cell_slice as core_merged_cell_slice,
     parse_index_detected as core_parse_index_detected, decode_cameras as core_decode_cameras,
-    decode_signals as core_decode_signals, Header,
+    decode_signals as core_decode_signals, index_layout as core_index_layout, Header,
 };
 
 // `business.rs`'s `osm_id: i64` (unlike every other layer's delta-coded u64,
@@ -508,6 +508,108 @@ pub fn parse_index_entries(data: &[u8]) -> Result<JsValue, JsValue> {
     let parsed =
         core_parse_index_detected(data, None).map_err(|e| JsValue::from_str(&e.to_string()))?;
     to_js(&parsed.entries)
+}
+
+/// What the reader concludes about a file's index layout, from its header and
+/// index bytes: entry width, why that width was chosen, offset base, and the
+/// stride the header declared.
+///
+/// This existed nowhere on the JS side of the boundary. `parse_index_entries`
+/// takes index bytes alone, so it cannot see `blocks_offset` and cannot tell
+/// whether the offsets it returns are absolute, relative to the block region,
+/// or absolute-but-overshooting. Callers had to decide that themselves, and
+/// `demo/index.html`'s `pickOffsetBase` is what "themselves" meant -- a second
+/// implementation of the rule, in the language that got the index stride wrong.
+///
+/// Prefer [`index_entries_absolute`] when all you want is offsets you can
+/// fetch. Use this when you need to *report* the layout, e.g. to warn that a
+/// file's header contradicts its own index.
+#[wasm_bindgen]
+pub fn parse_index_layout(header_bytes: &[u8], index_bytes: &[u8]) -> Result<JsValue, JsValue> {
+    let (header, parsed) = parse_header_and_index(header_bytes, index_bytes)?;
+    let layout = core_index_layout(&header, &parsed);
+    to_js(&LayoutReport {
+        entry_size: layout.entry_size as u32,
+        entry_size_source: layout.entry_size_source,
+        offset_base: layout.offset_base,
+        declared_stride: layout.declared_stride.map(|s| s as u32),
+        header_is_inconsistent: layout.header_is_inconsistent(),
+        entry_count: parsed.entries.len() as u32,
+    })
+}
+
+/// Every index entry with `block_offset` already resolved to an absolute file
+/// offset -- the byte range to Range-request, with no further arithmetic.
+///
+/// This is the export a client should reach for. Between choosing the entry
+/// width, choosing the offset base and applying it, there are three chances to
+/// be wrong, and each one fails the same silent way: a plausible-looking offset
+/// that reads the wrong bytes, or a zero-length block that renders as "no data
+/// here" rather than as an error. All three happen in `ptiles-core` here.
+///
+/// Entries whose offset arithmetic would wrap (only reachable with a corrupt
+/// index) are dropped rather than returned with a bogus value.
+#[wasm_bindgen]
+pub fn index_entries_absolute(
+    header_bytes: &[u8],
+    index_bytes: &[u8],
+) -> Result<JsValue, JsValue> {
+    let (header, parsed) = parse_header_and_index(header_bytes, index_bytes)?;
+    let layout = core_index_layout(&header, &parsed);
+
+    let out: Vec<AbsoluteEntry> = parsed
+        .entries
+        .iter()
+        .filter_map(|e| {
+            let offset = layout.absolute_block_offset(e.block_offset, header.blocks_offset)?;
+            Some(AbsoluteEntry {
+                h3_cell: e.h3_cell,
+                block_offset: offset,
+                block_length: e.block_length,
+                feature_count: e.feature_count,
+            })
+        })
+        .collect();
+    to_js(&out)
+}
+
+/// Shared front half of the two exports above: both need the header parsed and
+/// the index detected before they can say anything about layout.
+fn parse_header_and_index(
+    header_bytes: &[u8],
+    index_bytes: &[u8],
+) -> Result<(Header, ptiles_core::ParsedIndex), JsValue> {
+    let header = Header::parse(header_bytes).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    // Pass the header's `index_length` so detection can use the declared
+    // stride, which is what distinguishes a probed width from a declared one --
+    // and what makes the 42-byte files identifiably broken rather than merely
+    // unusual.
+    let parsed = core_parse_index_detected(index_bytes, Some(header.index_length as usize))
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    Ok((header, parsed))
+}
+
+/// Narrowed to `u32` on purpose. `to_js` serializes 64-bit integers as BigInt
+/// (it has to -- business `osm_id` exceeds 2^53), and `usize` is 64-bit, so
+/// leaving these as `usize` would hand JS `19n` for an entry width and `42n`
+/// for a stride. Offsets and cell ids stay 64-bit because they genuinely need
+/// to; a stride does not.
+#[derive(serde::Serialize)]
+struct LayoutReport {
+    entry_size: u32,
+    entry_size_source: ptiles_core::EntrySizeSource,
+    offset_base: ptiles_core::BlockOffsetBase,
+    declared_stride: Option<u32>,
+    header_is_inconsistent: bool,
+    entry_count: u32,
+}
+
+#[derive(serde::Serialize)]
+struct AbsoluteEntry {
+    h3_cell: u64,
+    block_offset: u64,
+    block_length: u32,
+    feature_count: u16,
 }
 
 /// Find the block offset/length covering `cell_hex` (lowercase hex H3 res-7

@@ -72,7 +72,7 @@ pub use query::{
 pub use route_graph::{RouteResult, keep_road_class, profile_allows_driving, route_roads};
 pub use scoring::{Candidate, CandidateKind, Fix, ScoringParams, score_candidates};
 
-pub use file::{FileError, PtilesFile};
+pub use file::{BlockOffsetBase, FileError, IndexLayout, PtilesFile, index_layout};
 pub use header::Header;
 #[cfg(feature = "http")]
 pub use http_source::HttpSource;

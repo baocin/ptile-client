@@ -98,6 +98,7 @@ fn read_entry(data: &[u8], pos: usize, entry_size: usize) -> IndexEntry {
 /// (and tests) can assert the decision, not just the outcome -- a regression
 /// that picks the right answer for the wrong reason should still fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EntrySizeSource {
     /// `(index_length - 4) / count` divided evenly into a known width and the
     /// entries parsed structurally clean. No guessing involved.

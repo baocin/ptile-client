@@ -55,7 +55,7 @@ use ruzstd::decoding::{BlockDecodingStrategy, Dictionary, FrameDecoder};
 
 use crate::header::{HEADER_SIZE, Header};
 use crate::index::{
-    EntrySizeSource, IndexEntry, binary_search, parse_index_detected,
+    EntrySizeSource, IndexEntry, ParsedIndex, binary_search, parse_index_detected,
 };
 use crate::source::{PtilesSource, SourceError};
 use crate::versions::{UnsupportedVersion, check_supported};
@@ -91,6 +91,7 @@ impl From<UnsupportedVersion> for FileError {
 
 /// How a stored `block_offset` becomes an absolute file offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BlockOffsetBase {
     /// Stored offsets are already absolute and the header agrees with the
     /// index. The overwhelmingly common case.
@@ -109,6 +110,7 @@ pub enum BlockOffsetBase {
 /// that lands on the right bytes via the wrong reasoning is one generator
 /// change away from breaking.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IndexLayout {
     pub entry_size: usize,
     pub entry_size_source: EntrySizeSource,
@@ -128,6 +130,27 @@ impl IndexLayout {
                 .declared_stride
                 .is_some_and(|s| s != self.entry_size)
     }
+
+    /// Turn an index entry's stored `block_offset` into an absolute file
+    /// offset. `None` when the arithmetic would wrap, which a corrupt entry
+    /// can cause: a `block_offset` near `u64::MAX` wraps when `blocks_offset`
+    /// is added, and the wrapped value is bogus but in range, so it would read
+    /// the wrong bytes rather than fail. Callers surface `None` as
+    /// out-of-bounds.
+    ///
+    /// Public because knowing the base is useless without this: it is the
+    /// half a caller gets wrong. `demo/index.html` applies the three cases by
+    /// hand after calling its own `pickOffsetBase`, and the two together are
+    /// what a wasm caller needs in order not to re-derive any of it.
+    pub fn absolute_block_offset(&self, block_offset: u64, blocks_offset: u64) -> Option<u64> {
+        match self.offset_base {
+            BlockOffsetBase::Relative => blocks_offset.checked_add(block_offset),
+            BlockOffsetBase::Absolute => Some(block_offset),
+            BlockOffsetBase::AbsoluteCorrected { overshoot } => {
+                block_offset.checked_sub(overshoot)
+            }
+        }
+    }
 }
 
 /// An open `.ptiles` file: header, spatial index, and (if present) zstd
@@ -139,6 +162,51 @@ pub struct PtilesFile<S: PtilesSource> {
     index: Vec<IndexEntry>,
     dict: Vec<u8>,
     layout: IndexLayout,
+}
+
+/// Decide how a file's stored block offsets become absolute file offsets,
+/// from its header and its already-parsed index.
+///
+/// Factored out of [`PtilesFile::open`] so that callers which cannot hold a
+/// `PtilesFile` -- the wasm boundary in particular, where JS owns the network
+/// and hands over byte ranges -- reach the same conclusion by running the same
+/// code rather than by reimplementing this rule. JS reimplementing it is not
+/// hypothetical: `demo/index.html`'s `pickOffsetBase` is that second copy, and
+/// `wasm::parse_index_entries` had no way to answer the question at all, which
+/// is why it could only ever return entries whose offsets the caller then had
+/// to interpret on its own.
+pub fn index_layout(header: &Header, parsed: &ParsedIndex) -> IndexLayout {
+    // Where the index actually ends, from the entries as parsed rather than
+    // from the header's arithmetic about them.
+    let real_blocks_offset = header
+        .index_offset
+        .saturating_add(4)
+        .saturating_add((parsed.entries.len() as u64).saturating_mul(parsed.entry_size as u64));
+
+    let offset_base = if parsed
+        .entries
+        .first()
+        .is_some_and(|e| e.block_offset < header.blocks_offset)
+    {
+        // Same rule the Python reference readers use.
+        BlockOffsetBase::Relative
+    } else if header.blocks_offset > real_blocks_offset {
+        // The header claims the blocks start later than the index really
+        // ends. Absolute offsets were derived from that same wrong number,
+        // so they carry the identical overshoot.
+        BlockOffsetBase::AbsoluteCorrected {
+            overshoot: header.blocks_offset - real_blocks_offset,
+        }
+    } else {
+        BlockOffsetBase::Absolute
+    };
+
+    IndexLayout {
+        entry_size: parsed.entry_size,
+        entry_size_source: parsed.entry_size_source,
+        offset_base,
+        declared_stride: parsed.declared_stride,
+    }
 }
 
 impl<S: PtilesSource> PtilesFile<S> {
@@ -178,43 +246,14 @@ impl<S: PtilesSource> PtilesFile<S> {
         source.read_exact_at(header.index_offset, &mut index_buf)?;
         let parsed =
             parse_index_detected(&index_buf, Some(header.index_length as usize))?;
-        let index = parsed.entries;
-
-        // Where the index actually ends, from the entries as parsed rather
-        // than from the header's arithmetic about them.
-        let real_blocks_offset = header
-            .index_offset
-            .saturating_add(4)
-            .saturating_add((index.len() as u64).saturating_mul(parsed.entry_size as u64));
-
-        let offset_base = if index
-            .first()
-            .is_some_and(|e| e.block_offset < header.blocks_offset)
-        {
-            // Same rule the Python reference readers use.
-            BlockOffsetBase::Relative
-        } else if header.blocks_offset > real_blocks_offset {
-            // The header claims the blocks start later than the index really
-            // ends. Absolute offsets were derived from that same wrong number,
-            // so they carry the identical overshoot.
-            BlockOffsetBase::AbsoluteCorrected {
-                overshoot: header.blocks_offset - real_blocks_offset,
-            }
-        } else {
-            BlockOffsetBase::Absolute
-        };
+        let layout = index_layout(&header, &parsed);
 
         Ok(PtilesFile {
             source,
             header,
-            index,
+            index: parsed.entries,
             dict,
-            layout: IndexLayout {
-                entry_size: parsed.entry_size,
-                entry_size_source: parsed.entry_size_source,
-                offset_base,
-                declared_stride: parsed.declared_stride,
-            },
+            layout,
         })
     }
 
@@ -286,18 +325,10 @@ impl<S: PtilesSource> PtilesFile<S> {
             needed: entry.block_length as usize,
             len: self.source.len().unwrap_or(0),
         };
-        let abs_offset = match self.layout.offset_base {
-            BlockOffsetBase::Relative => self
-                .header
-                .blocks_offset
-                .checked_add(entry.block_offset)
-                .ok_or_else(oob)?,
-            BlockOffsetBase::Absolute => entry.block_offset,
-            BlockOffsetBase::AbsoluteCorrected { overshoot } => entry
-                .block_offset
-                .checked_sub(overshoot)
-                .ok_or_else(oob)?,
-        };
+        let abs_offset = self
+            .layout
+            .absolute_block_offset(entry.block_offset, self.header.blocks_offset)
+            .ok_or_else(oob)?;
 
         // Guard the block-length allocation against a corrupt index entry the
         // same way `open` guards the dict/index buffers.
