@@ -2,6 +2,16 @@
 resolver = "2"
 members = ["core", "cli", "wasm", "ffi", "motion"]
 
+# Shared metadata, inherited by every member via `field.workspace = true`.
+# Kept here rather than repeated per crate so the five manifests cannot
+# disagree about which project or licence they belong to.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/baocin/ptile-client"
+rust-version = "1.85"
+
 # Old root package (`ptiles-client`, wasm-bindgen JS client) is intentionally
 # not a workspace member. Its source lives untouched at src/lib.rs as a
 # reference for porting decoders into core/. It is superseded by wasm/.
