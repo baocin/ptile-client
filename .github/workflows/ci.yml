@@ -124,6 +124,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # business_differential.test.mjs needs a real wasm build to compare the
+      # hand-rolled JS decoders against. Building it here is also the only
+      # coverage the npm packaging path gets: `cargo build --target wasm32`
+      # in the `wasm` job proves the crate compiles, not that wasm-bindgen
+      # can generate a usable package from it.
+      - name: Install wasm-pack
+        run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+      - name: Build the node-target wasm package
+        run: wasm-pack build wasm --target nodejs --out-dir ../wasm-pkg --release
       # These extract the reader functions out of demo/index.html and run them
       # against synthetic fixtures, then against the real bytes in
       # conformance/corpus/. `fixtures_were_actually_exercised` fails if no
