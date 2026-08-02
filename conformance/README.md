@@ -24,9 +24,9 @@ is what they assert against now. The guards were not weakened.
 
 ## What is in it
 
-Eleven slices of real published layers, 143 KB total. Between them they cover
+Eleven slices of real published layers, 266 KB total. Between them they cover
 both index entry widths, all three offset bases, merged blocks, dictionary and
-dictionary-free decompression, a PTCI aux region, and the historical
+dictionary-free decompression, a PTCI coarse index, and the historical
 42-vs-38-byte stride bug.
 
 | file | entry width | offset base | why it is here |
@@ -59,8 +59,10 @@ asserted by the runners.
 
 | language | runner | status |
 | --- | --- | --- |
-| Rust | `core/tests/conformance_corpus.rs` | in place |
-| JS | `demo/test/index_reader.test.mjs` (via `SEARCH_DIRS`) | index layout only |
+| Rust | `core/tests/conformance_corpus.rs` | layout, blocks, coarse index |
+| JS (hand-rolled) | `demo/test/index_reader.test.mjs` | index layout |
+| JS (wasm) | `demo/test/wasm_layout.test.mjs` | layout + resolved offsets, vs the hand-rolled copy |
+| JS (records) | `demo/test/business_differential.test.mjs` | business records, JS vs wasm |
 | Python, Kotlin, Swift | — | not yet written |
 
 The Rust runner pins the *layout decision*, not just decoded output: entry
@@ -81,10 +83,18 @@ Requires `zstandard` and read access to the published layers on this machine.
 Each slice keeps the real header, the real index entries (copied verbatim, with
 only the offset/length fields repointed), the real aux region, and the real
 block payloads — just fewer of them. Entry width, offset base, declared stride,
-merged-block cell tables, bbox bytes and `cell_index` all survive. The script
-verifies this by reopening every file it writes and confirming the detected
-layout still matches the source; a slice that no longer reproduces its source
-is an error, not a warning.
+merged-block cell tables, bbox bytes and `cell_index` all survive.
+
+Entries are taken as a **contiguous prefix**, never a filtered selection. The
+PTCI coarse index addresses entries by position, so dropping one from the middle
+would leave every later sample naming the wrong cell — a slice that is
+individually valid but internally inconsistent, which is worse than no slice at
+all. The script asserts every entry in the prefix names a real block rather than
+letting a gap through silently.
+
+The script verifies its output by reopening every file it writes and confirming
+the detected layout still matches the source; a slice that no longer reproduces
+its source is an error, not a warning.
 
 Two deliberate departures, both recorded per file in `manifest.json`:
 
@@ -94,9 +104,15 @@ Two deliberate departures, both recorded per file in `manifest.json`:
   *decompressed* payload stays byte-identical to the generator's; only the
   compression framing differs. `TN.water` (11 KB dictionary) is kept intact so
   the dictionary path stays covered, and `TN.parks`/`TN.rail` never had one.
-- **`aux: "dropped"`** — `TN.water`'s 812 KB aux region is dropped. The few-KB
-  PTCI regions on `US.signals`/`US.camera` are kept, since those are what a
-  coarse-index reader needs.
+- **`aux: "dropped (too large)"`** — `TN.water`'s 812 KB aux region is dropped.
+- **`aux: "retargeted"`** — `US.signals`/`US.camera` carry a stride-256 PTCI
+  coarse index whose samples address positions in the *full* index. Samples
+  pointing past the slice are removed and `sample_count`/`entry_count`
+  rewritten; the surviving sample records are byte-for-byte the originals. Those
+  two slices keep 600 entries rather than 48 so more than one sample survives.
+  `core/tests/conformance_corpus.rs` then checks the contract that actually
+  matters: every sample names the cell really at that position, and every cell
+  falls inside the bracket its own sample produces.
 
 ## Adding a case
 

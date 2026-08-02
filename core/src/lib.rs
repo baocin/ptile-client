@@ -11,6 +11,7 @@
 
 extern crate alloc;
 
+pub mod coarse;
 pub mod codec;
 pub mod file;
 pub mod header;
@@ -72,6 +73,7 @@ pub use query::{
 pub use route_graph::{RouteResult, keep_road_class, profile_allows_driving, route_roads};
 pub use scoring::{Candidate, CandidateKind, Fix, ScoringParams, score_candidates};
 
+pub use coarse::{CoarseBracket, CoarseIndex, CoarseSample, parse as parse_coarse_index};
 pub use file::{BlockOffsetBase, FileError, IndexLayout, PtilesFile, index_layout};
 pub use header::Header;
 #[cfg(feature = "http")]

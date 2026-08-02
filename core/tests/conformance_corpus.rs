@@ -202,6 +202,85 @@ fn the_forty_two_byte_stride_files_are_still_detected_as_broken() {
     );
 }
 
+/// The PTCI coarse index in `aux` maps a cell to a *position* in the real
+/// index, so it is only useful if those positions still name the cell the
+/// sample claims. Nothing checked that before: the coarse reader lived only in
+/// `demo/index.html`, where a stale sample surfaces as "cell not in this file"
+/// rather than as an error -- indistinguishable from sparse coverage.
+#[test]
+fn the_coarse_index_agrees_with_the_index_it_points_into() {
+    let m = manifest();
+    let mut files = 0;
+    let mut samples = 0;
+
+    for (name, want) in m["files"].as_object().unwrap() {
+        if want["aux_length"].as_u64().unwrap_or(0) == 0 {
+            continue;
+        }
+        let path = corpus_dir().join(name);
+        let raw = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+        let header = ptiles_core::Header::parse(&raw).expect("header");
+        let at = header.aux_offset as usize;
+        let aux = &raw[at..at + header.aux_length as usize];
+
+        let Some(coarse) = ptiles_core::parse_coarse_index(aux)
+            .unwrap_or_else(|e| panic!("{name}: aux announced PTCI but did not parse: {e}"))
+        else {
+            continue; // aux holds something that is not a coarse index
+        };
+        files += 1;
+
+        let file = PtilesFile::open(FileSource::open(&path).unwrap()).unwrap();
+        let index = file.index();
+
+        assert_eq!(
+            coarse.entry_count as usize,
+            index.len(),
+            "{name}: coarse index claims {} entries, the real index has {}",
+            coarse.entry_count,
+            index.len()
+        );
+
+        for s in &coarse.samples {
+            let pos = s.entry_index as usize;
+            assert!(
+                pos < index.len(),
+                "{name}: sample points at entry {pos}, past the {}-entry index",
+                index.len()
+            );
+            assert_eq!(
+                index[pos].h3_cell, s.h3_cell,
+                "{name}: sample says entry {pos} is cell {:x}, but it is {:x}",
+                s.h3_cell, index[pos].h3_cell
+            );
+            samples += 1;
+        }
+
+        // Every cell in the index must fall inside the bracket its own sample
+        // produces -- that is the whole contract, and it is what a partial-index
+        // reader relies on when it fetches only that run.
+        for (i, e) in index.iter().enumerate() {
+            let b = coarse
+                .bracket(e.h3_cell)
+                .unwrap_or_else(|| panic!("{name}: cell {:x} bracketed to nothing", e.h3_cell));
+            assert!(
+                (b.start as usize) <= i && i <= (b.end as usize),
+                "{name}: entry {i} (cell {:x}) is outside its own bracket {}..={}",
+                e.h3_cell,
+                b.start,
+                b.end
+            );
+        }
+    }
+
+    assert!(
+        files >= 2,
+        "expected the rebuilt signals and camera slices to carry a coarse index; found {files}"
+    );
+    assert!(samples > 0, "no coarse samples were checked");
+    eprintln!("conformance: {samples} coarse samples verified across {files} files");
+}
+
 /// Guards the corpus the way `real_layers.rs` guards the data directory: if
 /// `conformance/corpus/` were emptied, every loop above would iterate zero
 /// times over a manifest that also happened to be empty, and pass. This fails

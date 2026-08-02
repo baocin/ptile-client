@@ -83,9 +83,9 @@ CASES = [
      "14 entries total, 2 KB: kept whole, so the slicer is identity here"),
     ("TN.places.ptiles", None, 48,
      "38-byte entries; no decoder yet, so this is an index-only case"),
-    ("US.signals.ptiles", "/home/aoi/kino/projects/ptiles/tiles", 48,
+    ("US.signals.ptiles", "/home/aoi/kino/projects/ptiles/tiles", 600,
      "rebuilt signals: 38-byte stride now declared correctly, plus a PTCI aux region"),
-    ("US.camera.ptiles", "/home/aoi/kino/projects/ptiles/tiles", 48,
+    ("US.camera.ptiles", "/home/aoi/kino/projects/ptiles/tiles", 600,
      "rebuilt camera, with its PTCI aux region"),
     ("US.signals.stride42.ptiles", "/home/aoi/kino/projects/ptiles/tiles/published-backup", 48,
      "THE historical bug: index_length computed at 42 bytes, entries emitted at 38"),
@@ -257,15 +257,29 @@ def slice_file(src_path, out_path, want_entries):
     entries = [read_entry(region, i * es, es) for i in range(count)]
     base, overshoot = offset_base_of(entries, h, count, es)
 
-    # Pick the first `want_entries` entries that name a real block, then
-    # deduplicate the blocks they point at -- merged layers aim many cells at
+    # Take a *contiguous prefix* of entries, not a filtered selection.
+    #
+    # The PTCI coarse index in `aux` addresses entries by position, so dropping
+    # an entry from the middle would leave every sample after it pointing at the
+    # wrong cell -- a slice that is individually valid but internally
+    # inconsistent, which is worse than no slice at all. A prefix keeps
+    # positions meaning what they meant in the source file.
+    #
+    # This only works while every entry in the prefix names a real block. All
+    # nine published layers satisfy that today; the assertion below is what
+    # tells us if that stops being true rather than letting it through.
+    prefix = entries[:want_entries]
+    empty = [i for i, e in enumerate(prefix) if e["block_length"] == 0]
+    if empty:
+        raise SystemExit(
+            f"{src_path}: entries {empty[:5]} in the first {want_entries} name no block. "
+            "Slicing a prefix would emit unreadable entries; widen or special-case this file."
+        )
+
+    # Deduplicate the blocks they point at -- merged layers aim many cells at
     # one block, and storing it once is the whole size win.
     picked, blocks, block_pos = [], [], {}
-    for i, e in enumerate(entries):
-        if len(picked) >= want_entries:
-            break
-        if e["block_length"] == 0:
-            continue
+    for i, e in enumerate(prefix):
         key = (e["block_offset"], e["block_length"])
         if key not in block_pos:
             abs_off = resolve(e, h, base, overshoot)
@@ -291,6 +305,9 @@ def slice_file(src_path, out_path, want_entries):
     aux_dropped = len(aux) > MAX_KEPT_AUX
     if aux_dropped:
         aux = b""
+    aux_kind = "kept"
+    if aux and aux[0:4] == COARSE_MAGIC:
+        aux, aux_kind = retarget_coarse_index(aux, len(picked))
 
     # Lay the new file out in the source's own section order: aux, dict,
     # index, blocks.
@@ -371,11 +388,53 @@ def slice_file(src_path, out_path, want_entries):
         "dict": "kept" if keep_dict else ("stripped" if stripped else "none"),
         "source_dict_length": h["dict_length"],
         "aux_length": len(aux),
-        "aux": "dropped" if aux_dropped else ("kept" if aux else "none"),
+        "aux": "dropped (too large)" if aux_dropped else (aux_kind if aux else "none"),
         "source_aux_length": h["aux_length"],
         "first_cell": f'{picked[0][1]["h3_cell"]:x}',
         "bytes": len(out),
     }
+
+
+COARSE_MAGIC = b"PTCI"
+
+
+def retarget_coarse_index(aux, kept_entries):
+    """Keep the PTCI samples that still address a kept entry.
+
+    The coarse index maps a cell to a *position* in the real index, so once the
+    index is truncated to a prefix, samples pointing past it are stale. The
+    sample records themselves are kept byte-for-byte -- only `sample_count` and
+    `entry_count` are rewritten, to the number that survived and to the new
+    index length.
+
+    Layout is `build_points.py::build_coarse_index`; see `core/src/coarse.rs`.
+    """
+    if len(aux) < 20:
+        return b"", "dropped (too short to be PTCI)"
+    version = aux[4]
+    stride = struct.unpack_from("<I", aux, 8)[0]
+    sample_count = struct.unpack_from("<I", aux, 12)[0]
+    if 20 + sample_count * 12 > len(aux):
+        return b"", "dropped (truncated sample table)"
+
+    keep = []
+    for i in range(sample_count):
+        at = 20 + i * 12
+        entry_index = struct.unpack_from("<I", aux, at + 8)[0]
+        if entry_index < kept_entries:
+            keep.append(aux[at:at + 12])
+
+    if not keep:
+        # A stride wider than the slice: no sample addresses a kept entry, so
+        # there is nothing meaningful to carry.
+        return b"", f"dropped (stride {stride} exceeds the {kept_entries}-entry slice)"
+
+    out = bytearray(aux[:20])
+    struct.pack_into("<I", out, 12, len(keep))
+    struct.pack_into("<I", out, 16, kept_entries)
+    for s in keep:
+        out += s
+    return bytes(out), f"retargeted ({len(keep)}/{sample_count} samples, v{version}, stride {stride})"
 
 
 def recompress(payload, dict_bytes):

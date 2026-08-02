@@ -20,6 +20,18 @@ pub enum DecodeError {
         len: usize,
         block_len: usize,
     },
+    /// A section announced itself with a known magic but a version this build
+    /// does not parse. Fails closed rather than reading it as the version it
+    /// happens to know: a coarse index read at the wrong version yields
+    /// brackets pointing at the wrong entries, which surfaces as "cell not in
+    /// this file" -- the same silent-empty result as every other index bug
+    /// this format has had.
+    #[error("{section} version {found} is not supported (this build reads {supported})")]
+    UnsupportedSectionVersion {
+        section: &'static str,
+        found: u8,
+        supported: u8,
+    },
 }
 
 /// Ensure `data` has at least `needed` bytes available starting at `offset`.
