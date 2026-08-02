@@ -730,6 +730,24 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -745,15 +763,29 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 // when the library is loaded.
 internal interface IntegrityCheckingUniffiLib : Library {
     // Integrity check functions only
-    fun uniffi_ptiles_ffi_checksum_method_ptileslayer_building(
+    fun uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_addresslayer_find_address(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_building(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_roads(
 ): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business(
+): Short
 fun uniffi_ptiles_ffi_checksum_method_ptilesstack_score(
+): Short
+fun uniffi_ptiles_ffi_checksum_constructor_addresslayer_open(
+): Short
+fun uniffi_ptiles_ffi_checksum_constructor_adminlayer_open(
 ): Short
 fun uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open(
 ): Short
@@ -808,7 +840,25 @@ internal interface UniffiLib : Library {
     }
 
     // FFI functions
-    fun uniffi_ptiles_ffi_fn_clone_ptileslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_ptiles_ffi_fn_clone_addresslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_free_addresslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_ptiles_ffi_fn_constructor_addresslayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_method_addresslayer_addresses_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_addresslayer_find_address(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`housenumber`: RustBuffer.ByValue,`street`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_clone_adminlayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_free_adminlayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_ptiles_ffi_fn_constructor_adminlayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_method_adminlayer_admin_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_clone_ptileslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_ptiles_ffi_fn_free_ptileslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -818,9 +868,13 @@ fun uniffi_ptiles_ffi_fn_method_ptileslayer_building(`ptr`: Pointer,`lat`: Doubl
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`radiusM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection(`ptr`: Pointer,`lat`: Double,`lon`: Double,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_roads(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(`ptr`: Pointer,`query`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_clone_ptilesstack(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
@@ -956,10 +1010,22 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if (lib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_addresslayer_find_address() != 59852.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at() != 29916.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_building() != 45883.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near() != 42704.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection() != 26252.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road() != 49038.toShort()) {
@@ -968,10 +1034,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads() != 36266.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business() != 23326.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 48165.toShort()) {
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_addresslayer_open() != 49623.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_adminlayer_open() != 36006.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 23503.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 62815.toShort()) {
@@ -1140,6 +1215,29 @@ public object FfiConverterUByte: FfiConverter<UByte, Byte> {
 
     override fun write(value: UByte, buf: ByteBuffer) {
         buf.put(value.toByte())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
     }
 }
 
@@ -1369,10 +1467,568 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
 
 
 /**
- * One opened `.ptiles` file, its layer inferred from the filename
- * (`<state>.<layer>.ptiles`), wrapping `PtilesFile<FileSource>` -- the one
- * generic instantiation this crate exports, per the plan's "no generics
- * across FFI boundaries" rule.
+ * An opened `.address.ptiles` file. Separate from `PtilesLayer` because
+ * address uses a v2 merged-block index, not the v1 block reader.
+ */
+public interface AddressLayerInterface {
+    
+    /**
+     * Reverse lookup: all addresses in the cell(s) covering `(lat, lon)`
+     * (`ring == 1` adds neighbors).
+     */
+    fun `addressesAt`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<AddressRecord>
+    
+    /**
+     * Forward lookup: addresses near `(lat, lon)` matching `housenumber` +
+     * `street` (accent/case-insensitive).
+     */
+    fun `findAddress`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `housenumber`: kotlin.String, `street`: kotlin.String): List<AddressRecord>
+    
+    companion object
+}
+
+/**
+ * An opened `.address.ptiles` file. Separate from `PtilesLayer` because
+ * address uses a v2 merged-block index, not the v1 block reader.
+ */
+open class AddressLayer: Disposable, AutoCloseable, AddressLayerInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_free_addresslayer(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_clone_addresslayer(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Reverse lookup: all addresses in the cell(s) covering `(lat, lon)`
+     * (`ring == 1` adds neighbors).
+     */
+    @Throws(PtilesException::class)override fun `addressesAt`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<AddressRecord> {
+            return FfiConverterSequenceTypeAddressRecord.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_addresslayer_addresses_at(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Forward lookup: addresses near `(lat, lon)` matching `housenumber` +
+     * `street` (accent/case-insensitive).
+     */
+    @Throws(PtilesException::class)override fun `findAddress`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `housenumber`: kotlin.String, `street`: kotlin.String): List<AddressRecord> {
+            return FfiConverterSequenceTypeAddressRecord.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_addresslayer_find_address(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),FfiConverterString.lower(`housenumber`),FfiConverterString.lower(`street`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    companion object {
+        
+    /**
+     * Open an address file, local path or `http(s)://` URL.
+     */
+    @Throws(PtilesException::class) fun `open`(`path`: kotlin.String): AddressLayer {
+            return FfiConverterTypeAddressLayer.lift(
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_constructor_addresslayer_open(
+        FfiConverterString.lower(`path`),_status)
+}
+    )
+    }
+    
+
+        
+    }
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAddressLayer: FfiConverter<AddressLayer, Pointer> {
+
+    override fun lower(value: AddressLayer): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): AddressLayer {
+        return AddressLayer(value)
+    }
+
+    override fun read(buf: ByteBuffer): AddressLayer {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: AddressLayer) = 8UL
+
+    override fun write(value: AddressLayer, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * An opened admin file (`US.admin.ptiles`). Separate from `PtilesLayer`
+ * because admin is a lookup-grid layer, not block-per-cell.
+ */
+public interface AdminLayerInterface {
+    
+    /**
+     * Jurisdiction (country/state/county/zip/timezone) covering `(lat, lon)`,
+     * or `None` if the lookup grid has no entry for that cell.
+     */
+    fun `adminAt`(`lat`: kotlin.Double, `lon`: kotlin.Double): AdminInfo?
+    
+    companion object
+}
+
+/**
+ * An opened admin file (`US.admin.ptiles`). Separate from `PtilesLayer`
+ * because admin is a lookup-grid layer, not block-per-cell.
+ */
+open class AdminLayer: Disposable, AutoCloseable, AdminLayerInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_free_adminlayer(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_clone_adminlayer(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Jurisdiction (country/state/county/zip/timezone) covering `(lat, lon)`,
+     * or `None` if the lookup grid has no entry for that cell.
+     */override fun `adminAt`(`lat`: kotlin.Double, `lon`: kotlin.Double): AdminInfo? {
+            return FfiConverterOptionalTypeAdminInfo.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adminlayer_admin_at(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    companion object {
+        
+    /**
+     * Open an admin file, local path or `http(s)://` URL.
+     */
+    @Throws(PtilesException::class) fun `open`(`path`: kotlin.String): AdminLayer {
+            return FfiConverterTypeAdminLayer.lift(
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_constructor_adminlayer_open(
+        FfiConverterString.lower(`path`),_status)
+}
+    )
+    }
+    
+
+        
+    }
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAdminLayer: FfiConverter<AdminLayer, Pointer> {
+
+    override fun lower(value: AdminLayer): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): AdminLayer {
+        return AdminLayer(value)
+    }
+
+    override fun read(buf: ByteBuffer): AdminLayer {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: AdminLayer) = 8UL
+
+    override fun write(value: AdminLayer, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * One opened `.ptiles` file (local path or `http(s)://` URL), its layer
+ * inferred from the filename (`<state>.<layer>.ptiles`), wrapping
+ * `AnyFile` -- see that type's doc comment for why this isn't
+ * `PtilesFile<FileSource>` directly anymore.
  */
 public interface PtilesLayerInterface {
     
@@ -1391,6 +2047,16 @@ public interface PtilesLayerInterface {
     fun `businessesNear`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `radiusM`: kotlin.Double): List<BusinessInfo>
     
     /**
+     * Nearest labeled intersection to `(lat, lon)` within `threshold_m`
+     * (defaults to `ptiles_core::DEFAULT_THRESHOLD_M` when `threshold_m <= 0`).
+     * Answers "am I at an intersection?" — returns the nearest mapped
+     * intersection point and its traffic-control type, or `None`. Roads-layer
+     * only. Searches ring-1 neighbors so a point near a cell edge still finds
+     * an intersection in the adjacent cell.
+     */
+    fun `nearestIntersection`(`lat`: kotlin.Double, `lon`: kotlin.Double, `thresholdM`: kotlin.Double): NearestIntersection?
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -1406,14 +2072,25 @@ public interface PtilesLayerInterface {
      */
     fun `roads`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<RoadInfo>
     
+    /**
+     * Business name search over a `{STATE}.business_name_index.ptiles`
+     * sidecar (open a `PtilesLayer` on that file, not the main
+     * `business.ptiles` file). Index-accelerated: correct for
+     * case-insensitive prefix queries; substring queries only surface a
+     * hit when the substring starts at the name's first character (see
+     * `core::business_search`'s module doc for why). `limit` caps the
+     * returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+     */
+    fun `searchBusiness`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit>
+    
     companion object
 }
 
 /**
- * One opened `.ptiles` file, its layer inferred from the filename
- * (`<state>.<layer>.ptiles`), wrapping `PtilesFile<FileSource>` -- the one
- * generic instantiation this crate exports, per the plan's "no generics
- * across FFI boundaries" rule.
+ * One opened `.ptiles` file (local path or `http(s)://` URL), its layer
+ * inferred from the filename (`<state>.<layer>.ptiles`), wrapping
+ * `AnyFile` -- see that type's doc comment for why this isn't
+ * `PtilesFile<FileSource>` directly anymore.
  */
 open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
 {
@@ -1535,6 +2212,27 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
 
     
     /**
+     * Nearest labeled intersection to `(lat, lon)` within `threshold_m`
+     * (defaults to `ptiles_core::DEFAULT_THRESHOLD_M` when `threshold_m <= 0`).
+     * Answers "am I at an intersection?" — returns the nearest mapped
+     * intersection point and its traffic-control type, or `None`. Roads-layer
+     * only. Searches ring-1 neighbors so a point near a cell edge still finds
+     * an intersection in the adjacent cell.
+     */
+    @Throws(PtilesException::class)override fun `nearestIntersection`(`lat`: kotlin.Double, `lon`: kotlin.Double, `thresholdM`: kotlin.Double): NearestIntersection? {
+            return FfiConverterOptionalTypeNearestIntersection.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterDouble.lower(`thresholdM`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -1572,12 +2270,35 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     
 
     
+    /**
+     * Business name search over a `{STATE}.business_name_index.ptiles`
+     * sidecar (open a `PtilesLayer` on that file, not the main
+     * `business.ptiles` file). Index-accelerated: correct for
+     * case-insensitive prefix queries; substring queries only surface a
+     * hit when the substring starts at the name's first character (see
+     * `core::business_search`'s module doc for why). `limit` caps the
+     * returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+     */
+    @Throws(PtilesException::class)override fun `searchBusiness`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit> {
+            return FfiConverterSequenceTypeBusinessSearchHit.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(
+        it, FfiConverterString.lower(`query`),FfiConverterUInt.lower(`limit`),_status)
+}
+    }
+    )
+    }
+    
+
+    
 
     
     companion object {
         
     /**
-     * Open a `.ptiles` file. `path` must be `<state>.<layer>.ptiles` where
+     * Open a `.ptiles` file, local or remote. `path` must be
+     * `<state>.<layer>.ptiles` (optionally under an `http(s)://` URL) where
      * `<layer>` is one of `roads`, `buildings_v8`, `business`.
      */
     @Throws(PtilesException::class) fun `open`(`path`: kotlin.String): PtilesLayer {
@@ -1899,6 +2620,96 @@ public object FfiConverterTypePtilesStack: FfiConverter<PtilesStack, Pointer> {
 
 
 
+/**
+ * One decoded address (`{osm_id, housenumber, street}`; location is the cell).
+ */
+data class AddressRecord (
+    var `osmId`: kotlin.Long, 
+    var `housenumber`: kotlin.String, 
+    var `street`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAddressRecord: FfiConverterRustBuffer<AddressRecord> {
+    override fun read(buf: ByteBuffer): AddressRecord {
+        return AddressRecord(
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AddressRecord) = (
+            FfiConverterLong.allocationSize(value.`osmId`) +
+            FfiConverterString.allocationSize(value.`housenumber`) +
+            FfiConverterString.allocationSize(value.`street`)
+    )
+
+    override fun write(value: AddressRecord, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`osmId`, buf)
+            FfiConverterString.write(value.`housenumber`, buf)
+            FfiConverterString.write(value.`street`, buf)
+    }
+}
+
+
+
+/**
+ * Resolved jurisdiction for a point, from the admin layer.
+ */
+data class AdminInfo (
+    var `country`: kotlin.String, 
+    var `state`: kotlin.String, 
+    var `county`: kotlin.String, 
+    var `zip`: kotlin.String, 
+    var `timezone`: kotlin.String, 
+    var `boundaryFlags`: kotlin.UByte
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAdminInfo: FfiConverterRustBuffer<AdminInfo> {
+    override fun read(buf: ByteBuffer): AdminInfo {
+        return AdminInfo(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AdminInfo) = (
+            FfiConverterString.allocationSize(value.`country`) +
+            FfiConverterString.allocationSize(value.`state`) +
+            FfiConverterString.allocationSize(value.`county`) +
+            FfiConverterString.allocationSize(value.`zip`) +
+            FfiConverterString.allocationSize(value.`timezone`) +
+            FfiConverterUByte.allocationSize(value.`boundaryFlags`)
+    )
+
+    override fun write(value: AdminInfo, buf: ByteBuffer) {
+            FfiConverterString.write(value.`country`, buf)
+            FfiConverterString.write(value.`state`, buf)
+            FfiConverterString.write(value.`county`, buf)
+            FfiConverterString.write(value.`zip`, buf)
+            FfiConverterString.write(value.`timezone`, buf)
+            FfiConverterUByte.write(value.`boundaryFlags`, buf)
+    }
+}
+
+
+
 data class BuildingInfo (
     var `osmId`: kotlin.Long, 
     var `name`: kotlin.String?, 
@@ -1990,6 +2801,57 @@ public object FfiConverterTypeBusinessInfo: FfiConverterRustBuffer<BusinessInfo>
             FfiConverterOptionalString.write(value.`phone`, buf)
             FfiConverterOptionalString.write(value.`website`, buf)
             FfiConverterString.write(value.`operatingStatus`, buf)
+    }
+}
+
+
+
+/**
+ * One hit from [`PtilesLayer::search_business`], the shape of
+ * `ptiles_core::business_search::BusinessHit` translated to a UniFFI
+ * record. No `osm_id`/`phone`/`website`/`operating_status`: the
+ * `business_name_index.ptiles` sidecar this searches doesn't carry them
+ * (see `core::business_search`'s module doc) -- only the spatial
+ * `.ptiles` file (`PtilesLayer::businesses_near`) has that detail.
+ */
+data class BusinessSearchHit (
+    var `name`: kotlin.String, 
+    var `categoryIdx`: kotlin.UByte, 
+    var `location`: LatLon, 
+    /**
+     * 2 = exact (case-insensitive) name match, 1 = prefix, 0 = substring.
+     */
+    var `score`: kotlin.UByte
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeBusinessSearchHit: FfiConverterRustBuffer<BusinessSearchHit> {
+    override fun read(buf: ByteBuffer): BusinessSearchHit {
+        return BusinessSearchHit(
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterTypeLatLon.read(buf),
+            FfiConverterUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: BusinessSearchHit) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterUByte.allocationSize(value.`categoryIdx`) +
+            FfiConverterTypeLatLon.allocationSize(value.`location`) +
+            FfiConverterUByte.allocationSize(value.`score`)
+    )
+
+    override fun write(value: BusinessSearchHit, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterUByte.write(value.`categoryIdx`, buf)
+            FfiConverterTypeLatLon.write(value.`location`, buf)
+            FfiConverterUByte.write(value.`score`, buf)
     }
 }
 
@@ -2113,6 +2975,53 @@ public object FfiConverterTypeLatLon: FfiConverterRustBuffer<LatLon> {
     override fun write(value: LatLon, buf: ByteBuffer) {
             FfiConverterDouble.write(value.`lat`, buf)
             FfiConverterDouble.write(value.`lon`, buf)
+    }
+}
+
+
+
+/**
+ * Nearest labeled intersection to a query point (the "am I at an
+ * intersection?" answer). `intersection_type`: 1 = traffic_signals,
+ * 2 = stop, 3 = give_way, 4 = roundabout (0/other = untyped). Reports a
+ * mapped intersection *point*, not junction degree — the format stores no
+ * road-to-node topology.
+ */
+data class NearestIntersection (
+    var `lat`: kotlin.Double, 
+    var `lon`: kotlin.Double, 
+    var `distanceM`: kotlin.Double, 
+    var `intersectionType`: kotlin.UByte
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeNearestIntersection: FfiConverterRustBuffer<NearestIntersection> {
+    override fun read(buf: ByteBuffer): NearestIntersection {
+        return NearestIntersection(
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: NearestIntersection) = (
+            FfiConverterDouble.allocationSize(value.`lat`) +
+            FfiConverterDouble.allocationSize(value.`lon`) +
+            FfiConverterDouble.allocationSize(value.`distanceM`) +
+            FfiConverterUByte.allocationSize(value.`intersectionType`)
+    )
+
+    override fun write(value: NearestIntersection, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`lat`, buf)
+            FfiConverterDouble.write(value.`lon`, buf)
+            FfiConverterDouble.write(value.`distanceM`, buf)
+            FfiConverterUByte.write(value.`intersectionType`, buf)
     }
 }
 
@@ -2417,6 +3326,38 @@ public object FfiConverterOptionalTypePtilesLayer: FfiConverterRustBuffer<Ptiles
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeAdminInfo: FfiConverterRustBuffer<AdminInfo?> {
+    override fun read(buf: ByteBuffer): AdminInfo? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeAdminInfo.read(buf)
+    }
+
+    override fun allocationSize(value: AdminInfo?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeAdminInfo.allocationSize(value)
+        }
+    }
+
+    override fun write(value: AdminInfo?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeAdminInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeBuildingInfo: FfiConverterRustBuffer<BuildingInfo?> {
     override fun read(buf: ByteBuffer): BuildingInfo? {
         if (buf.get().toInt() == 0) {
@@ -2439,6 +3380,38 @@ public object FfiConverterOptionalTypeBuildingInfo: FfiConverterRustBuffer<Build
         } else {
             buf.put(1)
             FfiConverterTypeBuildingInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeNearestIntersection: FfiConverterRustBuffer<NearestIntersection?> {
+    override fun read(buf: ByteBuffer): NearestIntersection? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeNearestIntersection.read(buf)
+    }
+
+    override fun allocationSize(value: NearestIntersection?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeNearestIntersection.allocationSize(value)
+        }
+    }
+
+    override fun write(value: NearestIntersection?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeNearestIntersection.write(value, buf)
         }
     }
 }
@@ -2481,6 +3454,34 @@ public object FfiConverterOptionalTypeNearestRoad: FfiConverterRustBuffer<Neares
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeAddressRecord: FfiConverterRustBuffer<List<AddressRecord>> {
+    override fun read(buf: ByteBuffer): List<AddressRecord> {
+        val len = buf.getInt()
+        return List<AddressRecord>(len) {
+            FfiConverterTypeAddressRecord.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AddressRecord>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAddressRecord.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AddressRecord>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAddressRecord.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeBusinessInfo: FfiConverterRustBuffer<List<BusinessInfo>> {
     override fun read(buf: ByteBuffer): List<BusinessInfo> {
         val len = buf.getInt()
@@ -2499,6 +3500,34 @@ public object FfiConverterSequenceTypeBusinessInfo: FfiConverterRustBuffer<List<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeBusinessInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeBusinessSearchHit: FfiConverterRustBuffer<List<BusinessSearchHit>> {
+    override fun read(buf: ByteBuffer): List<BusinessSearchHit> {
+        val len = buf.getInt()
+        return List<BusinessSearchHit>(len) {
+            FfiConverterTypeBusinessSearchHit.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<BusinessSearchHit>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeBusinessSearchHit.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<BusinessSearchHit>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeBusinessSearchHit.write(it, buf)
         }
     }
 }

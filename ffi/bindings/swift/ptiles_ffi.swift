@@ -416,6 +416,22 @@ fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -506,10 +522,335 @@ fileprivate struct FfiConverterString: FfiConverter {
 
 
 /**
- * One opened `.ptiles` file, its layer inferred from the filename
- * (`<state>.<layer>.ptiles`), wrapping `PtilesFile<FileSource>` -- the one
- * generic instantiation this crate exports, per the plan's "no generics
- * across FFI boundaries" rule.
+ * An opened `.address.ptiles` file. Separate from `PtilesLayer` because
+ * address uses a v2 merged-block index, not the v1 block reader.
+ */
+public protocol AddressLayerProtocol: AnyObject, Sendable {
+    
+    /**
+     * Reverse lookup: all addresses in the cell(s) covering `(lat, lon)`
+     * (`ring == 1` adds neighbors).
+     */
+    func addressesAt(lat: Double, lon: Double, ring: UInt8) throws  -> [AddressRecord]
+    
+    /**
+     * Forward lookup: addresses near `(lat, lon)` matching `housenumber` +
+     * `street` (accent/case-insensitive).
+     */
+    func findAddress(lat: Double, lon: Double, ring: UInt8, housenumber: String, street: String) throws  -> [AddressRecord]
+    
+}
+/**
+ * An opened `.address.ptiles` file. Separate from `PtilesLayer` because
+ * address uses a v2 merged-block index, not the v1 block reader.
+ */
+open class AddressLayer: AddressLayerProtocol, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_ptiles_ffi_fn_clone_addresslayer(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_ptiles_ffi_fn_free_addresslayer(pointer, $0) }
+    }
+
+    
+    /**
+     * Open an address file, local path or `http(s)://` URL.
+     */
+public static func `open`(path: String)throws  -> AddressLayer  {
+    return try  FfiConverterTypeAddressLayer_lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_constructor_addresslayer_open(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Reverse lookup: all addresses in the cell(s) covering `(lat, lon)`
+     * (`ring == 1` adds neighbors).
+     */
+open func addressesAt(lat: Double, lon: Double, ring: UInt8)throws  -> [AddressRecord]  {
+    return try  FfiConverterSequenceTypeAddressRecord.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_addresslayer_addresses_at(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
+     * Forward lookup: addresses near `(lat, lon)` matching `housenumber` +
+     * `street` (accent/case-insensitive).
+     */
+open func findAddress(lat: Double, lon: Double, ring: UInt8, housenumber: String, street: String)throws  -> [AddressRecord]  {
+    return try  FfiConverterSequenceTypeAddressRecord.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_addresslayer_find_address(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),
+        FfiConverterString.lower(housenumber),
+        FfiConverterString.lower(street),$0
+    )
+})
+}
+    
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAddressLayer: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = AddressLayer
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> AddressLayer {
+        return AddressLayer(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: AddressLayer) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AddressLayer {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: AddressLayer, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAddressLayer_lift(_ pointer: UnsafeMutableRawPointer) throws -> AddressLayer {
+    return try FfiConverterTypeAddressLayer.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAddressLayer_lower(_ value: AddressLayer) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeAddressLayer.lower(value)
+}
+
+
+
+
+
+
+/**
+ * An opened admin file (`US.admin.ptiles`). Separate from `PtilesLayer`
+ * because admin is a lookup-grid layer, not block-per-cell.
+ */
+public protocol AdminLayerProtocol: AnyObject, Sendable {
+    
+    /**
+     * Jurisdiction (country/state/county/zip/timezone) covering `(lat, lon)`,
+     * or `None` if the lookup grid has no entry for that cell.
+     */
+    func adminAt(lat: Double, lon: Double)  -> AdminInfo?
+    
+}
+/**
+ * An opened admin file (`US.admin.ptiles`). Separate from `PtilesLayer`
+ * because admin is a lookup-grid layer, not block-per-cell.
+ */
+open class AdminLayer: AdminLayerProtocol, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_ptiles_ffi_fn_clone_adminlayer(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_ptiles_ffi_fn_free_adminlayer(pointer, $0) }
+    }
+
+    
+    /**
+     * Open an admin file, local path or `http(s)://` URL.
+     */
+public static func `open`(path: String)throws  -> AdminLayer  {
+    return try  FfiConverterTypeAdminLayer_lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_constructor_adminlayer_open(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Jurisdiction (country/state/county/zip/timezone) covering `(lat, lon)`,
+     * or `None` if the lookup grid has no entry for that cell.
+     */
+open func adminAt(lat: Double, lon: Double) -> AdminInfo?  {
+    return try!  FfiConverterOptionTypeAdminInfo.lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adminlayer_admin_at(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),$0
+    )
+})
+}
+    
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAdminLayer: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = AdminLayer
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> AdminLayer {
+        return AdminLayer(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: AdminLayer) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AdminLayer {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: AdminLayer, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdminLayer_lift(_ pointer: UnsafeMutableRawPointer) throws -> AdminLayer {
+    return try FfiConverterTypeAdminLayer.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdminLayer_lower(_ value: AdminLayer) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeAdminLayer.lower(value)
+}
+
+
+
+
+
+
+/**
+ * One opened `.ptiles` file (local path or `http(s)://` URL), its layer
+ * inferred from the filename (`<state>.<layer>.ptiles`), wrapping
+ * `AnyFile` -- see that type's doc comment for why this isn't
+ * `PtilesFile<FileSource>` directly anymore.
  */
 public protocol PtilesLayerProtocol: AnyObject, Sendable {
     
@@ -528,6 +869,16 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
     func businessesNear(lat: Double, lon: Double, ring: UInt8, radiusM: Double) throws  -> [BusinessInfo]
     
     /**
+     * Nearest labeled intersection to `(lat, lon)` within `threshold_m`
+     * (defaults to `ptiles_core::DEFAULT_THRESHOLD_M` when `threshold_m <= 0`).
+     * Answers "am I at an intersection?" — returns the nearest mapped
+     * intersection point and its traffic-control type, or `None`. Roads-layer
+     * only. Searches ring-1 neighbors so a point near a cell edge still finds
+     * an intersection in the adjacent cell.
+     */
+    func nearestIntersection(lat: Double, lon: Double, thresholdM: Double) throws  -> NearestIntersection?
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -543,12 +894,23 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
      */
     func roads(lat: Double, lon: Double, ring: UInt8) throws  -> [RoadInfo]
     
+    /**
+     * Business name search over a `{STATE}.business_name_index.ptiles`
+     * sidecar (open a `PtilesLayer` on that file, not the main
+     * `business.ptiles` file). Index-accelerated: correct for
+     * case-insensitive prefix queries; substring queries only surface a
+     * hit when the substring starts at the name's first character (see
+     * `core::business_search`'s module doc for why). `limit` caps the
+     * returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+     */
+    func searchBusiness(query: String, limit: UInt32) throws  -> [BusinessSearchHit]
+    
 }
 /**
- * One opened `.ptiles` file, its layer inferred from the filename
- * (`<state>.<layer>.ptiles`), wrapping `PtilesFile<FileSource>` -- the one
- * generic instantiation this crate exports, per the plan's "no generics
- * across FFI boundaries" rule.
+ * One opened `.ptiles` file (local path or `http(s)://` URL), its layer
+ * inferred from the filename (`<state>.<layer>.ptiles`), wrapping
+ * `AnyFile` -- see that type's doc comment for why this isn't
+ * `PtilesFile<FileSource>` directly anymore.
  */
 open class PtilesLayer: PtilesLayerProtocol, @unchecked Sendable {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -601,7 +963,8 @@ open class PtilesLayer: PtilesLayerProtocol, @unchecked Sendable {
 
     
     /**
-     * Open a `.ptiles` file. `path` must be `<state>.<layer>.ptiles` where
+     * Open a `.ptiles` file, local or remote. `path` must be
+     * `<state>.<layer>.ptiles` (optionally under an `http(s)://` URL) where
      * `<layer>` is one of `roads`, `buildings_v8`, `business`.
      */
 public static func `open`(path: String)throws  -> PtilesLayer  {
@@ -645,6 +1008,24 @@ open func businessesNear(lat: Double, lon: Double, ring: UInt8, radiusM: Double)
 }
     
     /**
+     * Nearest labeled intersection to `(lat, lon)` within `threshold_m`
+     * (defaults to `ptiles_core::DEFAULT_THRESHOLD_M` when `threshold_m <= 0`).
+     * Answers "am I at an intersection?" — returns the nearest mapped
+     * intersection point and its traffic-control type, or `None`. Roads-layer
+     * only. Searches ring-1 neighbors so a point near a cell edge still finds
+     * an intersection in the adjacent cell.
+     */
+open func nearestIntersection(lat: Double, lon: Double, thresholdM: Double)throws  -> NearestIntersection?  {
+    return try  FfiConverterOptionTypeNearestIntersection.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterDouble.lower(thresholdM),$0
+    )
+})
+}
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -671,6 +1052,24 @@ open func roads(lat: Double, lon: Double, ring: UInt8)throws  -> [RoadInfo]  {
         FfiConverterDouble.lower(lat),
         FfiConverterDouble.lower(lon),
         FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
+     * Business name search over a `{STATE}.business_name_index.ptiles`
+     * sidecar (open a `PtilesLayer` on that file, not the main
+     * `business.ptiles` file). Index-accelerated: correct for
+     * case-insensitive prefix queries; substring queries only surface a
+     * hit when the substring starts at the name's first character (see
+     * `core::business_search`'s module doc for why). `limit` caps the
+     * returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+     */
+open func searchBusiness(query: String, limit: UInt32)throws  -> [BusinessSearchHit]  {
+    return try  FfiConverterSequenceTypeBusinessSearchHit.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(self.uniffiClonePointer(),
+        FfiConverterString.lower(query),
+        FfiConverterUInt32.lower(limit),$0
     )
 })
 }
@@ -895,6 +1294,192 @@ public func FfiConverterTypePtilesStack_lower(_ value: PtilesStack) -> UnsafeMut
 
 
 
+/**
+ * One decoded address (`{osm_id, housenumber, street}`; location is the cell).
+ */
+public struct AddressRecord {
+    public var osmId: Int64
+    public var housenumber: String
+    public var street: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(osmId: Int64, housenumber: String, street: String) {
+        self.osmId = osmId
+        self.housenumber = housenumber
+        self.street = street
+    }
+}
+
+#if compiler(>=6)
+extension AddressRecord: Sendable {}
+#endif
+
+
+extension AddressRecord: Equatable, Hashable {
+    public static func ==(lhs: AddressRecord, rhs: AddressRecord) -> Bool {
+        if lhs.osmId != rhs.osmId {
+            return false
+        }
+        if lhs.housenumber != rhs.housenumber {
+            return false
+        }
+        if lhs.street != rhs.street {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(osmId)
+        hasher.combine(housenumber)
+        hasher.combine(street)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAddressRecord: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AddressRecord {
+        return
+            try AddressRecord(
+                osmId: FfiConverterInt64.read(from: &buf), 
+                housenumber: FfiConverterString.read(from: &buf), 
+                street: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AddressRecord, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.osmId, into: &buf)
+        FfiConverterString.write(value.housenumber, into: &buf)
+        FfiConverterString.write(value.street, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAddressRecord_lift(_ buf: RustBuffer) throws -> AddressRecord {
+    return try FfiConverterTypeAddressRecord.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAddressRecord_lower(_ value: AddressRecord) -> RustBuffer {
+    return FfiConverterTypeAddressRecord.lower(value)
+}
+
+
+/**
+ * Resolved jurisdiction for a point, from the admin layer.
+ */
+public struct AdminInfo {
+    public var country: String
+    public var state: String
+    public var county: String
+    public var zip: String
+    public var timezone: String
+    public var boundaryFlags: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(country: String, state: String, county: String, zip: String, timezone: String, boundaryFlags: UInt8) {
+        self.country = country
+        self.state = state
+        self.county = county
+        self.zip = zip
+        self.timezone = timezone
+        self.boundaryFlags = boundaryFlags
+    }
+}
+
+#if compiler(>=6)
+extension AdminInfo: Sendable {}
+#endif
+
+
+extension AdminInfo: Equatable, Hashable {
+    public static func ==(lhs: AdminInfo, rhs: AdminInfo) -> Bool {
+        if lhs.country != rhs.country {
+            return false
+        }
+        if lhs.state != rhs.state {
+            return false
+        }
+        if lhs.county != rhs.county {
+            return false
+        }
+        if lhs.zip != rhs.zip {
+            return false
+        }
+        if lhs.timezone != rhs.timezone {
+            return false
+        }
+        if lhs.boundaryFlags != rhs.boundaryFlags {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(country)
+        hasher.combine(state)
+        hasher.combine(county)
+        hasher.combine(zip)
+        hasher.combine(timezone)
+        hasher.combine(boundaryFlags)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAdminInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AdminInfo {
+        return
+            try AdminInfo(
+                country: FfiConverterString.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                county: FfiConverterString.read(from: &buf), 
+                zip: FfiConverterString.read(from: &buf), 
+                timezone: FfiConverterString.read(from: &buf), 
+                boundaryFlags: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AdminInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.country, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterString.write(value.county, into: &buf)
+        FfiConverterString.write(value.zip, into: &buf)
+        FfiConverterString.write(value.timezone, into: &buf)
+        FfiConverterUInt8.write(value.boundaryFlags, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdminInfo_lift(_ buf: RustBuffer) throws -> AdminInfo {
+    return try FfiConverterTypeAdminInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdminInfo_lower(_ value: AdminInfo) -> RustBuffer {
+    return FfiConverterTypeAdminInfo.lower(value)
+}
+
+
 public struct BuildingInfo {
     public var osmId: Int64
     public var name: String?
@@ -1096,6 +1681,106 @@ public func FfiConverterTypeBusinessInfo_lift(_ buf: RustBuffer) throws -> Busin
 #endif
 public func FfiConverterTypeBusinessInfo_lower(_ value: BusinessInfo) -> RustBuffer {
     return FfiConverterTypeBusinessInfo.lower(value)
+}
+
+
+/**
+ * One hit from [`PtilesLayer::search_business`], the shape of
+ * `ptiles_core::business_search::BusinessHit` translated to a UniFFI
+ * record. No `osm_id`/`phone`/`website`/`operating_status`: the
+ * `business_name_index.ptiles` sidecar this searches doesn't carry them
+ * (see `core::business_search`'s module doc) -- only the spatial
+ * `.ptiles` file (`PtilesLayer::businesses_near`) has that detail.
+ */
+public struct BusinessSearchHit {
+    public var name: String
+    public var categoryIdx: UInt8
+    public var location: LatLon
+    /**
+     * 2 = exact (case-insensitive) name match, 1 = prefix, 0 = substring.
+     */
+    public var score: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, categoryIdx: UInt8, location: LatLon, 
+        /**
+         * 2 = exact (case-insensitive) name match, 1 = prefix, 0 = substring.
+         */score: UInt8) {
+        self.name = name
+        self.categoryIdx = categoryIdx
+        self.location = location
+        self.score = score
+    }
+}
+
+#if compiler(>=6)
+extension BusinessSearchHit: Sendable {}
+#endif
+
+
+extension BusinessSearchHit: Equatable, Hashable {
+    public static func ==(lhs: BusinessSearchHit, rhs: BusinessSearchHit) -> Bool {
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.categoryIdx != rhs.categoryIdx {
+            return false
+        }
+        if lhs.location != rhs.location {
+            return false
+        }
+        if lhs.score != rhs.score {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(categoryIdx)
+        hasher.combine(location)
+        hasher.combine(score)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBusinessSearchHit: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BusinessSearchHit {
+        return
+            try BusinessSearchHit(
+                name: FfiConverterString.read(from: &buf), 
+                categoryIdx: FfiConverterUInt8.read(from: &buf), 
+                location: FfiConverterTypeLatLon.read(from: &buf), 
+                score: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BusinessSearchHit, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterUInt8.write(value.categoryIdx, into: &buf)
+        FfiConverterTypeLatLon.write(value.location, into: &buf)
+        FfiConverterUInt8.write(value.score, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBusinessSearchHit_lift(_ buf: RustBuffer) throws -> BusinessSearchHit {
+    return try FfiConverterTypeBusinessSearchHit.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBusinessSearchHit_lower(_ value: BusinessSearchHit) -> RustBuffer {
+    return FfiConverterTypeBusinessSearchHit.lower(value)
 }
 
 
@@ -1353,6 +2038,99 @@ public func FfiConverterTypeLatLon_lift(_ buf: RustBuffer) throws -> LatLon {
 #endif
 public func FfiConverterTypeLatLon_lower(_ value: LatLon) -> RustBuffer {
     return FfiConverterTypeLatLon.lower(value)
+}
+
+
+/**
+ * Nearest labeled intersection to a query point (the "am I at an
+ * intersection?" answer). `intersection_type`: 1 = traffic_signals,
+ * 2 = stop, 3 = give_way, 4 = roundabout (0/other = untyped). Reports a
+ * mapped intersection *point*, not junction degree — the format stores no
+ * road-to-node topology.
+ */
+public struct NearestIntersection {
+    public var lat: Double
+    public var lon: Double
+    public var distanceM: Double
+    public var intersectionType: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(lat: Double, lon: Double, distanceM: Double, intersectionType: UInt8) {
+        self.lat = lat
+        self.lon = lon
+        self.distanceM = distanceM
+        self.intersectionType = intersectionType
+    }
+}
+
+#if compiler(>=6)
+extension NearestIntersection: Sendable {}
+#endif
+
+
+extension NearestIntersection: Equatable, Hashable {
+    public static func ==(lhs: NearestIntersection, rhs: NearestIntersection) -> Bool {
+        if lhs.lat != rhs.lat {
+            return false
+        }
+        if lhs.lon != rhs.lon {
+            return false
+        }
+        if lhs.distanceM != rhs.distanceM {
+            return false
+        }
+        if lhs.intersectionType != rhs.intersectionType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(lat)
+        hasher.combine(lon)
+        hasher.combine(distanceM)
+        hasher.combine(intersectionType)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNearestIntersection: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NearestIntersection {
+        return
+            try NearestIntersection(
+                lat: FfiConverterDouble.read(from: &buf), 
+                lon: FfiConverterDouble.read(from: &buf), 
+                distanceM: FfiConverterDouble.read(from: &buf), 
+                intersectionType: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: NearestIntersection, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.lat, into: &buf)
+        FfiConverterDouble.write(value.lon, into: &buf)
+        FfiConverterDouble.write(value.distanceM, into: &buf)
+        FfiConverterUInt8.write(value.intersectionType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNearestIntersection_lift(_ buf: RustBuffer) throws -> NearestIntersection {
+    return try FfiConverterTypeNearestIntersection.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNearestIntersection_lower(_ value: NearestIntersection) -> RustBuffer {
+    return FfiConverterTypeNearestIntersection.lower(value)
 }
 
 
@@ -1817,6 +2595,30 @@ fileprivate struct FfiConverterOptionTypePtilesLayer: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeAdminInfo: FfiConverterRustBuffer {
+    typealias SwiftType = AdminInfo?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAdminInfo.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAdminInfo.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeBuildingInfo: FfiConverterRustBuffer {
     typealias SwiftType = BuildingInfo?
 
@@ -1833,6 +2635,30 @@ fileprivate struct FfiConverterOptionTypeBuildingInfo: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeBuildingInfo.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeNearestIntersection: FfiConverterRustBuffer {
+    typealias SwiftType = NearestIntersection?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeNearestIntersection.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeNearestIntersection.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -1865,6 +2691,31 @@ fileprivate struct FfiConverterOptionTypeNearestRoad: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeAddressRecord: FfiConverterRustBuffer {
+    typealias SwiftType = [AddressRecord]
+
+    public static func write(_ value: [AddressRecord], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAddressRecord.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AddressRecord] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AddressRecord]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAddressRecord.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeBusinessInfo: FfiConverterRustBuffer {
     typealias SwiftType = [BusinessInfo]
 
@@ -1882,6 +2733,31 @@ fileprivate struct FfiConverterSequenceTypeBusinessInfo: FfiConverterRustBuffer 
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeBusinessInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeBusinessSearchHit: FfiConverterRustBuffer {
+    typealias SwiftType = [BusinessSearchHit]
+
+    public static func write(_ value: [BusinessSearchHit], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeBusinessSearchHit.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [BusinessSearchHit] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [BusinessSearchHit]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeBusinessSearchHit.read(from: &buf))
         }
         return seq
     }
@@ -1977,10 +2853,22 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_addresslayer_find_address() != 59852) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at() != 29916) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_building() != 45883) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near() != 42704) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection() != 26252) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road() != 49038) {
@@ -1989,10 +2877,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_roads() != 36266) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business() != 23326) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 48165) {
+    if (uniffi_ptiles_ffi_checksum_constructor_addresslayer_open() != 49623) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_constructor_adminlayer_open() != 36006) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 23503) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 62815) {
