@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace
+      # real_layers.rs and the ffi integration tests skip when their data
+      # directory is absent, which it is on a runner. index_layout.rs and the
+      # rest are self-contained and do the load-bearing work here.
+      - run: cargo test --workspace
+
+  no_std:
+    name: core builds no_std
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+      # core claims no_std + alloc. Nothing checked it, so a std-only call
+      # could land in the one crate that must not have them.
+      - run: cargo build -p ptiles-core --no-default-features --target thumbv7em-none-eabihf
+
+  wasm:
+    name: wasm builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p ptiles-wasm --target wasm32-unknown-unknown --release
+
+  bindings_fresh:
+    name: ffi bindings are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The bindings in ffi/bindings/ are generated from ffi/src/lib.rs. They
+      # were once 17 days and ~2,000 lines behind it -- missing
+      # nearest_intersection, search_business, AdminLayer and AddressLayer --
+      # and nothing noticed, because generated code that is committed looks
+      # exactly as current as code that is maintained.
+      #
+      # Regenerate and require the tree to be unchanged.
+      #
+      # swift-format, ktlint and yapf are deliberately NOT installed: the
+      # bindgen skips formatting when they are missing, which is how the
+      # committed files were produced. Installing one here would reformat the
+      # output and fail this check on whitespace alone.
+      - run: cargo build -p ptiles-ffi
+      - name: Regenerate all three languages
+        run: |
+          for lang in swift kotlin python; do
+            cargo run -q -p ptiles-ffi --bin uniffi-bindgen --features uniffi/cli -- \
+              generate --library target/debug/libptiles_ffi.so \
+              --language "$lang" --out-dir "ffi/bindings/$lang"
+          done
+      - name: Fail if the committed bindings differ
+        run: |
+          if ! git diff --exit-code --stat ffi/bindings/; then
+            echo
+            echo "ffi/bindings/ is out of date with ffi/src/lib.rs."
+            echo "Regenerate locally and commit the result:"
+            echo
+            echo "  cargo build -p ptiles-ffi"
+            echo "  for lang in swift kotlin python; do \\"
+            echo "    cargo run -p ptiles-ffi --bin uniffi-bindgen --features uniffi/cli -- \\"
+            echo "      generate --library target/debug/libptiles_ffi.so \\"
+            echo "      --language \$lang --out-dir ffi/bindings/\$lang; done"
+            exit 1
+          fi
+
+  python_binding:
+    name: python binding loads and decodes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p ptiles-ffi
+      # Importing is a real check: the generated module resolves symbols out of
+      # the cdylib at import time, so a binding/library mismatch fails here
+      # rather than at the first call.
+      - name: Import the generated module against the built library
+        run: |
+          cp target/debug/libptiles_ffi.so ffi/bindings/python/
+          cd ffi/bindings/python
+          python3 -c "
+          import ptiles_ffi as p
+          for n in ('PtilesLayer', 'AdminLayer', 'AddressLayer', 'PtilesStack', 'PtilesError'):
+              assert hasattr(p, n), f'missing {n}'
+          print('ok: all types present')
+          "
+
+  js:
+    name: node tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # These extract the reader functions out of demo/index.html and run them
+      # against synthetic fixtures; the real-file cases skip when absent.
+      - run: node --test "demo/test/*.test.mjs"

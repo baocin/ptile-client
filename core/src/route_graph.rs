@@ -6,9 +6,11 @@
 //! only builds a graph and searches.
 
 use alloc::collections::{BTreeMap, BinaryHeap};
+use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::Reverse;
 
+use crate::math;
 use crate::proximity::haversine_distance_m;
 use crate::roads::RoadSegment;
 
@@ -33,7 +35,7 @@ pub struct RouteResult {
 
 #[inline]
 fn weight_from_seconds(seconds: f64) -> Weight {
-    (seconds * 100.0).round() as Weight
+    math::round(seconds * 100.0) as Weight
 }
 
 #[inline]
@@ -109,8 +111,8 @@ fn default_speed_kmh(class: &str) -> f64 {
 
 fn micro_key(lon: f64, lat: f64) -> [i32; 2] {
     [
-        (lon * 50_000.0).round() as i32,
-        (lat * 50_000.0).round() as i32,
+        math::round(lon * 50_000.0) as i32,
+        math::round(lat * 50_000.0) as i32,
     ]
 }
 
@@ -134,7 +136,7 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool]) -> Option<Graph> {
 
     let mut lat_scale = 1.0_f64;
     if let Some(s) = roads.iter().find(|s| !s.coords.is_empty()) {
-        lat_scale = (s.coords[0][1].to_radians()).cos();
+        lat_scale = math::cos(s.coords[0][1].to_radians());
     }
 
     for (si, seg) in roads.iter().enumerate() {
@@ -175,7 +177,7 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool]) -> Option<Graph> {
             let (lon2, lat2) = (seg.coords[i + 1][0], seg.coords[i + 1][1]);
             let dx = (lon2 - lon1) * lat_scale * 111_320.0;
             let dy = (lat2 - lat1) * 111_320.0;
-            let meters = (dx * dx + dy * dy).sqrt();
+            let meters = math::sqrt(dx * dx + dy * dy);
             let w = if speed < 0.1 {
                 Weight::MAX / 4
             } else {

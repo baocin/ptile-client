@@ -26,6 +26,7 @@ pub mod buildings;
 pub mod business;
 pub mod business_search;
 pub mod camera;
+mod math;
 pub mod merged;
 pub mod parks;
 pub mod rail;

@@ -17,48 +17,7 @@
 
 use crate::roads::{Intersection, RoadSegment};
 
-/// `sin`/`cos`/`sqrt`/`atan2` aren't in libcore -- they need either `std` or
-/// a software implementation. Mirrors h3o's own no_std strategy
-/// (`h3o::math::functions-libm.rs`): native `f64` methods under `std`,
-/// `libm` under `no_std`.
-#[cfg(feature = "std")]
-mod math {
-    #[inline]
-    pub fn sin(x: f64) -> f64 {
-        x.sin()
-    }
-    #[inline]
-    pub fn cos(x: f64) -> f64 {
-        x.cos()
-    }
-    #[inline]
-    pub fn sqrt(x: f64) -> f64 {
-        x.sqrt()
-    }
-    #[inline]
-    pub fn atan2(y: f64, x: f64) -> f64 {
-        y.atan2(x)
-    }
-}
-#[cfg(not(feature = "std"))]
-mod math {
-    #[inline]
-    pub fn sin(x: f64) -> f64 {
-        libm::sin(x)
-    }
-    #[inline]
-    pub fn cos(x: f64) -> f64 {
-        libm::cos(x)
-    }
-    #[inline]
-    pub fn sqrt(x: f64) -> f64 {
-        libm::sqrt(x)
-    }
-    #[inline]
-    pub fn atan2(y: f64, x: f64) -> f64 {
-        libm::atan2(y, x)
-    }
-}
+use crate::math;
 
 /// Mean Earth radius in meters (matches SPEC.md's reverse-geocode reference
 /// and the demo's Haversine calls, both of which use 6,371,000 m).
