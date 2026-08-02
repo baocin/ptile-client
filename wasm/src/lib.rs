@@ -36,7 +36,8 @@ use ptiles_core::{
 use ptiles_core::{
     index_binary_search as core_index_binary_search, merged_cell_slice as core_merged_cell_slice,
     parse_index_detected as core_parse_index_detected, decode_cameras as core_decode_cameras,
-    decode_signals as core_decode_signals, index_layout as core_index_layout, Header,
+    decode_signals as core_decode_signals, index_layout as core_index_layout,
+    parse_coarse_index as core_parse_coarse_index, Header,
 };
 
 // `business.rs`'s `osm_id: i64` (unlike every other layer's delta-coded u64,
@@ -573,8 +574,77 @@ pub fn index_entries_absolute(
     to_js(&out)
 }
 
-/// Shared front half of the two exports above: both need the header parsed and
-/// the index detected before they can say anything about layout.
+/// Parse the PTCI sampled index from a file's `aux` region.
+///
+/// Returns `null` when `aux` is not a coarse index -- empty, too short, or
+/// holding something else. That is the normal case for every layer built
+/// before PTCI existed, and a caller should fall back to reading the full
+/// index. It *throws* when the region announces itself as PTCI and then does
+/// not hold up (unknown version, impossible sample count), because that means
+/// whatever wrote the file has a bug and is worth surfacing rather than
+/// silently degrading.
+///
+/// The JS original (`parseCoarseIndex` in demo/index.html) returned null for
+/// both, and ignored the version byte entirely.
+#[wasm_bindgen]
+pub fn parse_coarse_index(aux: &[u8]) -> Result<JsValue, JsValue> {
+    match core_parse_coarse_index(aux).map_err(|e| JsValue::from_str(&e.to_string()))? {
+        Some(c) => to_js(&c),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// The run of index entries that may contain `cell_hex`, as a byte range to
+/// Range-request.
+///
+/// This is the point of the coarse index: `US.signals` carries a 4014 KiB
+/// index, and locating one cell in it otherwise means fetching all of it,
+/// because entries are only findable by position. With the samples, a lookup
+/// is header+aux in one request and then this range -- 256 entries, under
+/// 10 KiB.
+///
+/// Returns `null` if the cell sorts below the first sample, i.e. the file does
+/// not contain it.
+#[wasm_bindgen]
+pub fn coarse_bracket(
+    aux: &[u8],
+    cell_hex: &str,
+    index_offset: u64,
+    entry_size: usize,
+) -> Result<JsValue, JsValue> {
+    let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
+    let Some(coarse) =
+        core_parse_coarse_index(aux).map_err(|e| JsValue::from_str(&e.to_string()))?
+    else {
+        return Ok(JsValue::NULL);
+    };
+    let Some(b) = coarse.bracket(cell) else {
+        return Ok(JsValue::NULL);
+    };
+    let (from, to) = b.byte_range(index_offset, entry_size);
+    to_js(&BracketRange {
+        start: b.start,
+        end: b.end,
+        entries: b.len(),
+        byte_from: from,
+        byte_to: to,
+    })
+}
+
+#[derive(serde::Serialize)]
+struct BracketRange {
+    /// First index position in the run.
+    start: u32,
+    /// Last index position in the run, inclusive.
+    end: u32,
+    entries: u32,
+    /// Inclusive byte range, the form an HTTP `Range` header wants.
+    byte_from: u64,
+    byte_to: u64,
+}
+
+/// Shared front half of the two layout exports: both need the header parsed
+/// and the index detected before they can say anything about layout.
 fn parse_header_and_index(
     header_bytes: &[u8],
     index_bytes: &[u8],

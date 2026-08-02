@@ -169,6 +169,85 @@ test("the two known-broken files are reported as inconsistent, not merely unusua
   }
 });
 
+// The coarse index is the reason a client can open US.signals without pulling
+// 4014 KiB of index first. These check the whole path through wasm: parse the
+// aux region, bracket a cell, and confirm the byte range that comes back really
+// does contain that cell's entry -- which is what a partial open relies on and
+// what nothing outside the browser could verify before core learned PTCI.
+test("wasm parses the coarse index, and brackets land on the right entries", () => {
+  const withAux = FILES.filter((f) => (manifest.files[f].aux_length ?? 0) > 0);
+  assert.ok(withAux.length >= 2, `expected 2+ files with a coarse index, got ${withAux.length}`);
+
+  for (const name of withAux) {
+    const { all, header, index, h } = sections(name);
+    const auxAt = Number(h.aux_offset);
+    const aux = all.subarray(auxAt, auxAt + h.aux_length);
+
+    const coarse = wasm.parse_coarse_index(aux);
+    assert.ok(coarse, `${name}: aux holds a coarse index but wasm returned null`);
+    assert.ok(coarse.samples.length > 0, `${name}: no samples`);
+
+    const entries = wasm.index_entries_absolute(header, index);
+    assert.equal(
+      Number(coarse.entry_count), entries.length,
+      `${name}: coarse entry_count disagrees with the real index length`,
+    );
+
+    // Every sample must name the cell actually at that position.
+    for (const s of coarse.samples) {
+      const at = Number(s.entry_index);
+      assert.equal(
+        entries[at].h3_cell, s.h3_cell,
+        `${name}: sample says entry ${at} is cell ${s.h3_cell.toString(16)}, ` +
+        `but it is ${entries[at].h3_cell.toString(16)}`,
+      );
+    }
+
+    // And a bracket must produce a byte range that contains the wanted entry.
+    // This is the partial-open path end to end.
+    const layout = wasm.parse_index_layout(header, index);
+    for (let i = 0; i < entries.length; i += 37) {
+      const cell = entries[i].h3_cell;
+      const br = wasm.coarse_bracket(
+        aux, cell.toString(16), h.index_offset, layout.entry_size,
+      );
+      assert.ok(br, `${name}: cell ${cell.toString(16)} bracketed to nothing`);
+      assert.ok(
+        br.start <= i && i <= br.end,
+        `${name}: entry ${i} is outside its own bracket ${br.start}..${br.end}`,
+      );
+
+      // Read only the bracketed bytes, exactly as a Range request would, and
+      // confirm the cell is findable in them.
+      const from = Number(br.byte_from), to = Number(br.byte_to);
+      const run = all.subarray(from, to + 1);
+      assert.equal(
+        run.length, br.entries * layout.entry_size,
+        `${name}: bracket byte range is not a whole number of entries`,
+      );
+      let found = false;
+      for (let off = 0; off + 8 <= run.length; off += layout.entry_size) {
+        const dv = new DataView(run.buffer, run.byteOffset + off, 8);
+        if (dv.getBigUint64(0, true) === cell) { found = true; break; }
+      }
+      assert.ok(
+        found,
+        `${name}: cell ${cell.toString(16)} is not inside the ${br.entries}-entry ` +
+        `run its own bracket named -- a partial open would report it missing`,
+      );
+    }
+  }
+});
+
+test("a file with no coarse index returns null rather than throwing", () => {
+  // Every layer built before PTCI existed is in this state; it is the normal
+  // case, and a client has to be able to tell it from a malformed one.
+  const { all, h } = sections("TN.roads.ptiles");
+  assert.equal(h.aux_length, 0, "TN.roads is expected to carry no aux region");
+  assert.equal(wasm.parse_coarse_index(new Uint8Array(0)), null);
+  assert.equal(wasm.parse_coarse_index(all.subarray(0, 64)), null);
+});
+
 // index.html decides the offset base itself, in pickOffsetBase. This pins that
 // copy against core. When the wasm-only port removes it, this test is the
 // record that the two agreed beforehand -- and until then, it fails if either
