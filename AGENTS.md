@@ -26,10 +26,25 @@ build, and test instructions.
   serves at <https://steele.red/ptiles/>. Edits are not live until
   `build.py` runs on `hino-omarchy` -- the symlink is absolute and resolves
   nowhere else. See `demo/README.md` for the full chain.
+- `web-demo/index.html` is the **second** UI, and it is deliberate. Same page,
+  but it decodes `.ptiles` through `ptiles-core` in wasm instead of the
+  hand-rolled readers `demo/index.html` carries -- header, both index entry
+  widths, offset base, merged-block slicing, the coarse index and three record
+  layouts, all removed. `steele.red/ptile-wasm` symlinks to it and is served at
+  <https://steele.red/ptile-wasm/> alongside `/ptiles`, so the two can be
+  compared live. They render identical feature counts on all seven layers.
+  Its reader is a real module (`web-demo/js/ptiles.js`) rather than functions
+  inlined in HTML, so `web-demo/test/ptiles.test.mjs` exercises the shipping
+  code instead of a regex-scraped copy of it.
 - There is deliberately no `index.html` at the repo root. One existed as a
   stale orphan copy of `demo/index.html`, referenced by nothing; it was
-  deleted on 2026-07-26 and survives only in git history. Do not
-  recreate it -- a second copy of this UI is always a bug.
+  deleted on 2026-07-26 and survives only in git history. Do not recreate it.
+  The rule this used to state -- "a second copy of this UI is always a bug" --
+  was about *orphan* copies that drift silently. `web-demo/` is the opposite:
+  it exists to remove a second copy of the format decoders, it is reachable
+  from a URL, and `web-demo/test/render_check.py` fails if it stops matching
+  `demo/`. When it has proven itself, `demo/` goes away and the count returns
+  to one.
 
 ## Index layouts
 

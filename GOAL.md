@@ -90,8 +90,13 @@ them:
   stay v1. Every `.ptiles` kind is versioned independently — the version byte is
   scoped to its magic and there is no release-wide version. See
   `SUPPORTED_FORMATS.md`.
-- `demo/index.html` is the only source for the UI. `steele.red/ptiles` is a
-  symlink to `demo/` that steele.red's `build.py` dereferences into `output/`.
+- Two UIs, on purpose, until one wins. `demo/index.html` is the original and
+  hand-decodes the format; `steele.red/ptiles` symlinks to it.
+  `web-demo/index.html` is the same page decoding through `ptiles-core` in
+  wasm; `steele.red/ptile-wasm` symlinks to it. Both are dereferenced into
+  `output/` by steele.red's `build.py`. They render identical feature counts on
+  all seven layers, and `web-demo/test/render_check.py` is what says so. When
+  `web-demo/` has proven itself live, `demo/` is deleted.
   There is deliberately no `index.html` at this repo's root; do not recreate one.
 - `demo/js/app.js` and `demo/js/ptiles-remote.js` are unreferenced — an
   alternative wasm-first architecture never wired up, and missing offset-base
