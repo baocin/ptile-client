@@ -1,0 +1,21 @@
+{
+  "name": "ptiles-wasm",
+  "type": "module",
+  "description": "wasm-bindgen exports, thin wrapper over ptiles-core",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baocin/ptile-client"
+  },
+  "files": [
+    "ptiles_client_bg.wasm",
+    "ptiles_client.js",
+    "ptiles_client.d.ts"
+  ],
+  "main": "ptiles_client.js",
+  "types": "ptiles_client.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

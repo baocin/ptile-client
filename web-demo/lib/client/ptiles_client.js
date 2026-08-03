@@ -1,0 +1,1244 @@
+/* @ts-self-types="./ptiles_client.d.ts" */
+
+export class AdminReader {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        AdminReaderFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_adminreader_free(ptr, 0);
+    }
+    /**
+     * Jurisdiction covering `(lat, lon)` as `{country, state, county, zip,
+     * timezone, boundary_flags}`, or `null` if the grid has no entry.
+     * @param {number} lat
+     * @param {number} lon
+     * @returns {any}
+     */
+    admin_at(lat, lon) {
+        const ret = wasm.adminreader_admin_at(this.__wbg_ptr, lat, lon);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * `grid_bytes` = the raw (uncompressed) `aux` section; `string_tables_bytes`
+     * = the *decompressed* `dict` section. Throws on malformed input.
+     * @param {Uint8Array} grid_bytes
+     * @param {Uint8Array} string_tables_bytes
+     */
+    constructor(grid_bytes, string_tables_bytes) {
+        const ptr0 = passArray8ToWasm0(grid_bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(string_tables_bytes, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.adminreader_new(ptr0, len0, ptr1, len1);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        AdminReaderFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+}
+if (Symbol.dispose) AdminReader.prototype[Symbol.dispose] = AdminReader.prototype.free;
+
+/**
+ * Decode the addresses for one H3 cell from an already-decompressed merged
+ * block (address layer). JS fetches the block bytes (via the v2 index) and
+ * decompresses them (`decompress_block`, empty dict), then calls this per
+ * cell. Returns a JS array of `{osm_id, housenumber, street}` (empty if the
+ * cell isn't in the block). `cell_hex` is a lowercase hex H3 cell string.
+ * @param {Uint8Array} block_bytes
+ * @param {string} cell_hex
+ * @returns {any}
+ */
+export function address_cell(block_bytes, cell_hex) {
+    const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.address_cell(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `[lat, lon]` center of an H3 res-7 cell (hex string). Demo/browser
+ * boundary for `ptiles_core::cell_center` -- replaces `h3-js`'s
+ * `cellToLatLng`.
+ * @param {string} cell_hex
+ * @returns {Float64Array}
+ */
+export function cell_center(cell_hex) {
+    const ptr0 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.cell_center(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+    return v2;
+}
+
+/**
+ * H3 res-7 cell (lowercase hex string) containing `(lat, lon)`. Demo/browser
+ * boundary for `ptiles_core::cell_for_coord` -- replaces `h3-js`'s
+ * `latLngToCell` for every caller in this workspace.
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {string}
+ */
+export function cell_for_coord(lat, lon) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.cell_for_coord(lat, lon);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * H3 res-7 cells covering a viewport bbox -- the wasm boundary for
+ * `ptiles_core::cells_for_bounds` (see docs/INTEGRATION.md's "viewport ->
+ * cells" step). Returns lowercase hex cell strings (a JS array of
+ * `string`), matching how the demo/`h3-js` represents cells everywhere
+ * (`h3.latLngToCell(...)` returns a lowercase hex string, and the demo's
+ * `cellMap`/`renderPtilesForCells` consume cells in that same string form,
+ * see steele.red/ptiles/index.html) -- not `u64`/BigInt, so callers can
+ * pass results straight into existing `h3-js`-shaped code without a
+ * conversion step.
+ *
+ * Errors (as a JS exception, matching every other export's rejection
+ * pattern) if any coordinate is non-finite, `min` is not `<=` `max`, or the
+ * box would cover more than `ptiles_core::MAX_BOUNDS_CELLS` cells.
+ * @param {number} min_lat
+ * @param {number} min_lon
+ * @param {number} max_lat
+ * @param {number} max_lon
+ * @returns {any[]}
+ */
+export function cells_for_bounds(min_lat, min_lon, max_lat, max_lon) {
+    const ret = wasm.cells_for_bounds(min_lat, min_lon, max_lat, max_lon);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
+}
+
+/**
+ * The run of index entries that may contain `cell_hex`, as a byte range to
+ * Range-request.
+ *
+ * This is the point of the coarse index: `US.signals` carries a 4014 KiB
+ * index, and locating one cell in it otherwise means fetching all of it,
+ * because entries are only findable by position. With the samples, a lookup
+ * is header+aux in one request and then this range -- 256 entries, under
+ * 10 KiB.
+ *
+ * Returns `null` if the cell sorts below the first sample, i.e. the file does
+ * not contain it.
+ * @param {Uint8Array} aux
+ * @param {string} cell_hex
+ * @param {bigint} index_offset
+ * @param {number} entry_size
+ * @returns {any}
+ */
+export function coarse_bracket(aux, cell_hex, index_offset, entry_size) {
+    const ptr0 = passArray8ToWasm0(aux, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.coarse_bracket(ptr0, len0, ptr1, len1, index_offset, entry_size);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {Uint8Array} data
+ * @param {number} cell_center_lat
+ * @param {number} cell_center_lon
+ * @returns {any}
+ */
+export function decode_buildings(data, cell_center_lat, cell_center_lon) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_buildings(ptr0, len0, cell_center_lat, cell_center_lon);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_business(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_business(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decode a `camera` cell's records (PTILESC v1). Same merged-block caveat as
+ * `decode_signals`.
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_cameras(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_cameras(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_parks(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_parks(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_rail(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_rail(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_roads(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_roads(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decode a `signals` cell's records (PTILESS v1). Input is the byte range for
+ * one cell, i.e. the output of `merged_cell_slice` -- signals files carry a
+ * 38-byte index and therefore merged blocks, so passing a whole decompressed
+ * block here decodes its cell table as records.
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_signals(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_signals(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_water(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_water(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decompress a compressed `.ptiles` block, trying the layer's zstd
+ * dictionary first and falling back to plain (dict-less) decompress on
+ * failure. Mirrors `ptiles/compression.py`'s `decompress_block` /
+ * `decompress_fallback` pair and `ptiles-core::file::PtilesFile::read_block`'s
+ * internal fallback (see module doc above for why this isn't a direct call
+ * into core). Pass an empty `dict` slice for dict-less layers (parks/address).
+ * @param {Uint8Array} compressed
+ * @param {Uint8Array} dict
+ * @returns {Uint8Array}
+ */
+export function decompress_block(compressed, dict) {
+    const ptr0 = passArray8ToWasm0(compressed, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(dict, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.decompress_block(ptr0, len0, ptr1, len1);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+/**
+ * Find the block offset/length covering `cell_hex` (lowercase hex H3 res-7
+ * cell, the string form `cells_for_bounds`/`cell_for_coord` return). Returns
+ * `null` if the cell has no block in this file (sparse coverage).
+ *
+ * Takes the raw index bytes and re-parses them. The search itself is
+ * O(log n), but the parse is O(n) and happens on **every call** -- an earlier
+ * doc comment here claimed the call was O(log n) with no network cost, which
+ * was only ever true of the search half. Callers doing more than an occasional
+ * lookup should use `parse_index_entries` once and search the result, or hold
+ * a `PtilesFile`, which parses on open.
+ *
+ * Entry width is detected rather than assumed; see `parse_index_entries`.
+ * @param {Uint8Array} index_bytes
+ * @param {string} cell_hex
+ * @returns {any}
+ */
+export function find_block_for_cell(index_bytes, cell_hex) {
+    const ptr0 = passArray8ToWasm0(index_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.find_block_for_cell(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Every index entry with `block_offset` already resolved to an absolute file
+ * offset -- the byte range to Range-request, with no further arithmetic.
+ *
+ * This is the export a client should reach for. Between choosing the entry
+ * width, choosing the offset base and applying it, there are three chances to
+ * be wrong, and each one fails the same silent way: a plausible-looking offset
+ * that reads the wrong bytes, or a zero-length block that renders as "no data
+ * here" rather than as an error. All three happen in `ptiles-core` here.
+ *
+ * Entries whose offset arithmetic would wrap (only reachable with a corrupt
+ * index) are dropped rather than returned with a bogus value.
+ * @param {Uint8Array} header_bytes
+ * @param {Uint8Array} index_bytes
+ * @returns {any}
+ */
+export function index_entries_absolute(header_bytes, index_bytes) {
+    const ptr0 = passArray8ToWasm0(header_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(index_bytes, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.index_entries_absolute(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Business name search, JS-owns-fetch flavor.
+ *
+ * The `{STATE}.business_name_index.ptiles` sidecar (see
+ * `ptiles_core::business_search`'s module doc for its first-letter-bucket
+ * format) is a normal `.ptiles`-shaped file: header, dict, index, blocks.
+ * wasm does no I/O, so it doesn't open this file itself -- the intended JS
+ * flow mirrors what the demo already does for spatial layers
+ * (docs/INTEGRATION.md's "single whole-file fetch, parse header/index once,
+ * cache" notes) plus these two pure calls:
+ *
+ *   1. JS fetches (or already has, whole-file) the name-index file's bytes
+ *      and parses its header/index once, same as any other `.ptiles` file
+ *      -- the sidecar's index entries key on a 0-27 bucket value stored in
+ *      the normal `h3_cell` index field, not a real H3 cell.
+ *   2. `key_for_business_name_query(query)` -- call this wasm export to get
+ *      that 0-27 key without reimplementing the bucketing rule in JS.
+ *   3. JS looks up the index entry for that key, slices out its compressed
+ *      block, and decompresses it with `decompress_block` (dict-less, per
+ *      the builder -- pass an empty `dict`).
+ *   4. `match_business_name_block(block_bytes, query, limit)` -- call this
+ *      to decode the block's records and get back ranked `BusinessHit`s
+ *      (`{name, category_idx, lat, lon, cell: null, score}`), same scoring
+ *      (`2`=exact, `1`=prefix, `0`=substring) as the native
+ *      `search_business_indexed`/`search_business_brute_force` paths.
+ *
+ * No block ever needs re-fetching for a different query against the same
+ * state: once JS has cached the file's index it only pays for step 3's one
+ * block per distinct first-letter key.
+ * @param {string} query
+ * @returns {number}
+ */
+export function key_for_business_name_query(query) {
+    const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.key_for_business_name_query(ptr0, len0);
+    return ret;
+}
+
+/**
+ * See [`key_for_business_name_query`]'s doc comment for the full JS-side
+ * flow this is step 4 of. Pure decode-and-match over an already-fetched,
+ * already-decompressed name-index block -- no I/O, no H3 lookup.
+ * @param {Uint8Array} block_bytes
+ * @param {string} query
+ * @param {number} limit
+ * @returns {any}
+ */
+export function match_business_name_block(block_bytes, query, limit) {
+    const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.match_business_name_block(ptr0, len0, ptr1, len1, limit);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * The record bytes for one cell inside a decompressed merged block.
+ *
+ * Layers with a 38-byte index pack several cells per block behind a cell
+ * table; a record decoder handed the whole block parses that table as
+ * records and yields plausible garbage rather than an error. Returns `null`
+ * if the block does not contain the cell.
+ * @param {Uint8Array} block
+ * @param {string} cell_hex
+ * @returns {Uint8Array | undefined}
+ */
+export function merged_cell_slice(block, cell_hex) {
+    const ptr0 = passArray8ToWasm0(block, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.merged_cell_slice(ptr0, len0, ptr1, len1);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    let v3;
+    if (ret[0] !== 0) {
+        v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    }
+    return v3;
+}
+
+/**
+ * Decode a roads block and return the nearest labeled intersection to
+ * `(lat, lon)` — the "am I at an intersection?" query. `threshold_m` is
+ * optional (omit/`undefined` from JS for the SPEC.md default of 50 m).
+ * Returns `null` when nothing is within the threshold. Reports a mapped
+ * intersection point + its control type, not junction degree (the format
+ * stores no topology). JS supplies `block_bytes` already decompressed
+ * (no-I/O contract, same as `nearest_road`).
+ * @param {Uint8Array} block_bytes
+ * @param {number} lat
+ * @param {number} lon
+ * @param {number | null} [threshold_m]
+ * @returns {any}
+ */
+export function nearest_intersection(block_bytes, lat, lon, threshold_m) {
+    const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.nearest_intersection(ptr0, len0, lat, lon, !isLikeNone(threshold_m), isLikeNone(threshold_m) ? 0 : threshold_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decode a roads block and return the single nearest road segment to
+ * `(lat, lon)`, per plan addendum item 1: `{osm_id, name, road_class,
+ * snapped, distance_m, geometry}`. `threshold_m` is optional; omit (pass
+ * `None`/`undefined` from JS) to use the SPEC.md default of 50 m.
+ *
+ * JS supplies `block_bytes` already decompressed (no-fetch contract is
+ * unchanged — this does not do any I/O or H3 lookup itself). Returns
+ * `null` if no road is within the threshold.
+ * @param {Uint8Array} block_bytes
+ * @param {number} lat
+ * @param {number} lon
+ * @param {number | null} [threshold_m]
+ * @returns {any}
+ */
+export function nearest_road(block_bytes, lat, lon, threshold_m) {
+    const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.nearest_road(ptr0, len0, lat, lon, !isLikeNone(threshold_m), isLikeNone(threshold_m) ? 0 : threshold_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Ring-1 (6 cells) H3 neighbors of `cell_hex`, as lowercase hex strings.
+ * Demo/browser boundary for `ptiles_core::neighbor_cells` -- replaces
+ * `h3-js`'s `gridRing(cell, 1)` (used by the deployed demo's
+ * `BusinessReader.query` for nearby-business radius search).
+ * @param {string} cell_hex
+ * @returns {any[]}
+ */
+export function neighbor_cells(cell_hex) {
+    const ptr0 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.neighbor_cells(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * Parse the PTCI sampled index from a file's `aux` region.
+ *
+ * Returns `null` when `aux` is not a coarse index -- empty, too short, or
+ * holding something else. That is the normal case for every layer built
+ * before PTCI existed, and a caller should fall back to reading the full
+ * index. It *throws* when the region announces itself as PTCI and then does
+ * not hold up (unknown version, impossible sample count), because that means
+ * whatever wrote the file has a bug and is worth surfacing rather than
+ * silently degrading.
+ *
+ * The JS original (`parseCoarseIndex` in demo/index.html) returned null for
+ * both, and ignored the version byte entirely.
+ * @param {Uint8Array} aux
+ * @returns {any}
+ */
+export function parse_coarse_index(aux) {
+    const ptr0 = passArray8ToWasm0(aux, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.parse_coarse_index(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decode a bare run of index entries -- no count prefix, just entries -- at a
+ * known width, with `block_offset` left exactly as stored.
+ *
+ * This is the shape a PTCI partial read returns: `coarse_bracket` names a byte
+ * range that lands mid-index, so there is no count in front of it. Files
+ * carrying a coarse index are written by the current builder, which verifies
+ * its own offsets, so the stored values are already absolute and need no base
+ * applied -- but that is the caller's knowledge, not something derivable from
+ * a run, which is why this returns them unmodified.
+ *
+ * Trailing bytes that do not complete an entry are ignored.
+ * @param {Uint8Array} entries
+ * @param {number} entry_size
+ * @returns {any}
+ */
+export function parse_entry_run(entries, entry_size) {
+    const ptr0 = passArray8ToWasm0(entries, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.parse_entry_run(ptr0, len0, entry_size);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Parse a `.ptiles` file's 256-byte header (demo/browser boundary for
+ * `ptiles_core::Header::parse`). Lets JS learn `dict_offset`/`dict_length`/
+ * `index_offset`/`index_length`/`blocks_offset` from just the first 256
+ * bytes of a Range request, without JS re-implementing the fixed-offset
+ * layout from SPEC.md itself (`ptiles_core::header` is the single source of
+ * truth for that layout parity-checked against `ptiles/codec.py`).
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function parse_header(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.parse_header(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Parse a `.ptiles` file's spatial index section (the `index_offset`..
+ * `index_offset+index_length` byte range from the header) into its full
+ * entry list. Demo/browser boundary for `ptiles_core::parse_index_detected`
+ * so JS never has to hand-roll either entry layout.
+ *
+ * Entry width is detected, not assumed. This used to call `parse_index`,
+ * which forces the 19-byte v1 layout: on the 38-byte layers (parks, rail,
+ * places, signals, camera) that reads `block_offset` and `block_length` out
+ * of the zeroed bbox field, so every cell came back with a zero-length block
+ * and the caller saw "no data here" rather than an error.
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function parse_index_entries(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.parse_index_entries(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * What the reader concludes about a file's index layout, from its header and
+ * index bytes: entry width, why that width was chosen, offset base, and the
+ * stride the header declared.
+ *
+ * This existed nowhere on the JS side of the boundary. `parse_index_entries`
+ * takes index bytes alone, so it cannot see `blocks_offset` and cannot tell
+ * whether the offsets it returns are absolute, relative to the block region,
+ * or absolute-but-overshooting. Callers had to decide that themselves, and
+ * `demo/index.html`'s `pickOffsetBase` is what "themselves" meant -- a second
+ * implementation of the rule, in the language that got the index stride wrong.
+ *
+ * Prefer [`index_entries_absolute`] when all you want is offsets you can
+ * fetch. Use this when you need to *report* the layout, e.g. to warn that a
+ * file's header contradicts its own index.
+ * @param {Uint8Array} header_bytes
+ * @param {Uint8Array} index_bytes
+ * @returns {any}
+ */
+export function parse_index_layout(header_bytes, index_bytes) {
+    const ptr0 = passArray8ToWasm0(header_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(index_bytes, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.parse_index_layout(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decode a roads block into its full segment list (geometry + name +
+ * every other `RoadSegment` field), identical shape to `decode_roads`.
+ * Exists as its own export (plan addendum item 1's "roads" query) so
+ * callers reach for a query-shaped name rather than the raw decoder;
+ * ring-1 neighbor-cell expansion is NOT done here -- JS owns block
+ * fetching (which cell(s) to fetch bytes for), so ring handling stays in
+ * JS per the plan's `query.rs` split (`neighbor_cells` in core, calling
+ * convention in JS/CLI).
+ * @param {Uint8Array} block_bytes
+ * @returns {any}
+ */
+export function roads_in_block(block_bytes) {
+    const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.roads_in_block(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Route on pre-decoded road segments (JS owns fetch + zstd + corridor).
+ * `segments_js`: `[{coords:[[lon,lat],...], road_class, oneway?, speed_limit_kmh?}, ...]`
+ * `zone_middle`: bool[] same length (true = arterial-only middle); empty/null = all end-cap.
+ * Returns `{distance_m, duration_s, path:[[lat,lon],...]}` or null.
+ * @param {any} segments_js
+ * @param {any} zone_middle
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {number | null} [snap_m]
+ * @returns {any}
+ */
+export function route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, snap_m) {
+    const ret = wasm.route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, !isLikeNone(snap_m), isLikeNone(snap_m) ? 0 : snap_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Rank road/building/business candidates for a GPS fix (plan addendum
+ * item 2: emission-probability scoring lives in core, this is just the
+ * wasm boundary). `buildings_block`/`business_block` are optional --
+ * pass an empty slice (`new Uint8Array()`) from JS when a layer isn't
+ * available for the current cell; buildings need `cell_center_lat`/
+ * `cell_center_lon` to decode (v8 buildings are cell-relative-delta
+ * encoded, see `buildings.rs`), which is also why callers must supply
+ * them even when `buildings_block` is empty.
+ * @param {string} fix_json
+ * @param {Uint8Array} roads_block
+ * @param {Uint8Array} buildings_block
+ * @param {Uint8Array} business_block
+ * @param {number} cell_center_lat
+ * @param {number} cell_center_lon
+ * @returns {any}
+ */
+export function score_candidates(fix_json, roads_block, buildings_block, business_block, cell_center_lat, cell_center_lon) {
+    const ptr0 = passStringToWasm0(fix_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(roads_block, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray8ToWasm0(buildings_block, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passArray8ToWasm0(business_block, wasm.__wbindgen_malloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.score_candidates(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, cell_center_lat, cell_center_lon);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+function __wbg_get_imports() {
+    const import0 = {
+        __proto__: null,
+        __wbg_Error_fdd633d4bb5dd76a: function(arg0, arg1) {
+            const ret = Error(getStringFromWasm0(arg0, arg1));
+            return ret;
+        },
+        __wbg_Number_c4bdf66bb78f7977: function(arg0) {
+            const ret = Number(arg0);
+            return ret;
+        },
+        __wbg_String_8564e559799eccda: function(arg0, arg1) {
+            const ret = String(arg1);
+            const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg___wbindgen_boolean_get_edaed31a367ce1bd: function(arg0) {
+            const v = arg0;
+            const ret = typeof(v) === 'boolean' ? v : undefined;
+            return isLikeNone(ret) ? 0xFFFFFF : ret ? 1 : 0;
+        },
+        __wbg___wbindgen_debug_string_8a447059637473e2: function(arg0, arg1) {
+            const ret = debugString(arg1);
+            const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg___wbindgen_in_4990f46af709e33c: function(arg0, arg1) {
+            const ret = arg0 in arg1;
+            return ret;
+        },
+        __wbg___wbindgen_is_function_acc5528be2b923f2: function(arg0) {
+            const ret = typeof(arg0) === 'function';
+            return ret;
+        },
+        __wbg___wbindgen_is_null_6d937fbfb6478470: function(arg0) {
+            const ret = arg0 === null;
+            return ret;
+        },
+        __wbg___wbindgen_is_object_0beba4a1980d3eea: function(arg0) {
+            const val = arg0;
+            const ret = typeof(val) === 'object' && val !== null;
+            return ret;
+        },
+        __wbg___wbindgen_is_undefined_721f8decd50c87a3: function(arg0) {
+            const ret = arg0 === undefined;
+            return ret;
+        },
+        __wbg___wbindgen_jsval_loose_eq_4b9aba9e5b3c4582: function(arg0, arg1) {
+            const ret = arg0 == arg1;
+            return ret;
+        },
+        __wbg___wbindgen_number_get_1cc01dd708740256: function(arg0, arg1) {
+            const obj = arg1;
+            const ret = typeof(obj) === 'number' ? obj : undefined;
+            getDataViewMemory0().setFloat64(arg0 + 8 * 1, isLikeNone(ret) ? 0 : ret, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
+        },
+        __wbg___wbindgen_string_get_71bb4348194e31f0: function(arg0, arg1) {
+            const obj = arg1;
+            const ret = typeof(obj) === 'string' ? obj : undefined;
+            var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            var len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg___wbindgen_throw_ea4887a5f8f9a9db: function(arg0, arg1) {
+            throw new Error(getStringFromWasm0(arg0, arg1));
+        },
+        __wbg_call_8e98ed2f3c86c4b5: function() { return handleError(function (arg0, arg1) {
+            const ret = arg0.call(arg1);
+            return ret;
+        }, arguments); },
+        __wbg_done_b62d4a7d2286852a: function(arg0) {
+            const ret = arg0.done;
+            return ret;
+        },
+        __wbg_get_9a29be2cb383ed9a: function() { return handleError(function (arg0, arg1) {
+            const ret = Reflect.get(arg0, arg1);
+            return ret;
+        }, arguments); },
+        __wbg_get_unchecked_54a4374c38e08460: function(arg0, arg1) {
+            const ret = arg0[arg1 >>> 0];
+            return ret;
+        },
+        __wbg_get_with_ref_key_6412cf3094599694: function(arg0, arg1) {
+            const ret = arg0[arg1];
+            return ret;
+        },
+        __wbg_instanceof_ArrayBuffer_2a7bb09fee70c2da: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof ArrayBuffer;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
+        __wbg_instanceof_Uint8Array_f080092dc70f5d58: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof Uint8Array;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
+        __wbg_isArray_145a34fd0a38d37b: function(arg0) {
+            const ret = Array.isArray(arg0);
+            return ret;
+        },
+        __wbg_isSafeInteger_a3389a198582f5f6: function(arg0) {
+            const ret = Number.isSafeInteger(arg0);
+            return ret;
+        },
+        __wbg_iterator_cc47ba25a2be735a: function() {
+            const ret = Symbol.iterator;
+            return ret;
+        },
+        __wbg_length_589238bdcf171f0e: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
+        __wbg_length_c6054974c0a6cdb9: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
+        __wbg_new_2e117a478906f062: function() {
+            const ret = new Object();
+            return ret;
+        },
+        __wbg_new_36e147a8ced3c6e0: function() {
+            const ret = new Array();
+            return ret;
+        },
+        __wbg_new_81880fb5002cb255: function(arg0) {
+            const ret = new Uint8Array(arg0);
+            return ret;
+        },
+        __wbg_next_0c4066e251d2eff9: function() { return handleError(function (arg0) {
+            const ret = arg0.next();
+            return ret;
+        }, arguments); },
+        __wbg_next_402fa10b59ab20c3: function(arg0) {
+            const ret = arg0.next;
+            return ret;
+        },
+        __wbg_prototypesetcall_d721637c7ca66eb8: function(arg0, arg1, arg2) {
+            Uint8Array.prototype.set.call(getArrayU8FromWasm0(arg0, arg1), arg2);
+        },
+        __wbg_set_6be42768c690e380: function(arg0, arg1, arg2) {
+            arg0[arg1] = arg2;
+        },
+        __wbg_set_dc601f4a69da0bc2: function(arg0, arg1, arg2) {
+            arg0[arg1 >>> 0] = arg2;
+        },
+        __wbg_value_49f783bb59765962: function(arg0) {
+            const ret = arg0.value;
+            return ret;
+        },
+        __wbindgen_cast_0000000000000001: function(arg0) {
+            // Cast intrinsic for `F64 -> Externref`.
+            const ret = arg0;
+            return ret;
+        },
+        __wbindgen_cast_0000000000000002: function(arg0) {
+            // Cast intrinsic for `I64 -> Externref`.
+            const ret = arg0;
+            return ret;
+        },
+        __wbindgen_cast_0000000000000003: function(arg0, arg1) {
+            // Cast intrinsic for `Ref(String) -> Externref`.
+            const ret = getStringFromWasm0(arg0, arg1);
+            return ret;
+        },
+        __wbindgen_cast_0000000000000004: function(arg0) {
+            // Cast intrinsic for `U64 -> Externref`.
+            const ret = BigInt.asUintN(64, arg0);
+            return ret;
+        },
+        __wbindgen_init_externref_table: function() {
+            const table = wasm.__wbindgen_externrefs;
+            const offset = table.grow(4);
+            table.set(0, undefined);
+            table.set(offset + 0, undefined);
+            table.set(offset + 1, null);
+            table.set(offset + 2, true);
+            table.set(offset + 3, false);
+        },
+    };
+    return {
+        __proto__: null,
+        "./ptiles_client_bg.js": import0,
+    };
+}
+
+const AdminReaderFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_adminreader_free(ptr, 1));
+
+function addToExternrefTable0(obj) {
+    const idx = wasm.__externref_table_alloc();
+    wasm.__wbindgen_externrefs.set(idx, obj);
+    return idx;
+}
+
+function debugString(val) {
+    // primitive types
+    const type = typeof val;
+    if (type == 'number' || type == 'boolean' || val == null) {
+        return  `${val}`;
+    }
+    if (type == 'string') {
+        return `"${val}"`;
+    }
+    if (type == 'symbol') {
+        const description = val.description;
+        if (description == null) {
+            return 'Symbol';
+        } else {
+            return `Symbol(${description})`;
+        }
+    }
+    if (type == 'function') {
+        const name = val.name;
+        if (typeof name == 'string' && name.length > 0) {
+            return `Function(${name})`;
+        } else {
+            return 'Function';
+        }
+    }
+    // objects
+    if (Array.isArray(val)) {
+        const length = val.length;
+        let debug = '[';
+        if (length > 0) {
+            debug += debugString(val[0]);
+        }
+        for(let i = 1; i < length; i++) {
+            debug += ', ' + debugString(val[i]);
+        }
+        debug += ']';
+        return debug;
+    }
+    // Test for built-in
+    const builtInMatches = /\[object ([^\]]+)\]/.exec(toString.call(val));
+    let className;
+    if (builtInMatches && builtInMatches.length > 1) {
+        className = builtInMatches[1];
+    } else {
+        // Failed to match the standard '[object ClassName]'
+        return toString.call(val);
+    }
+    if (className == 'Object') {
+        // we're a user defined class or Object
+        // JSON.stringify avoids problems with cycles, and is generally much
+        // easier than looping through ownProperties of `val`.
+        try {
+            return 'Object(' + JSON.stringify(val) + ')';
+        } catch (_) {
+            return 'Object';
+        }
+    }
+    // errors
+    if (val instanceof Error) {
+        return `${val.name}: ${val.message}\n${val.stack}`;
+    }
+    // TODO we could test for more things here, like `Set`s and `Map`s.
+    return className;
+}
+
+function getArrayF64FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getFloat64ArrayMemory0().subarray(ptr / 8, ptr / 8 + len);
+}
+
+function getArrayJsValueFromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    const mem = getDataViewMemory0();
+    const result = [];
+    for (let i = ptr; i < ptr + 4 * len; i += 4) {
+        result.push(wasm.__wbindgen_externrefs.get(mem.getUint32(i, true)));
+    }
+    wasm.__externref_drop_slice(ptr, len);
+    return result;
+}
+
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
+let cachedDataViewMemory0 = null;
+function getDataViewMemory0() {
+    if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
+        cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
+    }
+    return cachedDataViewMemory0;
+}
+
+let cachedFloat64ArrayMemory0 = null;
+function getFloat64ArrayMemory0() {
+    if (cachedFloat64ArrayMemory0 === null || cachedFloat64ArrayMemory0.byteLength === 0) {
+        cachedFloat64ArrayMemory0 = new Float64Array(wasm.memory.buffer);
+    }
+    return cachedFloat64ArrayMemory0;
+}
+
+function getStringFromWasm0(ptr, len) {
+    return decodeText(ptr >>> 0, len);
+}
+
+let cachedUint8ArrayMemory0 = null;
+function getUint8ArrayMemory0() {
+    if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0) {
+        cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
+    }
+    return cachedUint8ArrayMemory0;
+}
+
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        const idx = addToExternrefTable0(e);
+        wasm.__wbindgen_exn_store(idx);
+    }
+}
+
+function isLikeNone(x) {
+    return x === undefined || x === null;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passStringToWasm0(arg, malloc, realloc) {
+    if (realloc === undefined) {
+        const buf = cachedTextEncoder.encode(arg);
+        const ptr = malloc(buf.length, 1) >>> 0;
+        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+        WASM_VECTOR_LEN = buf.length;
+        return ptr;
+    }
+
+    let len = arg.length;
+    let ptr = malloc(len, 1) >>> 0;
+
+    const mem = getUint8ArrayMemory0();
+
+    let offset = 0;
+
+    for (; offset < len; offset++) {
+        const code = arg.charCodeAt(offset);
+        if (code > 0x7F) break;
+        mem[ptr + offset] = code;
+    }
+    if (offset !== len) {
+        if (offset !== 0) {
+            arg = arg.slice(offset);
+        }
+        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+        const ret = cachedTextEncoder.encodeInto(arg, view);
+
+        offset += ret.written;
+        ptr = realloc(ptr, len, offset, 1) >>> 0;
+    }
+
+    WASM_VECTOR_LEN = offset;
+    return ptr;
+}
+
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_externrefs.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
+}
+
+let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+cachedTextDecoder.decode();
+const MAX_SAFARI_DECODE_BYTES = 2146435072;
+let numBytesDecoded = 0;
+function decodeText(ptr, len) {
+    numBytesDecoded += len;
+    if (numBytesDecoded >= MAX_SAFARI_DECODE_BYTES) {
+        cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+        cachedTextDecoder.decode();
+        numBytesDecoded = len;
+    }
+    return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
+
+const cachedTextEncoder = new TextEncoder();
+
+if (!('encodeInto' in cachedTextEncoder)) {
+    cachedTextEncoder.encodeInto = function (arg, view) {
+        const buf = cachedTextEncoder.encode(arg);
+        view.set(buf);
+        return {
+            read: arg.length,
+            written: buf.length
+        };
+    };
+}
+
+let WASM_VECTOR_LEN = 0;
+
+let wasmModule, wasmInstance, wasm;
+function __wbg_finalize_init(instance, module) {
+    wasmInstance = instance;
+    wasm = instance.exports;
+    wasmModule = module;
+    cachedDataViewMemory0 = null;
+    cachedFloat64ArrayMemory0 = null;
+    cachedUint8ArrayMemory0 = null;
+    wasm.__wbindgen_start();
+    return wasm;
+}
+
+async function __wbg_load(module, imports) {
+    if (typeof Response === 'function' && module instanceof Response) {
+        if (typeof WebAssembly.instantiateStreaming === 'function') {
+            try {
+                return await WebAssembly.instantiateStreaming(module, imports);
+            } catch (e) {
+                const validResponse = module.ok && expectedResponseType(module.type);
+
+                if (validResponse && module.headers.get('Content-Type') !== 'application/wasm') {
+                    console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve Wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n", e);
+
+                } else { throw e; }
+            }
+        }
+
+        const bytes = await module.arrayBuffer();
+        return await WebAssembly.instantiate(bytes, imports);
+    } else {
+        const instance = await WebAssembly.instantiate(module, imports);
+
+        if (instance instanceof WebAssembly.Instance) {
+            return { instance, module };
+        } else {
+            return instance;
+        }
+    }
+
+    function expectedResponseType(type) {
+        switch (type) {
+            case 'basic': case 'cors': case 'default': return true;
+        }
+        return false;
+    }
+}
+
+function initSync(module) {
+    if (wasm !== undefined) return wasm;
+
+
+    if (module !== undefined) {
+        if (Object.getPrototypeOf(module) === Object.prototype) {
+            ({module} = module)
+        } else {
+            console.warn('using deprecated parameters for `initSync()`; pass a single object instead')
+        }
+    }
+
+    const imports = __wbg_get_imports();
+    if (!(module instanceof WebAssembly.Module)) {
+        module = new WebAssembly.Module(module);
+    }
+    const instance = new WebAssembly.Instance(module, imports);
+    return __wbg_finalize_init(instance, module);
+}
+
+async function __wbg_init(module_or_path) {
+    if (wasm !== undefined) return wasm;
+
+
+    if (module_or_path !== undefined) {
+        if (Object.getPrototypeOf(module_or_path) === Object.prototype) {
+            ({module_or_path} = module_or_path)
+        } else {
+            console.warn('using deprecated parameters for the initialization function; pass a single object instead')
+        }
+    }
+
+    if (module_or_path === undefined) {
+        module_or_path = new URL('ptiles_client_bg.wasm', import.meta.url);
+    }
+    const imports = __wbg_get_imports();
+
+    if (typeof module_or_path === 'string' || (typeof Request === 'function' && module_or_path instanceof Request) || (typeof URL === 'function' && module_or_path instanceof URL)) {
+        module_or_path = fetch(module_or_path);
+    }
+
+    const { instance, module } = await __wbg_load(await module_or_path, imports);
+
+    return __wbg_finalize_init(instance, module);
+}
+
+export { initSync, __wbg_init as default };

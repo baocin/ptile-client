@@ -37,6 +37,13 @@ const P = createPtiles(require(WASM_PKG));
 const manifest = JSON.parse(readFileSync(join(ROOT, "conformance", "manifest.json"), "utf8"));
 const FILES = readdirSync(CORPUS).filter((f) => f.endsWith(".ptiles")).sort();
 
+// What a real caller has: an H3 id from latLngToCell, whose low 21 bits are
+// masked off. The index stores raw ids with those bits set, so looking up by a
+// raw entry id would pass even if normalisation were missing entirely -- which
+// is exactly how the first version of the reader shipped drawing nothing.
+const CELL_MASK = 0xffffffffffe00000n;
+const asCaller = (cell) => cell & CELL_MASK;
+
 function source(name) {
   const fd = readFileSync(join(CORPUS, name));
   return P.bytesSource(new Uint8Array(fd.buffer, fd.byteOffset, fd.length));
@@ -71,7 +78,7 @@ test("every indexed cell yields record bytes", async () => {
     // A spread rather than all of them: 1598 blocks through zstd is slow, and
     // core/tests/conformance_corpus.rs already decompresses every one.
     for (let i = 0; i < layer.entries.length; i += 11) {
-      const cell = layer.entries[i].h3_cell;
+      const cell = asCaller(layer.entries[i].h3_cell);
       const rec = await layer.cellRecords(cell);
       assert.ok(
         rec && rec.length > 0,
@@ -94,7 +101,7 @@ test("merged layers slice the cell out rather than returning the whole block", a
   let checked = 0;
   for (const e of layer.entries.slice(0, 12)) {
     const block = await layer.block(e);
-    const slice = await layer.cellRecords(e.h3_cell);
+    const slice = await layer.cellRecords(asCaller(e.h3_cell));
     assert.ok(slice, `${name}: cell ${e.h3_cell.toString(16)} sliced to nothing`);
     assert.ok(
       slice.length < block.length,
@@ -121,7 +128,7 @@ test("records decode through wasm on every layer that has a decoder", async () =
     const layer = await P.open(source(name));
     let decoded = 0;
     for (const e of layer.entries.slice(0, 6)) {
-      const rec = await layer.cellRecords(e.h3_cell);
+      const rec = await layer.cellRecords(asCaller(e.h3_cell));
       if (!rec) continue;
       const out = P.decode[kind](rec);
       assert.ok(Array.isArray(out), `${name}: ${kind} did not return an array`);
@@ -144,7 +151,7 @@ test("the coarse path returns byte-identical records to the full path", async ()
 
     let compared = 0;
     for (let i = 0; i < full.entries.length; i += 29) {
-      const cell = full.entries[i].h3_cell;
+      const cell = asCaller(full.entries[i].h3_cell);
       const a = await full.cellRecords(cell);
       const b = await coarse.cellRecords(cell);
       assert.ok(b, `${name}: coarse path found nothing for cell ${cell.toString(16)}`);
@@ -168,6 +175,24 @@ test("an unindexed cell returns null, not an exception", async () => {
   const layer = await P.open(source("TN.rail.ptiles"));
   assert.equal(await layer.cellRecords(0n), null);
   assert.equal(layer.entryFor(0n), null);
+});
+
+// The raw stored id and the masked id a caller supplies must reach the same
+// entry. If only one of them works the layer renders empty against real
+// input while every test that used stored ids still passes.
+test("a cell resolves whether it is normalised or raw", async () => {
+  const layer = await P.open(source("TN.roads.ptiles"));
+  for (const e of layer.entries.slice(0, 8)) {
+    const viaRaw = layer.entryFor(e.h3_cell);
+    const viaMasked = layer.entryFor(asCaller(e.h3_cell));
+    assert.ok(viaRaw, `raw id ${e.h3_cell.toString(16)} did not resolve`);
+    assert.equal(
+      viaMasked, viaRaw,
+      `masked id ${asCaller(e.h3_cell).toString(16)} resolved differently from ` +
+      `the stored id ${e.h3_cell.toString(16)} -- a caller using latLngToCell ` +
+      `would miss every cell and the layer would render empty`,
+    );
+  }
 });
 
 test("H3 comes from core, and round-trips", () => {

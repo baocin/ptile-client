@@ -48,6 +48,16 @@ pub const COARSE_VERSION: u8 = 1;
 /// Fixed-size prefix before the samples.
 const HEADER_LEN: usize = 20;
 
+/// Low 21 bits of an H3 id: the unused digits below resolution 7.
+const CELL_FILLER_BITS: u64 = 0x1f_ffff;
+
+/// Drop an H3 id's unused low digits so ids that name the same res-7 cell
+/// compare equal regardless of whether the caller kept the filler bits.
+#[inline]
+fn normalize_cell(cell: u64) -> u64 {
+    cell & !CELL_FILLER_BITS
+}
+
 /// Bytes per sample: `h3_cell` (8) + `entry_index` (4).
 const SAMPLE_LEN: usize = 12;
 
@@ -184,12 +194,28 @@ impl CoarseIndex {
             return None;
         }
 
+        // Compare normalised ids on both sides.
+        //
+        // A res-7 H3 id carries filler digits in its low 21 bits, and callers
+        // do not agree on whether to keep them: an id straight out of
+        // `latLngToCell` has them set, while a caller that masked the cell to
+        // its res-7 parent has them cleared. The samples store whatever the
+        // builder wrote. Comparing the two forms directly makes a masked query
+        // sort *below* the sample naming its own cell, so the search lands one
+        // sample early and the run it names does not contain the entry --
+        // which surfaces as "cell not in this file", not as an error.
+        //
+        // Zeroing those bits is order-preserving: distinct res-7 cells differ
+        // in digits above bit 21, so the comparison is unchanged for every
+        // pair that was already unambiguous.
+        let want = normalize_cell(cell);
+
         // Last sample with `h3_cell <= cell`.
         let mut lo = 0usize;
         let mut hi = self.samples.len();
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            if self.samples[mid].h3_cell <= cell {
+            if normalize_cell(self.samples[mid].h3_cell) <= want {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -218,6 +244,14 @@ mod tests {
     use super::*;
     use alloc::vec;
 
+    /// H3-shaped ids. The first version of these tests used 100/200/300, which
+    /// all sit below the 21 filler bits and therefore normalise to the same
+    /// value -- so they silently stopped distinguishing anything the moment
+    /// `bracket` started normalising. Real res-7 ids look like this.
+    const C1: u64 = 0x8726_4d10_6fff_ffff;
+    const C2: u64 = 0x8726_4d30_6fff_ffff;
+    const C3: u64 = 0x8726_4d50_6fff_ffff;
+
     fn build(version: u8, stride: u32, entry_count: u32, samples: &[(u64, u32)]) -> Vec<u8> {
         let mut b = Vec::new();
         b.extend_from_slice(&COARSE_MAGIC.to_le_bytes());
@@ -243,24 +277,24 @@ mod tests {
 
     #[test]
     fn round_trips_a_built_index() {
-        let raw = build(1, 256, 1000, &[(100, 0), (200, 256), (300, 512)]);
+        let raw = build(1, 256, 1000, &[(C1, 0), (C2, 256), (C3, 512)]);
         let c = parse(&raw).unwrap().unwrap();
         assert_eq!(c.stride, 256);
         assert_eq!(c.entry_count, 1000);
         assert_eq!(c.samples.len(), 3);
-        assert_eq!(c.samples[1].h3_cell, 200);
+        assert_eq!(c.samples[1].h3_cell, C2);
         assert_eq!(c.samples[1].entry_index, 256);
     }
 
     #[test]
     fn an_unknown_version_fails_rather_than_being_read_as_v1() {
-        let raw = build(2, 256, 1000, &[(100, 0)]);
+        let raw = build(2, 256, 1000, &[(C1, 0)]);
         assert!(parse(&raw).is_err());
     }
 
     #[test]
     fn a_sample_count_the_region_cannot_hold_is_an_error() {
-        let mut raw = build(1, 256, 1000, &[(100, 0), (200, 256)]);
+        let mut raw = build(1, 256, 1000, &[(C1, 0), (C2, 256)]);
         // Claim 9999 samples while carrying 2.
         raw[12..16].copy_from_slice(&9999u32.to_le_bytes());
         assert!(parse(&raw).is_err());
@@ -268,23 +302,41 @@ mod tests {
 
     #[test]
     fn brackets_span_the_sample_at_or_below_through_the_next() {
-        let c = parse(&build(1, 256, 1000, &[(100, 0), (200, 256), (300, 512)]))
+        let c = parse(&build(1, 256, 1000, &[(C1, 0), (C2, 256), (C3, 512)]))
             .unwrap()
             .unwrap();
-        assert_eq!(c.bracket(150), Some(CoarseBracket { start: 0, end: 256 }));
-        assert_eq!(c.bracket(200), Some(CoarseBracket { start: 256, end: 512 }));
+        // Between the first and second samples.
+        assert_eq!(c.bracket(C1 + (1 << 25)), Some(CoarseBracket { start: 0, end: 256 }));
+        // Exactly on a sample.
+        assert_eq!(c.bracket(C2), Some(CoarseBracket { start: 256, end: 512 }));
         // Above the last sample: runs to the end of the index.
-        assert_eq!(c.bracket(9999), Some(CoarseBracket { start: 512, end: 999 }));
+        assert_eq!(c.bracket(u64::MAX), Some(CoarseBracket { start: 512, end: 999 }));
+    }
+
+    /// A caller with a masked id and a builder that stored a raw one must
+    /// reach the same bracket. They did not, and a partial open reported every
+    /// cell missing on the sample boundaries.
+    #[test]
+    fn a_masked_cell_brackets_the_same_as_the_raw_id() {
+        let raw = 0x872_64d1_06ff_ffffu64;
+        let masked = raw & !0x1f_ffff;
+        assert_ne!(raw, masked, "the test id must actually carry filler bits");
+
+        let c = parse(&build(1, 256, 1000, &[(raw, 256), (raw + (1 << 25), 512)]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(c.bracket(raw), c.bracket(masked));
+        assert_eq!(c.bracket(masked).map(|b| b.start), Some(256));
     }
 
     #[test]
     fn a_cell_below_the_first_sample_is_not_in_the_file() {
-        let c = parse(&build(1, 256, 1000, &[(100, 0), (200, 256)]))
+        let c = parse(&build(1, 256, 1000, &[(C1, 0), (C2, 256)]))
             .unwrap()
             .unwrap();
-        assert_eq!(c.bracket(99), None);
+        assert_eq!(c.bracket(C1 - (1 << 25)), None);
         // Exactly the first sample is in the file.
-        assert!(c.bracket(100).is_some());
+        assert!(c.bracket(C1).is_some());
     }
 
     #[test]
@@ -309,7 +361,7 @@ mod tests {
     /// behaviour rather than assuming it.
     #[test]
     fn a_truncated_sample_table_errors_not_panics() {
-        let full = build(1, 256, 1000, &[(100, 0), (200, 256), (300, 512)]);
+        let full = build(1, 256, 1000, &[(C1, 0), (C2, 256), (C3, 512)]);
         for cut in HEADER_LEN..full.len() {
             let _ = parse(&full[..cut]);
         }

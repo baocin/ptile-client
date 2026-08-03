@@ -36,6 +36,18 @@
  *   in the browser: `await init()` before calling this).
  */
 export function createPtiles(wasm) {
+  // H3 res-7 ids carry filler digits in their low 21 bits, so the id a builder
+  // stored and the id a caller looks up with are not always bit-identical even
+  // when they name the same cell. Every lookup normalises both sides by
+  // zeroing those bits; the entry's *stored* id is what merged-block slicing
+  // needs, so entries keep theirs untouched.
+  //
+  // Getting this wrong is silent: a lookup simply misses and the layer renders
+  // empty, which is indistinguishable from sparse coverage. It is how the
+  // first version of this module drew nothing at all.
+  const CELL_MASK = 0xffffffffffe00000n;
+  const norm = (cell) => BigInt(cell) & CELL_MASK;
+
   // --------------------------------------------------------------- sources
 
   /**
@@ -148,7 +160,7 @@ export function createPtiles(wasm) {
       this.dict = dict;
       this.blocks = new Map();
       this.byCell = new Map();
-      for (const e of entries) this.byCell.set(e.h3_cell, e);
+      for (const e of entries) this.byCell.set(norm(e.h3_cell), e);
     }
 
     /** True when blocks pack several cells behind a table and must be sliced. */
@@ -165,7 +177,7 @@ export function createPtiles(wasm) {
     }
 
     entryFor(cell) {
-      return this.byCell.get(BigInt(cell)) ?? null;
+      return this.byCell.get(norm(cell)) ?? null;
     }
 
     /** Decompressed block bytes for an entry, cached in memory. */
@@ -191,12 +203,13 @@ export function createPtiles(wasm) {
      * optional.
      */
     async cellRecords(cell) {
-      const cellBig = BigInt(cell);
-      const entry = this.entryFor(cellBig);
+      const entry = this.entryFor(cell);
       if (!entry || entry.block_length === 0) return null;
       const block = await this.block(entry);
       if (!this.merged) return block;
-      return wasm.merged_cell_slice(block, cellBig.toString(16)) ?? null;
+      // Slice by the id the builder stored, not the normalised lookup key --
+      // the merged block's cell table holds stored ids.
+      return wasm.merged_cell_slice(block, entry.h3_cell.toString(16)) ?? null;
     }
   }
 
@@ -303,10 +316,10 @@ export function createPtiles(wasm) {
     }
 
     async cellRecords(cell) {
-      const cellBig = BigInt(cell);
-      const run = await this.entriesNear(cellBig);
+      const want = norm(cell);
+      const run = await this.entriesNear(cell);
       if (!run) return null;
-      const entry = run.find((e) => e.h3_cell === cellBig);
+      const entry = run.find((e) => norm(e.h3_cell) === want);
       if (!entry || entry.block_length === 0) return null;
 
       const k = entry.block_offset;
@@ -317,7 +330,7 @@ export function createPtiles(wasm) {
         block = wasm.decompress_block(raw, this.dict);
         this.blocks.set(k, block);
       }
-      return wasm.merged_cell_slice(block, cellBig.toString(16)) ?? null;
+      return wasm.merged_cell_slice(block, entry.h3_cell.toString(16)) ?? null;
     }
   }
 
