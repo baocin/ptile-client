@@ -261,6 +261,49 @@ pub fn parse_index_sized(
     Ok(entries)
 }
 
+/// Parse a bare run of index entries: no 4-byte count, just entries.
+///
+/// This is what a *partial* index read returns. A client using the PTCI coarse
+/// index fetches only the byte range one bracket names
+/// ([`crate::coarse::CoarseBracket::byte_range`]), which lands mid-section with
+/// no count in front of it. Without this, such a client has to decode entries
+/// itself -- and hand-decoding index entries in the client is the single
+/// mistake this crate exists to prevent.
+///
+/// The width cannot be detected from a run: detection needs the header's
+/// declared `index_length` and a whole section to validate against, and a
+/// 38-byte run read as 19-byte yields entries whose offsets come from the
+/// zeroed bbox bytes, i.e. silently empty. Callers get the width from
+/// [`crate::index_layout`] on the full header+index, or know it because the
+/// file carries a coarse index (which only the 38-byte builder writes).
+///
+/// Trailing bytes that do not complete an entry are ignored, so a caller that
+/// rounded its range outward gets the entries that are whole rather than an
+/// error.
+pub fn parse_entry_run(data: &[u8], entry_size: usize) -> Result<Vec<IndexEntry>, DecodeError> {
+    if entry_size == 0 {
+        return Err(DecodeError::UnexpectedEof {
+            offset: 0,
+            needed: 1,
+        });
+    }
+    if !KNOWN_ENTRY_SIZES.contains(&entry_size) {
+        // Refuse a width this build cannot read rather than producing entries
+        // from misaligned bytes.
+        return Err(DecodeError::UnsupportedSectionVersion {
+            section: "index entry width",
+            found: entry_size.min(u8::MAX as usize) as u8,
+            supported: ENTRY_SIZE_V2 as u8,
+        });
+    }
+    let count = data.len() / entry_size;
+    let mut entries = Vec::with_capacity(count);
+    for i in 0..count {
+        entries.push(read_entry(data, i * entry_size, entry_size));
+    }
+    Ok(entries)
+}
+
 /// Detect the entry width and parse, reporting how the width was chosen.
 ///
 /// `index_length` is the header's declared value when available; pass `None`

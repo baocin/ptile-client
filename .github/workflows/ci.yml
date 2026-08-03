@@ -143,6 +143,9 @@ jobs:
       # real file was parsed -- it is the JS half of the same guard that made
       # the cargo test job red, and it is satisfied by the corpus, not waived.
       - run: node --test "demo/test/*.test.mjs"
+      # web-demo/ reads through wasm only, so its tests exercise the shipping
+      # module itself rather than functions scraped out of an HTML file.
+      - run: node --test "web-demo/test/*.test.mjs"
 
   conformance:
     name: conformance corpus

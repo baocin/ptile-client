@@ -80,7 +80,7 @@ pub use header::Header;
 pub use http_source::HttpSource;
 pub use index::{
     ENTRY_SIZE_V1, ENTRY_SIZE_V2, EntrySizeSource, IndexEntry, ParsedIndex,
-    binary_search as index_binary_search, parse_index, parse_index_detected,
+    binary_search as index_binary_search, parse_entry_run, parse_index, parse_index_detected,
 };
 #[cfg(feature = "std")]
 pub use source::FileSource;

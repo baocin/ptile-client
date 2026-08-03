@@ -37,7 +37,8 @@ use ptiles_core::{
     index_binary_search as core_index_binary_search, merged_cell_slice as core_merged_cell_slice,
     parse_index_detected as core_parse_index_detected, decode_cameras as core_decode_cameras,
     decode_signals as core_decode_signals, index_layout as core_index_layout,
-    parse_coarse_index as core_parse_coarse_index, Header,
+    parse_coarse_index as core_parse_coarse_index, parse_entry_run as core_parse_entry_run,
+    Header,
 };
 
 // `business.rs`'s `osm_id: i64` (unlike every other layer's delta-coded u64,
@@ -641,6 +642,33 @@ struct BracketRange {
     /// Inclusive byte range, the form an HTTP `Range` header wants.
     byte_from: u64,
     byte_to: u64,
+}
+
+/// Decode a bare run of index entries -- no count prefix, just entries -- at a
+/// known width, with `block_offset` left exactly as stored.
+///
+/// This is the shape a PTCI partial read returns: `coarse_bracket` names a byte
+/// range that lands mid-index, so there is no count in front of it. Files
+/// carrying a coarse index are written by the current builder, which verifies
+/// its own offsets, so the stored values are already absolute and need no base
+/// applied -- but that is the caller's knowledge, not something derivable from
+/// a run, which is why this returns them unmodified.
+///
+/// Trailing bytes that do not complete an entry are ignored.
+#[wasm_bindgen]
+pub fn parse_entry_run(entries: &[u8], entry_size: usize) -> Result<JsValue, JsValue> {
+    let parsed = core_parse_entry_run(entries, entry_size)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let out: Vec<AbsoluteEntry> = parsed
+        .iter()
+        .map(|e| AbsoluteEntry {
+            h3_cell: e.h3_cell,
+            block_offset: e.block_offset,
+            block_length: e.block_length,
+            feature_count: e.feature_count,
+        })
+        .collect();
+    to_js(&out)
 }
 
 /// Shared front half of the two layout exports: both need the header parsed
