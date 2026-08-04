@@ -522,6 +522,7 @@ BusinessReader.prototype._decodeBlock = async function(entry) {
 // so some rounded and some flipped sign. See
 // demo/test/business_differential.test.mjs.
 BusinessReader.prototype._decodeRecords = function(raw) {
+  if (!raw) return [];
   return wasm.decode_business(raw).map(function(b) {
     return {
       uid: b.osm_id,
@@ -1700,6 +1701,12 @@ var COARSE_MAGIC = 0x49435450; // "PTCI", little-endian
 
 // Signals, decoded in core (PTILESS v1).
 function decodeSignalRecords(raw) {
+  // cellRecords returns null when a cell has no index entry, which is normal
+  // for sparse coverage. The wasm decoders take a slice and throw on null,
+  // where the hand-rolled JS ones returned []. queryIntersection walks a
+  // 7-cell ring, so without this ONE absent cell rejected the whole lookup and
+  // doLookup swallowed it -- intersections silently stopped working.
+  if (!raw) return [];
   return wasm.decode_signals(raw).map(function(s) {
     return {
       osmId: s.osm_id, lat: s.lat, lon: s.lon,
@@ -1797,6 +1804,7 @@ async function camerasNear(lat, lon, radiusM) {
     // This page carried the PTILESC layout three times over: here, in the map
     // renderer, and in the spec. Now it is in core, once.
     var out = [];
+    if (!raw) return [];
     wasm.decode_cameras(raw).forEach(function(c) {
       var dist = haversineM(lat, lon, c.lat, c.lon);
       if (dist <= radiusM) {
