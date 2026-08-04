@@ -1185,6 +1185,24 @@ var hashMoveTimer = null;
 map.on("moveend", function() {
   clearTimeout(hashMoveTimer);
   hashMoveTimer = setTimeout(function() { updateHash(); }, 300);
+
+  // Follow the map. Layer URLs are per state (`stateUrl`), so panning from
+  // Tennessee into California used to keep serving TN.*.ptiles: every cell in
+  // the viewport missed, and the map showed nothing with no error -- the same
+  // silent-empty failure this format keeps producing. The state selector was
+  // the only way to change it, and nothing said so.
+  //
+  // `quiet` matters: switchState otherwise calls map.setView to jump to the
+  // state's default view, which would yank the map away from wherever the user
+  // just panned. It reloads the layers and each load schedules its own render,
+  // so there is nothing further to do on this path.
+  var c = map.getCenter();
+  var st = stateAt(c.lat, c.lng);
+  if (st && st !== currentState) {
+    switchState(st, true);
+    return;
+  }
+
   if (ptilesModeActive) scheduleViewportRender();
 });
 
@@ -2400,6 +2418,11 @@ window.__ptiles = {
                  offsetBase: f.offsetBase.kind, entries: f.entries.length } : null;
   },
   view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; },
+  // Harness hook: move the map the way a user pan does, so the moveend path
+  // (including the state-follows-viewport switch) is exercised for real
+  // rather than simulated.
+  setView: function(lat, lon, zoom) { map.setView([lat, lon], zoom || map.getZoom()); },
+  state: function() { return currentState; },
   openRemote: function(u) { return openPtilesRemote(u); },
   openCoarse: function(u) { return CoarseReader.open(u); },
   intersectionAt: function(lat, lon) { return queryIntersection(lat, lon); },
