@@ -1084,10 +1084,66 @@ async function activatePtilesMode() {
   document.getElementById("btnPtiles").className = "toggle-on";
   document.getElementById("btnPtiles").textContent = "Basemap";
   ptilesModeActive = true;
-  if (myRev === ptilesLayerRevision) await loadPtilesLayer("roads", "roads");
-  if (myRev === ptilesLayerRevision) await loadPtilesLayer("water", "water");
-  if (myRev === ptilesLayerRevision) await loadPtilesLayerUS("camera", "camera");
-  if (myRev === ptilesLayerRevision) await loadPtilesLayerUS("signal", "signals");
+
+  // Load every layer whose box is ticked -- not a fixed list.
+  //
+  // This used to load roads/water/camera/signal unconditionally and nothing
+  // else. The loop above adds a group to the map for each checked box, so
+  // parks, rail and buildings went on the map with no reader behind them:
+  // renderPtilesForCells guards on `ptilesLayers[key].reader`, so they drew
+  // nothing, silently, and the only way to get them was to toggle the box
+  // *after* enabling PTILES mode so the change handler fired. Buildings could
+  // not be got at all -- it has no change handler.
+  //
+  // It also fetched camera and signal (a 21 MB and a 3.5 MB national file)
+  // even when both were unticked.
+  for (var ci = 0; ci < PTILES_LAYER_ORDER.length; ci++) {
+    if (myRev !== ptilesLayerRevision) return;
+    var lk = PTILES_LAYER_ORDER[ci];
+    if (!document.getElementById(LAYER_CHK_MAP[lk]).checked) continue;
+    if (ptilesLayers[lk].reader || ptilesLayers[lk].loading) continue;
+    await PTILES_LOADERS[lk]();
+  }
+}
+
+// Roads and water first so the map gets its basemap-substitute quickly; the
+// national point layers last because they are the largest fetch.
+var PTILES_LAYER_ORDER = ["roads", "water", "parks", "rail", "bldgs", "camera", "signal"];
+
+// How each layer's reader is built. Buildings is the odd one out:
+// renderPtilesForCells calls `reader.renderAllInCell`, which only
+// PtilesWasmReader has, so it cannot use the LayerReader path the other
+// per-state layers use.
+var PTILES_LOADERS = {
+  roads: function() { return loadPtilesLayer("roads", "roads"); },
+  water: function() { return loadPtilesLayer("water", "water"); },
+  parks: function() { return loadPtilesLayer("parks", "parks"); },
+  rail: function() { return loadPtilesLayer("rail", "rail"); },
+  bldgs: function() { return loadPtilesLayerBldgs(); },
+  camera: function() { return loadPtilesLayerUS("camera", US_LAYER_FILES.camera); },
+  signal: function() { return loadPtilesLayerUS("signal", US_LAYER_FILES.signal); }
+};
+
+// Buildings map layer. Separate from `bldgReaderPromise`, which serves the
+// lookup panel for a single clicked point; this one backs the whole-cell
+// render and lives on ptilesLayers.bldgs like every other map layer.
+async function loadPtilesLayerBldgs() {
+  var layer = ptilesLayers.bldgs;
+  if (layer.loading) return;
+  layer.loading = true;
+  setLayerStatus("bldgs loading...");
+  try {
+    var st = currentState;
+    layer.reader = await PtilesWasmReader.fromUrl(stateUrl(st, "buildings_v8"));
+    layer.state = st;
+    setLayerStatus("bldgs ready (" + st + ")");
+    scheduleViewportRender();
+  } catch(e) {
+    layer.reader = null;
+    layer.state = null;
+    setLayerStatus("bldgs error: " + e.message.slice(0, 40));
+  }
+  layer.loading = false;
 }
 
 function deactivatePtilesMode() {
@@ -1154,8 +1210,19 @@ var US_LAYER_FILES = {camera:"camera",signal:"signals"};
   });
 });
 
-// For buildings PTILES layer, use PtilesWasmReader (WASM decode_buildings)
-// We'll hook into the buildings reader
+// Buildings, which had no change handler at all -- the note that used to sit
+// here said "we'll hook into the buildings reader" and nothing ever did, so
+// ticking the box did nothing whether PTILES mode was already on or not.
+document.getElementById("chkBldgs").addEventListener("change", async function() {
+  if (this.checked) {
+    ptilesLayers.bldgs.group.addTo(map);
+    if (!ptilesLayers.bldgs.reader && !ptilesLayers.bldgs.loading) {
+      await loadPtilesLayerBldgs();
+    }
+  } else {
+    ptilesLayers.bldgs.group.remove();
+  }
+});
 
 // --- GeoJSON overlays ---
 var buildingPoly = null, queryMarker = null, bizMarkers = null, tileBuildingLayer = null;

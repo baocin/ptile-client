@@ -113,20 +113,25 @@ def main():
             page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
             page.wait_for_timeout(3000)
 
-            # PTILES Mode gates all rendering: renderViewport() and
-            # scheduleViewportRender() both return early on !ptilesModeActive.
-            # With it off, a layer fetches its header/dict/index and then never
-            # requests a block -- reader present, group on the map, zero
-            # features, no error. The legacy harness documents this as the
-            # mistake that made three of its runs report zero for every layer,
-            # and skipping it made three of mine do the same.
-            page.click("#btnPtiles")
-            page.wait_for_timeout(2500)
-
+            # Tick the box BEFORE enabling PTILES mode. That is the order a
+            # user works in, and it is the order that was broken:
+            # activatePtilesMode used to load a fixed list (roads, water,
+            # camera, signal) rather than whatever was ticked, so parks, rail
+            # and buildings were added to the map with no reader behind them
+            # and drew nothing, silently. Testing the other order hid it.
             if not page.evaluate(ENABLE, checkbox):
                 failures.append(f"{key}: no checkbox #{checkbox}")
                 page.close()
                 continue
+            page.wait_for_timeout(500)
+
+            # PTILES Mode gates all rendering: renderViewport() and
+            # scheduleViewportRender() both return early on !ptilesModeActive.
+            # With it off, a layer fetches its header/dict/index and then never
+            # requests a block -- reader present, group on the map, zero
+            # features, no error.
+            page.click("#btnPtiles")
+            page.wait_for_timeout(2500)
 
             # Wait for the count to stop moving, not for it to become non-zero.
             # Breaking on the first non-zero reading samples mid-render; a layer
