@@ -259,6 +259,11 @@ Two things to note rather than fix:
 
 ## 7. Deployment
 
+> **Superseded 2026-08-04.** The wasm client has since taken the primary URL:
+> `steele.red/ptiles` → `web-demo/`, and `steele.red/ptiles-legacy` → `demo/`.
+> `/ptile-wasm` is retired. The rest of this section describes the interim
+> arrangement it was proven under.
+
 `steele.red/ptile-wasm` → `ptile-client/web-demo`, a **new** symlink served
 alongside `/ptiles`, which still points at `demo/`. Nothing about the existing
 page changed.
