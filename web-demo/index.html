@@ -373,8 +373,16 @@ function adaptHeader(h) {
 // Wrap a Layer from js/ptiles.js in the field names this page uses.
 function adaptLayer(layer, url) {
   var entries = layer.entries.map(adaptEntry);
+  // Key by the NORMALISED cell. A res-7 H3 id carries filler digits in its low
+  // 21 bits; the index stores them set, and every caller here comes from
+  // h3.latLngToCell masked with 0xffffffffffe00000n. Keying by the stored id
+  // made `cellMap.has(cell)` false for every cell -- js/ptiles.js normalises
+  // internally so cellRecords still worked, which hid it, but anything reading
+  // cellMap directly (BusinessReader.query) missed every lookup.
   var cellMap = new Map();
-  for (var i = 0; i < entries.length; i++) cellMap.set(entries[i].h3Cell, i);
+  for (var i = 0; i < entries.length; i++) {
+    cellMap.set(entries[i].h3Cell & 0xffffffffffe00000n, i);
+  }
   return {
     url: url,
     layer: layer,
@@ -385,8 +393,20 @@ function adaptLayer(layer, url) {
     entrySize: layer.layout.entry_size,
     merged: layer.merged,
     headerIsInconsistent: layer.headerIsInconsistent,
+    // __ptiles.layerInfo reads offsetBase.kind. core resolves offsets before
+    // handing them over, so there is nothing left to apply -- but the shape has
+    // to exist or the debug hook throws.
+    offsetBase: { kind: describeOffsetBase(layer.layout), adjust: 0 },
     blockCache: layer.blocks,
   };
+}
+
+// layout.offset_base is either a string ("Absolute"/"Relative") or a one-key
+// object ({AbsoluteCorrected:{overshoot}}), depending on the variant.
+function describeOffsetBase(layout) {
+  var b = layout.offset_base;
+  var name = (typeof b === "string") ? b : Object.keys(b)[0];
+  return name.toLowerCase();
 }
 
 async function openPtilesRemote(url) {
