@@ -2,9 +2,10 @@
 
 The ptiles browser demo, decoding through `ptiles-core` compiled to wasm.
 
-Served at <https://steele.red/ptile-wasm/> via a symlink from the `steele.red`
-repo, alongside `/ptiles`, which is the original `demo/` and still decodes the
-format in hand-written JavaScript.
+Served at <https://steele.red/ptiles/> via a symlink from the `steele.red`
+repo. The original `demo/`, which decodes the format in hand-written
+JavaScript, is kept alongside at <https://steele.red/ptiles-legacy/> for
+comparison until this one has proven itself.
 
 ## Why it exists
 

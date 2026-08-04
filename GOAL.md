@@ -90,10 +90,10 @@ them:
   stay v1. Every `.ptiles` kind is versioned independently — the version byte is
   scoped to its magic and there is no release-wide version. See
   `SUPPORTED_FORMATS.md`.
-- Two UIs, on purpose, until one wins. `demo/index.html` is the original and
-  hand-decodes the format; `steele.red/ptiles` symlinks to it.
-  `web-demo/index.html` is the same page decoding through `ptiles-core` in
-  wasm; `steele.red/ptile-wasm` symlinks to it. Both are dereferenced into
+- Two UIs, on purpose, until one wins. `web-demo/index.html` decodes through
+  `ptiles-core` in wasm and is what `steele.red/ptiles` now serves.
+  `demo/index.html` is the original, hand-decoding the format in JavaScript;
+  `steele.red/ptiles-legacy` symlinks to it. Both are dereferenced into
   `output/` by steele.red's `build.py`. They render identical feature counts on
   all seven layers, and `web-demo/test/render_check.py` is what says so. When
   `web-demo/` has proven itself live, `demo/` is deleted.

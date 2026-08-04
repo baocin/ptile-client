@@ -19,20 +19,20 @@ build, and test instructions.
 - Browser corridor routing keeps the first pass within `ROUTE_MAX_CELLS`; a
   failed route may use one denser arterial retry with an explicit bounded
   budget in `demo/index.html`.
-- `demo/index.html` is the single source of truth for the browser UI.
-  `steele.red/ptiles` is an absolute symlink to `demo/`, and
+- `web-demo/index.html` is what `steele.red/ptiles` serves.
+  `steele.red/ptiles` is an absolute symlink to `web-demo/`, and
   steele.red's `build.py` dereferences it (`shutil.copytree`,
   `symlinks=False`) into `output/ptiles/`, which is what Cloudflare Pages
-  serves at <https://steele.red/ptiles/>. Edits are not live until
+  serves at <https://steele.red/ptiles/>. `steele.red/ptiles-legacy` is the
+  same arrangement pointing at `demo/`. Edits are not live until
   `build.py` runs on `hino-omarchy` -- the symlink is absolute and resolves
   nowhere else. See `demo/README.md` for the full chain.
-- `web-demo/index.html` is the **second** UI, and it is deliberate. Same page,
-  but it decodes `.ptiles` through `ptiles-core` in wasm instead of the
-  hand-rolled readers `demo/index.html` carries -- header, both index entry
-  widths, offset base, merged-block slicing, the coarse index and three record
-  layouts, all removed. `steele.red/ptile-wasm` symlinks to it and is served at
-  <https://steele.red/ptile-wasm/> alongside `/ptiles`, so the two can be
-  compared live. They render identical feature counts on all seven layers.
+- `demo/index.html` is the **older** UI, kept deliberately. Same page, but it
+  hand-decodes the format in JavaScript -- header, both index entry widths,
+  offset base, merged-block slicing, the coarse index and three record layouts
+  -- all of which `web-demo` removed in favour of `ptiles-core` in wasm. It is
+  served at <https://steele.red/ptiles-legacy/> so the two can be compared
+  live. They render identical feature counts on all seven layers.
   Its reader is a real module (`web-demo/js/ptiles.js`) rather than functions
   inlined in HTML, so `web-demo/test/ptiles.test.mjs` exercises the shipping
   code instead of a regex-scraped copy of it.
