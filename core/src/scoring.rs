@@ -313,6 +313,7 @@ mod tests {
             category: None,
             name_source: None,
             poi_osm_id: None,
+            height_m: None,
         }
     }
 

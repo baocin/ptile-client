@@ -48,6 +48,15 @@ pub struct Building {
     pub category: Option<String>,
     pub name_source: Option<String>,
     pub poi_osm_id: Option<u64>,
+    /// Height in metres, when the builder recorded one (`flags2 & 0x10`).
+    ///
+    /// Stored as a `u8` of half-metre steps, so the value is a multiple of 0.5
+    /// and cannot exceed 127.5 m — a genuinely taller building is clamped by
+    /// the encoder, not by this decoder. Absent on most published states:
+    /// coverage is per-state and ranges from ~100% (NY, CA, FL, PA) to exactly
+    /// zero (TX, GA, WA, OH, MI, IL, TN, ...), so callers must treat `None` as
+    /// "not published here" rather than "ground level".
+    pub height_m: Option<f64>,
 }
 
 /// `f64::round` half-away-from-zero, implemented without `std` (no `libm`
@@ -163,7 +172,32 @@ fn decode_building_record(
         poi_osm_id = Some(crate::codec::read_u64(rec, p)?);
         p += 8;
     }
-    let _ = p; // flags2 & 0x10 (has_height_m) is not modeled; trailing bytes ignored.
+    // Half-metre steps in a u8, matching the builder
+    // (`ptiles/scripts/encode_v8.py`: `data[pos] * 0.5`, SPEC.md "0.5 m steps,
+    // 0-127.5 m"). This field was skipped for a long time, which is why nothing
+    // downstream could draw a building's height even where one was published.
+    let height_m = if flags2 & 0x10 != 0 {
+        match read_u8(rec, p) {
+            Ok(raw) => {
+                p += 1;
+                Some(f64::from(raw) * 0.5)
+            }
+            // A record that announces a height and then ends is malformed, but
+            // the ring is already decoded by this point and is the valuable
+            // part. `decode_buildings` drops any record that returns `Err`, so
+            // propagating with `?` would throw the footprint away to avoid
+            // guessing one byte. Keep the building, lose only the height.
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    // v9's business_tag (0x20) and opening_hours (0x40) are still unmodelled and
+    // sit after this point. Leaving them unread is safe only because a block is
+    // a sequence of length-prefixed records, so the next record's start comes
+    // from its own prefix rather than from this cursor.
+    let _ = p;
 
     let (centroid_lon, centroid_lat) = compute_centroid(&coords);
 
@@ -178,6 +212,7 @@ fn decode_building_record(
             category,
             name_source,
             poi_osm_id,
+            height_m,
         },
         osm_id,
     ))
@@ -333,6 +368,113 @@ mod tests {
             out.extend_from_slice(&body);
         }
         out
+    }
+
+    /// A record with arbitrary flags2 and a raw tail, for the optional fields
+    /// `encode_record` does not model. `tail` is whatever those flags imply,
+    /// already encoded.
+    fn encode_record_with_flags2(spec: &RecordSpec, flags2: u8, tail: &[u8]) -> Vec<u8> {
+        let mut body = encode_record(spec);
+        let last = body.len() - 1;
+        assert_eq!(body[last], 0x00, "encode_record should end with a zero flags2");
+        body[last] = flags2;
+        body.extend_from_slice(tail);
+        body
+    }
+
+    fn encode_block_raw(string_table: &[&str], records: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(string_table.len() as u8);
+        for s in string_table {
+            out.push(s.len() as u8);
+            out.extend_from_slice(s.as_bytes());
+        }
+        for body in records {
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(body);
+        }
+        out
+    }
+
+    fn one_square() -> RecordSpec {
+        RecordSpec {
+            osm_delta: 42,
+            offset_lon: 50,
+            offset_lat: -30,
+            deltas: vec![(100, 0), (0, 100), (-100, 0), (0, -100)],
+            btype_idx: 0,
+        }
+    }
+
+    // --- height (flags2 & 0x10) ---
+
+    #[test]
+    fn height_is_decoded_in_half_metre_steps() {
+        // 31 * 0.5 = 15.5 m. Half-metre granularity is the whole point of the
+        // u8 encoding, so check a value that is not a whole number of metres.
+        let rec = encode_record_with_flags2(&one_square(), 0x10, &[31]);
+        let block = encode_block_raw(&["house"], &[rec]);
+        let out = decode_buildings(&block, 1.0, 2.0).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].height_m, Some(15.5));
+    }
+
+    #[test]
+    fn height_absent_when_flag_clear() {
+        // Not zero — absent. A building with no published height is not a
+        // building at ground level, and callers key off `None` to say so.
+        let block = encode_block(&["house"], &[one_square()]);
+        let out = decode_buildings(&block, 1.0, 2.0).unwrap();
+        assert_eq!(out[0].height_m, None);
+    }
+
+    #[test]
+    fn height_spans_the_full_u8_range() {
+        for (raw, want) in [(0u8, 0.0), (1, 0.5), (255, 127.5)] {
+            let rec = encode_record_with_flags2(&one_square(), 0x10, &[raw]);
+            let block = encode_block_raw(&["house"], &[rec]);
+            let out = decode_buildings(&block, 1.0, 2.0).unwrap();
+            assert_eq!(out[0].height_m, Some(want), "raw byte {raw}");
+        }
+    }
+
+    #[test]
+    fn truncated_height_byte_keeps_the_building_and_its_ring() {
+        // flags2 claims a height, then the record ends. The footprint is
+        // already decoded at that point, so the building must survive with
+        // `height_m == None` -- propagating the error would drop the whole
+        // record, trading a whole polygon for one missing byte.
+        let rec = encode_record_with_flags2(&one_square(), 0x10, &[]);
+        let block = encode_block_raw(&["house"], &[rec]);
+        let out = decode_buildings(&block, 1.0, 2.0).unwrap();
+        assert_eq!(out.len(), 1, "the building must not be dropped");
+        assert_eq!(out[0].height_m, None);
+        assert_eq!(out[0].coords.len(), 5, "ring must be intact");
+    }
+
+    #[test]
+    fn height_is_read_before_unmodelled_v9_fields() {
+        // v9 appends business_tag (0x20) and opening_hours (0x40) *after* the
+        // height byte, and this decoder still ignores both. Height must come
+        // back correctly anyway, and — the part that actually matters — the
+        // record after it must decode, proving the unread tail never
+        // desynchronises the stream. It cannot, because each record carries its
+        // own length prefix, but that is exactly the kind of "cannot" worth
+        // pinning down.
+        let tail = [
+            21u8, // height_raw -> 10.5 m
+            1,    // business_tag: table ref -> string_table[1]
+            5, b'0', b'9', b'-', b'1', b'8', // opening_hours: u8-len string
+        ];
+        let first = encode_record_with_flags2(&one_square(), 0x10 | 0x20 | 0x40, &tail);
+        let second = encode_record_with_flags2(&one_square(), 0x10, &[8]); // 4.0 m
+        let block = encode_block_raw(&["house", "cafe"], &[first, second]);
+
+        let out = decode_buildings(&block, 1.0, 2.0).unwrap();
+        assert_eq!(out.len(), 2, "the record after a v9 tail must still decode");
+        assert_eq!(out[0].height_m, Some(10.5));
+        assert_eq!(out[1].height_m, Some(4.0));
+        assert_eq!(out[1].building_type, "house");
     }
 
     // --- empty / degenerate input ---
@@ -591,6 +733,26 @@ mod tests {
         assert_eq!(first.name.as_deref(), Some("Music City Center"));
         assert!((first.centroid_lat - 36.15689).abs() < 1e-5);
         assert!((first.centroid_lon - (-86.77833875)).abs() < 1e-5);
+
+        // Height, against real published bytes. This block is downtown
+        // Nashville, where 149 of 1354 buildings carry one -- coverage is
+        // partial everywhere, not per-state all-or-nothing, so a fixture with
+        // *some* heights is the honest case to pin.
+        //
+        // `out.len()` is the desync canary: the height byte is the last field
+        // this decoder reads, so getting its width wrong would corrupt nothing
+        // visible in the record itself and instead show up as a wrong record
+        // count. Assert both together or neither is load-bearing.
+        assert_eq!(out.len(), 1354, "record count -- a wrong height width desyncs here");
+        let with_height: Vec<f64> = out.iter().filter_map(|b| b.height_m).collect();
+        assert_eq!(with_height.len(), 149, "buildings carrying a height");
+        for h in &with_height {
+            assert!(
+                (h * 2.0).fract() == 0.0,
+                "height {h} is not a multiple of 0.5 -- wrong scale factor"
+            );
+            assert!((2.5..=127.5).contains(h), "height {h} out of encodable range");
+        }
 
         // Every decoded footprint is a closed ring (first vertex == last).
         for b in &out {

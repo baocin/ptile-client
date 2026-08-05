@@ -110,7 +110,16 @@ function deepEqual(a, b, pathStr = "$") {
 const cases = [
   {
     layer: "buildings_v8",
-    run: ({ block, meta }) => wasm.decode_buildings(block, meta.cell_center_lat, meta.cell_center_lon),
+    // `height_m` is dropped before comparing, and cannot be added to the
+    // fixture instead: `test-fixtures/extract_golden.py` generates it via the
+    // Python reference decoder, and that decoder skips the field outright
+    // (`ptiles/buildings.py`: "flags2 & 0x10: has_height_m (skip)"). So the
+    // golden JSON physically cannot carry a height without changing a second
+    // repo. Height is asserted separately below, and in the Rust unit test
+    // against this same block.
+    run: ({ block, meta }) =>
+      wasm.decode_buildings(block, meta.cell_center_lat, meta.cell_center_lon)
+        .map(({ height_m, ...rest }) => rest),
     expected: (golden) => normalizeBuildings(golden.buildings),
   },
   {
@@ -159,6 +168,26 @@ for (const c of cases) {
   } else {
     console.log(`PASS ${c.layer}: ${actual.length} records match golden`);
   }
+}
+
+// Height crosses the wasm boundary. The golden comparison above has to drop
+// the field, so without this nothing would catch `height_m` failing to
+// serialize out of Rust — the exact silent-empty shape this repo keeps hitting.
+// Counts match core's own golden assertion on the same block.
+try {
+  const { block, meta } = loadFixture("buildings_v8");
+  const bldgs = wasm.decode_buildings(block, meta.cell_center_lat, meta.cell_center_lon);
+  const heights = bldgs.map((b) => b.height_m).filter((h) => h != null);
+  const halfMetre = heights.every((h) => Number.isInteger(h * 2));
+  if (bldgs.length === 1354 && heights.length === 149 && halfMetre) {
+    console.log(`PASS buildings_v8 height: ${heights.length}/${bldgs.length} carry a height, all multiples of 0.5 m`);
+  } else {
+    console.log(`FAIL buildings_v8 height: ${heights.length}/${bldgs.length} with height (want 149/1354), halfMetre=${halfMetre}`);
+    failed++;
+  }
+} catch (e) {
+  console.log(`FAIL buildings_v8 height: threw: ${e}`);
+  failed++;
 }
 
 // decompress_block smoke test: re-derive a block.bin's compressed bytes isn't

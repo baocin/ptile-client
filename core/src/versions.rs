@@ -42,7 +42,7 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
         magic: b"PTILESF",
         file_kind: "buildings_v8",
         versions: &[8, 9],
-        notes: "v8 from original build; v9 adds business_tag/opening_hours (flags2 0x20/0x40), skipped by v8 decoder",
+        notes: "v8 from original build; height_m (flags2 0x10) is a u8 of 0.5 m steps that saturates at 127.5 m, and is published for 0.2%-92% of buildings depending on the state; v9 adds business_tag/opening_hours (flags2 0x20/0x40), skipped by v8 decoder",
     },
     FormatEntry {
         magic: b"PTILESR",
