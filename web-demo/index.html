@@ -106,11 +106,22 @@
   .search-result:hover { background: #1f2937; border-radius: 4px; padding: 6px 4px; }
   .search-result .r-name { color: #e6edf3; }
   .search-result .r-loc { color: #484f58; font-size: 0.72rem; margin-top: 2px; }
+  /* Camera markers. A divIcon, not a circleMarker: a camera is a thing with a
+     shape and a facing, and a 4px dot said neither. */
+  .cam-icon { background: none; border: none; }
+  .cam-icon svg { display: block; filter: drop-shadow(0 0 2px #0d1117); }
+  .cam-panel .links { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .cam-panel .links a {
+    border: 1px solid #30363d; border-radius: 6px; padding: 4px 10px;
+    text-decoration: none; font-size: 0.75rem;
+  }
+  .cam-panel .links a:hover { background: #21262d; }
+  .cam-panel .legend { color: #484f58; font-size: 0.68rem; margin-top: 10px; }
 </style>
 </head>
 <body>
   <div class="topbar">
-    <h1>PTILES</h1>
+    <h1 id="brandReset" title="Reset layers to their defaults" style="cursor:pointer;user-select:none">PTILES</h1>
     <select id="stateSelect"></select>
     <input type="text" id="coordInput" placeholder="lat, lon  (e.g. 36.16, -86.78)" />
     <input type="text" id="searchInput" placeholder="Search businesses..." />
@@ -130,6 +141,11 @@
     <label><input type="checkbox" id="chkBldgs"> Buildings</label>
     <label><input type="checkbox" id="chkCamera"> Cameras</label>
     <label><input type="checkbox" id="chkSignal"> Signals</label>
+    <label id="chk3DWrap" style="display:none" title="Extrude buildings by their published height"><input type="checkbox" id="chk3D"> 3D</label>
+    <label id="exagWrap" style="display:none;gap:6px" title="Vertical exaggeration">
+      <span style="color:#8b949e">x<span id="exagVal">1.0</span></span>
+      <input type="range" id="exagSlider" min="0.5" max="6" step="0.5" value="1" style="width:90px">
+    </label>
     <span id="layerStatus"></span>
   </div>
   <div id="map"></div>
@@ -137,12 +153,16 @@
   <div class="info-panel" id="infoPanel">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
       <div class="status-text" id="infoStatus" style="margin:0"></div>
-      <button id="btnMeta" type="button" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem">Meta</button>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button id="btnMeta" type="button" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem">Meta</button>
+        <button id="btnCloseInfo" type="button" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem">Close</button>
+      </div>
     </div>
     <div class="name" id="bldgName"></div>
     <div class="row"><span>OSM ID</span><span id="bldgOsm"></span></div>
     <div class="row" id="bldgOsmLinkRow" style="display:none"><span>OSM</span><span><a id="bldgOsmLink" href="#" target="_blank" rel="noopener">Open on OpenStreetMap</a></span></div>
     <div class="row"><span>Type</span><span id="bldgType"></span></div>
+    <div class="row" id="bldgHeightRow" style="display:none"><span>Height</span><span id="bldgHeight"></span></div>
     <div class="row"><span>Name</span><span id="bldgTagName"></span></div>
     <div class="row" id="bldgCatRow" style="display:none"><span>Category</span><span id="bldgCat"></span></div>
     <div class="row" id="bldgGmapsRow" style="display:none"><span>Maps</span><span><a id="bldgGmapsLink" href="#" target="_blank">Open in Google Maps</a></span></div>
@@ -177,6 +197,31 @@
       </div>
     </div>
     <pre id="metaDump" style="display:none;margin-top:8px;max-height:220px;overflow:auto;font-size:0.68rem;color:#c9d1d9;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;white-space:pre-wrap;word-break:break-word"></pre>
+  </div>
+
+  <!-- Cameras get their own panel rather than a Leaflet popup: the record
+       carries nine fields plus two outbound links, which a popup renders as an
+       unreadable stack on top of the very marker you clicked. -->
+  <div class="info-panel cam-panel" id="camPanel">
+    <div class="sp-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-weight:600;color:#8b949e;font-size:0.75rem">Camera</span>
+      <button id="btnCloseCam" type="button" style="background:none;border:1px solid #30363d;border-radius:4px;color:#8b949e;padding:2px 8px;cursor:pointer;font-size:0.75rem">Close</button>
+    </div>
+    <div class="name" id="camName"></div>
+    <div class="row"><span>Device</span><span id="camDevice"></span></div>
+    <div class="row"><span>Type</span><span id="camType"></span></div>
+    <div class="row"><span>Placement</span><span id="camPlacement"></span></div>
+    <div class="row" id="camDirRow" style="display:none"><span>Facing</span><span id="camDir"></span></div>
+    <div class="row" id="camFovRow" style="display:none"><span>Field of view</span><span id="camFov"></span></div>
+    <div class="row" id="camOperatorRow" style="display:none"><span>Operator</span><span id="camOperator"></span></div>
+    <div class="row" id="camRefRow" style="display:none"><span>Ref</span><span id="camRef"></span></div>
+    <div class="row"><span>OSM ID</span><span id="camOsm"></span></div>
+    <div class="row"><span>Coords</span><span id="camCoords"></span></div>
+    <div class="links">
+      <a id="camDeflock" href="#" target="_blank" rel="noopener">DeFlock</a>
+      <a id="camOsmLink" href="#" target="_blank" rel="noopener">OpenStreetMap</a>
+    </div>
+    <div class="legend" id="camLegend"></div>
   </div>
 
   <div class="search-panel" id="searchPanel">
@@ -450,6 +495,11 @@ function mapWasmBuilding(b, lat, lon) {
     coordinates: coords,
     centroidLat: b.centroid_lat != null ? b.centroid_lat : b.centroidLat,
     centroidLon: b.centroid_lon != null ? b.centroid_lon : b.centroidLon,
+    // Metres, or null where the builder published none. Absent is not zero:
+    // coverage is partial nearly everywhere (~92% in downtown LA, 11% in
+    // Nashville, 0.2% in Cleveland), so a missing height means "not published"
+    // and the building must still draw.
+    heightM: b.height_m != null ? b.height_m : (b.heightM != null ? b.heightM : null),
     vertexCount: coords.length,
   };
   if (lat != null && lon != null) out.inPoly = pointInPolygon(lat, lon, coords);
@@ -497,7 +547,11 @@ PtilesWasmReader.prototype.renderAllInCell = async function(lat, lon, addPolyFn)
     var b = mapWasmBuilding(bldgs[i]);
     var ring = b.coordinates;
     if (!ring || ring.length < 3) continue;
-    addPolyFn(ring.map(function(c) { return [c[1], c[0]]; }), b.osmId);
+    // Third argument is the whole mapped building, not just the height: the
+    // callback already loses everything but the ring, and 3D needs the
+    // centroid to depth-sort as well as the height to extrude. Passing the
+    // record stops this signature growing again next time.
+    addPolyFn(ring.map(function(c) { return [c[1], c[0]]; }), b.osmId, b);
   }
   return bldgs.length;
 };
@@ -650,6 +704,12 @@ var ptilesLayers = {
 };
 var ptilesModeActive = false;
 var ptilesViewportTimer = null;
+var bldgs3dActive = false;
+// Coverage of the last render, reported in the layer bar. Height is published
+// for anywhere between 0.2% and 92% of buildings depending where you are
+// looking, so "how much of this is real" has to be on screen rather than
+// inferred from whether anything looks tall.
+var bldgTotalInView = 0, bldgWithHeightInView = 0;
 
 var ROAD_STYLES = [
   {color:"#f0883e",weight:4},{color:"#f0883e",weight:3},{color:"#e3b341",weight:3},
@@ -673,6 +733,123 @@ function getRoadStyle(cls) {
 
 function setLayerStatus(msg) {
   document.getElementById("layerStatus").textContent = msg;
+}
+
+// --- Oblique building extrusion ---
+//
+// ponytail: fake 3D. Leaflet is strictly top-down -- no pitch, no bearing, no
+// depth buffer -- so a building is drawn as its footprint plus a roof ring
+// shifted a fixed compass bearing by a distance proportional to its height.
+// Known ceilings: concave footprints self-occlude (an L-shaped block's far
+// wing can paint over its near wing), and the depth sort below only orders
+// within one H3 cell, so z-order can break at a cell seam. Upgrade path is a
+// real 3D engine -- MapLibre fill-extrusion -- which costs a second map engine
+// and a port of every other layer, so it is not worth it for this.
+//
+// Offsets are in metres rather than pixels on purpose. Metres bake into the
+// LatLngs and Leaflet rescales them for free on zoom; a pixel offset would be
+// valid only at the zoom it was computed for and would force a full re-decode
+// and redraw of every visible cell on every zoom step.
+var BLDG_AZIMUTH = 45;          // NE, so roofs shift up-and-right on a north-up map
+var bldg3dExaggeration = 1.0;   // the calibration knob; slider-driven
+
+// Signed area of a closed ring of [lat, lng] points. Sign gives winding, which
+// the format does not normalise -- hardcoding one would draw the *back* walls
+// on roughly half of all buildings.
+function ringSignedArea(ring) {
+  var s = 0;
+  for (var i = 0, n = ring.length - 1; i < n; i++) {
+    s += ring[i][1] * ring[i + 1][0] - ring[i + 1][1] * ring[i][0];
+  }
+  return s / 2;
+}
+
+// The (dLat, dLon) shift for a given height, memoized per cell. `destPoint` is
+// two asin/atan2 plus four trig calls; the shift is a constant vector for a
+// given height, so computing it per *vertex* would be ~163k calls on a dense
+// cell instead of one per distinct height (at most 256, in practice ~150).
+function bldgOffset(heightM, refLat, refLon, cache) {
+  var v = cache[heightM];
+  if (!v) {
+    var p = destPoint(refLat, refLon, BLDG_AZIMUTH, heightM * bldg3dExaggeration);
+    v = [p[0] - refLat, p[1] - refLon];
+    cache[heightM] = v;
+  }
+  return v;
+}
+
+// Low to high. The offset already encodes height, but a ramp makes the
+// ordering readable at a glance, which is the whole point of the view.
+var BLDG_HEIGHT_RAMP = [
+  [0,   "#1f6feb"], [8,  "#2ea043"], [16, "#d29922"],
+  [30,  "#f0883e"], [60, "#da3633"], [100, "#a371f7"]
+];
+function bldgHeightColor(h) {
+  var c = BLDG_HEIGHT_RAMP[0][1];
+  for (var i = 0; i < BLDG_HEIGHT_RAMP.length; i++) {
+    if (h >= BLDG_HEIGHT_RAMP[i][0]) c = BLDG_HEIGHT_RAMP[i][1];
+  }
+  return c;
+}
+
+// One building as at most two SVG paths: every visible wall as a single
+// multi-ring polygon, then the roof on top.
+//
+// Two rather than one-per-wall is the difference between working and locking
+// the tab: a dense cell holds 18164 buildings at a median 9 vertices, so a
+// path per wall is ~90k Leaflet Path objects. L.polygon takes an array of
+// rings and emits one <path> with several subpaths instead.
+//
+// fillRule must be nonzero: Leaflet defaults to evenodd, under which
+// overlapping walls punch holes straight through the building. nonzero in turn
+// requires every subpath to wind the same way, hence the per-quad reversal.
+function drawExtrudedBuilding(rec, group, offsetCache) {
+  var ring = rec.latlngs;
+  var h = rec.heightM;
+  var v = bldgOffset(h, ring[0][0], ring[0][1], offsetCache);
+  var roof = ring.map(function(p) { return [p[0] + v[0], p[1] + v[1]]; });
+  var col = bldgHeightColor(h);
+
+  // Outward normal of edge i->i+1 is (dy, -dx) on a counter-clockwise ring and
+  // (-dy, dx) on a clockwise one. Keep the walls facing the shift; the far side
+  // is hidden behind the body anyway.
+  var ccw = ringSignedArea(ring) > 0;
+  var walls = [];
+  for (var i = 0, n = ring.length - 1; i < n; i++) {
+    var dx = ring[i + 1][1] - ring[i][1];
+    var dy = ring[i + 1][0] - ring[i][0];
+    var nx = ccw ? dy : -dy;
+    var ny = ccw ? -dx : dx;
+    if (nx * v[1] + ny * v[0] <= 0) continue;
+    var quad = [ring[i], ring[i + 1], roof[i + 1], roof[i]];
+    if (ringSignedArea(quad.concat([quad[0]])) < 0) quad.reverse();
+    walls.push(quad);
+  }
+  if (walls.length) {
+    L.polygon(walls, {
+      color: col, weight: 0.5, opacity: 0.5,
+      fillColor: col, fillOpacity: 0.3,
+      fillRule: "nonzero",
+      // Walls sit over neighbouring footprints; interactive walls would eat
+      // map clicks and make `doLookup` return the wrong building, or nothing.
+      interactive: false
+    }).addTo(group);
+  }
+  L.polygon(roof, {
+    color: col, weight: 1, fillColor: col, fillOpacity: 0.55, interactive: false
+  }).addTo(group);
+}
+
+// wasm-bindgen throws a plain string, not an Error, whenever core returns a
+// DecodeError. `e.message` is then undefined and `e.message.slice(0, 40)`
+// throws inside the catch block -- so the handler for a layer that failed to
+// open failed itself, the real reason never reached the console, and what
+// surfaced was "Cannot read properties of undefined (reading 'slice')". That
+// is how a whole state's buildings looked like a mystery rather than a
+// rejected index.
+function errText(e, max) {
+  var s = (e && e.message) ? e.message : String(e);
+  return max && s.length > max ? s.slice(0, max) + "..." : s;
 }
 
 async function renderPtilesForCells(cells) {
@@ -741,11 +918,7 @@ async function renderPtilesForCells(cells) {
       ptilesLayers.camera.rendered.add(cellInt);
       try {
         var raw = await ptilesLayers.camera.reader.decompressCell(cellInt);
-        if (raw) wasm.decode_cameras(raw).forEach(function(c) {
-          var col = cameraColor(c.device_type);
-          L.circleMarker([c.lat, c.lon], {radius:4, color:col, fillColor:col,
-            fillOpacity:0.7, weight:1.5}).addTo(ptilesLayers.camera.group);
-        });
+        if (raw) wasm.decode_cameras(raw).forEach(addCameraToMap);
       } catch(e) {}
     }
     if (chkSignal && ptilesLayers.signal.reader && !ptilesLayers.signal.rendered.has(cellInt)) {
@@ -765,10 +938,42 @@ async function renderPtilesForCells(cells) {
         var bldgRdr = ptilesLayers.bldgs.reader; // PtilesWasmReader
         var cellCenter = h3.cellToLatLng(cellHex); // [lat, lng]
         var bldgColors = ["#6e40c9","#388bfd","#3fb950","#f0883e","#da3633","#d29922"];
-        await bldgRdr.renderAllInCell(cellCenter[0], cellCenter[1], function(latlngs, osmId) {
-          var c = bldgColors[Math.abs(osmId) % bldgColors.length];
-          L.polygon(latlngs, {color:c, weight:1, fillColor:c, fillOpacity:0.1}).addTo(ptilesLayers.bldgs.group);
+        var group = ptilesLayers.bldgs.group;
+        var batch = [];
+        await bldgRdr.renderAllInCell(cellCenter[0], cellCenter[1], function(latlngs, osmId, b) {
+          batch.push({ latlngs: latlngs, osmId: osmId, heightM: b.heightM, centroidLat: b.centroidLat, centroidLon: b.centroidLon });
         });
+        bldgTotalInView += batch.length;
+        if (!bldgs3dActive) {
+          batch.forEach(function(rec) {
+            var c = bldgColors[Math.abs(rec.osmId) % bldgColors.length];
+            L.polygon(rec.latlngs, {color:c, weight:1, fillColor:c, fillOpacity:0.1}).addTo(group);
+          });
+        } else {
+          // Painter's algorithm: no depth buffer, so draw far-to-near along the
+          // shift direction. The building furthest along the offset vector is
+          // the one that gets covered, so it goes down first. Sorting on
+          // latitude alone would only be right for a due-north azimuth.
+          var a = BLDG_AZIMUTH * Math.PI / 180;
+          var kLat = Math.cos(a), kLon = Math.sin(a) * Math.cos(cellCenter[0] * Math.PI / 180);
+          batch.sort(function(p, q) {
+            return (q.centroidLat * kLat + q.centroidLon * kLon)
+                 - (p.centroidLat * kLat + p.centroidLon * kLon);
+          });
+          var offsetCache = {};
+          batch.forEach(function(rec) {
+            if (rec.heightM == null) {
+              // No published height. Draw the footprint dimmed rather than
+              // guessing a height -- an invented storey count next to measured
+              // ones is worse than an obvious gap.
+              L.polygon(rec.latlngs, {color:"#484f58", weight:0.5, fillColor:"#484f58",
+                fillOpacity:0.08, interactive:false}).addTo(group);
+              return;
+            }
+            bldgWithHeightInView++;
+            drawExtrudedBuilding(rec, group, offsetCache);
+          });
+        }
       } catch(e) {}
     }
   }
@@ -793,9 +998,38 @@ async function renderViewport() {
   } catch(e) {
     cells = h3.gridDisk(centerCell, rings);
   }
+  // polygonToCells selects cells whose *centre* falls inside the polygon. A
+  // res-7 hex is about 5 km across, so from zoom 18 up the whole viewport fits
+  // inside one hex, contains no centre at all, and this returned []: the map
+  // said "rendering 0 cells" and drew nothing the closer you looked. The same
+  // rule clips the edges at any zoom, where a hex overlaps the screen but
+  // keeps its centre off it. The centre cell and its ring cover both.
+  var near = h3.gridDisk(centerCell, 1);
+  cells = Array.from(new Set(cells.concat(near)));
   cells = cells.slice(0, 300);
+
+  // Buildings memoize per cell in `bldgs.rendered`, so a cell already drawn is
+  // skipped -- which means flipping 3D, or moving the exaggeration slider,
+  // would change nothing at all for cells already on screen, silently. Redraw
+  // the buildings layer whenever what it should look like has changed.
+  //
+  // Only the buildings layer: clearPtilesRendered() wipes all seven, which
+  // would refetch roads and water on every toggle.
+  var bldgWant = (bldgs3dActive ? "3d:" : "flat:") + bldg3dExaggeration;
+  if (ptilesLayers.bldgs.mode !== bldgWant) {
+    ptilesLayers.bldgs.mode = bldgWant;
+    ptilesLayers.bldgs.rendered.clear();
+    ptilesLayers.bldgs.group.clearLayers();
+  }
+
+  bldgTotalInView = 0;
+  bldgWithHeightInView = 0;
   setLayerStatus("rendering " + cells.length + " cells...");
   await renderPtilesForCells(cells);
+  if (bldgs3dActive && bldgTotalInView > 0) {
+    setLayerStatus("3D: " + bldgWithHeightInView + "/" + bldgTotalInView
+      + " buildings have heights");
+  }
 }
 
 function scheduleViewportRender() {
@@ -827,7 +1061,8 @@ async function loadPtilesLayer(key, filename) {
   } catch(e) {
     layer.reader = null;
     layer.state = null;
-    setLayerStatus(key + " error: " + e.message.slice(0, 40));
+    setLayerStatus(key + " error: " + errText(e, 60));
+    console.warn("[ptiles] " + key + " failed to open:", e);
   }
   layer.loading = false;
 }
@@ -843,7 +1078,8 @@ async function loadPtilesLayerUS(key, filename) {
     scheduleViewportRender();
   } catch(e) {
     layer.reader = null;
-    setLayerStatus(key + " error: " + e.message.slice(0, 40));
+    setLayerStatus(key + " error: " + errText(e, 60));
+    console.warn("[ptiles] " + key + " failed to open:", e);
   }
   layer.loading = false;
 }
@@ -864,6 +1100,7 @@ async function activatePtilesMode() {
   });
   osmTileLayer.remove();
   document.getElementById("layerBar").classList.add("show");
+  sync3dControls(); // Buildings may already be ticked when the bar opens
   document.getElementById("btnPtiles").className = "toggle-on";
   document.getElementById("btnPtiles").textContent = "Basemap";
   ptilesModeActive = true;
@@ -880,6 +1117,13 @@ async function activatePtilesMode() {
   //
   // It also fetched camera and signal (a 21 MB and a 3.5 MB national file)
   // even when both were unticked.
+  await loadCheckedLayers(myRev);
+}
+
+// Open a reader for every ticked layer that has not got one. `myRev` cancels
+// the walk if something else (another activate, another state switch) has
+// moved on since it started.
+async function loadCheckedLayers(myRev) {
   for (var ci = 0; ci < PTILES_LAYER_ORDER.length; ci++) {
     if (myRev !== ptilesLayerRevision) return;
     var lk = PTILES_LAYER_ORDER[ci];
@@ -924,7 +1168,8 @@ async function loadPtilesLayerBldgs() {
   } catch(e) {
     layer.reader = null;
     layer.state = null;
-    setLayerStatus("bldgs error: " + e.message.slice(0, 40));
+    setLayerStatus("bldgs error: " + errText(e, 60));
+    console.warn("[ptiles] buildings failed to open:", e);
   }
   layer.loading = false;
 }
@@ -940,56 +1185,94 @@ function deactivatePtilesMode() {
   document.getElementById("btnPtiles").textContent = "PTILES Mode";
 }
 
-// Layer checkbox handlers (roads/water/parks/rail use LayerReader)
-["chkRoads","chkWater","chkParks","chkRail"].forEach(function(id) {
-  var layerKeys = {chkRoads:"roads",chkWater:"water",chkParks:"parks",chkRail:"rail"};
-  document.getElementById(id).addEventListener("change", async function() {
-    var key = layerKeys[id];
-    if (this.checked) {
-      ptilesLayers[key].group.addTo(map);
-      // ponytail: filename == layer key (was filenames[key] with chk-keyed map → TN.undefined)
-      if (!ptilesLayers[key].reader && !ptilesLayers[key].loading) {
-        await loadPtilesLayer(key, key);
-      }
-    } else {
-      ptilesLayers[key].group.remove();
-    }
-  });
-});
-
-// Buildings uses PtilesWasmReader (WASM decode)
-document.getElementById("chkBldgs").addEventListener("change", async function() {
-  if (this.checked) {
-    ptilesLayers.bldgs.group.addTo(map);
-    if (!ptilesLayers.bldgs.reader && !ptilesLayers.bldgs.loading) {
-      ptilesLayers.bldgs.loading = true;
-      setLayerStatus("buildings loading...");
-      try {
-        ptilesLayers.bldgs.reader = await ensureBldgReader();
-        setLayerStatus("buildings ready");
-        scheduleViewportRender();
-      } catch(e) { setLayerStatus("buildings error: " + e.message.slice(0, 40)); }
-      ptilesLayers.bldgs.loading = false;
-    }
-  } else {
-    ptilesLayers.bldgs.group.remove();
-  }
-});
-
-// Camera/signal checkboxes use US-wide files. Name convention: layer key "signal" -> filename "signals".
+// Camera/signal use US-wide files. Name convention: layer key "signal" ->
+// filename "signals". Also the list of layers a state switch must NOT drop.
 var US_LAYER_FILES = {camera:"camera",signal:"signals"};
-["chkCamera","chkSignal"].forEach(function(id) {
-  var layerKeys = {chkCamera:"camera",chkSignal:"signal"};
-  document.getElementById(id).addEventListener("change", async function() {
-    var key = layerKeys[id];
-    if (this.checked) {
-      ptilesLayers[key].group.addTo(map);
-      if (!ptilesLayers[key].reader && !ptilesLayers[key].loading) {
-        await loadPtilesLayerUS(key, US_LAYER_FILES[key]);
-      }
-    } else {
-      ptilesLayers[key].group.remove();
-    }
+
+// 3D is a rendering mode for the buildings layer, not a layer of its own, so it
+// has no reader and no entry in ptilesLayers. renderViewport's mode guard does
+// the redraw; both controls just set state and ask for one.
+document.getElementById("chk3D").addEventListener("change", function() {
+  bldgs3dActive = this.checked;
+  document.getElementById("exagWrap").style.display = this.checked ? "flex" : "none";
+  scheduleViewportRender();
+});
+
+// 3D extrudes the buildings layer, so it only means anything while that layer
+// is on -- offering it otherwise is a control that silently does nothing.
+// Buildings ships unticked, so this hides on load and appears when Buildings
+// is ticked in PTILES mode.
+//
+// Turning Buildings off also turns 3D off rather than leaving it ticked but
+// hidden: a hidden control holding state is how you come back later, tick
+// Buildings, and get an extruded map you did not ask for.
+function sync3dControls() {
+  var on = document.getElementById("chkBldgs").checked;
+  document.getElementById("chk3DWrap").style.display = on ? "flex" : "none";
+  var box = document.getElementById("chk3D");
+  if (!on && box.checked) {
+    box.checked = false;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+  } else if (!on) {
+    document.getElementById("exagWrap").style.display = "none";
+  }
+}
+document.getElementById("chkBldgs").addEventListener("change", sync3dControls);
+
+document.getElementById("exagSlider").addEventListener("input", function() {
+  bldg3dExaggeration = parseFloat(this.value);
+  document.getElementById("exagVal").textContent = bldg3dExaggeration.toFixed(1);
+  scheduleViewportRender();
+});
+
+// Clicking the wordmark puts the layer selection back to how the page loaded.
+//
+// `defaultChecked` is the `checked` attribute in the markup, so the defaults
+// are read off the same declaration that produces them -- a second hardcoded
+// list here would be one more thing to forget when a layer is added. Firing
+// `change` rather than calling the loader means this goes through the one
+// checkbox handler, so a reset behaves exactly like ticking the boxes by hand.
+//
+// PTILES mode itself is deliberately left alone: someone resetting layers is
+// still looking at the map, and dropping them back to the basemap would throw
+// away the thing they are in the middle of.
+document.getElementById("brandReset").addEventListener("click", function() {
+  // 3D is not in LAYER_CHK_MAP -- it is a render mode, not a layer -- but it is
+  // part of "how the page loaded", so it resets too.
+  ["chk3D"].concat(Object.keys(LAYER_CHK_MAP).map(function(k) { return LAYER_CHK_MAP[k]; }))
+    .forEach(function(id) {
+      var box = document.getElementById(id);
+      if (box.checked === box.defaultChecked) return;
+      box.checked = box.defaultChecked;
+      box.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  // A box already at its default fires no change event, so 3D visibility has
+  // to be resynced explicitly rather than relying on the loop above.
+  sync3dControls();
+  infoPanel.classList.remove("show");
+  document.getElementById("camPanel").classList.remove("show");
+  document.getElementById("searchPanel").classList.remove("show");
+  clearOverlays();
+  setStatus("");
+  setLayerStatus("layers reset");
+});
+
+// One handler for all seven boxes. They differed only in how the reader was
+// built, and PTILES_LOADERS already answers that -- three near-copies of the
+// same fifteen lines is how buildings ended up on a different reader from the
+// one its map layer uses.
+//
+// The render call is not optional, and its absence is the "Roads does nothing"
+// bug. renderPtilesForCells marks a cell rendered only when the box was ticked
+// at the time, so a box unticked while the map moves -- or across a state
+// line, which empties every group -- comes back to an empty group with nothing
+// queued to refill it. It stayed blank until the user happened to pan again.
+Object.keys(LAYER_CHK_MAP).forEach(function(key) {
+  document.getElementById(LAYER_CHK_MAP[key]).addEventListener("change", async function() {
+    if (!this.checked) { ptilesLayers[key].group.remove(); return; }
+    ptilesLayers[key].group.addTo(map);
+    if (!ptilesLayers[key].reader && !ptilesLayers[key].loading) await PTILES_LOADERS[key]();
+    scheduleViewportRender();
   });
 });
 
@@ -1009,6 +1292,7 @@ function clearOverlays() {
   if (bizMarkers) bizMarkers.clearLayers();
   if (tileBuildingLayer) { map.removeLayer(tileBuildingLayer); tileBuildingLayer = null; }
   lastBldg = null; lastBiz = null; lastBizList = null; metaOpen = false;
+  document.getElementById("camPanel").classList.remove("show");
   var md = document.getElementById("metaDump");
   if (md) { md.style.display = "none"; md.textContent = ""; }
 }
@@ -1133,19 +1417,29 @@ async function switchState(newState, quiet) {
   currentState = newState;
   bldgReaderPromise = null;
   bizReaderPromise = null;
-  // drop viewport layer readers (roadsByState cache kept for multi-state route)
-  Object.values(ptilesLayers).forEach(function(l) { l.reader = null; l.state = null; l.loading = false; });
+  // Drop the per-state readers only (roadsByState cache kept for multi-state
+  // route). Camera and signal are single national files -- dropping them cost
+  // a 21 MB and a 3.5 MB refetch on every state line crossed, and nothing here
+  // reloaded them afterwards, so both went quietly dead instead.
+  Object.keys(ptilesLayers).forEach(function(k) {
+    if (US_LAYER_FILES[k]) return;
+    var l = ptilesLayers[k];
+    l.reader = null; l.state = null; l.loading = false;
+  });
   stateSelect.value = newState;
   if (!quiet) {
     var sv = STATE_CENTERS[newState];
     map.setView(sv.center, sv.zoom);
   }
   if (ptilesModeActive) {
+    // Same revision guard activate uses: pan quickly across two state lines and
+    // the first switch's loads must not land on top of the second's.
+    ptilesLayerRevision++;
     clearPtilesRendered();
-    await loadPtilesLayer("roads", "roads");
-    await loadPtilesLayer("water", "water");
-    if (document.getElementById("chkParks").checked) await loadPtilesLayer("parks", "parks");
-    if (document.getElementById("chkRail").checked) await loadPtilesLayer("rail", "rail");
+    // Whatever is ticked, not a fixed list -- this used to load roads and water
+    // even when unticked, and never buildings, camera or signal at all.
+    await loadCheckedLayers(ptilesLayerRevision);
+    scheduleViewportRender();
   }
   updateHash();
 }
@@ -1464,6 +1758,14 @@ async function doLookup(lat, lon) {
       osmLink.textContent = "way/" + Math.abs(Number(b.osmId));
       document.getElementById("bldgOsmLinkRow").style.display = b.osmId ? "flex" : "none";
       bldgType.textContent = b.buildingType || "--";
+      // 127.5 m is the encoder's ceiling (u8 of half-metre steps), not a
+      // measurement -- 25 buildings in midtown Manhattan sit exactly there.
+      // Say so rather than reporting a clamp as a height.
+      document.getElementById("bldgHeightRow").style.display = b.heightM != null ? "flex" : "none";
+      if (b.heightM != null) {
+        document.getElementById("bldgHeight").textContent =
+          b.heightM + " m" + (b.heightM === 127.5 ? " (at encoding limit)" : "");
+      }
       bldgTagName.textContent = b.name || "--";
       bldgCat.textContent = b.category || "--";
       document.getElementById("bldgCatRow").style.display = b.category ? "flex" : "none";
@@ -1605,14 +1907,43 @@ document.getElementById("btnShowAll").addEventListener("click", async function()
   } catch(e) { setStatus("Show tile error: " + e.message, true); }
 });
 
+// "User denied Geolocation" is a permission state, not a failure to fix in
+// code. Browsers remember a denial per origin: once refused, every later call
+// rejects instantly with that same string and no prompt is ever shown again,
+// so echoing it read as "the button is broken" when the button was working
+// exactly as asked. Say what actually has to happen instead.
+//
+// The other silent case is a non-secure origin -- geolocation is gated on one,
+// so opening the page over plain http (or file://) fails the same way with no
+// hint as to why. steele.red is https; a local `python3 -m http.server` on
+// something other than localhost is not.
+function gpsErrorText(err) {
+  if (err && err.code === 1) {
+    return "Location permission is blocked for this site. Click the icon at the "
+      + "left of the address bar, set Location to Allow, then press GPS again. "
+      + "Or type coordinates into the box.";
+  }
+  if (err && err.code === 2) return "Position unavailable — no fix from the device.";
+  if (err && err.code === 3) return "Timed out waiting for a fix. Try again outdoors.";
+  return "GPS error: " + errText(err);
+}
+
 btnGps.addEventListener("click", function() {
   if (!navigator.geolocation) { setStatus("Geolocation not supported", true); return; }
+  if (!window.isSecureContext) {
+    setStatus("GPS needs a secure origin (https or localhost); this page is not one.", true);
+    return;
+  }
+  setStatus("Waiting for GPS...");
   navigator.geolocation.getCurrentPosition(
     function(pos) {
       coordInput.value = pos.coords.latitude.toFixed(6) + ", " + pos.coords.longitude.toFixed(6);
       doLookup(pos.coords.latitude, pos.coords.longitude);
     },
-    function(err) { setStatus("GPS error: " + err.message, true); },
+    function(err) {
+      console.warn("[ptiles] geolocation failed", err);
+      setStatus(gpsErrorText(err), true);
+    },
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
 });
@@ -1649,6 +1980,137 @@ function cameraColor(dev) {
   if (dev === "guard") return "#d29922";
   return "#f0883e";
 }
+
+var CAMERA_LABELS = {
+  camera: "Surveillance camera", ALPR: "ALPR (plate reader)",
+  guard: "Guard post", unknown: "Unknown device"
+};
+
+// A point on the sphere `distM` away along `bearingDeg` (0 = north, clockwise).
+// Needed for the viewpoint wedge: a camera's `direction` is a bearing, and a
+// bearing means nothing on a map until it is two coordinates.
+function destPoint(lat, lon, bearingDeg, distM) {
+  var R = 6371000, d = distM / R, b = bearingDeg * Math.PI / 180;
+  var la = lat * Math.PI / 180, lo = lon * Math.PI / 180;
+  var la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(b));
+  var lo2 = lo + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la),
+                            Math.cos(d) - Math.sin(la) * Math.sin(la2));
+  return [la2 * 180 / Math.PI, lo2 * 180 / Math.PI];
+}
+
+var COMPASS = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+function compassPoint(deg) { return COMPASS[Math.round((deg % 360) / 22.5) % 16]; }
+
+// Only 34% of live records carry `direction` and almost none carry `angle`, so
+// the wedge is drawn when the facing is known and the spread falls back to a
+// nominal 60 deg. Sixty is a guess about the lens, not about the data.
+// ponytail: fixed default FOV; take it from `angle` when builders start writing it
+var CAMERA_FOV_DEFAULT = 60;
+var CAMERA_VIEW_M = 45;
+
+function cameraViewWedge(c) {
+  if (c.direction == null) return null;
+  var fov = c.angle != null && c.angle > 0 ? c.angle : CAMERA_FOV_DEFAULT;
+  var half = fov / 2;
+  var pts = [[c.lat, c.lon]];
+  for (var a = -half; a <= half; a += Math.max(2, fov / 12)) {
+    pts.push(destPoint(c.lat, c.lon, c.direction + a, CAMERA_VIEW_M));
+  }
+  pts.push(destPoint(c.lat, c.lon, c.direction + half, CAMERA_VIEW_M));
+  return pts;
+}
+
+// Inline SVG rather than an image file: the page has no asset pipeline, and a
+// data-URI PNG would not recolour per device type.
+//
+// The glyph is rotated to the recorded bearing. The wedge below is drawn in
+// metres, so it collapses to a few pixels once you zoom out past ~16 and the
+// facing becomes invisible exactly when you are looking at many cameras at
+// once. The icon is screen-sized, so rotating it shows orientation at every
+// zoom; the wedge then adds the reach when you are close enough to care.
+// The barrel points east in the raw SVG, hence the -90.
+function cameraIconHtml(col, direction) {
+  var svg = '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">'
+    + '<rect x="1.5" y="7" width="13" height="10" rx="2" fill="' + col + '"'
+    + ' stroke="#0d1117" stroke-width="1.2"/>'
+    + '<path d="M15 11.2 L21.5 7.5 v9 L15 12.8 Z" fill="' + col + '"'
+    + ' stroke="#0d1117" stroke-width="1.2" stroke-linejoin="round"/>'
+    + '<circle cx="8" cy="12" r="2.4" fill="#0d1117" opacity="0.55"/></svg>';
+  if (direction == null) return svg;
+  return '<span style="display:block;transform:rotate(' + (direction - 90) + 'deg)">'
+    + svg + '</span>';
+}
+
+function addCameraToMap(c) {
+  var col = cameraColor(c.device_type);
+  var wedge = cameraViewWedge(c);
+  if (wedge) {
+    L.polygon(wedge, {color: col, weight: 1, opacity: 0.55, fillColor: col,
+      fillOpacity: 0.16, interactive: false}).addTo(ptilesLayers.camera.group);
+  }
+  var facing = c.direction != null ? " facing " + c.direction + "° " + compassPoint(c.direction) : "";
+  var marker = L.marker([c.lat, c.lon], {
+    icon: L.divIcon({
+      className: "cam-icon", html: cameraIconHtml(col, c.direction),
+      iconSize: [18, 18], iconAnchor: [9, 9]
+    }),
+    title: (c.name || CAMERA_LABELS[c.device_type] || c.device_type) + facing
+  });
+  marker.on("click", function(e) {
+    L.DomEvent.stopPropagation(e);  // else the map click handler runs a lookup
+    showCameraPanel(c);
+  });
+  marker.addTo(ptilesLayers.camera.group);
+}
+
+// DeFlock has no per-node page; its own map builds this hash, so it is the
+// closest thing to a permalink for one camera. The OSM node is the canonical
+// record and is what DeFlock is reading from in the first place.
+function deflockUrl(lat, lon) {
+  return "https://deflock.org/legacy-map#map=19/" + lat.toFixed(6) + "/" + lon.toFixed(6);
+}
+
+function showCameraPanel(c) {
+  var set = function(id, v) { document.getElementById(id).textContent = v; };
+  var row = function(id, v, target) {
+    document.getElementById(id).style.display = v ? "flex" : "none";
+    if (v) set(target, v);
+  };
+  set("camName", c.name || CAMERA_LABELS[c.device_type] || c.device_type);
+  set("camDevice", CAMERA_LABELS[c.device_type] || c.device_type);
+  set("camType", c.camera_type);
+  set("camPlacement", c.placement);
+  row("camDirRow", c.direction != null
+    ? c.direction + "° " + compassPoint(c.direction) : null, "camDir");
+  row("camFovRow", c.angle != null ? c.angle + "°" : null, "camFov");
+  row("camOperatorRow", c.operator || null, "camOperator");
+  row("camRefRow", c.ref_tag || null, "camRef");
+  set("camOsm", String(c.osm_id));
+  set("camCoords", c.lat.toFixed(5) + ", " + c.lon.toFixed(5));
+  document.getElementById("camDeflock").href = deflockUrl(c.lat, c.lon);
+  document.getElementById("camOsmLink").href =
+    "https://www.openstreetmap.org/node/" + String(c.osm_id);
+  set("camLegend", c.direction != null
+    ? "Shaded wedge is the recorded facing"
+      + (c.angle != null ? "." : ", drawn at a nominal " + CAMERA_FOV_DEFAULT + "° spread.")
+    : "No facing recorded for this camera.");
+  document.getElementById("infoPanel").classList.remove("show");
+  document.getElementById("camPanel").classList.add("show");
+}
+
+document.getElementById("btnCloseCam").addEventListener("click", function() {
+  document.getElementById("camPanel").classList.remove("show");
+});
+
+// The lookup/intersection panel had no way out: it opened on a map click and
+// then covered a third of the map until the next click happened to land
+// somewhere that produced a different result. clearOverlays drops the marker
+// and the highlighted geometry with it, so closing leaves nothing behind.
+document.getElementById("btnCloseInfo").addEventListener("click", function() {
+  infoPanel.classList.remove("show");
+  clearOverlays();
+  setStatus("");
+});
 
 function signalColor(t) {
   if (t === "stop" || t === "give_way") return "#da3633";
@@ -2426,6 +2888,11 @@ window.__ptiles = {
                  offsetBase: f.offsetBase.kind, entries: f.entries.length } : null;
   },
   view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; },
+  // Coverage of the last render. The harness needs this to tell "3D drew
+  // nothing because the data has no heights" apart from "3D is broken".
+  bldgHeightCoverage: function() {
+    return { withHeight: bldgWithHeightInView, total: bldgTotalInView, on: bldgs3dActive };
+  },
   // Harness hook: move the map the way a user pan does, so the moveend path
   // (including the state-follows-viewport switch) is exercised for real
   // rather than simulated.
