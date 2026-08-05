@@ -128,16 +128,23 @@ pub struct ParsedIndex {
 /// Structural, not cryptographic. Two checks, both false when the width is
 /// wrong and true whenever it is right:
 ///
-/// 1. **Entry 0 names a non-empty block.** This is the deterministic one. In a
-///    38-byte index read as 19-byte, entry 0's `block_offset` and
-///    `block_length` are read from bytes 8..17 — squarely inside the 16-byte
-///    bbox, which every real builder writes as zeros. So a wrong width gives
-///    entry 0 a zero length, every time, and that is exactly the silent-empty
-///    failure this exists to catch. Checking *some* entry instead of the first
-///    is not enough: at the wrong stride later entries read misaligned bytes
-///    that can be nonzero by luck.
-/// 2. **Entries are non-descending by `h3_cell`**, which the format
-///    guarantees and `binary_search` depends on.
+/// 1. **Entry 0 names a non-empty block.** Cheap, and it catches a 38-byte
+///    index whose bbox really is zeros. It is *not* sufficient on its own:
+///    measured against the published 38-byte files, entry 0 read at 19 bytes
+///    comes back with a large non-zero length (US.camera 10420322,
+///    US.signals 6750310, GA.parks 3342386), so this check passes and check 2
+///    is what actually rejects them. An earlier version of this comment
+///    claimed check 1 was the deterministic one; the bytes disagree.
+/// 2. **Entries are *mostly* non-descending by `h3_cell`.** The format says
+///    sorted and `binary_search` depends on it, but published files do not all
+///    hold up: `{ST}.buildings_v8.ptiles` is written in build order, so GA has
+///    267 descending steps in 14371 entries (1.9%) and CA 284 in 21687 (1.3%).
+///    Tennessee happens to have none, which is why it was the only state whose
+///    buildings ever rendered — every other state failed detection outright.
+///    Bytes read at the *wrong* stride are unrelated to cell ids and descend
+///    about half the time, so a tolerance still separates the two cleanly.
+///    [`parse_index_sized`] sorts what it returns, so a tolerated file is
+///    still safe to binary-search.
 ///
 /// A first cell with genuinely no data would be rejected here, but such an
 /// entry should not exist — cells with nothing in them are left out of the
@@ -149,15 +156,22 @@ fn is_structurally_valid(data: &[u8], count: usize, entry_size: usize) -> bool {
     if read_entry(data, 4, entry_size).block_length == 0 {
         return false;
     }
+    let mut descents = 0usize;
     let mut prev = 0u64;
     for i in 0..count {
         let cell = read_entry(data, 4 + i * entry_size, entry_size).h3_cell;
         if cell < prev {
-            return false;
+            descents += 1;
         }
         prev = cell;
     }
-    true
+    // The threshold is measured, not guessed. Reading a real 38-byte index at
+    // 19 bytes makes every second entry misaligned garbage, which gives
+    // *exactly* 50.0% descents — US.camera, US.signals, GA.parks and GA.rail
+    // all land on it to the entry. The worst real 19-byte file is MA
+    // buildings at 8.75% (371 of 4242). A quarter sits between the two with
+    // roughly 3x margin below and 2x above.
+    descents * 4 <= count
 }
 
 /// Bytes required to hold `count` entries of `entry_size`, or `None` on
@@ -257,6 +271,14 @@ pub fn parse_index_sized(
     let mut entries = Vec::with_capacity(count);
     for i in 0..count {
         entries.push(read_entry(data, 4 + i * entry_size, entry_size));
+    }
+    // The format says the index is sorted by cell; several published files are
+    // not (see `is_structurally_valid`). Sort rather than trust, because
+    // `binary_search` — and every caller that reaches for it — is silently
+    // wrong on unsorted input rather than loudly wrong. Already-sorted input,
+    // which is the common case, costs one pass.
+    if entries.windows(2).any(|w| w[0].h3_cell > w[1].h3_cell) {
+        entries.sort_unstable_by_key(|e| e.h3_cell);
     }
     Ok(entries)
 }
@@ -449,6 +471,121 @@ mod tests {
         assert!(binary_search(&index, 15).is_none()); // gap between
         assert!(binary_search(&index, 5).is_none()); // below range
         assert!(binary_search(&index, 40).is_none()); // above range
+    }
+
+    /// A 38-byte index, as a builder really writes one: the 16-byte bbox at
+    /// bytes 8..24 is zeros. Read at 19 bytes this is the silent-empty failure
+    /// detection exists to catch, so it must still be caught.
+    fn encode_entry_v2(h3_cell: u64, block_offset: u64, block_length: u32) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&h3_cell.to_le_bytes());
+        buf.extend_from_slice(&[0u8; 16]); // bbox, zeros
+        buf.extend_from_slice(&block_offset.to_le_bytes()[0..6]);
+        buf.extend_from_slice(&block_length.to_le_bytes()[0..3]);
+        buf.extend_from_slice(&0u16.to_le_bytes()); // feature_count
+        buf.extend_from_slice(&0u32.to_le_bytes()); // cell_index
+        buf
+    }
+
+    #[test]
+    fn nearly_sorted_index_parses_and_comes_back_sorted() {
+        // Published `{ST}.buildings_v8.ptiles` are written in build order, not
+        // cell order: GA has 267 descending steps in 14371 entries, CA 284 in
+        // 21687. Tennessee has none, which is why it was the only state whose
+        // buildings ever rendered. Rejecting these files outright made every
+        // other state draw nothing; `binary_search` still needs sorted input,
+        // so the fix is to sort rather than to trust.
+        let mut data = Vec::new();
+        data.extend_from_slice(&4u32.to_le_bytes());
+        data.extend_from_slice(&encode_entry(10, 100, 5, 1));
+        data.extend_from_slice(&encode_entry(30, 300, 7, 3)); // out of order
+        data.extend_from_slice(&encode_entry(20, 200, 6, 2)); // ...
+        data.extend_from_slice(&encode_entry(40, 400, 8, 4));
+
+        let index = parse_index(&data).unwrap();
+        assert_eq!(index.len(), 4);
+        assert!(index.windows(2).all(|w| w[0].h3_cell <= w[1].h3_cell));
+        // Sorting is pointless unless lookups actually work afterwards.
+        assert_eq!(binary_search(&index, 20).unwrap().block_offset, 200);
+        assert_eq!(binary_search(&index, 30).unwrap().block_offset, 300);
+        assert!(binary_search(&index, 25).is_none());
+    }
+
+    #[test]
+    fn nearly_sorted_index_is_accepted_as_a_width_candidate() {
+        // The GA/CA shape: one descending step in a long run. Detection ran
+        // before parsing, so this is where those files were actually rejected
+        // -- with `unexpected end of input`, which named neither the file nor
+        // the real problem.
+        let mut data = Vec::new();
+        let cells: [u64; 20] = [
+            10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 95, 110, 120, 130, 140, 150, 160, 170, 180,
+            190,
+        ];
+        data.extend_from_slice(&(cells.len() as u32).to_le_bytes());
+        for (i, c) in cells.iter().enumerate() {
+            data.extend_from_slice(&encode_entry(*c, 100 * i as u64, 5, 1));
+        }
+        let index_length = Some(4 + cells.len() * ENTRY_SIZE_V1);
+        let (size, _, _) = detect_entry_size(&data, index_length).unwrap();
+        assert_eq!(size, ENTRY_SIZE_V1);
+    }
+
+    #[test]
+    fn wrong_width_is_still_rejected_despite_sort_tolerance() {
+        // Tolerating unsorted entries must not blunt the check that matters.
+        // Entry 0 read at the wrong width takes its block_length from inside
+        // the zeroed bbox, so it reads zero -- deterministically.
+        let mut data = Vec::new();
+        data.extend_from_slice(&3u32.to_le_bytes());
+        for (cell, off, len) in [(10u64, 100u64, 5u32), (20, 200, 6), (30, 300, 7)] {
+            data.extend_from_slice(&encode_entry_v2(cell, off, len));
+        }
+        let index_length = Some(4 + 3 * ENTRY_SIZE_V2);
+        let (size, _, _) = detect_entry_size(&data, index_length).unwrap();
+        assert_eq!(size, ENTRY_SIZE_V2, "must not be mistaken for a 19-byte index");
+    }
+
+    #[test]
+    fn shuffled_index_is_rejected_as_a_width_candidate() {
+        // Tolerance is for build-order files that are nearly sorted, not for
+        // bytes read at the wrong stride, which alternate real cell / garbage
+        // and so descend on every second entry — 50.0% exactly, measured on
+        // four published 38-byte files.
+        let mut data = Vec::new();
+        let cells: [u64; 8] = [80, 10, 70, 20, 60, 30, 50, 40];
+        data.extend_from_slice(&(cells.len() as u32).to_le_bytes());
+        for (i, c) in cells.iter().enumerate() {
+            data.extend_from_slice(&encode_entry(*c, 100 * i as u64, 5, 1));
+        }
+        assert!(!is_structurally_valid(&data, cells.len(), ENTRY_SIZE_V1));
+    }
+
+    #[test]
+    fn worst_real_file_is_inside_the_tolerance_and_a_wrong_stride_is_not() {
+        // The two ends the threshold has to separate, as ratios rather than
+        // fetched files: MA buildings at 371/4242, and the exact half of a
+        // 38-byte index read at 19.
+        fn descending_run(count: usize, descents: usize) -> Vec<u8> {
+            let mut data = Vec::new();
+            data.extend_from_slice(&(count as u32).to_le_bytes());
+            let mut cell = 1000u64;
+            for i in 0..count {
+                // Put every descent at a distinct position; ascend otherwise.
+                if i > 0 && i <= descents {
+                    cell -= 1;
+                } else {
+                    cell += 10;
+                }
+                data.extend_from_slice(&encode_entry(cell, 100 + i as u64, 5, 1));
+            }
+            data
+        }
+        let ma = descending_run(4242, 371);
+        assert!(is_structurally_valid(&ma, 4242, ENTRY_SIZE_V1), "MA must be readable");
+
+        let wrong = descending_run(1000, 500);
+        assert!(!is_structurally_valid(&wrong, 1000, ENTRY_SIZE_V1), "50% must be rejected");
     }
 
     #[test]
