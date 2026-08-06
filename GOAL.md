@@ -166,6 +166,19 @@ Commit-referenced so nothing here gets rebuilt from scratch.
   to gate a publish.
 - All 51 `{ST}.address.ptiles` published to R2 and serving (verified HTTP 206).
 
+- `0a5b5e7` — `web-demo/test/perf_check.py`, the timing harness. Per layer, at a
+  fixed viewport, cold and warm, three runs with the median and spread: the open
+  and render phases, range requests and bytes, and the split between network,
+  zstd and decode. The per-layer seconds this file used to quote came from no
+  script; these come from this one. Same commit made every layer 27-49% faster
+  cold and 60-69% faster warm at identical feature counts — prefetching a
+  render's blocks instead of one round trip per cell, a promise-keyed block
+  cache, dictionary and index fetched together, the national point layers
+  through their PTCI aux, a leading-edge viewport debounce, and `preferCanvas`.
+  Numbers are in the commit message.
+- `f8dc14a` — `wasm/test/golden.mjs` now runs in CI. It matched neither of the
+  two globs and had never executed on any machine; it passes and gates.
+
 Measured and deliberately **not** done, with the numbers so nobody re-derives them:
 
 - **The ~30x wasm bench does not apply to a real page.** `bench_wasm.html`
@@ -180,6 +193,23 @@ Measured and deliberately **not** done, with the numbers so nobody re-derives th
   duplicate-implementation problem the whole effort removed.
 - Typed-array index parse, HTTP-range binary search over the index, and shrinking
   the zstd dictionary: all measured and rejected. See git history of this file.
+- **`interactive: false` on the bulk geometry is worth about 4%**, not the bug
+  fix it looked like. Measured warm at Nashville z14: roads 704 -> 672 ms,
+  buildings 711 -> 687 ms. The theory it came from — 26,000 interactive paths
+  eating the map click the inspector depends on — is wrong. A path fires with
+  `propagate` and the map is its event parent, so the click arrives either way;
+  checked in chromium on both renderers by clicking a pixel taken off a drawn
+  road rather than the map centre, which is the only way to test it at all.
+- **What is left of the cold render is network wall.** roads cold spends 2155 of
+  2336 ms with at least one request outstanding, at 5x concurrency and 18
+  requests. zstd is 11 ms and decode 61 ms. Nothing on the CPU side is worth
+  looking at until the request count comes down; coalescing adjacent block
+  ranges into one request is the open lever.
+- **`US.signals` and `US.camera` do carry a PTCI aux.** This file previously
+  implied the published layers predate it. Measured 2026-08-05: signals 5.0 KiB
+  aux against a 4014 KiB index, camera 1.7 KiB against 1359 KiB. `TN.roads` and
+  `TN.buildings_v8` carry none; `TN.water` carries a 793 KiB aux that is not a
+  coarse index and has not been identified.
 
 ---
 
@@ -222,14 +252,21 @@ Measured and deliberately **not** done, with the numbers so nobody re-derives th
 
 ```sh
 cargo test --workspace                       # 446 passing
-node --test "demo/test/*.test.mjs" "web-demo/test/*.test.mjs"   # 42, 0 skipped
+node --test "demo/test/*.test.mjs" "web-demo/test/*.test.mjs"   # 43, 0 skipped
+node wasm/test/golden.mjs                    # decoders vs the Python reference
 cargo build -p ptiles-core --no-default-features --target thumbv7em-none-eabihf
 cargo build -p ptiles-wasm --target wasm32-unknown-unknown --release
 
 python3 conformance/check_published.py       # published layers, exits non-zero if broken
 python3 web-demo/test/render_check.py        # the real page in chromium
 python3 demo/test/render_check.py            # the legacy page, for comparison
+python3 web-demo/test/perf_check.py          # how long each layer takes, and why
 ```
+
+`perf_check.py` takes ~20 minutes for all seven layers at three runs; use
+`--layers roads bldgs --runs 1` while iterating and `--json` to keep a
+before/after pair. It is measured against the live CDN, so a single run is
+noise — that is why it reports the spread.
 
 `render_check.py` treats roads and water as controls: if they report zero, the
 harness is broken, not the code. Both harnesses tick the layer checkbox **before**
