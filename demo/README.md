@@ -1,25 +1,30 @@
-# PTILES wasm demo
+# PTILES demo (legacy)
 
 A static web page that pans/zooms a Leaflet map over real `.ptiles` data
-hosted at `https://maps.mydatatimeline.com/maps/{STATE}.{layer}.ptiles`,
-doing all format work (header/index parsing, H3 cell math, zstd
-decompression, record decoding, nearest-road lookup, business search)
-through this repo's `ptiles-wasm` crate. The only things the JS in `js/`
-does are: HTTP Range requests, and turning wasm's decoded plain objects
-into Leaflet layers. No PTILES decoder logic is duplicated in JavaScript.
+hosted at `https://maps.mydatatimeline.com/maps/{STATE}.{layer}.ptiles`.
+
+`index.html` calls into `ptiles-wasm` for record decoding, but does the
+framing itself: header parsing, both index entry widths, offset-base
+selection, merged-block slicing and the PTCI coarse index are all
+hand-written JavaScript here. That duplication is the reason `web-demo/`
+exists and eventually replaces this page -- every format bug this project
+has had came from these two implementations disagreeing, and the failure
+mode is a silently empty layer rather than an error.
+
+> `js/app.js`, `js/ptiles-remote.js` and `pkg/` are **dead**. Nothing in the
+> repo references them; they are scaffolding from an earlier arrangement in
+> which `app.js` was the entry point and the wasm package lived in `pkg/`.
+> The live page is `index.html` against `lib/client/`. Delete them once
+> someone has confirmed no bookmark or external doc points at them.
 
 ## Local development
 
 1. Build the wasm package (from the repo root):
 
    ```sh
-   cd wasm
-   wasm-pack build --target web --out-dir ../demo/pkg
+   PATH="$HOME/.cargo/bin:$PATH" wasm-pack build wasm --target web \
+     --out-dir ../demo/lib/client --out-name ptiles_client
    ```
-
-   This produces `demo/pkg/{ptiles_wasm.js, ptiles_wasm_bg.wasm, ...}`,
-   which `demo/js/app.js` imports directly as an ES module -- no bundler
-   step needed.
 
 2. Serve `demo/` over HTTP (ES module imports and `fetch()` both require a
    real origin, not `file://`):
@@ -67,31 +72,45 @@ is slow over the network -- see `docs/INTEGRATION.md`'s pitfalls section.)
 **`demo/index.html` is the only source of truth for this UI.** Edit it here;
 do not edit a copy elsewhere and sync back.
 
-Deploy chain to <https://steele.red/ptiles/>:
+**This page moved to <https://steele.red/ptiles-legacy/> on 2026-08-04.**
+`/ptiles` now serves `web-demo/`, the wasm client. This one is kept for
+live comparison until that has proven itself.
+
+Deploy chain:
 
 ```
 ptile-client/demo/          <- edit here
   ^
   |  absolute symlink, tracked in the steele.red repo (mode 120000)
-steele.red/ptiles  ->  <ptile-client checkout>/demo
+steele.red/ptiles-legacy  ->  <ptile-client checkout>/demo
+steele.red/ptiles         ->  <ptile-client checkout>/web-demo
   |
-  |  build.py STATIC_DIRS includes "ptiles"; shutil.copytree defaults to
-  |  symlinks=False, so the link is dereferenced and the real files land in
+  |  build.py STATIC_DIRS includes both; shutil.copytree defaults to
+  |  symlinks=False, so the links are dereferenced and the real files land in
   v
-projects/steele.red/output/ptiles/   <- what Cloudflare Pages serves
+projects/steele.red/output/ptiles-legacy/
+  |
+  |  AWS_PROFILE=steele-red-deploy aws s3 sync <that>/ s3://steele.red/<same>/
+  |  then invalidate CloudFront E1X2E2N30TVNGX on /ptiles-legacy/*
+  v
+S3 behind CloudFront   <- what actually serves it
 ```
 
 Two consequences worth knowing:
 
-- The symlink target is **absolute**, so it only resolves on `hino-omarchy`.
-  `build.py` must run on that machine; a Cloudflare Pages build from a fresh
-  clone would see a dangling link.
+- The symlink target is **absolute**, so it only resolves on `hino`.
+  `build.py` must run on that machine; a build from a fresh clone anywhere
+  else would see a dangling link.
 - The live site is a **snapshot**, not a live view of `demo/`. Changes here
-  are not visible at steele.red/ptiles until `build.py` runs and the output
-  is published.
+  are not visible until `build.py` runs *and* the output is synced *and*
+  CloudFront is invalidated.
+
+The `steele-red-deploy` credentials can create an invalidation but cannot read
+one back: `cloudfront:GetInvalidation` and `GetDistribution` are both denied,
+so a deploy script cannot wait for propagation. Poll the live URL instead.
 
 There is no longer a GitHub Pages workflow -- `.github/workflows/pages.yml`
-was removed in commit `193bd75`, and `.github/` is now empty.
+was removed in commit `193bd75`. `.github/workflows/ci.yml` is still there.
 
 There is deliberately **no `index.html` at the repo root**. One existed as
 a stale orphan copy of this file, referenced by nothing -- every doc in

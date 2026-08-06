@@ -13,12 +13,12 @@ Rust workspace for the [PTiles binary geospatial format](https://github.com/baoc
 | `core`   | `no_std`-optional decoder library — zero-alloc block parser for all PTiles layers |
 | `wasm`   | wasm-bindgen bridge — decode PTiles in the browser via WebAssembly                |
 | `cli`    | Native JSON bridge for Rookery — pipe lat/lon → JSON feature                      |
-| `ffi`    | C ABI surface, incl. Android/Apple targets                                        |
+| `ffi`    | UniFFI surface — Swift, Kotlin, Python bindings                                   |
 | `motion` | Movement classification over decoded features                                      |
 | `fuzz`   | AFL/libfuzzer harness — crash-testing byte-level decoders                         |
 
 `src/lib.rs` at the root is the superseded wasm-bindgen client, kept out of the
-workspace as a porting reference. `demo/` is the browser demo (below).
+workspace as a porting reference. `web-demo/` is the browser demo (below).
 
 ## Quick Start
 
@@ -30,7 +30,11 @@ cargo test --workspace
 # target -- put rustup's toolchain first or the build fails on sysroot.
 PATH="$HOME/.cargo/bin:$PATH" \
   wasm-pack build wasm --target web --release \
-  --out-dir ../demo/lib/client --out-name ptiles_client
+  --out-dir ../web-demo/lib/client --out-name ptiles_client
+
+# ...and again for `node --test`, which needs the nodejs target
+PATH="$HOME/.cargo/bin:$PATH" \
+  wasm-pack build wasm --target nodejs --release --out-dir ../wasm-pkg
 ```
 
 ## Reading a file
@@ -68,10 +72,14 @@ its magic, there is no release-wide version, and a new kind starts at 1. See
 
 ```bash
 cargo test --workspace
-node --test "demo/test/*.test.mjs"
+node --test web-demo/test/ptiles.test.mjs   # the wasm reader vs conformance/corpus/
+node --test "demo/test/*.test.mjs"          # the legacy JS reader
 
-# Browser checks, with `python3 -m http.server 8899 --bind 127.0.0.1` in demo/
-python3 demo/test/render_check.py        # every layer draws
+# The page itself, in chromium. Serves web-demo/ on its own port; tiles come
+# from the live host, so this needs network.
+python3 web-demo/test/render_check.py
+
+# Legacy page checks
 python3 demo/test/intersection_check.py  # junction panel
 python3 demo/test/cache_check.py         # warm open makes one request
 python3 demo/test/coarse_check.py        # coarse lookup pulls a fraction
@@ -85,28 +93,59 @@ field-for-field — they are separate implementations on purpose (wasm decode
 measured ~30x slower across the boundary, see `bench_wasm.html`), so drift is a
 test failure rather than a silent mis-render.
 
+Two assertions in `web-demo/test/render_check.py` are worth knowing about,
+because they are the ones a plausible stub cannot pass: raising the observer's
+eye must reveal *more* buildings, and shrinking the view finder's radius must
+reveal *fewer*. A bare count is green on a 2D shadow test that ignores height
+entirely, which is the bug both modes exist to avoid.
+
 ## Demo
 
 Click any building in the US: https://steele.red/ptiles
 
-`demo/index.html` is the only source for that page — `steele.red/ptiles` is a
-symlink to `demo/` which steele.red's `build.py` dereferences into its output.
-Changes are not live until that build runs.
+`web-demo/` is the source for that page; `demo/`, which hand-decodes the format
+in JavaScript, is kept at https://steele.red/ptiles-legacy for comparison.
+Both URLs are symlinks that steele.red's `build.py` dereferences into its
+output, so changes are not live until that build runs and the output is synced.
 
 It opens files over HTTP Range requests, never downloading a whole layer, and
 caches each layer's header, dictionary and index in the Cache API keyed by
 ETag. A warm load costs one 256-byte request instead of ~4.5 MB.
 
+Beyond drawing the layers, the page answers questions off the same bytes:
+
+| | |
+| --- | --- |
+| Click a point | nearest building, the businesses in it, the street (class, one-way, speed limit, lanes, surface, bridge/tunnel), the junction and its controls, and — after an opt-in load — county, ZIP and timezone |
+| Line of sight | what is visible from a point at a given eye height, and which nearby cameras have a clear line back to you |
+| View finder | the reverse: which buildings can see a river, a park, a railway or a named business |
+| Route | A* over the road graph, within a corridor of cells |
+
+Line of sight is reciprocal, which is why the last two need no geometry of
+their own: both run `viewshed` from the far end and read the answer back.
+
 ## Live Tiles
 
 ```
-https://maps.mydatatimeline.com/maps/v4-20260711/{ST}.{layer}.ptiles
-https://maps.mydatatimeline.com/maps/US.{signals,camera}.ptiles
+https://maps.mydatatimeline.com/maps/{ST}.{layer}.ptiles
+https://maps.mydatatimeline.com/maps/US.{admin,signals,camera}.ptiles
 ```
 
-Per-state: `buildings_v9`, `business_v4`, `highways_v2`, `business_name_index`,
-`address_v1`, `water_v1`, `places_v1`, `parks_v1`, `rail_v1`.
-US-wide: `admin`, `signals`, `camera`.
+Per-state: `buildings_v8`, `business`, `roads`, `water`, `parks`, `rail`,
+`places`, `address`. US-wide: `admin`, `signals`, `camera`.
+
+`buildings_v8` is the only filename carrying a version, and it is part of the
+name rather than a claim about the contents — the version lives in the header.
+The reader accepts 8 and 9 there; every published file is 8 today.
+
+Two gaps to know about before building on this:
+
+- **`{ST}.business_name_index.ptiles` is not published.** The client's
+  index-accelerated name search is written and tested against a local copy, but
+  every state checked (TN, CA, NY, GA, TX) 404s on the host, so it falls back
+  to scanning the whole business file — measured at over 180 s for one query.
+- **Every published business file reports `feature_count = 0`,** a builder bug.
+  Records decode fine; only the header count is wrong.
 
 `signals` and `camera` carry a coarse index in the header's `aux` region — a
 sampled cell→position map, ~5 KiB, letting a point lookup fetch one short run
