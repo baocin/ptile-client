@@ -146,6 +146,12 @@ jobs:
       # web-demo/ reads through wasm only, so its tests exercise the shipping
       # module itself rather than functions scraped out of an HTML file.
       - run: node --test "web-demo/test/*.test.mjs"
+      # Not a `node --test` file and not under either glob above, so for its
+      # whole life this ran on no machine. It compares every decoder against
+      # the Python reference output in test-fixtures/golden/ -- the only
+      # cross-implementation check in the repo -- and it exits non-zero on a
+      # mismatch, so it is a real gate rather than a log.
+      - run: node wasm/test/golden.mjs
 
   conformance:
     name: conformance corpus
