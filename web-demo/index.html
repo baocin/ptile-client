@@ -342,11 +342,27 @@ import { createPtiles } from "./js/ptiles.js";
 // This page keeps Leaflet, h3-js and the DOM; it decodes nothing itself.
 var P;
 
-var wasm_decode_roads = function(b) { return wasm.decode_roads(b); };
-var wasm_decode_water = function(b) { return wasm.decode_water(b); };
-var wasm_decode_parks = function(b) { return wasm.decode_parks(b); };
-var wasm_decode_rail = function(b) { return wasm.decode_rail(b); };
-var wasm_decode_buildings = function(b, la, lo) { return wasm.decode_buildings(b, la, lo); };
+// Time spent turning bytes into records, separated from the fetch and zstd
+// time js/ptiles.js already counts. What is left over after all three is
+// Leaflet plus this page's own JS, which is where the buildings layer turned
+// out to be spending most of its wall clock. Wrapping the existing thin
+// aliases keeps the accounting in one place instead of at every call site.
+var decodeMs = 0;
+function timedDecode(fn) {
+  return function() {
+    var t0 = performance.now();
+    try { return fn.apply(null, arguments); }
+    finally { decodeMs += performance.now() - t0; }
+  };
+}
+
+var wasm_decode_roads = timedDecode(function(b) { return wasm.decode_roads(b); });
+var wasm_decode_water = timedDecode(function(b) { return wasm.decode_water(b); });
+var wasm_decode_parks = timedDecode(function(b) { return wasm.decode_parks(b); });
+var wasm_decode_rail = timedDecode(function(b) { return wasm.decode_rail(b); });
+var wasm_decode_buildings = timedDecode(function(b, la, lo) { return wasm.decode_buildings(b, la, lo); });
+var wasm_decode_cameras = timedDecode(function(b) { return wasm.decode_cameras(b); });
+var wasm_decode_signals = timedDecode(function(b) { return wasm.decode_signals(b); });
 var wasm_decode_business = function(b) { return wasm.decode_business(b); };
 var wasm_nearest_road = function(b, la, lo, t) { return wasm.nearest_road(b, la, lo, t); };
 var wasm_route_from_segments = function() { return wasm.route_from_segments.apply(null, arguments); };
@@ -828,7 +844,7 @@ LayerReader.prototype.decompressCell = async function(cellInt) {
 };
 
 // --- Map setup ---
-var map = L.map("map", { zoomControl: true }).setView([35.96, -86.52], 8);
+var map = L.map("map", { zoomControl: true, preferCanvas: true }).setView([35.96, -86.52], 8);
 var osmTileLayer = L.tileLayer.corpSafe("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a>', maxZoom: 19
 }).addTo(map);
@@ -867,9 +883,23 @@ var ROAD_CLASS_IDX = {
   cycleway:12, path:13, pedestrian:14, tertiary_link:15
 };
 
+// None of the bulk layers bind a popup, a tooltip or a click handler: every
+// lookup on this page goes through the map's own click, which asks the readers
+// directly. So the interactivity Leaflet gives a path by default bought
+// nothing and cost a hit-test target -- with `preferCanvas` that is a JS loop
+// over every path on each pointer move rather than the browser's own SVG
+// dispatch. Measured warm at Nashville z14: roads 704 -> 672 ms, buildings
+// 711 -> 687 ms.
+//
+// It is NOT a fix for clicks being swallowed. That was the theory this started
+// as -- interactive layers are hit first, so 26,000 road paths ought to eat the
+// map click the inspector depends on -- and it is wrong: a path fires with
+// `propagate`, and the map is its event parent, so the click arrives either
+// way. Verified in chromium against both renderers before this landed, by
+// clicking a pixel taken off a drawn road rather than the map centre.
 function getRoadStyle(cls) {
   var s = ROAD_STYLES[cls] || {color:"#8b949e",weight:0.7};
-  return {color:s.color, weight:s.weight, opacity:0.85, fill:false};
+  return {color:s.color, weight:s.weight, opacity:0.85, fill:false, interactive:false};
 }
 
 function setLayerStatus(msg) {
@@ -993,6 +1023,57 @@ function errText(e, max) {
   return max && s.length > max ? s.slice(0, max) + "..." : s;
 }
 
+// How many range requests may be in flight at once.
+//
+// The draw loop below is serial -- one cell, one `await`, then the next -- so
+// before this every block was fetched at its own round trip. Measured at
+// Nashville z14 against the live host: roads spent 2215 ms inside 18 requests
+// for 1348 KiB, which is latency, not bandwidth. Firing them ahead of the loop
+// turns that sum into roughly one round trip.
+//
+// ponytail: fixed limit rather than adaptive. 8 keeps a burst off a single
+// HTTP/2 connection from queueing behind itself while still overlapping; if a
+// slower link ever wants a different number, this is the knob.
+var PREFETCH_LIMIT = 8;
+
+// Run thunks with at most `limit` outstanding. Rejections are swallowed: this
+// is a warm-up, and the draw loop below already handles a failed cell.
+function runLimited(jobs, limit) {
+  var next = 0;
+  function pump() {
+    if (next >= jobs.length) return Promise.resolve();
+    var job = jobs[next++];
+    return job().catch(function() {}).then(pump);
+  }
+  var lanes = [];
+  for (var i = 0; i < Math.min(limit, jobs.length); i++) lanes.push(pump());
+  return Promise.all(lanes);
+}
+
+// Start every block this render will need, before drawing any of them.
+//
+// Deliberately not awaited by the caller: the draw loop wants to start on the
+// first cell as soon as it arrives, not after the last one. The block cache in
+// js/ptiles.js is keyed by promise, so when the loop reaches a cell that is
+// still in flight it joins that request rather than issuing a second one.
+function prefetchCells(cells, enabled) {
+  var jobs = [];
+  for (var ci = 0; ci < cells.length; ci++) {
+    var cellHex = cells[ci];
+    var cellInt = BigInt("0x" + cellHex) & 0xffffffffffe00000n;
+    for (var li = 0; li < enabled.length; li++) {
+      var layer = ptilesLayers[enabled[li]];
+      if (!layer.reader || layer.rendered.has(cellInt)) continue;
+      // Buildings is the odd reader out: it decodes from a cell centre rather
+      // than a cell id, so it warms the block through its own entry point.
+      jobs.push(enabled[li] === "bldgs"
+        ? (function(r, hex) { return function() { return r._decompressBlock(hex); }; })(layer.reader, cellHex)
+        : (function(r, id) { return function() { return r.decompressCell(id); }; })(layer.reader, cellInt));
+    }
+  }
+  if (jobs.length) runLimited(jobs, PREFETCH_LIMIT);
+}
+
 async function renderPtilesForCells(cells) {
   var chkRoads = document.getElementById("chkRoads").checked;
   var chkWater = document.getElementById("chkWater").checked;
@@ -1002,6 +1083,12 @@ async function renderPtilesForCells(cells) {
   var chkCamera = document.getElementById("chkCamera").checked;
   var chkSignal = document.getElementById("chkSignal").checked;
   var count = 0;
+
+  prefetchCells(cells, [
+    chkRoads && "roads", chkWater && "water", chkParks && "parks",
+    chkRail && "rail", chkBldgs && "bldgs", chkCamera && "camera",
+    chkSignal && "signal",
+  ].filter(Boolean));
 
   for (var ci = 0; ci < cells.length; ci++) {
     var cellHex = cells[ci];
@@ -1027,8 +1114,8 @@ async function renderPtilesForCells(cells) {
           if (!feat.coords || feat.coords.length < 2) return;
           var latlngs = feat.coords.map(function(c){return [c[1],c[0]];});
           var gt = feat.geom_type != null ? feat.geom_type : feat.geomType;
-          if (gt === 0) L.polygon(latlngs, {color:"#1f6feb",weight:1,fillColor:"#1f6feb",fillOpacity:0.25}).addTo(ptilesLayers.water.group);
-          else L.polyline(latlngs, {color:"#1f6feb",weight:1.5,opacity:0.7}).addTo(ptilesLayers.water.group);
+          if (gt === 0) L.polygon(latlngs, {color:"#1f6feb",weight:1,fillColor:"#1f6feb",fillOpacity:0.25,interactive:false}).addTo(ptilesLayers.water.group);
+          else L.polyline(latlngs, {color:"#1f6feb",weight:1.5,opacity:0.7,interactive:false}).addTo(ptilesLayers.water.group);
         }); count += feats.length; }
       } catch(e) {}
     }
@@ -1038,7 +1125,7 @@ async function renderPtilesForCells(cells) {
         var raw = await ptilesLayers.parks.reader.decompressCell(cellInt);
         if (raw) { var feats = wasm_decode_parks(raw); feats.forEach(function(feat) {
           if (!feat.coords || feat.coords.length < 3) return;
-          L.polygon(feat.coords.map(function(c){return [c[1],c[0]];}), {color:"#238636",weight:1,fillColor:"#238636",fillOpacity:0.2}).addTo(ptilesLayers.parks.group);
+          L.polygon(feat.coords.map(function(c){return [c[1],c[0]];}), {color:"#238636",weight:1,fillColor:"#238636",fillOpacity:0.2,interactive:false}).addTo(ptilesLayers.parks.group);
         }); count += feats.length; }
       } catch(e) {}
     }
@@ -1049,9 +1136,9 @@ async function renderPtilesForCells(cells) {
         if (raw) { var feats = wasm_decode_rail(raw); feats.forEach(function(feat) {
           var gt = feat.geom_type != null ? feat.geom_type : feat.geomType;
           if (gt === 0 && feat.coords && feat.coords.length >= 2)
-            L.polyline(feat.coords.map(function(c){return [c[1],c[0]];}), {color:"#484f58",weight:2,opacity:0.9}).addTo(ptilesLayers.rail.group);
+            L.polyline(feat.coords.map(function(c){return [c[1],c[0]];}), {color:"#484f58",weight:2,opacity:0.9,interactive:false}).addTo(ptilesLayers.rail.group);
           else if (gt === 1 && feat.coords && feat.coords.length === 1)
-            L.circleMarker([feat.coords[0][1],feat.coords[0][0]], {radius:4,color:"#484f58",fillColor:"#484f58",fillOpacity:0.8,weight:1}).addTo(ptilesLayers.rail.group);
+            L.circleMarker([feat.coords[0][1],feat.coords[0][0]], {radius:4,color:"#484f58",fillColor:"#484f58",fillOpacity:0.8,weight:1,interactive:false}).addTo(ptilesLayers.rail.group);
         }); count += feats.length; }
       } catch(e) {}
     }
@@ -1059,7 +1146,7 @@ async function renderPtilesForCells(cells) {
       ptilesLayers.camera.rendered.add(cellInt);
       try {
         var raw = await ptilesLayers.camera.reader.decompressCell(cellInt);
-        if (raw) wasm.decode_cameras(raw).forEach(addCameraToMap);
+        if (raw) wasm_decode_cameras(raw).forEach(addCameraToMap);
       } catch(e) {}
     }
     if (chkSignal && ptilesLayers.signal.reader && !ptilesLayers.signal.rendered.has(cellInt)) {
@@ -1069,7 +1156,7 @@ async function renderPtilesForCells(cells) {
         decodeSignalRecords(raw).forEach(function(s) {
           var col = signalColor(s.signalType);
           L.circleMarker([s.lat, s.lon], {radius:3, color:col, fillColor:col,
-            fillOpacity:0.6, weight:1}).addTo(ptilesLayers.signal.group);
+            fillOpacity:0.6, weight:1, interactive:false}).addTo(ptilesLayers.signal.group);
         });
       } catch(e) {}
     }
@@ -1088,7 +1175,7 @@ async function renderPtilesForCells(cells) {
         if (!bldgs3dActive) {
           batch.forEach(function(rec) {
             var c = bldgColors[Math.abs(rec.osmId) % bldgColors.length];
-            L.polygon(rec.latlngs, {color:c, weight:1, fillColor:c, fillOpacity:0.1}).addTo(group);
+            L.polygon(rec.latlngs, {color:c, weight:1, fillColor:c, fillOpacity:0.1, interactive:false}).addTo(group);
           });
         } else {
           // Painter's algorithm: no depth buffer, so draw far-to-near along the
@@ -1173,10 +1260,34 @@ async function renderViewport() {
   }
 }
 
+// Coalesce a burst of render requests, but draw the first one now.
+//
+// This used to be a plain trailing debounce, so *every* render waited 600 ms
+// even when nothing else was coming -- and enabling PTILES mode is exactly
+// that case. Measured at Nashville z14: the warm render of rail (2 features),
+// water (141), parks (110) and camera (4) was 758 ms each, which is the timer
+// plus the harness's sample interval and essentially nothing else. The timer
+// was the layer.
+//
+// Leading edge keeps what the debounce was for: a pan fires moveend once, a
+// layer walk fires one call per layer, and anything arriving inside the window
+// still collapses into a single trailing render.
+var VIEWPORT_DEBOUNCE_MS = 600;
+var ptilesLastRenderAt = 0;
+
 function scheduleViewportRender() {
   if (!ptilesModeActive) return;
   clearTimeout(ptilesViewportTimer);
-  ptilesViewportTimer = setTimeout(renderViewport, 600);
+  var since = performance.now() - ptilesLastRenderAt;
+  if (since >= VIEWPORT_DEBOUNCE_MS) {
+    ptilesLastRenderAt = performance.now();
+    renderViewport();
+    return;
+  }
+  ptilesViewportTimer = setTimeout(function() {
+    ptilesLastRenderAt = performance.now();
+    renderViewport();
+  }, VIEWPORT_DEBOUNCE_MS - since);
 }
 
 function clearPtilesRendered() {
@@ -1214,7 +1325,15 @@ async function loadPtilesLayerUS(key, filename) {
   layer.loading = true;
   setLayerStatus(key + " loading...");
   try {
-    layer.reader = await LayerReader.fromUrl("https://maps.mydatatimeline.com/maps/US." + filename + ".ptiles");
+    // openPointReader, not LayerReader: the national point layers do carry a
+    // PTCI aux, contrary to what GOAL.md said, so the sampled index is
+    // available and the full one need not be fetched. Measured on the live
+    // files: US.signals is a 5.0 KiB aux in front of a 4014 KiB index, and
+    // US.camera 1.7 KiB in front of 1359 KiB. The lookup path has gone through
+    // this function since the coarse reader landed; the map layer was still
+    // pulling the whole index, so enabling Signals cost 4.5 MB.
+    layer.reader = await openPointReader(
+      "https://maps.mydatatimeline.com/maps/US." + filename + ".ptiles");
     setLayerStatus(key + " ready");
     scheduleViewportRender();
   } catch(e) {
@@ -2437,7 +2556,7 @@ function decodeSignalRecords(raw) {
   // 7-cell ring, so without this ONE absent cell rejected the whole lookup and
   // doLookup swallowed it -- intersections silently stopped working.
   if (!raw) return [];
-  return wasm.decode_signals(raw).map(function(s) {
+  return wasm_decode_signals(raw).map(function(s) {
     return {
       osmId: s.osm_id, lat: s.lat, lon: s.lon,
       signalType: s.signal_type,
@@ -3727,6 +3846,28 @@ window.__ptiles = {
                  offsetBase: f.offsetBase.kind, entries: f.entries.length } : null;
   },
   view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; },
+  // Where the wall clock went. `other` is the residual -- Leaflet plus this
+  // page's own JS -- computed rather than timed, because the draw loops are
+  // interleaved with the decode calls and timing them separately would mean a
+  // stopwatch at every `addTo`. A residual that is most of the total is the
+  // interesting reading, and it is exactly what it reported for buildings.
+  perf: function(sinceMs) {
+    var s = P.stats;
+    var wall = sinceMs != null ? sinceMs : null;
+    return {
+      requests: s.requests, bytes: s.bytes,
+      netWallMs: Math.round(s.netWallMs), netSumMs: Math.round(s.netSumMs),
+      zstdMs: Math.round(s.zstdMs),
+      decodeMs: Math.round(decodeMs), blocks: s.blocks,
+      // Prefetching overlaps drawing with the requests still in flight, so
+      // part of the draw is already inside netWall and this under-reports it.
+      // It is still the "what is left when the network is not the answer"
+      // number, and for the heavy layers it is most of the total.
+      restMs: wall == null ? null
+        : Math.round(wall - s.netWallMs - s.zstdMs - decodeMs),
+    };
+  },
+  perfReset: function() { P.stats.reset(); decodeMs = 0; },
   // Coverage of the last render. The harness needs this to tell "3D drew
   // nothing because the data has no heights" apart from "3D is broken".
   bldgHeightCoverage: function() {

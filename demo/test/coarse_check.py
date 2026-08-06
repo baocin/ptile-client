@@ -6,9 +6,14 @@ US.signals -- because entries are only locatable by position. Builders now
 write a sampled index to the header's `aux` region, so a point lookup can
 fetch ~5 KiB of samples plus one short run of the real index instead.
 
-This serves a locally built file (the published ones predate aux, so the
-reader would silently fall back against them) and compares bytes pulled by
-each path for the same lookup.
+This serves a locally built file so the comparison is against known bytes, and
+compares bytes pulled by each path for the same lookup.
+
+The published national layers are no longer the exception this said they were:
+measured on 2026-08-05, `US.signals.ptiles` carries a 5.0 KiB aux in front of
+its 4014 KiB index and `US.camera.ptiles` 1.7 KiB in front of 1359 KiB. Reading
+one of those through the ordinary open is a real 4.5 MB the browser does not
+need, which is what `web-demo/test/perf_check.py` caught.
 
 Needs `python3 scripts/build_points.py --states DC` in ~/kino/projects/ptiles
 to have been run. Skips cleanly if that file is absent.

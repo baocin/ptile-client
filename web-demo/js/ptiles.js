@@ -36,6 +36,38 @@
  *   in the browser: `await init()` before calling this).
  */
 export function createPtiles(wasm) {
+  // Where the wall clock actually goes. Every optimization claim about this
+  // page is unfalsifiable without it: the layer either renders or it does not,
+  // and "it felt slow" does not say whether the cost is the CDN, zstd or
+  // Leaflet. Counting here rather than in the page means it counts the real
+  // bytes -- a cache hit adds no request and no bytes, which is exactly the
+  // cold/warm distinction perf_check.py measures.
+  // `netSumMs` is the sum over requests and `netWallMs` the union of their
+  // intervals -- the wall time with at least one request outstanding. They were
+  // one number until the renderer started prefetching, at which point the sum
+  // ran past the total render time and the leftover-time column went negative.
+  // Both are worth keeping: the ratio between them is the concurrency actually
+  // achieved, which is the thing a prefetch is trying to move.
+  const stats = {
+    requests: 0,   // range requests that reached the network
+    bytes: 0,      // compressed bytes over the wire
+    netSumMs: 0,   // summed time inside those requests
+    netWallMs: 0,  // wall time with >=1 request in flight
+    blocks: 0,     // blocks handed to zstd
+    zstdMs: 0,     // time inside decompress_block
+    inflight: 0,
+    since: 0,
+    enter() { if (this.inflight++ === 0) this.since = performance.now(); },
+    leave() { if (--this.inflight === 0) this.netWallMs += performance.now() - this.since; },
+    reset() {
+      this.requests = this.bytes = this.netSumMs = this.netWallMs = 0;
+      this.blocks = this.zstdMs = 0;
+      // Deliberately not resetting `inflight`: a request outstanding across a
+      // reset still has a `leave()` coming, and zeroing the counter would make
+      // that leave go negative and the next enter() never start the clock.
+    },
+  };
+
   // H3 res-7 ids carry filler digits in their low 21 bits, so the id a builder
   // stored and the id a caller looks up with are not always bit-identical even
   // when they name the same cell. Every lookup normalises both sides by
@@ -90,11 +122,21 @@ export function createPtiles(wasm) {
     }
 
     async function fetchRange(from, to) {
-      const resp = await fetch(url, { headers: { Range: `bytes=${from}-${to}` } });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status} range ${from}-${to} of ${url}`);
-      const seen = resp.headers.get("ETag");
-      if (seen && !etag) etag = seen;
-      return new Uint8Array(await resp.arrayBuffer());
+      const t0 = performance.now();
+      stats.enter();
+      try {
+        const resp = await fetch(url, { headers: { Range: `bytes=${from}-${to}` } });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} range ${from}-${to} of ${url}`);
+        const seen = resp.headers.get("ETag");
+        if (seen && !etag) etag = seen;
+        const bytes = new Uint8Array(await resp.arrayBuffer());
+        stats.requests++;
+        stats.bytes += bytes.length;
+        return bytes;
+      } finally {
+        stats.netSumMs += performance.now() - t0;
+        stats.leave();
+      }
     }
 
     return {
@@ -213,15 +255,35 @@ export function createPtiles(wasm) {
       return hits.slice(0, limit);
     }
 
-    /** Decompressed block bytes for an entry, cached in memory. */
-    async block(entry) {
+    /**
+     * Decompressed block bytes for an entry, cached in memory.
+     *
+     * The cache holds the *promise*, not the bytes. Caching the resolved value
+     * meant two callers asking for one block before the first finished both
+     * missed the cache and both ran zstd over the same bytes -- invisible
+     * while every caller was serial, and exactly what a prefetch pass creates.
+     * The range request itself was already deduplicated in httpSource, so the
+     * duplicate work was decompression only, which is why it never showed up
+     * as extra traffic.
+     *
+     * A rejected promise is evicted rather than cached, or one failed range
+     * would poison that block for the life of the page.
+     */
+    block(entry) {
       const k = entry.block_offset;
       let got = this.blocks.get(k);
       if (!got) {
-        const from = Number(entry.block_offset);
-        const raw = await this.source.read(from, from + entry.block_length - 1);
-        got = wasm.decompress_block(raw, this.dict);
+        got = (async () => {
+          const from = Number(entry.block_offset);
+          const raw = await this.source.read(from, from + entry.block_length - 1);
+          const t0 = performance.now();
+          const out = wasm.decompress_block(raw, this.dict);
+          stats.blocks++;
+          stats.zstdMs += performance.now() - t0;
+          return out;
+        })();
         this.blocks.set(k, got);
+        got.catch(() => this.blocks.delete(k));
       }
       return got;
     }
@@ -256,15 +318,21 @@ export function createPtiles(wasm) {
     const headerBytes = await source.readLive(0, 255);
     const header = wasm.parse_header(headerBytes);
 
-    const dict = header.dict_length > 0
-      ? await source.read(
-          Number(header.dict_offset),
-          Number(header.dict_offset) + header.dict_length - 1)
-      : new Uint8Array(0);
-
-    const indexBytes = await source.read(
-      Number(header.index_offset),
-      Number(header.index_offset) + header.index_length - 1);
+    // Dictionary and index together. Both of their positions come out of the
+    // header, so only the header is a dependency -- fetching them one after
+    // the other spent a second round trip waiting for nothing. On TN.roads
+    // that is a 512 KiB dictionary and a 428 KiB index, and they are most of
+    // what a cold open costs.
+    const [dict, indexBytes] = await Promise.all([
+      header.dict_length > 0
+        ? source.read(
+            Number(header.dict_offset),
+            Number(header.dict_offset) + header.dict_length - 1)
+        : Promise.resolve(new Uint8Array(0)),
+      source.read(
+        Number(header.index_offset),
+        Number(header.index_offset) + header.index_length - 1),
+    ]);
 
     // Both of these run the same ptiles-core code PtilesFile::open runs, so a
     // browser and a Rust caller cannot disagree about the same file.
@@ -355,14 +423,24 @@ export function createPtiles(wasm) {
       const entry = run.find((e) => norm(e.h3_cell) === want);
       if (!entry || entry.block_length === 0) return null;
 
+      // Promise-keyed for the same reason Layer.block is: concurrent lookups
+      // into one merged block must share the decompression, not repeat it.
       const k = entry.block_offset;
-      let block = this.blocks.get(k);
-      if (!block) {
-        const from = Number(entry.block_offset);
-        const raw = await this.source.read(from, from + entry.block_length - 1);
-        block = wasm.decompress_block(raw, this.dict);
-        this.blocks.set(k, block);
+      let pending = this.blocks.get(k);
+      if (!pending) {
+        pending = (async () => {
+          const from = Number(entry.block_offset);
+          const raw = await this.source.read(from, from + entry.block_length - 1);
+          const t0 = performance.now();
+          const out = wasm.decompress_block(raw, this.dict);
+          stats.blocks++;
+          stats.zstdMs += performance.now() - t0;
+          return out;
+        })();
+        this.blocks.set(k, pending);
+        pending.catch(() => this.blocks.delete(k));
       }
+      const block = await pending;
       return wasm.merged_cell_slice(block, entry.h3_cell.toString(16)) ?? null;
     }
   }
@@ -391,5 +469,5 @@ export function createPtiles(wasm) {
     forBounds: (a, b, c, d) => wasm.cells_for_bounds(a, b, c, d),
   };
 
-  return { httpSource, bytesSource, open, openCoarse, decode, h3, Layer, CoarseLayer };
+  return { httpSource, bytesSource, open, openCoarse, decode, h3, Layer, CoarseLayer, stats };
 }
