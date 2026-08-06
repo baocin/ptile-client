@@ -527,6 +527,50 @@ def main():
             failures.append(f"inspector page error: {e}")
         page.close()
 
+        # Which business a named building resolves to.
+        #
+        # The Target in Smyrna (OSM way/636880358, name=Target) has 64 business
+        # records within 200 m and a pharmacy counter 30 m inside it. Ranking
+        # every kind of name match into one bucket and breaking the tie on
+        # distance answered "CVS Pharmacy at Target" -- a concession inside the
+        # store, closer to the centroid than the store's own record.
+        #
+        # The assertion is not "found something" and not "found something with
+        # Target in the name": seven of the neighbours contain the word. It is
+        # that the exact match wins, and it fails on the ranking this replaced.
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"{base}#state=TN&lat=35.979629&lon=-86.571064&zoom=18",
+                  wait_until="load", timeout=90_000)
+        page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
+        page.wait_for_timeout(2000)
+        page.fill("#coordInput", "35.979629,-86.571064")
+        page.click("#btnQuery")
+        page.wait_for_timeout(15000)
+
+        biz = page.evaluate("""() => ({
+          bldg: document.getElementById('bldgName').textContent.trim(),
+          shown: document.getElementById('bizRow').style.display !== 'none',
+          name: document.getElementById('bizName').textContent.trim()
+        })""")
+        # The row carries a "(+63 more)" tail and a confidence mark, so compare
+        # the name itself rather than the cell's text.
+        picked = re.sub(r"^[^A-Za-z0-9]*", "", biz["name"]).split(" (+")[0].strip()
+        print(f"\n  building '{biz['bldg']}' -> business '{picked}'")
+        if not biz["shown"]:
+            failures.append("business match: no business found for the Smyrna Target")
+        elif picked.lower() != "target":
+            failures.append(
+                f"business match: the building named Target resolved to "
+                f"'{picked}' -- an exact name match must outrank a record that "
+                f"merely contains the name, even one inside the footprint")
+
+        for e in errors[:3]:
+            print(f"           {e}")
+            failures.append(f"business match page error: {e}")
+        page.close()
+
         if args.keep_open:
             input("\npress enter to close the browser...")
         browser.close()

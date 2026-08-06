@@ -2215,17 +2215,32 @@ async function doLookup(lat, lon) {
       var bizReader = await ensureBizReader();
       var bizResults = await bizReader.query(lat, lon, 0.2);
       if (bizResults.length > 0) {
-        var bldgNameLower = b.name ? b.name.toLowerCase() : "";
+        // Which of the businesses around a building *is* the building.
+        //
+        // The ranking used to have one bucket for "the names are related", so
+        // an exact match and a merely-containing one scored the same and the
+        // tiebreak was distance. On the Target in Smyrna (way/636880358, named
+        // "Target") that picked "CVS Pharmacy at Target" -- a pharmacy counter
+        // 30 m inside the store, which contains the string and sits inside the
+        // footprint, over the Target record 70 m away. The answer to "what is
+        // this building" was a concession stand in it, and the same shape
+        // applies to every anchor tenant: Target Optical, Pizza Hut Express in
+        // a Walmart, a food court unit named after its mall.
+        //
+        // So an exact name match is its own tier and outranks being inside the
+        // footprint. A building whose name is exactly a business's name is that
+        // business; anything else with that name in it is something within it.
+        var norm = function(s) { return (s || "").toLowerCase().trim().replace(/\s+/g, " "); };
+        var bldgNameLower = norm(b.name);
         var stopwords = ["the","inc","llc","ltd","and","of","for","&"];
         function notStopword(w) { return w.length > 2 && stopwords.indexOf(w) < 0; }
         var bldgWords = bldgNameLower ? bldgNameLower.split(/\s+/).filter(notStopword) : [];
         var scored = bizResults.map(function(br) {
-          var score = 100;
           var inside = pointInPolygon(br.lat, br.lon, b.coordinates);
-          if (inside) score = 0;
-          var brNameLower = br.name.toLowerCase();
-          var nameMatch = false, wordOverlap = 0;
-          if (bldgNameLower && brNameLower && bldgNameLower !== brNameLower) {
+          var brNameLower = norm(br.name);
+          var exact = !!bldgNameLower && bldgNameLower === brNameLower;
+          var nameMatch = exact;
+          if (!exact && bldgNameLower && brNameLower) {
             if (brNameLower.indexOf(bldgNameLower) >= 0 || bldgNameLower.indexOf(brNameLower) >= 0) nameMatch = true;
             var brWords = brNameLower.split(/\s+/).filter(notStopword);
             if (bldgWords.length > 0 && brWords.length > 0) {
@@ -2233,20 +2248,29 @@ async function doLookup(lat, lon) {
               for (var wi = 0; wi < bldgWords.length; wi++)
                 for (var wj = 0; wj < brWords.length; wj++)
                   if (bldgWords[wi] === brWords[wj]) { common++; break; }
-              wordOverlap = common / Math.min(bldgWords.length, brWords.length);
-              if (wordOverlap >= 0.5) nameMatch = true;
+              // Half the words of the shorter name. A one-word building name
+              // makes this every record containing that word, which is why the
+              // exact tier above has to exist rather than this being tightened.
+              if (common / Math.min(bldgWords.length, brWords.length) >= 0.5) nameMatch = true;
             }
-          } else if (bldgNameLower && bldgNameLower === brNameLower) nameMatch = true;
-          if (nameMatch) score = Math.min(score, score === 0 ? 0 : 1);
-          if (inside && nameMatch) score = -1;
-          return { biz: br, score, inside, nameMatch: !!nameMatch, wordOverlap };
+          }
+          // Best first. Only the exact rows moved: everything else keeps the
+          // order it had, so a building with no name, or no exact match among
+          // its neighbours, resolves exactly as before.
+          var score = exact ? (inside ? -3 : -2)
+                    : nameMatch ? (inside ? -1 : 1)
+                    : inside ? 0 : 100;
+          return { biz: br, score: score, inside: inside, exact: exact, nameMatch: !!nameMatch };
         });
         scored.sort(function(a,b) { return a.score !== b.score ? a.score-b.score : a.biz.distance-b.biz.distance; });
         var primary = scored[0], closest = primary.biz;
         lastBiz = closest;
         lastBizList = scored.map(function(s) { return s.biz; });
         addBizMarkers(scored);
-        var prefix = primary.inside ? "✓ " : (primary.nameMatch ? "≈ " : "");
+        // An exact name match is at least as good as being inside the
+        // footprint, so it gets the confident mark too -- otherwise the record
+        // the ranking is most sure about would be the one shown as a guess.
+        var prefix = (primary.exact || primary.inside) ? "✓ " : (primary.nameMatch ? "≈ " : "");
         bizName.innerHTML = prefix + osmBizLink(closest, closest.name) + (bizResults.length > 1 ? " (+" + (bizResults.length - 1) + " more)" : "");
         bizCat.textContent = closest.category || "--";
         document.getElementById("bizBrand").textContent = closest.brand || "--";
