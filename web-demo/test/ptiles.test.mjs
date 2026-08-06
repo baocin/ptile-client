@@ -90,6 +90,71 @@ test("every indexed cell yields record bytes", async () => {
   assert.ok(cells > 50, `only ${cells} cells read`);
 });
 
+// A counting source, so "how many reads did that take" is answerable.
+function countingSource(name) {
+  const inner = source(name);
+  const reads = [];
+  return {
+    reads,
+    src: {
+      url: inner.url,
+      etag: inner.etag,
+      readLive: inner.readLive,
+      read: (from, to) => { reads.push([Number(from), Number(to)]); return inner.read(from, to); },
+    },
+  };
+}
+
+test("prefetch coalesces neighbouring blocks, and hands back the same bytes", async () => {
+  // The two things a coalescing prefetch can get wrong are both silent. It can
+  // fail to coalesce, which costs a round trip per block and looks fine; or it
+  // can slice the combined buffer at the wrong offset, which hands a decoder
+  // bytes from the neighbouring block. That does not throw -- it decodes as
+  // plausible garbage -- so the assertion has to be that the records are
+  // byte-identical to the ones the ordinary path returns, not merely present.
+  for (const name of FILES) {
+    const plain = await P.open(source(name));
+    const cells = plain.entries.slice(0, 24)
+      .filter((e) => e.block_length > 0)
+      .map((e) => asCaller(e.h3_cell));
+    if (cells.length < 4) continue;
+
+    const want = [];
+    for (const cell of cells) want.push(await plain.cellRecords(cell));
+
+    const counted = countingSource(name);
+    const pre = await P.open(counted.src);
+    counted.reads.length = 0;              // drop the dict and index reads
+    await pre.prefetch(cells);
+    const blockReads = counted.reads.length;
+
+    const got = [];
+    for (const cell of cells) got.push(await pre.cellRecords(cell));
+
+    assert.deepEqual(got, want, `${name}: prefetched records differ from plain ones`);
+    assert.equal(
+      counted.reads.length, blockReads,
+      `${name}: reading a prefetched cell went back to the source`,
+    );
+
+    // Distinct blocks is the honest denominator: several cells share a block on
+    // a merged layer, and those collapse before any coalescing happens, so
+    // counting cells would call a merged layer coalesced when it is not.
+    //
+    // Strictly fewer, not "no more than": one read per block is exactly what
+    // the code did before, so `<=` would pass on the thing this replaced. Every
+    // corpus file in fact collapses to a single read; the assertion is loose
+    // because how many runs a file falls into is a property of the file.
+    const distinct = new Set(cells.map((c) => String(plain.entryFor(c).block_offset))).size;
+    if (distinct >= 4) {
+      assert.ok(
+        blockReads < distinct,
+        `${name}: ${blockReads} reads for ${distinct} distinct blocks -- not coalesced`,
+      );
+    }
+  }
+});
+
 test("merged layers slice the cell out rather than returning the whole block", async () => {
   // Handing a whole merged block to a record decoder does not error -- it
   // parses the cell table as records and yields plausible garbage. So the

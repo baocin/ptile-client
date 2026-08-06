@@ -1057,21 +1057,32 @@ function runLimited(jobs, limit) {
 // js/ptiles.js is keyed by promise, so when the loop reaches a cell that is
 // still in flight it joins that request rather than issuing a second one.
 function prefetchCells(cells, enabled) {
-  var jobs = [];
-  for (var ci = 0; ci < cells.length; ci++) {
-    var cellHex = cells[ci];
-    var cellInt = BigInt("0x" + cellHex) & 0xffffffffffe00000n;
-    for (var li = 0; li < enabled.length; li++) {
-      var layer = ptilesLayers[enabled[li]];
-      if (!layer.reader || layer.rendered.has(cellInt)) continue;
-      // Buildings is the odd reader out: it decodes from a cell centre rather
-      // than a cell id, so it warms the block through its own entry point.
-      jobs.push(enabled[li] === "bldgs"
-        ? (function(r, hex) { return function() { return r._decompressBlock(hex); }; })(layer.reader, cellHex)
-        : (function(r, id) { return function() { return r.decompressCell(id); }; })(layer.reader, cellInt));
+  var ids = cells.map(function(hex) {
+    return BigInt("0x" + hex) & 0xffffffffffe00000n;
+  });
+  enabled.forEach(function(key) {
+    var layer = ptilesLayers[key];
+    if (!layer.reader) return;
+    var want = ids.filter(function(id) { return !layer.rendered.has(id); });
+    if (!want.length) return;
+
+    // A layer holding its whole index knows where every block is, so it can
+    // coalesce neighbouring ones into a single range. Every per-state layer
+    // and buildings go this way -- buildings reads through a different reader
+    // object but the same Layer underneath.
+    var whole = layer.reader.file && layer.reader.file.layer;
+    if (whole && whole.prefetch) {
+      whole.prefetch(want).catch(function() {});
+      return;
     }
-  }
-  if (jobs.length) runLimited(jobs, PREFETCH_LIMIT);
+    // A coarse reader has to fetch a run of the index before it knows where
+    // anything is, so there is nothing to coalesce yet. Fire the per-cell
+    // reads with a bounded queue instead; the runs themselves are cached, so
+    // the cells sharing one bracket cost a single index fetch between them.
+    runLimited(want.map(function(id) {
+      return function() { return layer.reader.decompressCell(id); };
+    }), PREFETCH_LIMIT);
+  });
 }
 
 async function renderPtilesForCells(cells) {

@@ -256,6 +256,71 @@ export function createPtiles(wasm) {
     }
 
     /**
+     * Warm the blocks these cells need, in as few requests as possible.
+     *
+     * A viewport's cells are neighbours, the index is written in cell order,
+     * and so their blocks land next to each other in the file. Fetching them
+     * one range at a time paid a round trip for each: measured on roads at
+     * Nashville z14, 15 block requests inside a 2155 ms window that was almost
+     * entirely waiting. Runs separated by less than `maxGap` are pulled as one
+     * range and sliced locally, which trades a few unwanted bytes in the gaps
+     * for a round trip each.
+     *
+     * The cache is populated *synchronously*, before the first await, so a
+     * draw loop that reaches a cell mid-flight joins the coalesced read rather
+     * than starting its own. That ordering is the whole design; without it the
+     * prefetch and the loop race and the request count does not fall.
+     */
+    prefetch(cells, { maxGap = 65536 } = {}) {
+      // Several cells share one block on a merged layer, so dedupe by offset
+      // or the same range gets queued once per cell in it.
+      const byOffset = new Map();
+      for (const cell of cells) {
+        const e = this.entryFor(cell);
+        if (!e || !e.block_length) continue;
+        if (this.blocks.has(e.block_offset)) continue;
+        byOffset.set(String(e.block_offset), e);
+      }
+      const wanted = [...byOffset.values()]
+        .sort((a, b) => Number(a.block_offset) - Number(b.block_offset));
+      if (!wanted.length) return Promise.resolve();
+
+      const runs = [];
+      for (const e of wanted) {
+        const start = Number(e.block_offset);
+        const end = start + e.block_length - 1;
+        const last = runs[runs.length - 1];
+        if (last && start - last.end - 1 <= maxGap) {
+          last.end = Math.max(last.end, end);
+          last.entries.push(e);
+        } else {
+          runs.push({ start, end, entries: [e] });
+        }
+      }
+
+      // Every read is started here and now, with no queue in front of it: the
+      // coalescing is what keeps the count down, and a queue would delay
+      // populating the cache past the point where the draw loop can join it.
+      return Promise.all(runs.map((run) => {
+        const bytes = this.source.read(run.start, run.end);
+        for (const e of run.entries) {
+          const from = Number(e.block_offset) - run.start;
+          const block = bytes.then((buf) => {
+            const t0 = performance.now();
+            const out = wasm.decompress_block(
+              buf.subarray(from, from + e.block_length), this.dict);
+            stats.blocks++;
+            stats.zstdMs += performance.now() - t0;
+            return out;
+          });
+          block.catch(() => this.blocks.delete(e.block_offset));
+          this.blocks.set(e.block_offset, block);
+        }
+        return bytes;
+      }));
+    }
+
+    /**
      * Decompressed block bytes for an entry, cached in memory.
      *
      * The cache holds the *promise*, not the bytes. Caching the resolved value
