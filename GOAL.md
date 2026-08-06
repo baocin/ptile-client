@@ -182,6 +182,12 @@ Commit-referenced so nothing here gets rebuilt from scratch.
   render is 0.28-0.68x cold and 0.28-0.36x warm on all seven layers, at
   identical feature counts. Coarse layers keep the per-cell path — they must
   fetch a run of the real index before they know where a block is.
+- `01f4aeb` — the viewport's cells are sorted by distance from the map centre
+  before the 300 cap, so the centre decides both what draws first and what
+  survives capping (it used to be whatever `polygonToCells` returned, with the
+  centre ring appended last). The nearest cells are also split into their own
+  range where the payload justifies the extra request. Cold first-feature:
+  roads 1174 -> 906 ms, buildings 996 -> 771 ms.
 - `f8dc14a` — `wasm/test/golden.mjs` now runs in CI. It matched neither of the
   two globs and had never executed on any machine; it passes and gates.
 
@@ -209,6 +215,17 @@ Measured and deliberately **not** done, with the numbers so nobody re-derives th
 - **Coalescing costs 4.5% more bytes and is worth it.** At a 64 KiB gap
   threshold roads pulls 1409 KiB where it pulled 1348, for 10 fewer round trips.
   The threshold is the knob; it has not been swept.
+- **Splitting the centre cells into their own range must be gated on size.**
+  Applied to every layer it cost water 802 -> 1103 ms and parks 597 -> 843 ms:
+  their whole render is one round trip, so a second request buys nothing. Gated
+  at 256 KiB of blocks they are back at 829 and 615 ms. A 3-cell centre instead
+  of 7 is worse on both counts for roads (first feature 1041 ms against 824,
+  total 1550 against 1332).
+- **The run-to-run noise floor over the live CDN is 100-140 ms.** Measured on
+  camera and signal across `01f4aeb`, which does not touch the coarse path they
+  use. Treat any single-layer difference smaller than that as nothing, and note
+  that `perf_check.py` samples at 250 ms, so a layer whose whole render fits in
+  one tick (rail, parks, water warm) reports in multiples of 253 ms.
 - **What is left is not the decoders.** After all of the above, roads cold is
   1312 ms of which 962 ms has a request outstanding, against 10 ms of zstd and
   73 ms of decode. Warm is 414 ms and almost all of it is Leaflet. The open
