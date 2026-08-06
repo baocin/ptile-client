@@ -130,6 +130,8 @@
     <button id="btnQuery">Lookup</button>
     <button id="btnShowAll">Show tile</button>
     <button id="btnRoute" class="toggle-off">Route</button>
+    <button id="btnLos" class="toggle-off" title="Click the map to see what is in line of sight from there">Line of sight</button>
+    <button id="btnView" class="toggle-off" title="Find buildings with a view of a river, a park or a named business">View finder</button>
     <button id="btnPtiles" class="toggle-off">PTILES Mode</button>
     <span id="statusBar"></span>
   </div>
@@ -169,10 +171,12 @@
     <div class="row" id="bizRow" style="display:none"><span>Business</span><span id="bizName"></span></div>
     <div class="row" id="bizCatRow" style="display:none"><span>Category</span><span id="bizCat"></span></div>
     <div class="row" id="bizBrandRow" style="display:none"><span>Brand</span><span id="bizBrand"></span></div>
-    <div class="row" id="bizChainRow" style="display:none"><span>Chain locations</span><span id="bizChain"></span></div>
+    <div class="row" id="bizStatusRow" style="display:none"><span>Status</span><span id="bizStatus"></span></div>
     <div class="row" id="bizPhoneRow" style="display:none"><span>Phone</span><span id="bizPhone"></span></div>
     <div class="row" id="bizAddrRow" style="display:none"><span>Address</span><span id="bizAddr"></span></div>
     <div class="row" id="bizWebRow" style="display:none"><span>Website</span><span id="bizWeb"></span></div>
+    <div class="row" id="bizEmailRow" style="display:none"><span>Email</span><span id="bizEmail"></span></div>
+    <div class="row" id="bizSocialRow" style="display:none"><span>Social</span><span id="bizSocial"></span></div>
     <div class="row" id="bizDistRow" style="display:none"><span>Distance</span><span id="bizDist"></span></div>
     <div id="bizList" style="display:none; margin-top: 8px; border-top: 1px solid #30363d; padding-top: 8px;">
       <div style="font-size:0.68rem;color:#8b949e;margin-bottom:6px;display:flex;gap:10px">
@@ -181,6 +185,33 @@
         <span><span style="color:#da3633">●</span> Nearby</span>
       </div>
     </div>
+    <!-- US.admin answers country/state/county/ZIP/timezone for any point, and
+         nothing in this page has ever asked it. The grid is 28 MB, so the load
+         is opt-in once per browser rather than on every page view. -->
+    <div id="adminSection">
+      <div class="row"><span>Jurisdiction</span><span id="adminValue">
+        <a href="#" id="adminLoad" style="color:#58a6ff">Load US.admin (28 MB, once)</a>
+      </span></div>
+      <div class="row" id="adminTzRow" style="display:none"><span>Timezone</span><span id="adminTz"></span></div>
+    </div>
+
+    <!-- Roads v2 decodes ten fields per segment and this page showed none of
+         them: lanes, surface and bridge/tunnel had no reader anywhere in the
+         repo, and speed limit existed only as a routing cost. Nested in a
+         section rather than as direct .row children so doLookup's
+         reset-every-row loop leaves it alone. -->
+    <div id="roadSection" style="display:none">
+      <div class="row"><span>Street</span><span id="roadName"></span></div>
+      <div class="row"><span>Class</span><span id="roadClass"></span></div>
+      <div class="row" id="roadRefRow" style="display:none"><span>Ref</span><span id="roadRef"></span></div>
+      <div class="row" id="roadOnewayRow" style="display:none"><span>One-way</span><span id="roadOneway"></span></div>
+      <div class="row" id="roadSpeedRow" style="display:none"><span>Speed limit</span><span id="roadSpeed"></span></div>
+      <div class="row" id="roadLanesRow" style="display:none"><span>Lanes</span><span id="roadLanes"></span></div>
+      <div class="row" id="roadSurfaceRow" style="display:none"><span>Surface</span><span id="roadSurface"></span></div>
+      <div class="row" id="roadStructRow" style="display:none"><span>Structure</span><span id="roadStruct"></span></div>
+      <div class="row"><span>Distance</span><span id="roadDist"></span></div>
+    </div>
+
     <div id="intxSection" style="display:none">
       <div class="name" id="intxName"></div>
       <div class="row"><span>Control</span><span id="intxControl"></span></div>
@@ -222,6 +253,73 @@
       <a id="camOsmLink" href="#" target="_blank" rel="noopener">OpenStreetMap</a>
     </div>
     <div class="legend" id="camLegend"></div>
+  </div>
+
+  <div class="info-panel cam-panel" id="losPanel" style="top:80px;right:16px">
+    <div class="sp-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-weight:600;color:#8b949e;font-size:0.75rem">Line of sight</span>
+      <button id="btnCloseLos" type="button" style="background:none;border:1px solid #30363d;border-radius:4px;color:#8b949e;padding:2px 8px;cursor:pointer;font-size:0.75rem">Close</button>
+    </div>
+    <div class="name" id="losSummary">Click the map</div>
+    <div class="row"><span>Visible</span><span id="losVisible"></span></div>
+    <div class="row"><span>Hidden</span><span id="losHidden"></span></div>
+    <div class="row"><span>Guessed heights</span><span id="losEstimated"></span></div>
+    <div class="row"><span>Cameras on you</span><span id="losCams"></span></div>
+    <div class="row"><span>Eye height</span><span>
+      <input type="range" id="losEye" min="1.5" max="120" step="0.5" value="1.7" style="width:110px;vertical-align:middle">
+      <span id="losEyeVal">1.7 m</span>
+    </span></div>
+    <div class="row"><span>Radius</span><span>
+      <select id="losRadius" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:2px 6px;font:inherit;font-size:0.75rem">
+        <option value="400">400 m</option>
+        <option value="800" selected>800 m</option>
+        <option value="1600">1600 m</option>
+      </select>
+    </span></div>
+    <div class="legend" id="losLegend"></div>
+  </div>
+
+  <!-- Reverse viewshed. Line of sight is reciprocal, so "which buildings can
+       see the river" is the ordinary viewshed run from points on the river. -->
+  <div class="info-panel cam-panel" id="viewPanel" style="top:80px;right:16px;max-height:70vh;overflow:auto">
+    <div class="sp-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-weight:600;color:#8b949e;font-size:0.75rem">View finder</span>
+      <button id="btnCloseView" type="button" style="background:none;border:1px solid #30363d;border-radius:4px;color:#8b949e;padding:2px 8px;cursor:pointer;font-size:0.75rem">Close</button>
+    </div>
+    <div class="name" id="viewSummary">Pick something to look at</div>
+    <div class="row"><span>Looking at</span><span>
+      <select id="viewTag" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:2px 6px;font:inherit;font-size:0.75rem">
+        <option value="water:river">A river</option>
+        <option value="water:stream">A stream</option>
+        <option value="water:lake">A lake</option>
+        <option value="water:canal">A canal</option>
+        <option value="water:*">Any water</option>
+        <option value="park:*">A park</option>
+        <option value="rail:*">A railway</option>
+        <option value="business:">A business by name</option>
+      </select>
+    </span></div>
+    <div class="row" id="viewNameRow" style="display:none"><span>Name</span><span>
+      <input id="viewName" type="text" placeholder="e.g. Taco Bell" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:2px 6px;font:inherit;font-size:0.75rem;width:130px">
+    </span></div>
+    <div class="row"><span>Search radius</span><span>
+      <select id="viewRadius" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:2px 6px;font:inherit;font-size:0.75rem">
+        <option value="400">400 m</option>
+        <option value="800" selected>800 m</option>
+        <option value="1600">1600 m</option>
+      </select>
+    </span></div>
+    <div class="row"><span>Target height</span><span>
+      <input type="range" id="viewEye" min="0" max="20" step="0.5" value="1.7" style="width:100px;vertical-align:middle">
+      <span id="viewEyeVal">1.7 m</span>
+    </span></div>
+    <div class="row"><span></span><span>
+      <button id="btnViewRun" type="button" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;padding:3px 12px;cursor:pointer;font:inherit;font-size:0.75rem">Find views</button>
+    </span></div>
+    <div class="row" id="viewSamplesRow" style="display:none"><span>Sampled at</span><span id="viewSamples"></span></div>
+    <div class="row" id="viewFoundRow" style="display:none"><span>With a view</span><span id="viewFound"></span></div>
+    <div id="viewList" style="display:none;margin-top:8px;border-top:1px solid #30363d;padding-top:8px"></div>
+    <div class="legend" id="viewLegend"></div>
   </div>
 
   <div class="search-panel" id="searchPanel">
@@ -581,12 +679,20 @@ BusinessReader.prototype._decodeRecords = function(raw) {
     return {
       uid: b.osm_id,
       name: b.name,
+      // A raw table index, shown as one, because no categories sidecar is
+      // published anywhere -- see core/src/business.rs:36. There is nothing to
+      // resolve it against, so a number is the honest rendering.
       category: b.category_idx ? "(cat:" + b.category_idx + ")" : "",
       brand: b.brand || "",
-      chainCount: 0,
       phone: b.phone || "",
       website: b.website || "",
       address: b.address || "",
+      // v3 carries these per record and nothing has ever read them. v4 drops
+      // them for chain_count, which core consumes for framing without keeping,
+      // so on a v4 file both arrays are simply empty.
+      emails: b.emails || [],
+      socials: b.socials || [],
+      operatingStatus: b.operating_status || "",
       lat: b.lat, lon: b.lon,
       sourceType: b.source_type === undefined ? null : b.source_type,
       sourceId: b.source_id || "",
@@ -673,6 +779,41 @@ BusinessReader.prototype.searchAll = async function(queryStr, onResult, onProgre
   }
   if (onProgress) onProgress(Math.min(n + batch, total), total);
 };
+
+// --- Name index search ---
+//
+// `{ST}.business_name_index.ptiles` (PTILESX v1) buckets every business in the
+// state by the FIRST LETTER OF ITS NAME into 28 blocks, reusing the spatial
+// index's h3_cell field to hold that 0-27 key. One ~1 MB block answers a query
+// instead of scanning the 54 MB, 18k-block business file.
+//
+// The consequence is that this is a prefix accelerator, not substring search:
+// "taco" finds Taco Bell because both start with `t`, but "bell" cannot -- Taco
+// Bell lives in the `t` bucket and the query looks in `b`. So the brute-force
+// scan stays as the fallback rather than being deleted; it is the only path
+// that does real substring matching. See core/src/business_search.rs.
+var nameIndexByState = {};
+
+function nameIndexFor(state) {
+  if (!nameIndexByState[state]) {
+    nameIndexByState[state] = openPtilesRemote(stateUrl(state, "business_name_index"))
+      .catch(function(e) {
+        // Not every state publishes the sidecar; a 404 must not be permanent
+        // for the session, and must not be fatal for the search either.
+        nameIndexByState[state] = null;
+        throw e;
+      });
+  }
+  return nameIndexByState[state];
+}
+
+// The bucket logic lives in js/ptiles.js (Layer.nameSearch) with the rest of
+// the format plumbing, so `node --test` can exercise the same code the browser
+// runs instead of a copy of it.
+async function searchNameIndex(state, query, limit) {
+  var file = await nameIndexFor(state);
+  return file.layer.nameSearch(query, limit);
+}
 
 // --- Generic layer reader for roads/water/parks/rail ---
 function LayerReader(file) {
@@ -1399,6 +1540,73 @@ function stateUrl(state, layer) {
   return "https://maps.mydatatimeline.com/maps/" + state + "." + layer + ".ptiles";
 }
 
+// US.admin.ptiles carries no per-cell blocks: its `aux` section is one flat
+// H3 res-7 grid (1,785,304 entries x 16 bytes = 28 MB) and `dict` is the zstd
+// string tables. AdminReader wants the whole grid, so the load is deliberately
+// user-triggered and then reused for the rest of the session.
+//
+// ponytail: whole-grid load, opt-in once. The grid is sorted by h3_cell at a
+// fixed 16-byte stride, so a range binary search (~21 x 16-byte GETs, no big
+// download) is the upgrade -- it needs a wasm export that resolves one entry
+// against the tables instead of requiring the whole grid.
+var adminReaderPromise = null;
+var adminReader = null;
+
+function ensureAdminReader() {
+  if (adminReaderPromise) return adminReaderPromise;
+  adminReaderPromise = (async function() {
+    await wasmInit;
+    var src = P.httpSource(stateUrl("US", "admin"));
+    var headerBytes = await src.readLive(0, 255);
+    var h = wasm.parse_header(headerBytes);
+    var grid = await src.read(Number(h.aux_offset), Number(h.aux_offset) + h.aux_length - 1);
+    var dictRaw = await src.read(Number(h.dict_offset), Number(h.dict_offset) + h.dict_length - 1);
+    // The dict section is plain zstd here, not a dictionary for other blocks.
+    var tables = wasm.decompress_block(dictRaw, new Uint8Array(0));
+    adminReader = new wasm.AdminReader(grid, tables);
+    return adminReader;
+  })().catch(function(e) {
+    // A cached rejection would make one failed load permanent for the session.
+    adminReaderPromise = null;
+    throw e;
+  });
+  return adminReaderPromise;
+}
+
+// Fill the jurisdiction rows for a point, or leave the load prompt in place.
+function showAdmin(lat, lon) {
+  var valueEl = document.getElementById("adminValue");
+  var tzRow = document.getElementById("adminTzRow");
+  if (!adminReader) { tzRow.style.display = "none"; return; }
+  var info = null;
+  try { info = adminReader.admin_at(lat, lon); } catch (e) { info = null; }
+  if (!info) {
+    valueEl.textContent = "not in grid";
+    tzRow.style.display = "none";
+    return;
+  }
+  var parts = [info.county, info.state, info.country].filter(Boolean);
+  valueEl.textContent = parts.join(", ") + (info.zip ? " " + info.zip : "");
+  tzRow.style.display = info.timezone ? "flex" : "none";
+  if (info.timezone) document.getElementById("adminTz").textContent = info.timezone;
+}
+
+// Delegated so the retry link a failed load writes back is live too.
+document.getElementById("adminValue").addEventListener("click", async function(ev) {
+  if (!ev.target || ev.target.id !== "adminLoad") return;
+  ev.preventDefault();
+  var valueEl = document.getElementById("adminValue");
+  valueEl.textContent = "loading 28 MB...";
+  try {
+    await ensureAdminReader();
+    if (lastQueryLat !== null) showAdmin(lastQueryLat, lastQueryLon);
+    else valueEl.textContent = "loaded -- click the map";
+  } catch (e) {
+    valueEl.innerHTML = "failed: " + esc(e.message)
+      + ' <a href="#" id="adminLoad" style="color:#58a6ff">retry</a>';
+  }
+});
+
 function ensureBldgReader() {
   if (!bldgReaderPromise) bldgReaderPromise = PtilesWasmReader.fromUrl(stateUrl(currentState, "buildings_v8"));
   return bldgReaderPromise;
@@ -1569,21 +1777,46 @@ async function doSearch() {
   // ponytail: spiral origin = coordInput if set, else map center
   var origin = parseCoords(coordInput.value);
   if (!origin) { var c = map.getCenter(); origin = [c.lat, c.lng]; }
+
+  function addHit(result) {
+    if (abortRef.aborted) return;
+    searchResultCount++;
+    var dlat = (result.lat - origin[0]) * Math.PI / 180;
+    var dlon = (result.lon - origin[1]) * Math.PI / 180;
+    var a = Math.sin(dlat/2)**2 + Math.cos(origin[0]*Math.PI/180)*Math.cos(result.lat*Math.PI/180)*Math.sin(dlon/2)**2;
+    result._dist = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    // Render immediately so hits are clickable while the scan continues
+    insertSearchResult(listEl, results, result);
+    updateSearchProgress();
+  }
+
+  // One block instead of eighteen thousand. Falls through to the full scan on
+  // a missing sidecar or an empty bucket -- an empty bucket is the expected
+  // answer for a mid-word query, which only the substring path can serve.
+  try {
+    progressEl.textContent = "Checking the name index...";
+    var indexed = await searchNameIndex(currentState, query, SEARCH_HIT_CAP);
+    if (!abortRef.aborted && indexed.length) {
+      indexed.forEach(addHit);
+      progressEl.textContent = searchResultCount + " results from the name index"
+        + " (prefix match; \"Search everywhere\" for mid-word matches)";
+      var more = document.createElement("button");
+      more.textContent = "Search everywhere (slow)";
+      more.style.cssText = "margin-top:8px;background:#21262d;border:1px solid #30363d;"
+        + "color:#c9d1d9;border-radius:4px;padding:4px 10px;cursor:pointer;font:inherit;font-size:0.75rem";
+      more.addEventListener("click", function() { this.remove(); runFullScan(); });
+      listEl.appendChild(more);
+      return;
+    }
+  } catch (e) {
+    console.warn("[ptiles] name index unavailable, scanning", e);
+  }
+
+  await runFullScan();
+
+  async function runFullScan() {
   await bizReader.searchAll(query,
-    function(result) {
-      if (abortRef.aborted) return;
-      searchResultCount++;
-      // Enrich with distance from spiral origin
-      var center = { lat: origin[0], lng: origin[1] };
-      var dlat = (result.lat - center.lat) * Math.PI / 180;
-      var dlon = (result.lon - center.lng) * Math.PI / 180;
-      var a = Math.sin(dlat/2)**2 + Math.cos(center.lat*Math.PI/180)*Math.cos(result.lat*Math.PI/180)*Math.sin(dlon/2)**2;
-      var dist = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      result._dist = dist;
-      // Render immediately so hits are clickable while the scan continues
-      insertSearchResult(listEl, results, result);
-      updateSearchProgress();
-    },
+    addHit,
     function(done, tot) {
       if (abortRef.aborted) return;
       scanDone = done; scanTotal = tot;
@@ -1600,6 +1833,7 @@ async function doSearch() {
       : searchResultCount >= SEARCH_HIT_CAP
         ? SEARCH_HIT_CAP + " results (nearest " + SEARCH_HIT_CAP + " shown)"
         : searchResultCount + " results";
+  }
   }
 }
 
@@ -1618,8 +1852,8 @@ document.getElementById("btnMeta").addEventListener("click", showMeta);
 // with two unrelated halves.
 function hideBuildingBusinessRows() {
   ["bldgOsmLinkRow","bldgCatRow","bldgGmapsRow","bizRow","bizCatRow",
-   "bizBrandRow","bizChainRow","bizPhoneRow","bizAddrRow","bizWebRow",
-   "bizDistRow","bizList"].forEach(function(id) {
+   "bizBrandRow","bizStatusRow","bizPhoneRow","bizAddrRow","bizWebRow",
+   "bizEmailRow","bizSocialRow","bizDistRow","bizList"].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = "none";
   });
@@ -1708,6 +1942,7 @@ async function doLookup(lat, lon) {
   clearOverlays();
   infoPanel.classList.remove("show");
   document.getElementById("intxSection").style.display = "none";
+  showRoad(null);
   document.querySelectorAll("#infoPanel > .row").forEach(function(r) {
     r.style.display = "flex";
   });
@@ -1718,8 +1953,19 @@ async function doLookup(lat, lon) {
 
     // Intersections take precedence. Clicking a junction to be told which
     // building is nearest is the wrong answer to the question being asked.
-    var intx = null;
-    try { intx = await queryIntersection(lat, lon); } catch (e) { intx = null; }
+    //
+    // The road detail is orthogonal to that choice -- an intersection wants a
+    // street name as much as a building does -- so both queries run together
+    // and the road row is filled in either way. Each swallows its own failure:
+    // a missing roads layer must not cost you the building.
+    var intx = null, road = null;
+    var probes = await Promise.all([
+      queryIntersection(lat, lon).catch(function() { return null; }),
+      nearestRoadDetail(lat, lon).catch(function() { return null; })
+    ]);
+    intx = probes[0]; road = probes[1];
+    showRoad(road);
+    showAdmin(lat, lon);
     if (intx) {
       lastQueryLat = lat; lastQueryLon = lon;
       lastBldg = null; lastBiz = null; lastBizList = null;
@@ -1775,10 +2021,12 @@ async function doLookup(lat, lon) {
 
       bizRow.style.display = "none"; bizCatRow.style.display = "none";
       document.getElementById("bizBrandRow").style.display = "none";
-      document.getElementById("bizChainRow").style.display = "none";
+      document.getElementById("bizStatusRow").style.display = "none";
       document.getElementById("bizPhoneRow").style.display = "none";
       document.getElementById("bizAddrRow").style.display = "none";
       document.getElementById("bizWebRow").style.display = "none";
+      document.getElementById("bizEmailRow").style.display = "none";
+      document.getElementById("bizSocialRow").style.display = "none";
       document.getElementById("bizDistRow").style.display = "none";
       document.getElementById("bizList").style.display = "none";
       document.getElementById("bizList").innerHTML = "";
@@ -1821,20 +2069,40 @@ async function doLookup(lat, lon) {
         bizName.innerHTML = prefix + osmBizLink(closest, closest.name) + (bizResults.length > 1 ? " (+" + (bizResults.length - 1) + " more)" : "");
         bizCat.textContent = closest.category || "--";
         document.getElementById("bizBrand").textContent = closest.brand || "--";
-        document.getElementById("bizChain").textContent = closest.chainCount > 0 ? "US: " + closest.chainCount : "--";
-        document.getElementById("bizPhone").textContent = closest.phone || "--";
+        // "open" is the overwhelming default, so saying it on every record is
+        // noise; a closure is the part worth interrupting someone for.
+        document.getElementById("bizStatus").textContent = closest.operatingStatus.replace(/_/g, " ");
+        var phoneEl = document.getElementById("bizPhone");
+        if (closest.phone) {
+          phoneEl.innerHTML = "<a href=\"tel:" + esc(closest.phone.replace(/[^\d+]/g, "")) + "\" style=\"color:#58a6ff\">" + esc(closest.phone) + "</a>";
+        } else { phoneEl.textContent = "--"; }
         document.getElementById("bizAddr").textContent = closest.address || "--";
         var webEl = document.getElementById("bizWeb");
         if (closest.website) {
           webEl.innerHTML = "<a href=\"" + esc(closest.website) + "\" target=\"_blank\" style=\"color:#58a6ff\">" + esc(closest.website.substring(0, 30)) + (closest.website.length > 30 ? "..." : "") + "</a>";
         } else { webEl.textContent = "--"; }
+        var emailEl = document.getElementById("bizEmail");
+        emailEl.innerHTML = closest.emails.map(function(e) {
+          return "<a href=\"mailto:" + esc(e) + "\" style=\"color:#58a6ff\">" + esc(e) + "</a>";
+        }).join(", ") || "--";
+        var socialEl = document.getElementById("bizSocial");
+        socialEl.innerHTML = closest.socials.map(function(s) {
+          // Socials are stored bare (handles as often as URLs), so only link
+          // what is already a URL and print the rest as text.
+          return /^https?:\/\//.test(s)
+            ? "<a href=\"" + esc(s) + "\" target=\"_blank\" style=\"color:#58a6ff\">" + esc(s.substring(0, 28)) + (s.length > 28 ? "..." : "") + "</a>"
+            : esc(s);
+        }).join(", ") || "--";
         document.getElementById("bizDist").textContent = closest.distance < 1 ? Math.round(closest.distance * 100) / 100 + " m" : (closest.distance / 1000).toFixed(2) + " km";
         bizRow.style.display = "flex"; bizCatRow.style.display = closest.category ? "flex" : "none";
         document.getElementById("bizBrandRow").style.display = closest.brand ? "flex" : "none";
-        document.getElementById("bizChainRow").style.display = closest.chainCount > 0 ? "flex" : "none";
+        document.getElementById("bizStatusRow").style.display =
+          closest.operatingStatus && closest.operatingStatus !== "open" ? "flex" : "none";
         document.getElementById("bizPhoneRow").style.display = closest.phone ? "flex" : "none";
         document.getElementById("bizAddrRow").style.display = closest.address ? "flex" : "none";
         document.getElementById("bizWebRow").style.display = closest.website ? "flex" : "none";
+        document.getElementById("bizEmailRow").style.display = closest.emails.length ? "flex" : "none";
+        document.getElementById("bizSocialRow").style.display = closest.socials.length ? "flex" : "none";
         document.getElementById("bizDistRow").style.display = "flex";
 
         var shownBiz = Math.min(scored.length, 40);
@@ -2270,7 +2538,12 @@ async function camerasNear(lat, lon, radiusM) {
     wasm.decode_cameras(raw).forEach(function(c) {
       var dist = haversineM(lat, lon, c.lat, c.lon);
       if (dist <= radiusM) {
-        out.push({ osmId: c.osm_id, dev: c.device_type, distM: dist });
+        // Position and facing come along for the line-of-sight check; the
+        // intersection panel reads only osmId/dev/distM and ignores the rest.
+        out.push({ osmId: c.osm_id, dev: c.device_type, distM: dist,
+                   lat: c.lat, lon: c.lon, direction: c.direction,
+                   angle: c.angle, name: c.name, camType: c.camera_type,
+                   operator: c.operator });
       }
     });
     return out;
@@ -2394,7 +2667,7 @@ async function roadsReaderFor(state) {
     roadsByState[state] = layer.reader;
     return layer.reader;
   }
-  setStatus("Route: open " + state + ".roads...");
+  setStatus("Opening " + state + ".roads...");
   var rdr = await LayerReader.fromUrl(stateUrl(state, "roads"));
   roadsByState[state] = rdr;
   return rdr;
@@ -2434,17 +2707,25 @@ function projectOnSeg(lat, lon, aLon, aLat, bLon, bLat) {
 }
 
 // ponytail: nearest_road is class-blind (footway wins); scan driving segs for snap
-function nearestDrivingInSegs(segs, lat, lon) {
+//
+// `classFilter` defaults to DRIVING_CLASS for the routing snap. Pass null for
+// the click inspector, which wants the opposite behaviour: if you clicked a
+// footpath you should be told it is a footpath, not sent to the nearest street.
+// `seg` carries the whole decoded record so callers can read the fields the
+// snap itself has no use for (lanes, surface, bridge/tunnel).
+function nearestDrivingInSegs(segs, lat, lon, classFilter, maxM) {
+  if (classFilter === undefined) classFilter = DRIVING_CLASS;
+  if (maxM == null) maxM = 400;
   var best = null;
   for (var s = 0; s < segs.length; s++) {
     var seg = segs[s];
     var rc = seg.road_class != null ? seg.road_class : (seg.roadClass || "");
-    if (!DRIVING_CLASS[rc]) continue;
+    if (classFilter && !classFilter[rc]) continue;
     var coords = seg.coords;
     if (!coords || coords.length < 2) continue;
     for (var i = 0; i < coords.length - 1; i++) {
       var pr = projectOnSeg(lat, lon, coords[i][0], coords[i][1], coords[i + 1][0], coords[i + 1][1]);
-      if (pr.d > 400) continue;
+      if (pr.d > maxM) continue;
       if (!best || pr.d < best.distance_m) {
         best = {
           osm_id: seg.osm_id,
@@ -2452,12 +2733,77 @@ function nearestDrivingInSegs(segs, lat, lon) {
           road_class: rc,
           distance_m: pr.d,
           snapped: [pr.lat, pr.lon],
-          latlngs: coords.map(function(c) { return [c[1], c[0]]; })
+          latlngs: coords.map(function(c) { return [c[1], c[0]]; }),
+          seg: seg
         };
       }
     }
   }
   return best;
+}
+
+// The street under the click. 25 m: wide enough to catch the carriageway you
+// aimed at, narrow enough that clicking a rooftop in a dense block does not
+// name a road you cannot see from it.
+//
+// Downtown, the nearest road to almost any click is a sidewalk or an alley --
+// measured on eight points across downtown Nashville, seven snapped to an
+// unnamed footway or service way. So a drivable road wins when there is one in
+// range, and the class-blind answer is the fallback: click a pedestrian plaza
+// with no street nearby and you still get the path you clicked, named as one.
+var ROAD_INSPECT_M = 25;
+
+async function nearestRoadDetail(lat, lon) {
+  var st = stateAt(lat, lon) || currentState;
+  var reader = await roadsReaderFor(st);
+  if (!reader) return null;
+  var cellHex = h3.latLngToCell(lat, lon, 7);
+  var cells = [cellHex];
+  try {
+    var ring = h3.gridRing(cellHex, 1);
+    for (var i = 0; i < ring.length; i++) cells.push(ring[i]);
+  } catch (e) {}
+  var bestDriving = null, bestAny = null;
+  for (var ci = 0; ci < cells.length; ci++) {
+    var raw = null;
+    try {
+      raw = await reader.decompressCell(BigInt("0x" + cells[ci]) & 0xffffffffffe00000n);
+    } catch (e) { continue; }
+    if (!raw) continue;
+    var segs;
+    try { segs = wasm_decode_roads(raw); } catch (e) { continue; }
+    if (!segs) continue;
+    var drv = nearestDrivingInSegs(segs, lat, lon, undefined, ROAD_INSPECT_M);
+    if (drv && (!bestDriving || drv.distance_m < bestDriving.distance_m)) bestDriving = drv;
+    var any = nearestDrivingInSegs(segs, lat, lon, null, ROAD_INSPECT_M);
+    if (any && (!bestAny || any.distance_m < bestAny.distance_m)) bestAny = any;
+  }
+  return bestDriving || bestAny;
+}
+
+function showRoad(road) {
+  var section = document.getElementById("roadSection");
+  if (!road) { section.style.display = "none"; return; }
+  var seg = road.seg || {};
+  section.style.display = "block";
+  document.getElementById("roadName").textContent = road.name || "(unnamed)";
+  document.getElementById("roadClass").textContent = road.road_class || "--";
+  document.getElementById("roadDist").textContent = Math.round(road.distance_m) + " m";
+
+  function optional(rowId, valId, value) {
+    document.getElementById(rowId).style.display = value == null ? "none" : "flex";
+    if (value != null) document.getElementById(valId).textContent = value;
+  }
+  optional("roadRefRow", "roadRef", seg.ref_tag);
+  // "no" is a real decoded value (the flag was set and said not one-way);
+  // showing it is more informative than an absent row, which reads as unknown.
+  optional("roadOnewayRow", "roadOneway", seg.oneway);
+  optional("roadSpeedRow", "roadSpeed",
+    seg.speed_limit_kmh == null ? null
+      : seg.speed_limit_kmh + " km/h (" + Math.round(seg.speed_limit_kmh / 1.609) + " mph)");
+  optional("roadLanesRow", "roadLanes", seg.lanes);
+  optional("roadSurfaceRow", "roadSurface", seg.surface);
+  optional("roadStructRow", "roadStruct", seg.bridge_tunnel);
 }
 
 async function nearestRoadInState(state, lat, lon) {
@@ -2777,7 +3123,499 @@ document.getElementById("btnRoute").addEventListener("click", function() {
   routeA = routeB = null;
   routeBusy = false;
   clearRouteLayer();
+  // Both modes claim the map click; only one can have it.
+  if (routeMode && losMode) document.getElementById("btnLos").click();
   setStatus(routeMode ? "Route mode: click A, then B" : "");
+});
+
+// --- Line of sight ---
+//
+// Click a point; core works out which buildings can actually be seen from it,
+// and which are hidden behind something nearer. The geometry lives in
+// ptiles-core (`viewshed.rs`) for the same reason the routing graph does --
+// this page does I/O and Leaflet, not algorithms.
+//
+// Heights are the whole point: a 2D shadow test would hide a tower behind a
+// bungalow. Most published buildings carry no height, so core guesses one from
+// the building type and flags it, and the panel reports how much of the answer
+// rests on guesses.
+var losMode = false;
+var losLayer = null;
+var losBusy = false;
+var losLast = null;   // {lat, lon} so the knobs can recompute without a re-click
+
+function clearLosLayer() {
+  if (losLayer) { map.removeLayer(losLayer); losLayer = null; }
+}
+
+async function buildingsNear(lat, lon, radiusM) {
+  var rdr = await ensureBldgReader();
+  // A res-7 cell is ~5 km across so one usually covers the radius, but a click
+  // near an edge does not -- take the ring rather than silently losing the
+  // buildings on the other side of the boundary.
+  var cells = h3.gridDisk(h3.latLngToCell(lat, lon, 7), radiusM > 800 ? 2 : 1);
+  var out = [];
+  var cap = radiusM * 1.6;
+  for (var i = 0; i < cells.length; i++) {
+    var raw;
+    try { raw = await rdr._decompressBlock(cells[i]); } catch (e) { continue; }
+    if (!raw) continue;
+    var center = h3.cellToLatLng(cells[i]);
+    var decoded;
+    try { decoded = wasm.decode_buildings(raw, center[0], center[1]); } catch (e) { continue; }
+    for (var j = 0; j < decoded.length; j++) {
+      var b = mapWasmBuilding(decoded[j]);
+      if (!b.coordinates || b.coordinates.length < 3) continue;
+      if (haversineM(lat, lon, b.centroidLat, b.centroidLon) > cap) continue;
+      out.push(b);
+    }
+  }
+  return out;
+}
+
+// --- Who can see you ---
+//
+// Line of sight is reciprocal: if you can see the top of a 4 m pole at the
+// camera's position, that camera has an unobstructed line to you. So this needs
+// no new geometry at all -- it appends one tiny synthetic footprint per camera
+// to the same viewshed call the buildings already make, and reads back whether
+// each one came out visible.
+//
+// ponytail: fixed 4 m mount height. Real mounts run 2.5-9 m and the format
+// carries no height; take it from the record when a builder starts writing one.
+var CAMERA_MOUNT_M = 4;
+
+// Half a metre either side of the camera. Big enough to be a polygon, small
+// enough that it occludes nothing: at 100 m a 1 m object spans 0.6 deg, under
+// three of the viewshed's 1440 bearing bins.
+function cameraFootprint(cam) {
+  var dLat = 0.5 / 111320;
+  var dLon = dLat / Math.max(0.2, Math.cos(cam.lat * Math.PI / 180));
+  return [
+    [cam.lon - dLon, cam.lat - dLat], [cam.lon + dLon, cam.lat - dLat],
+    [cam.lon + dLon, cam.lat + dLat], [cam.lon - dLon, cam.lat + dLat],
+    [cam.lon - dLon, cam.lat - dLat]
+  ];
+}
+
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  var la1 = lat1 * Math.PI / 180, la2 = lat2 * Math.PI / 180;
+  var dLon = (lon2 - lon1) * Math.PI / 180;
+  var y = Math.sin(dLon) * Math.cos(la2);
+  var x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+// Is the point inside the camera's cone? Only 34% of records carry a facing;
+// without one the camera is treated as pointing everywhere, which over-reports
+// rather than quietly clearing a camera that may well be aimed at you.
+function pointInCameraCone(cam, lat, lon) {
+  if (cam.direction == null) return true;
+  var fov = cam.angle != null && cam.angle > 0 ? cam.angle : CAMERA_FOV_DEFAULT;
+  var delta = Math.abs(((bearingDeg(cam.lat, cam.lon, lat, lon) - cam.direction) % 360 + 540) % 360 - 180);
+  return delta <= fov / 2;
+}
+
+async function runLos(lat, lon) {
+  if (losBusy) return;
+  losBusy = true;
+  losLast = { lat: lat, lon: lon };
+  clearLosLayer();
+  setStatus("Line of sight: loading buildings...");
+  try {
+    await wasmInit;
+    // The observer is on the ground: core steps the eye out to the kerb when
+    // the point lands on a footprint, so the page passes the click through.
+    var radius = parseFloat(document.getElementById("losRadius").value);
+    var eye = parseFloat(document.getElementById("losEye").value);
+    var near = await buildingsNear(lat, lon, radius);
+    if (!near.length) {
+      setStatus("No buildings near that point (is the Buildings layer's state right?)", true);
+      losBusy = false;
+      return;
+    }
+    // Cameras ride along on the same viewshed call: bearing-cull first (most
+    // cameras face away and never need geometry), then one synthetic footprint
+    // each, appended after the buildings so the loop below can ignore them.
+    var cams = [];
+    try { cams = await camerasNear(lat, lon, radius); } catch (e) { cams = []; }
+    var aimed = cams.filter(function(c) { return pointInCameraCone(c, lat, lon); });
+
+    var scene = near.map(function(b) {
+      return { coords: b.coordinates, height_m: b.heightM, building_type: b.buildingType || "yes" };
+    }).concat(aimed.map(function(c) {
+      return { coords: cameraFootprint(c), height_m: CAMERA_MOUNT_M, building_type: "camera" };
+    }));
+    var vis = wasm.viewshed(scene, lat, lon, eye, radius);
+
+    losLayer = L.layerGroup().addTo(map);
+    var nVisible = 0, nHidden = 0, nEstimated = 0, nClamped = 0;
+    for (var i = 0; i < near.length; i++) {
+      var v = vis[i], b = near[i];
+      if (v.distance_m > radius) continue;
+      var latlngs = b.coordinates.map(function(c) { return [c[1], c[0]]; });
+      if (v.visible) {
+        nVisible++;
+        if (v.estimated) nEstimated++;
+        if (b.heightM === 127.5) nClamped++;
+        L.polygon(latlngs, {
+          color: v.estimated ? "#d29922" : "#3fb950", weight: 1,
+          fillColor: v.estimated ? "#d29922" : "#3fb950",
+          fillOpacity: 0.45, dashArray: v.estimated ? "3,3" : null
+        }).bindTooltip((b.name || b.buildingType || "building") + " — " + v.height_m + " m"
+          + (v.estimated ? " (guessed)" : "") + ", " + Math.round(v.distance_m) + " m away")
+          .addTo(losLayer);
+      } else {
+        nHidden++;
+        if (v.estimated) nEstimated++;
+        L.polygon(latlngs, {
+          color: "#30363d", weight: 0.5, fillColor: "#161b22",
+          fillOpacity: 0.5, interactive: false
+        }).addTo(losLayer);
+      }
+    }
+    // Cameras: solid red wedge when the line is clear, grey when a building is
+    // in the way. Those culled by facing are not drawn at all -- a wedge
+    // pointing away is noise on an already busy map.
+    var nWatching = 0;
+    for (var ci = 0; ci < aimed.length; ci++) {
+      var cam = aimed[ci], cv = vis[near.length + ci];
+      var clear = cv && cv.visible;
+      if (clear) nWatching++;
+      var col = clear ? "#da3633" : "#484f58";
+      var wedge = cameraViewWedge(cam);
+      if (wedge) {
+        L.polygon(wedge, { color: col, weight: 1, fillColor: col,
+          fillOpacity: clear ? 0.28 : 0.08, interactive: false }).addTo(losLayer);
+      }
+      L.circleMarker([cam.lat, cam.lon], { radius: 5, color: col,
+        fillColor: col, fillOpacity: clear ? 0.95 : 0.3, weight: 2 })
+        .bindTooltip((CAMERA_LABELS[cam.dev] || cam.dev)
+          + (cam.name ? " — " + cam.name : "")
+          + (clear ? " — clear line of sight" : " — view blocked")
+          + ", " + Math.round(cam.distM) + " m away")
+        .addTo(losLayer);
+    }
+
+    L.circle([lat, lon], { radius: radius, color: "#58a6ff", weight: 2,
+      opacity: 0.9, fillColor: "#58a6ff", fillOpacity: 0.05, dashArray: "6,6",
+      interactive: false }).addTo(losLayer);
+    L.circleMarker([lat, lon], { radius: 6, color: "#58a6ff", fillColor: "#58a6ff",
+      fillOpacity: 0.9, weight: 2 }).addTo(losLayer);
+
+    document.getElementById("losPanel").classList.add("show");
+    document.getElementById("losSummary").textContent =
+      nVisible + " of " + (nVisible + nHidden) + " in sight";
+    document.getElementById("losVisible").textContent = nVisible;
+    document.getElementById("losHidden").textContent = nHidden;
+    document.getElementById("losEstimated").textContent =
+      nEstimated + " of " + (nVisible + nHidden);
+    document.getElementById("losCams").textContent =
+      cams.length === 0 ? "none nearby"
+        : nWatching + " of " + cams.length + " (" + (cams.length - aimed.length) + " facing away)";
+    // Say plainly how much of this is inference, and which way it leans.
+    // Where a height is guessed, core occludes with the type's 75th percentile
+    // and tests visibility with its 25th, so uncertainty costs visibility
+    // instead of inventing it -- this errs towards saying you cannot see
+    // something. Heights at the 127.5 m encoder ceiling are treated as a floor
+    // on the truth for the same reason.
+    var notes = ["Hatched amber = height guessed from building type."
+      + " Guesses deliberately under-report: they block generously and have to"
+      + " prove themselves to count as visible."];
+    if (nClamped) notes.push(nClamped + " visible building(s) sit at the 127.5 m encoding limit, so their real height is only a lower bound.");
+    notes.push("Eye is " + eye + " m above street level (a click on a building"
+      + " stands you on the pavement beside it); every footprint counts as at"
+      + " least 3 m tall.");
+    if (cams.length) {
+      notes.push("Each camera is tested as a " + CAMERA_MOUNT_M + " m pole at its"
+        + " mapped position -- the format publishes no mount height. Only about a"
+        + " third of records carry a facing, and one without a facing is counted"
+        + " as pointing at you rather than quietly cleared.");
+    }
+    document.getElementById("losLegend").textContent = notes.join(" ");
+    setStatus("");
+  } catch (e) {
+    console.warn("[ptiles] line of sight failed", e);
+    setStatus("Line of sight error: " + errText(e, 60), true);
+  }
+  losBusy = false;
+}
+
+document.getElementById("btnLos").addEventListener("click", function() {
+  losMode = !losMode;
+  this.className = losMode ? "toggle-on" : "toggle-off";
+  this.textContent = losMode ? "Line of sight ON" : "Line of sight";
+  if (!losMode) {
+    clearLosLayer();
+    document.getElementById("losPanel").classList.remove("show");
+    setStatus("");
+  } else {
+    // Two click-modes at once would race for the same click.
+    if (routeMode) document.getElementById("btnRoute").click();
+    setStatus("Line of sight: click a point");
+  }
+});
+
+document.getElementById("btnCloseLos").addEventListener("click", function() {
+  document.getElementById("losPanel").classList.remove("show");
+  clearLosLayer();
+});
+
+// Knobs recompute from the last click rather than making the user click again.
+document.getElementById("losEye").addEventListener("input", function() {
+  document.getElementById("losEyeVal").textContent = parseFloat(this.value).toFixed(1) + " m";
+});
+document.getElementById("losEye").addEventListener("change", function() {
+  if (losLast) runLos(losLast.lat, losLast.lon);
+});
+document.getElementById("losRadius").addEventListener("change", function() {
+  if (losLast) runLos(losLast.lat, losLast.lon);
+});
+
+// --- View finder: the reverse viewshed ---
+//
+// "Which buildings can see the river" is the same question as "what is visible
+// from the river", because line of sight is reciprocal. So this needs no new
+// geometry: it samples points on the target, runs the ordinary viewshed from
+// each (in one wasm call, `viewshed_multi`), and reports the buildings that
+// came out visible from any of them.
+//
+// The direction of the error is worth knowing. core's viewshed treats an
+// uncertain building as tall when it occludes and short when it is the target,
+// so a guessed height costs visibility rather than inventing it -- this
+// under-reports views instead of promising ones that do not exist.
+//
+// Tags are limited to what the format actually resolves to a string today:
+// water_type, park_type, rail_type, plus business names. Business *category* is
+// deliberately absent -- it is published as a bare table index with no sidecar
+// to resolve it against (core/src/business.rs:36), so "all fast food" is not a
+// query this data can answer, however much it looks like one.
+var viewMode = false;
+var viewLayer = null;
+var viewBusy = false;
+
+// A sight line to a point 12 m along the bank is the same sight line as to the
+// point beside it, so spacing costs nothing and the cap bounds the work: 24
+// origins over a few hundred footprints is roughly a second of geometry.
+var VIEW_SAMPLE_SPACING_M = 60;
+var VIEW_MAX_SAMPLES = 24;
+
+function clearViewLayer() {
+  if (viewLayer) { map.removeLayer(viewLayer); viewLayer = null; }
+}
+
+// Walk a coordinate ring/line, keeping points at least `spacing` apart.
+function sampleGeometry(coords, out, spacing) {
+  var last = null;
+  for (var i = 0; i < coords.length; i++) {
+    var lon = coords[i][0], lat = coords[i][1];
+    if (last && haversineM(last[0], last[1], lat, lon) < spacing) continue;
+    last = [lat, lon];
+    out.push(last);
+  }
+}
+
+// Decode one layer across the cells around a point and hand each feature to
+// `visit`. The four polygon/line layers share this; only the predicate differs.
+async function eachFeatureNear(layerKey, lat, lon, radiusM, visit) {
+  var reader = ptilesLayers[layerKey] && ptilesLayers[layerKey].reader;
+  if (!reader) reader = await LayerReader.fromUrl(stateUrl(currentState, layerKey));
+  var cells = h3.gridDisk(h3.latLngToCell(lat, lon, 7), radiusM > 800 ? 2 : 1);
+  var decode = { water: wasm.decode_water, parks: wasm.decode_parks, rail: wasm.decode_rail };
+  for (var i = 0; i < cells.length; i++) {
+    var raw = null;
+    try { raw = await reader.decompressCell(BigInt("0x" + cells[i]) & 0xffffffffffe00000n); }
+    catch (e) { continue; }
+    if (!raw) continue;
+    var feats;
+    try { feats = decode[layerKey](raw); } catch (e) { continue; }
+    for (var j = 0; j < feats.length; j++) visit(feats[j]);
+  }
+}
+
+// Resolve the chosen tag to the points to look from, nearest the map centre
+// first so the cap keeps the samples that matter.
+async function resolveViewTargets(spec, lat, lon, radiusM) {
+  var parts = spec.split(":"), kind = parts[0], want = parts.slice(1).join(":");
+  var pts = [], label = "";
+
+  if (kind === "business") {
+    var name = document.getElementById("viewName").value.trim().toLowerCase();
+    if (!name) throw new Error("type a business name first");
+    var biz = await (await ensureBizReader()).query(lat, lon, radiusM / 1000);
+    biz.filter(function(b) { return (b.name || "").toLowerCase().indexOf(name) >= 0; })
+       .forEach(function(b) { pts.push([b.lat, b.lon]); });
+    label = pts.length + " matching " + (name || "business") + " location(s)";
+  } else {
+    var layerKey = kind === "park" ? "parks" : kind === "rail" ? "rail" : "water";
+    var typeField = kind === "park" ? "park_type" : kind === "rail" ? "rail_type" : "water_type";
+    var kept = 0;
+    await eachFeatureNear(layerKey, lat, lon, radiusM, function(f) {
+      if (want !== "*" && f[typeField] !== want) return;
+      if (!f.coords || !f.coords.length) return;
+      kept++;
+      sampleGeometry(f.coords, pts, VIEW_SAMPLE_SPACING_M);
+    });
+    label = kept + " " + (want === "*" ? kind : want) + " feature(s)";
+  }
+
+  // Keep the nearest samples: the cap is about work, and a bank 3 km upstream
+  // tells you nothing about the block you are looking at.
+  pts.sort(function(a, b) {
+    return haversineM(lat, lon, a[0], a[1]) - haversineM(lat, lon, b[0], b[1]);
+  });
+  pts = pts.filter(function(p) { return haversineM(lat, lon, p[0], p[1]) <= radiusM; });
+  return { points: pts.slice(0, VIEW_MAX_SAMPLES), label: label };
+}
+
+async function runViewFinder() {
+  if (viewBusy) return;
+  viewBusy = true;
+  clearViewLayer();
+  var summary = document.getElementById("viewSummary");
+  // Clear the previous answer before starting: a run that errors or finds
+  // nothing must not leave the last run's counts sitting under its message.
+  // Blank the values as well as hiding the rows: hidden-but-stale text still
+  // reads as this run's answer to anything that asks for it.
+  ["viewSamplesRow", "viewFoundRow", "viewList"].forEach(function(id) {
+    document.getElementById(id).style.display = "none";
+  });
+  ["viewSamples", "viewFound", "viewLegend"].forEach(function(id) {
+    document.getElementById(id).textContent = "";
+  });
+  document.getElementById("viewList").innerHTML = "";
+  try {
+    await wasmInit;
+    var c = map.getCenter();
+    var radius = parseFloat(document.getElementById("viewRadius").value);
+    var eye = parseFloat(document.getElementById("viewEye").value);
+    var spec = document.getElementById("viewTag").value;
+
+    summary.textContent = "Finding the target...";
+    setStatus("View finder: locating target...");
+    var target = await resolveViewTargets(spec, c.lat, c.lng, radius);
+    if (!target.points.length) {
+      summary.textContent = "Nothing matching within " + radius + " m";
+      setStatus("");
+      viewBusy = false;
+      return;
+    }
+
+    summary.textContent = "Loading buildings...";
+    setStatus("View finder: loading buildings...");
+    var near = await buildingsNear(c.lat, c.lng, radius);
+    if (!near.length) throw new Error("no buildings here (is the Buildings layer's state right?)");
+
+    var res = wasm.viewshed_multi(
+      near.map(function(b) {
+        return { coords: b.coordinates, height_m: b.heightM, building_type: b.buildingType || "yes" };
+      }),
+      target.points.map(function(p) { return [p[0], p[1]]; }),
+      eye, radius);
+
+    viewLayer = L.layerGroup().addTo(map);
+    var winners = [];
+    for (var i = 0; i < res.length; i++) {
+      var v = res[i], b = near[i];
+      var latlngs = b.coordinates.map(function(cc) { return [cc[1], cc[0]]; });
+      if (v.visible) {
+        winners.push({ b: b, v: v });
+        // Colour by how much of the target it sees, not merely whether it does.
+        var frac = v.seen_count / target.points.length;
+        var col = frac > 0.5 ? "#f0883e" : frac > 0.2 ? "#d29922" : "#8b6914";
+        L.polygon(latlngs, { color: col, weight: 1, fillColor: col, fillOpacity: 0.55,
+          dashArray: v.estimated ? "3,3" : null })
+          .bindTooltip((b.name || b.buildingType || "building") + " — sees "
+            + v.seen_count + " of " + target.points.length + " sample points, "
+            + v.height_m + " m" + (v.estimated ? " (height guessed)" : ""))
+          .addTo(viewLayer);
+      } else {
+        L.polygon(latlngs, { color: "#30363d", weight: 0.5, fillColor: "#161b22",
+          fillOpacity: 0.5, interactive: false }).addTo(viewLayer);
+      }
+    }
+    // Draw where we looked from, so a bad answer is visibly a bad target.
+    for (var s = 0; s < target.points.length; s++) {
+      L.circleMarker(target.points[s], { radius: 3, color: "#58a6ff",
+        fillColor: "#58a6ff", fillOpacity: 0.9, weight: 1, interactive: false })
+        .addTo(viewLayer);
+    }
+
+    winners.sort(function(x, y) {
+      return y.v.seen_count !== x.v.seen_count
+        ? y.v.seen_count - x.v.seen_count
+        : x.v.distance_m - y.v.distance_m;
+    });
+
+    document.getElementById("viewPanel").classList.add("show");
+    summary.textContent = winners.length + " of " + res.length + " buildings have a view";
+    document.getElementById("viewSamplesRow").style.display = "flex";
+    document.getElementById("viewSamples").textContent =
+      target.points.length + " points on " + target.label;
+    document.getElementById("viewFoundRow").style.display = "flex";
+    document.getElementById("viewFound").textContent = winners.length;
+
+    var listEl = document.getElementById("viewList");
+    listEl.style.display = winners.length ? "block" : "none";
+    listEl.innerHTML = "";
+    for (var w = 0; w < Math.min(winners.length, 25); w++) {
+      (function(win) {
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;justify-content:space-between;gap:8px;padding:2px 0;"
+          + "font-size:0.75rem;border-bottom:1px solid #21262d;cursor:pointer";
+        row.innerHTML = "<span>" + esc((win.b.name || win.b.buildingType || "building").substring(0, 28))
+          + "</span><span style='color:#8b949e'>" + win.v.seen_count + "/" + target.points.length
+          + " · " + Math.round(win.v.height_m) + " m" + (win.v.estimated ? "?" : "") + "</span>";
+        row.addEventListener("click", function() {
+          map.flyTo([win.b.centroidLat, win.b.centroidLon], 18, { duration: 0.8 });
+        });
+        listEl.appendChild(row);
+      })(winners[w]);
+    }
+
+    document.getElementById("viewLegend").textContent =
+      "Orange = sees most of the target, amber = some, dark = none. Hatched means"
+      + " the height is a guess from the building type, and a guess has to prove"
+      + " itself to count -- so this errs towards saying there is no view."
+      + " Target height is how far above ground the thing being looked at sits:"
+      + " 0 m for a waterline, higher for a sign or a rooftop.";
+    setStatus("");
+  } catch (e) {
+    console.warn("[ptiles] view finder failed", e);
+    summary.textContent = "Error: " + errText(e, 60);
+    setStatus("View finder: " + errText(e, 60), true);
+  }
+  viewBusy = false;
+}
+
+document.getElementById("viewTag").addEventListener("change", function() {
+  document.getElementById("viewNameRow").style.display =
+    this.value.indexOf("business") === 0 ? "flex" : "none";
+});
+document.getElementById("viewEye").addEventListener("input", function() {
+  document.getElementById("viewEyeVal").textContent = parseFloat(this.value).toFixed(1) + " m";
+});
+document.getElementById("btnViewRun").addEventListener("click", runViewFinder);
+document.getElementById("btnCloseView").addEventListener("click", function() {
+  document.getElementById("viewPanel").classList.remove("show");
+  clearViewLayer();
+});
+document.getElementById("btnView").addEventListener("click", function() {
+  viewMode = !viewMode;
+  this.className = viewMode ? "toggle-on" : "toggle-off";
+  this.textContent = viewMode ? "View finder ON" : "View finder";
+  if (viewMode) {
+    document.getElementById("viewPanel").classList.add("show");
+    // The other two modes own the map click; this one works off the viewport,
+    // so it does not need to fight them for it -- but two panels stacked in the
+    // same corner do fight, so close theirs.
+    if (losMode) document.getElementById("btnLos").click();
+    setStatus("View finder: centre the map on the area, then Find views");
+  } else {
+    document.getElementById("viewPanel").classList.remove("show");
+    clearViewLayer();
+    setStatus("");
+  }
 });
 
 async function handleRouteClick(lat, lon) {
@@ -2827,6 +3665,7 @@ document.getElementById("btnPtiles").addEventListener("click", function() {
 map.on("click", function(e) {
   coordInput.value = e.latlng.lat.toFixed(6) + ", " + e.latlng.lng.toFixed(6);
   if (routeMode) { handleRouteClick(e.latlng.lat, e.latlng.lng); return; }
+  if (losMode) { runLos(e.latlng.lat, e.latlng.lng); return; }
   doLookup(e.latlng.lat, e.latlng.lng);
 });
 
@@ -2892,6 +3731,41 @@ window.__ptiles = {
   // nothing because the data has no heights" apart from "3D is broken".
   bldgHeightCoverage: function() {
     return { withHeight: bldgWithHeightInView, total: bldgTotalInView, on: bldgs3dActive };
+  },
+  // Drives the line-of-sight mode the way a click does, and reports what it
+  // concluded -- the harness cannot read colours off polygons.
+  losAt: async function(lat, lon) {
+    losMode = true;
+    await runLos(lat, lon);
+    return {
+      visible: parseInt(document.getElementById("losVisible").textContent, 10) || 0,
+      hidden: parseInt(document.getElementById("losHidden").textContent, 10) || 0,
+      estimated: document.getElementById("losEstimated").textContent,
+      cameras: document.getElementById("losCams").textContent,
+      layers: losLayer && losLayer.getLayers ? losLayer.getLayers().length : 0
+    };
+  },
+  // Drives the reverse viewshed from a chosen tag and reports the counts. The
+  // harness cannot read "has a view" off a polygon's fill colour.
+  viewFinderAt: async function(lat, lon, zoom, tag, radius, eye, name) {
+    map.setView([lat, lon], zoom || 16);
+    document.getElementById("viewPanel").classList.add("show");
+    var sel = document.getElementById("viewTag");
+    sel.value = tag;
+    // Setting .value fires nothing, and the name field's visibility hangs off
+    // the change handler -- dispatch it so the hook drives the same path a user
+    // does rather than a half-configured one.
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    if (name != null) document.getElementById("viewName").value = name;
+    if (radius) document.getElementById("viewRadius").value = String(radius);
+    if (eye != null) document.getElementById("viewEye").value = String(eye);
+    await runViewFinder();
+    return {
+      summary: document.getElementById("viewSummary").textContent,
+      samples: document.getElementById("viewSamples").textContent,
+      found: parseInt(document.getElementById("viewFound").textContent, 10) || 0,
+      rows: document.getElementById("viewList").children.length
+    };
   },
   // Harness hook: move the map the way a user pan does, so the moveend path
   // (including the state-follows-viewport switch) is exercised for real

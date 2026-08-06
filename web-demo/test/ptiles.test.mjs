@@ -204,3 +204,49 @@ test("H3 comes from core, and round-trips", () => {
   assert.ok(Math.abs(lat - 36.1627) < 0.5 && Math.abs(lon + 86.7816) < 0.5);
   assert.equal(P.h3.neighbors(cell).length, 6);
 });
+
+// The name index is not in the corpus (24 MB for one state), so this runs
+// against the local build when there is one and skips otherwise -- the same
+// arrangement core/src/business_search.rs's own real-file tests use.
+//
+// What it guards is the one thing core's tests cannot see: this reader's own
+// bucket lookup. `entryFor` normalises its argument as an H3 cell, and masking
+// the low 21 bits turns every bucket key 0-27 into zero, so a nameSearch built
+// on `entryFor` finds bucket 0 for every query and silently returns nothing
+// for 27 of the 28 letters.
+const NAME_INDEX = "/home/aoi/kino/data/ptiles/TN.business_name_index.ptiles";
+
+test("name index search finds by prefix, and does not pretend to do substrings",
+  { skip: !existsSync(NAME_INDEX) && "no local TN.business_name_index.ptiles" },
+  async () => {
+    const fd = readFileSync(NAME_INDEX);
+    const layer = await P.open(P.bytesSource(new Uint8Array(fd.buffer, fd.byteOffset, fd.length)));
+
+    const taco = await layer.nameSearch("taco bell", 50);
+    assert.ok(taco.length > 0, "no Taco Bell in Tennessee");
+    assert.ok(
+      taco.every((h) => h.name.toLowerCase().includes("taco bell")),
+      `nameSearch returned a non-match: ${JSON.stringify(taco.slice(0, 3))}`,
+    );
+    assert.ok(taco[0].score >= 1, "the best hit for a full prefix should be exact or prefix");
+    for (const h of taco) {
+      assert.ok(h.lat > 34 && h.lat < 37 && h.lon < -81 && h.lon > -91,
+        `hit outside Tennessee: ${h.name} at ${h.lat},${h.lon}`);
+    }
+
+    // Ranking must hold across the two probed buckets, not just within one.
+    for (let i = 1; i < taco.length; i++) {
+      assert.ok(taco[i - 1].score >= taco[i].score,
+        "hits are not ranked by score across buckets");
+    }
+
+    // The documented limit, asserted rather than described: "bell" cannot reach
+    // Taco Bell, which lives in the `t` bucket. If this ever starts passing,
+    // the index became a real inverted index and the brute-force fallback in
+    // index.html is dead weight.
+    const bell = await layer.nameSearch("bell", 50);
+    assert.ok(
+      !bell.some((h) => h.name.toLowerCase().startsWith("taco")),
+      "mid-word query reached another bucket -- the prefix-only caveat is stale",
+    );
+  });

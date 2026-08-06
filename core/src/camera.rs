@@ -8,8 +8,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::codec::{
-    DecodeError, decode_string_u8, decode_string_u16, decode_varint, read_i32, read_u8, read_u16,
-    zigzag_decode,
+    DecodeError, coord_from_micro, decode_string_u8, decode_string_u16, decode_varint, read_i32,
+    read_u8, read_u16, zigzag_decode,
 };
 
 /// A camera / ALPR point decoded from a `.camera.ptiles` block.
@@ -55,6 +55,7 @@ fn decode_camera_record(
 
     let lon_micro = read_i32(data, p)?;
     let lat_micro = read_i32(data, p + 4)?;
+    let (lon, lat) = coord_from_micro(lon_micro, lat_micro, p)?;
     p += 8;
 
     let device_type = lookup(read_u8(data, p)?, DEVICE_TYPES);
@@ -110,8 +111,8 @@ fn decode_camera_record(
     Ok((
         Camera {
             osm_id,
-            lon: lon_micro as f64 / 100_000.0,
-            lat: lat_micro as f64 / 100_000.0,
+            lon,
+            lat,
             device_type,
             placement,
             camera_type,
@@ -248,6 +249,19 @@ mod tests {
         assert_eq!(cams.len(), 2);
         assert_eq!(cams[0].osm_id, 100);
         assert_eq!(cams[1].osm_id, 150);
+    }
+
+    /// Same class of bug as `signals::impossible_coordinate_is_not_a_record`:
+    /// a block from another layer parses cleanly here, and nothing but the
+    /// coordinate values says so.
+    #[test]
+    fn impossible_coordinate_is_not_a_record() {
+        let data = synth_cam(2, 251_624_336, 16_791_342);
+        assert!(matches!(
+            decode_camera_record(&data, 0, 0),
+            Err(DecodeError::CoordOutOfRange { .. })
+        ));
+        assert_eq!(decode_cameras(&data).unwrap(), Vec::new());
     }
 
     #[test]

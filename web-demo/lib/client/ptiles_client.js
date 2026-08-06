@@ -290,10 +290,6 @@ export function decode_water(data) {
 }
 
 /**
- * Decompress a compressed `.ptiles` block, trying the layer's zstd
- * dictionary first and falling back to plain (dict-less) decompress on
- * failure. Mirrors `ptiles/compression.py`'s `decompress_block` /
- * `decompress_fallback` pair and `ptiles-core::file::PtilesFile::read_block`'s
  * internal fallback (see module doc above for why this isn't a direct call
  * into core). Pass an empty `dict` slice for dict-less layers (parks/address).
  * @param {Uint8Array} compressed
@@ -312,6 +308,19 @@ export function decompress_block(compressed, dict) {
     var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v3;
+}
+
+/**
+ * The height this crate would assume for a building type with no published
+ * height. Exposed so a UI can explain a guess rather than just draw it.
+ * @param {string} building_type
+ * @returns {number}
+ */
+export function estimated_height_for(building_type) {
+    const ptr0 = passStringToWasm0(building_type, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.estimated_height_for(ptr0, len0);
+    return ret;
 }
 
 /**
@@ -726,6 +735,65 @@ export function score_candidates(fix_json, roads_block, buildings_block, busines
     const ptr3 = passArray8ToWasm0(business_block, wasm.__wbindgen_malloc);
     const len3 = WASM_VECTOR_LEN;
     const ret = wasm.score_candidates(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, cell_center_lat, cell_center_lon);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decompress a compressed `.ptiles` block, trying the layer's zstd
+ * dictionary first and falling back to plain (dict-less) decompress on
+ * failure. Mirrors `ptiles/compression.py`'s `decompress_block` /
+ * `decompress_fallback` pair and `ptiles-core::file::PtilesFile::read_block`'s
+ * Which buildings are in line of sight from a point on the ground.
+ *
+ * `buildings`: `[{coords:[[lon,lat],...], height_m: number|null,
+ * building_type: string}, ...]` -- the shape `decode_buildings` already
+ * returns, so a caller can pass its own decoded records straight back in.
+ * Filter to a sensible radius first: this is geometry over a few hundred
+ * footprints, not over a whole cell's 18k.
+ *
+ * Returns one entry per input, in the same order:
+ * `{visible, height_m, estimated, distance_m}`. `estimated` marks a height
+ * that came from the building type rather than the file, which matters
+ * because most published buildings carry no height at all.
+ * @param {any} buildings
+ * @param {number} lat
+ * @param {number} lon
+ * @param {number} eye_m
+ * @param {number} radius_m
+ * @returns {any}
+ */
+export function viewshed(buildings, lat, lon, eye_m, radius_m) {
+    const ret = wasm.viewshed(buildings, lat, lon, eye_m, radius_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * The reverse of [`viewshed`]: which of these buildings can see *any* of these
+ * points. Line of sight is reciprocal, so running the ordinary viewshed from
+ * each target point and taking the union answers "find me somewhere with a
+ * view of the river" without any new geometry.
+ *
+ * `origins` is `[[lat, lon], ...]` -- one point for a shop, a sampled run
+ * along the bank for a river. `buildings` is deserialized once and reused for
+ * every origin, which is the whole reason this is not a JS loop over
+ * [`viewshed`]: a few hundred footprints crossing the wasm boundary two dozen
+ * times costs more than the geometry does.
+ *
+ * Returns one entry per building, in input order.
+ * @param {any} buildings
+ * @param {any} origins
+ * @param {number} eye_m
+ * @param {number} radius_m
+ * @returns {any}
+ */
+export function viewshed_multi(buildings, origins, eye_m, radius_m) {
+    const ret = wasm.viewshed_multi(buildings, origins, eye_m, radius_m);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

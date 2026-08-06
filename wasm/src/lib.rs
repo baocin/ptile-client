@@ -461,6 +461,125 @@ pub fn match_business_name_block(block_bytes: &[u8], query: &str, limit: usize) 
 /// dictionary first and falling back to plain (dict-less) decompress on
 /// failure. Mirrors `ptiles/compression.py`'s `decompress_block` /
 /// `decompress_fallback` pair and `ptiles-core::file::PtilesFile::read_block`'s
+/// Which buildings are in line of sight from a point on the ground.
+///
+/// `buildings`: `[{coords:[[lon,lat],...], height_m: number|null,
+/// building_type: string}, ...]` -- the shape `decode_buildings` already
+/// returns, so a caller can pass its own decoded records straight back in.
+/// Filter to a sensible radius first: this is geometry over a few hundred
+/// footprints, not over a whole cell's 18k.
+///
+/// Returns one entry per input, in the same order:
+/// `{visible, height_m, estimated, distance_m}`. `estimated` marks a height
+/// that came from the building type rather than the file, which matters
+/// because most published buildings carry no height at all.
+#[wasm_bindgen]
+pub fn viewshed(
+    buildings: JsValue,
+    lat: f64,
+    lon: f64,
+    eye_m: f64,
+    radius_m: f64,
+) -> Result<JsValue, JsValue> {
+    let input: Vec<ptiles_core::ViewBuilding> = serde_wasm_bindgen::from_value(buildings)
+        .map_err(|e| JsValue::from_str(&format!("buildings: {e}")))?;
+    to_js(&ptiles_core::viewshed(lat, lon, eye_m, radius_m, &input))
+}
+
+/// One building's visibility from a *set* of observer points.
+#[derive(serde::Serialize)]
+struct UnionVisibility {
+    /// Visible from at least one origin.
+    visible: bool,
+    height_m: f64,
+    estimated: bool,
+    /// Distance to the nearest origin that can see it; when nothing can, the
+    /// nearest origin tested. Never infinite for a building inside the radius.
+    distance_m: f64,
+    /// Index of the closest origin with a clear line, or -1.
+    seen_from: i32,
+    /// How many of the origins can see it -- a riverbank sampled at 24 points
+    /// and visible from 20 of them is a different answer from one visible at a
+    /// single gap between two towers.
+    seen_count: u32,
+}
+
+fn viewshed_union(
+    buildings: &[ptiles_core::ViewBuilding],
+    origins: &[[f64; 2]],
+    eye_m: f64,
+    radius_m: f64,
+) -> Vec<UnionVisibility> {
+    let mut out: Vec<UnionVisibility> = buildings
+        .iter()
+        .map(|_| UnionVisibility {
+            visible: false,
+            height_m: 0.0,
+            estimated: false,
+            distance_m: f64::INFINITY,
+            seen_from: -1,
+            seen_count: 0,
+        })
+        .collect();
+
+    for (oi, o) in origins.iter().enumerate() {
+        let vis = ptiles_core::viewshed(o[0], o[1], eye_m, radius_m, buildings);
+        for (i, v) in vis.iter().enumerate() {
+            let slot = &mut out[i];
+            // Height and its estimated flag are properties of the building, not
+            // of the observer, so the last write is the same as the first.
+            slot.height_m = v.height_m;
+            slot.estimated = v.estimated;
+            if v.visible {
+                slot.seen_count += 1;
+                if !slot.visible || v.distance_m < slot.distance_m {
+                    slot.seen_from = oi as i32;
+                    slot.distance_m = v.distance_m;
+                }
+                slot.visible = true;
+            } else if !slot.visible && v.distance_m < slot.distance_m {
+                // Only tracked until something can see it; once one origin can,
+                // distance means "how far from the place you can see it".
+                slot.distance_m = v.distance_m;
+            }
+        }
+    }
+    out
+}
+
+/// The reverse of [`viewshed`]: which of these buildings can see *any* of these
+/// points. Line of sight is reciprocal, so running the ordinary viewshed from
+/// each target point and taking the union answers "find me somewhere with a
+/// view of the river" without any new geometry.
+///
+/// `origins` is `[[lat, lon], ...]` -- one point for a shop, a sampled run
+/// along the bank for a river. `buildings` is deserialized once and reused for
+/// every origin, which is the whole reason this is not a JS loop over
+/// [`viewshed`]: a few hundred footprints crossing the wasm boundary two dozen
+/// times costs more than the geometry does.
+///
+/// Returns one entry per building, in input order.
+#[wasm_bindgen]
+pub fn viewshed_multi(
+    buildings: JsValue,
+    origins: JsValue,
+    eye_m: f64,
+    radius_m: f64,
+) -> Result<JsValue, JsValue> {
+    let input: Vec<ptiles_core::ViewBuilding> = serde_wasm_bindgen::from_value(buildings)
+        .map_err(|e| JsValue::from_str(&format!("buildings: {e}")))?;
+    let points: Vec<[f64; 2]> = serde_wasm_bindgen::from_value(origins)
+        .map_err(|e| JsValue::from_str(&format!("origins: {e}")))?;
+    to_js(&viewshed_union(&input, &points, eye_m, radius_m))
+}
+
+/// The height this crate would assume for a building type with no published
+/// height. Exposed so a UI can explain a guess rather than just draw it.
+#[wasm_bindgen]
+pub fn estimated_height_for(building_type: &str) -> f64 {
+    ptiles_core::estimate_height(building_type)
+}
+
 /// internal fallback (see module doc above for why this isn't a direct call
 /// into core). Pass an empty `dict` slice for dict-less layers (parks/address).
 #[wasm_bindgen]
@@ -1005,5 +1124,75 @@ mod tests {
         let mut decoder = FrameDecoder::new();
         let out = try_decode_all(&mut decoder, FRAME).expect("valid zstd frame should decode");
         assert_eq!(out, b"hello world");
+    }
+
+    /// A square footprint `size` m across, centred `north`/`east` metres from
+    /// (0, 0) -- the equator, so a degree of longitude is a degree of latitude.
+    fn square(north: f64, east: f64, size: f64, height: f64) -> ptiles_core::ViewBuilding {
+        let d = |m: f64| m / 111_320.0;
+        let (n, e, s) = (north, east, size / 2.0);
+        ptiles_core::ViewBuilding {
+            coords: vec![
+                [d(e - s), d(n - s)],
+                [d(e + s), d(n - s)],
+                [d(e + s), d(n + s)],
+                [d(e - s), d(n + s)],
+                [d(e - s), d(n - s)],
+            ],
+            height_m: Some(height),
+            building_type: "yes".to_string(),
+        }
+    }
+
+    /// The union is what makes "find somewhere with a view of the river" work:
+    /// a bank is sampled at many points and a building counts if it sees *any*
+    /// of them. An `all` instead of an `any` here would silently return almost
+    /// nothing, which reads as "no such place" rather than as a bug.
+    #[test]
+    fn viewshed_union_takes_any_origin_not_all() {
+        let d = |m: f64| m / 111_320.0;
+        // A 90 m wall sits directly between the first origin and a 60 m tower;
+        // the second origin, 200 m to the east, looks past its end.
+        let tower = square(200.0, 0.0, 60.0, 60.0);
+        let blocker = square(100.0, 0.0, 60.0, 90.0);
+        let origins = [[0.0, 0.0], [0.0, d(200.0)]];
+
+        let scene = [tower, blocker];
+        let out = viewshed_union(&scene, &origins, 1.7, 800.0);
+        assert!(out[0].visible, "the tower is visible from the clear origin");
+        assert_eq!(out[0].seen_count, 1, "and from that one only");
+        assert_eq!(out[0].seen_from, 1, "namely the second");
+        assert!(out[0].distance_m.is_finite());
+        // Sanity that the first origin really is blocked, or the test proves
+        // nothing about the union.
+        assert!(!ptiles_core::viewshed(0.0, 0.0, 1.7, 800.0, &scene)[0].visible);
+    }
+
+    #[test]
+    fn viewshed_union_with_no_origins_sees_nothing_and_does_not_panic() {
+        let out = viewshed_union(&[square(100.0, 0.0, 20.0, 10.0)], &[], 1.7, 500.0);
+        assert_eq!(out.len(), 1);
+        assert!(!out[0].visible);
+        assert_eq!(out[0].seen_from, -1);
+        assert_eq!(out[0].seen_count, 0);
+    }
+
+    /// Everything visible from one point must still be visible when that point
+    /// is one of several -- a union that lost hits as origins were added would
+    /// make the radius slider look like it was working while it corrupted.
+    #[test]
+    fn viewshed_union_of_one_origin_matches_a_plain_viewshed() {
+        let scene = vec![
+            square(100.0, 0.0, 20.0, 40.0),
+            square(200.0, 0.0, 20.0, 10.0),
+            square(100.0, 120.0, 20.0, 8.0),
+        ];
+        let single = ptiles_core::viewshed(0.0, 0.0, 1.7, 500.0, &scene);
+        let union = viewshed_union(&scene, &[[0.0, 0.0]], 1.7, 500.0);
+        for (i, (a, b)) in single.iter().zip(union.iter()).enumerate() {
+            assert_eq!(a.visible, b.visible, "building {i} disagrees");
+            assert_eq!(a.height_m, b.height_m);
+            assert_eq!(a.estimated, b.estimated);
+        }
     }
 }

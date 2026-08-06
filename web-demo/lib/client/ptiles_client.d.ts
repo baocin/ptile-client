@@ -98,14 +98,16 @@ export function decode_signals(data: Uint8Array): any;
 export function decode_water(data: Uint8Array): any;
 
 /**
- * Decompress a compressed `.ptiles` block, trying the layer's zstd
- * dictionary first and falling back to plain (dict-less) decompress on
- * failure. Mirrors `ptiles/compression.py`'s `decompress_block` /
- * `decompress_fallback` pair and `ptiles-core::file::PtilesFile::read_block`'s
  * internal fallback (see module doc above for why this isn't a direct call
  * into core). Pass an empty `dict` slice for dict-less layers (parks/address).
  */
 export function decompress_block(compressed: Uint8Array, dict: Uint8Array): Uint8Array;
+
+/**
+ * The height this crate would assume for a building type with no published
+ * height. Exposed so a UI can explain a guess rather than just draw it.
+ */
+export function estimated_height_for(building_type: string): number;
 
 /**
  * Find the block offset/length covering `cell_hex` (lowercase hex H3 res-7
@@ -323,6 +325,42 @@ export function route_from_segments(segments_js: any, zone_middle: any, lat1: nu
  */
 export function score_candidates(fix_json: string, roads_block: Uint8Array, buildings_block: Uint8Array, business_block: Uint8Array, cell_center_lat: number, cell_center_lon: number): any;
 
+/**
+ * Decompress a compressed `.ptiles` block, trying the layer's zstd
+ * dictionary first and falling back to plain (dict-less) decompress on
+ * failure. Mirrors `ptiles/compression.py`'s `decompress_block` /
+ * `decompress_fallback` pair and `ptiles-core::file::PtilesFile::read_block`'s
+ * Which buildings are in line of sight from a point on the ground.
+ *
+ * `buildings`: `[{coords:[[lon,lat],...], height_m: number|null,
+ * building_type: string}, ...]` -- the shape `decode_buildings` already
+ * returns, so a caller can pass its own decoded records straight back in.
+ * Filter to a sensible radius first: this is geometry over a few hundred
+ * footprints, not over a whole cell's 18k.
+ *
+ * Returns one entry per input, in the same order:
+ * `{visible, height_m, estimated, distance_m}`. `estimated` marks a height
+ * that came from the building type rather than the file, which matters
+ * because most published buildings carry no height at all.
+ */
+export function viewshed(buildings: any, lat: number, lon: number, eye_m: number, radius_m: number): any;
+
+/**
+ * The reverse of [`viewshed`]: which of these buildings can see *any* of these
+ * points. Line of sight is reciprocal, so running the ordinary viewshed from
+ * each target point and taking the union answers "find me somewhere with a
+ * view of the river" without any new geometry.
+ *
+ * `origins` is `[[lat, lon], ...]` -- one point for a shop, a sampled run
+ * along the bank for a river. `buildings` is deserialized once and reused for
+ * every origin, which is the whole reason this is not a JS loop over
+ * [`viewshed`]: a few hundred footprints crossing the wasm boundary two dozen
+ * times costs more than the geometry does.
+ *
+ * Returns one entry per building, in input order.
+ */
+export function viewshed_multi(buildings: any, origins: any, eye_m: number, radius_m: number): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -344,6 +382,7 @@ export interface InitOutput {
     readonly decode_signals: (a: number, b: number) => [number, number, number];
     readonly decode_water: (a: number, b: number) => [number, number, number];
     readonly decompress_block: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly estimated_height_for: (a: number, b: number) => number;
     readonly find_block_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly index_entries_absolute: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly key_for_business_name_query: (a: number, b: number) => number;
@@ -359,6 +398,8 @@ export interface InitOutput {
     readonly parse_index_layout: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly score_candidates: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+    readonly viewshed: (a: any, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly viewshed_multi: (a: any, b: any, c: number, d: number) => [number, number, number];
     readonly roads_in_block: (a: number, b: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

@@ -32,6 +32,40 @@ pub enum DecodeError {
         found: u8,
         supported: u8,
     },
+    /// A record decoded to a position that cannot exist on Earth. The bytes
+    /// parsed cleanly, so this is not a truncation: it means the slice being
+    /// read is not the layer it was taken for. Reported rather than returned
+    /// as a record, because a caller cannot tell `lat = 167.9` from real data
+    /// once it is inside a `Vec`.
+    /// Microdegrees rather than degrees so the enum can stay `Eq` (`f64`
+    /// cannot). Divide by 100_000 to read it.
+    #[error("coordinate ({lat_micro}, {lon_micro}) microdegrees at offset {offset} is not on Earth")]
+    CoordOutOfRange {
+        offset: usize,
+        lat_micro: i32,
+        lon_micro: i32,
+    },
+}
+
+/// Convert a microdegree lon/lat pair to degrees, rejecting anything off the
+/// globe. Point layers (signals, cameras) have no length prefix and no other
+/// structural check, so this is the only thing standing between a mis-sliced
+/// block and a plausible-looking record.
+pub fn coord_from_micro(
+    lon_micro: i32,
+    lat_micro: i32,
+    offset: usize,
+) -> Result<(f64, f64), DecodeError> {
+    let lon = lon_micro as f64 / 100_000.0;
+    let lat = lat_micro as f64 / 100_000.0;
+    if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
+        return Err(DecodeError::CoordOutOfRange {
+            offset,
+            lat_micro,
+            lon_micro,
+        });
+    }
+    Ok((lon, lat))
 }
 
 /// Ensure `data` has at least `needed` bytes available starting at `offset`.

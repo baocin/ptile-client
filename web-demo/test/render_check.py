@@ -36,6 +36,7 @@ import argparse
 import http.server
 import json
 import os
+import re
 import socketserver
 import sys
 import threading
@@ -338,6 +339,192 @@ def main():
         for e in errors[:3]:
             print(f"           {e}")
             failures.append(f"3D page error: {e}")
+        page.close()
+
+        # Line of sight.
+        #
+        # The geometry has its own unit tests in core; this only checks the
+        # page wires up to it. The assertion that carries weight is that
+        # raising the eye height reveals more -- it is the one thing that
+        # cannot pass if heights are being ignored, which is the whole point of
+        # the mode. A count alone would pass on a 2D shadow test.
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"{base}#state=TN&lat=36.1627&lon=-86.7816&zoom=16",
+                  wait_until="load", timeout=90_000)
+        page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
+        page.wait_for_timeout(2500)
+
+        ground = page.evaluate("() => window.__ptiles.losAt(36.1627, -86.7816)")
+        page.evaluate("""() => { const s = document.getElementById('losEye');
+          s.value = '90'; s.dispatchEvent(new Event('change', {bubbles:true})); }""")
+        page.wait_for_timeout(8000)
+        high = page.evaluate("""() => ({
+          visible: parseInt(document.getElementById('losVisible').textContent,10)||0,
+          hidden: parseInt(document.getElementById('losHidden').textContent,10)||0 })""")
+        print(f"\n  line of sight: {ground['visible']} visible at 1.7 m, "
+              f"{high['visible']} at 90 m (of {ground['visible']+ground['hidden']})")
+
+        if ground["visible"] + ground["hidden"] == 0:
+            failures.append("line of sight: no buildings tested at all")
+        elif ground["visible"] == 0:
+            failures.append("line of sight: nothing visible even from the observer's own spot")
+        if high["visible"] <= ground["visible"]:
+            failures.append(
+                f"line of sight: raising the eye to 90 m revealed nothing extra "
+                f"({ground['visible']} -> {high['visible']}) -- heights are not "
+                f"reaching the occlusion test")
+        # Cameras ride the same viewshed call. The geometry has a core test
+        # (`a_camera_sized_marker_is_a_target_in_its_own_right`); what can only
+        # break here is the plumbing -- cameras not fetched, or the results
+        # read back at the wrong offset. Nashville's answer is legitimately
+        # "0 watching", so assert the row was *computed*, not that it is
+        # non-zero, and assert the totals are self-consistent.
+        cams = ground.get("cameras", "")
+        print(f"  cameras on you: {cams}")
+        m = re.match(r"^(\d+) of (\d+) \((\d+) facing away\)$", cams)
+        if cams == "none nearby":
+            failures.append(
+                "line of sight: no cameras within 800 m of downtown Nashville -- "
+                "US.camera.ptiles is not being read")
+        elif not m:
+            failures.append(f"line of sight: camera row never filled in ('{cams}')")
+        else:
+            watching, total, away = (int(g) for g in m.groups())
+            if watching + away > total:
+                failures.append(
+                    f"line of sight: camera counts do not add up ({watching} "
+                    f"watching + {away} facing away > {total} nearby) -- the "
+                    f"visibility results are being read at the wrong offset")
+
+        for e in errors[:3]:
+            print(f"           {e}")
+            failures.append(f"line-of-sight page error: {e}")
+        page.close()
+
+        # View finder (the reverse viewshed).
+        #
+        # The load-bearing assertions are the two that cannot pass on a stub:
+        # shrinking the radius must find fewer buildings, and raising the target
+        # off the ground must find more. A bare count would pass on a function
+        # that returned every building in view.
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        # Centred on the Cumberland River through downtown Nashville.
+        page.goto(f"{base}#state=TN&lat=36.1650&lon=-86.7750&zoom=16",
+                  wait_until="load", timeout=90_000)
+        page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
+        page.wait_for_timeout(2500)
+
+        def view(tag, radius, eye, name=None):
+            arg = "null" if name is None else json.dumps(name)
+            return page.evaluate(
+                f"() => window.__ptiles.viewFinderAt(36.1650, -86.7750, 16, "
+                f"{json.dumps(tag)}, {radius}, {eye}, {arg})")
+
+        wide = view("water:river", 800, 1.7)
+        tight = view("water:river", 400, 1.7)
+        high = view("water:river", 800, 20)
+        biz = view("business:", 800, 3, "starbucks")
+        none = view("water:canal", 800, 1.7)
+        print(f"\n  view finder: river@800m {wide['found']}, @400m {tight['found']}, "
+              f"target at 20 m {high['found']}; starbucks {biz['found']}")
+        print(f"  view finder: {wide['samples']}")
+
+        if wide["found"] == 0:
+            failures.append(
+                "view finder: nothing can see the Cumberland from downtown "
+                "Nashville -- the water layer or the reverse viewshed is not wired up")
+        if tight["found"] >= wide["found"]:
+            failures.append(
+                f"view finder: halving the radius did not narrow the answer "
+                f"({wide['found']} -> {tight['found']}) -- the radius is being ignored")
+        if high["found"] <= wide["found"]:
+            failures.append(
+                f"view finder: raising the target to 20 m revealed nothing extra "
+                f"({wide['found']} -> {high['found']}) -- heights are not reaching "
+                f"the occlusion test, same failure the eye-height check guards")
+        if biz["found"] == 0 or "starbucks" not in biz["samples"]:
+            failures.append(
+                f"view finder: name target found nothing ('{biz['samples']}')")
+        if none["found"] != 0 or "Nothing matching" not in none["summary"]:
+            failures.append(
+                f"view finder: a tag with no features should report that, got "
+                f"'{none['summary']}' / {none['found']}")
+
+        for e in errors[:3]:
+            print(f"           {e}")
+            failures.append(f"view finder page error: {e}")
+        page.close()
+
+        # Inspector rows.
+        #
+        # The road fields (name/class/lanes/surface/bridge-tunnel) are decoded
+        # on every segment and were read by nothing in this repo, so the whole
+        # failure mode is silence: the section stays hidden and the panel looks
+        # exactly as it did before. Assert the section is visible AND that the
+        # street name is not the placeholder, or a wired-up-but-always-empty
+        # regression passes.
+        #
+        # Jurisdiction is deliberately opt-in (28 MB grid), so the check drives
+        # the load link the way a user would rather than asserting it appears
+        # on its own.
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        lat, lon, _ = NASHVILLE
+        page.goto(f"{base}#state=TN&lat={lat}&lon={lon}&zoom=17",
+                  wait_until="load", timeout=90_000)
+        page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
+        page.wait_for_timeout(2000)
+
+        # Driven through the coordinate box rather than a synthesized click at
+        # the map centre: a pixel click lands wherever the centre happens to be
+        # (measured: seven of eight downtown points sit nearer a sidewalk than
+        # a street), which tests the snap policy instead of the panel wiring.
+        page.fill("#coordInput", "36.1635,-86.7810")
+        page.click("#btnQuery")
+        page.wait_for_timeout(12000)
+
+        road = page.evaluate("""() => ({
+          shown: document.getElementById('roadSection').style.display !== 'none',
+          name: document.getElementById('roadName').textContent,
+          cls: document.getElementById('roadClass').textContent,
+          optional: ['roadRefRow','roadOnewayRow','roadSpeedRow','roadLanesRow',
+                     'roadSurfaceRow','roadStructRow']
+            .filter(id => document.getElementById(id).style.display !== 'none').length
+        })""")
+        print(f"\n  inspector: road section {road['shown']}, "
+              f"'{road['name']}' ({road['cls']}), {road['optional']}/6 optional rows")
+        if not road["shown"]:
+            failures.append("inspector: no road found for a downtown Nashville lookup")
+        elif not road["name"] or not road["cls"]:
+            failures.append(
+                f"inspector: road row shown but blank ('{road['name']}' / "
+                f"'{road['cls']}') -- fields are not reaching the panel")
+
+        page.evaluate("() => document.getElementById('adminLoad').click()")
+        page.wait_for_timeout(45000)
+        admin = page.evaluate("""() => ({
+          value: document.getElementById('adminValue').textContent.trim(),
+          tz: document.getElementById('adminTz').textContent.trim(),
+          tzShown: document.getElementById('adminTzRow').style.display !== 'none'
+        })""")
+        print(f"  inspector: jurisdiction '{admin['value']}' tz '{admin['tz']}'")
+        if "failed" in admin["value"] or "loading" in admin["value"]:
+            failures.append(f"inspector: US.admin never resolved ({admin['value']})")
+        elif "Davidson" not in admin["value"] or "Tennessee" not in admin["value"]:
+            failures.append(
+                f"inspector: downtown Nashville resolved to '{admin['value']}' "
+                f"-- expected Davidson county, Tennessee")
+        if not admin["tzShown"] or "Chicago" not in admin["tz"]:
+            failures.append(f"inspector: timezone row wrong or missing ('{admin['tz']}')")
+
+        for e in errors[:3]:
+            print(f"           {e}")
+            failures.append(f"inspector page error: {e}")
         page.close()
 
         if args.keep_open:

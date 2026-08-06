@@ -6,7 +6,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::codec::{DecodeError, decode_varint, read_i32, read_u8, read_u16, zigzag_decode};
+use crate::codec::{
+    DecodeError, coord_from_micro, decode_varint, read_i32, read_u8, read_u16, zigzag_decode,
+};
 
 /// A signal point decoded from a `.signals.ptiles` block.
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +47,7 @@ fn decode_signal_record(
 
     let lon_micro = read_i32(data, p)?;
     let lat_micro = read_i32(data, p + 4)?;
+    let (lon, lat) = coord_from_micro(lon_micro, lat_micro, p)?;
     p += 8;
 
     let st_idx = read_u8(data, p)? as usize;
@@ -69,8 +72,8 @@ fn decode_signal_record(
     Ok((
         Signal {
             osm_id,
-            lon: lon_micro as f64 / 100_000.0,
-            lat: lat_micro as f64 / 100_000.0,
+            lon,
+            lat,
             signal_type,
             direction,
         },
@@ -174,6 +177,26 @@ mod tests {
         assert_eq!(sigs.len(), 2);
         assert_eq!(sigs[0].osm_id, 100);
         assert_eq!(sigs[1].osm_id, 200);
+    }
+
+    /// The bug this guards: a merged block read as signals parsed cleanly and
+    /// returned `Ok(2 records)` at `lat = 167.91342, lon = 2516.24336`. The
+    /// bytes are well-formed for the layout; only the values give it away, so
+    /// the range check is the only thing that can catch it.
+    #[test]
+    fn impossible_coordinate_is_not_a_record() {
+        let mut d = vec![0x02]; // osm delta
+        d.extend_from_slice(&251_624_336i32.to_le_bytes()); // lon 2516.24336
+        d.extend_from_slice(&16_791_342i32.to_le_bytes()); // lat 167.91342
+        d.push(0); // signal_type
+        d.push(0); // flags
+
+        assert!(matches!(
+            decode_signal_record(&d, 0, 0),
+            Err(DecodeError::CoordOutOfRange { .. })
+        ));
+        // And the block decoder must not hand that back as data.
+        assert_eq!(decode_signals(&d).unwrap(), Vec::new());
     }
 
     #[test]

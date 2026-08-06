@@ -180,6 +180,39 @@ export function createPtiles(wasm) {
       return this.byCell.get(norm(cell)) ?? null;
     }
 
+    /**
+     * Business-name search, for a `{ST}.business_name_index.ptiles` layer.
+     *
+     * That file buckets every business by the first letter of its *name* into
+     * 28 blocks and reuses the index's `h3_cell` field to hold the 0-27 key. So
+     * a query costs one ~1 MB block instead of scanning the 54 MB business
+     * file -- and it is a prefix accelerator, not substring search: "taco"
+     * finds Taco Bell, "bell" cannot, because Taco Bell lives in the `t`
+     * bucket. Callers wanting real substring matching must scan.
+     *
+     * Bucket 26 is probed alongside the query's own, mirroring core's
+     * `probe_bucket_keys` -- older builders put some accented and non-Latin
+     * names there, and looking only in `c` for "Cafe" would silently miss them.
+     *
+     * Deliberately NOT going through `entryFor`: that normalises the lookup key
+     * as an H3 cell, and masking off the low 21 bits collapses every bucket key
+     * to zero.
+     */
+    async nameSearch(query, limit) {
+      const key = wasm.key_for_business_name_query(query);
+      const keys = key === 26 ? [26] : [key, 26];
+      let hits = [];
+      for (const k of keys) {
+        const entry = this.entries.find((e) => e.h3_cell === BigInt(k));
+        if (!entry || entry.block_length === 0) continue;
+        hits = hits.concat(wasm.match_business_name_block(await this.block(entry), query, limit));
+      }
+      // Each bucket ranks on its own, so re-rank across both in core's order:
+      // score (2 exact, 1 prefix, 0 substring) then name ascending.
+      hits.sort((a, b) => b.score - a.score || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      return hits.slice(0, limit);
+    }
+
     /** Decompressed block bytes for an entry, cached in memory. */
     async block(entry) {
       const k = entry.block_offset;
