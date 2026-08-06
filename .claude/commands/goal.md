@@ -205,7 +205,8 @@ Deploying is a separate ask. When asked:
 
 ```sh
 cd ~/kino/projects/steele.red && python3 build.py       # must run on hino; symlinks are absolute
-AWS_PROFILE=steele-red-deploy aws s3 sync output/ptiles/ s3://steele.red/ptiles/
+AWS_PROFILE=steele-red-deploy aws s3 sync output/ptiles/ s3://steele.red/ptiles/ \
+  --exclude 'test/*'
 AWS_PROFILE=steele-red-deploy aws cloudfront create-invalidation \
   --distribution-id E1X2E2N30TVNGX --paths '/ptiles/*'
 ```
@@ -213,6 +214,21 @@ AWS_PROFILE=steele-red-deploy aws cloudfront create-invalidation \
 Those credentials can create an invalidation but cannot read one back
 (`cloudfront:GetInvalidation` is denied), so poll the live URL to confirm
 propagation rather than the invalidation's status.
+
+`--exclude 'test/*'` keeps the harnesses out of the deployed site. `build.py`
+copies `web-demo/` wholesale, so without it a deploy publishes
+`perf_check.py`, `render_check.py` and `ptiles.test.mjs` alongside the page;
+the 2026-08-06 deploy did, and they were deleted again.
+
+This is tidiness, not secrecy, and it was checked rather than assumed: the
+harnesses hold no credentials, name no host the page does not call itself
+(`maps.mydatatimeline.com` appears five times in `index.html`), and disclose
+nothing about the format that the shipped reader does not already spell out —
+entry widths, merged-block slicing, the PTCI index and the cell mask are all in
+`index.html` and `js/ptiles.js`, because those files *are* the reader. What they
+do carry is absolute paths under `/home/aoi/`, which is untidy rather than
+sensitive. `/ptiles-legacy/test/` has served ten equivalent files since
+2026-08-04 and is deliberately left alone.
 
 ## 10. Report
 
