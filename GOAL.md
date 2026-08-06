@@ -176,6 +176,12 @@ Commit-referenced so nothing here gets rebuilt from scratch.
   cache, dictionary and index fetched together, the national point layers
   through their PTCI aux, a leading-edge viewport debounce, and `preferCanvas`.
   Numbers are in the commit message.
+- `bb45979` — `Layer.prefetch` coalesces a viewport's block reads into runs
+  separated by less than 64 KiB and slices them locally, which is what took
+  roads from 18 requests to 8. Against the original baseline, time to a stable
+  render is 0.28-0.68x cold and 0.28-0.36x warm on all seven layers, at
+  identical feature counts. Coarse layers keep the per-cell path — they must
+  fetch a run of the real index before they know where a block is.
 - `f8dc14a` — `wasm/test/golden.mjs` now runs in CI. It matched neither of the
   two globs and had never executed on any machine; it passes and gates.
 
@@ -200,11 +206,16 @@ Measured and deliberately **not** done, with the numbers so nobody re-derives th
   `propagate` and the map is its event parent, so the click arrives either way;
   checked in chromium on both renderers by clicking a pixel taken off a drawn
   road rather than the map centre, which is the only way to test it at all.
-- **What is left of the cold render is network wall.** roads cold spends 2155 of
-  2336 ms with at least one request outstanding, at 5x concurrency and 18
-  requests. zstd is 11 ms and decode 61 ms. Nothing on the CPU side is worth
-  looking at until the request count comes down; coalescing adjacent block
-  ranges into one request is the open lever.
+- **Coalescing costs 4.5% more bytes and is worth it.** At a 64 KiB gap
+  threshold roads pulls 1409 KiB where it pulled 1348, for 10 fewer round trips.
+  The threshold is the knob; it has not been swept.
+- **What is left is not the decoders.** After all of the above, roads cold is
+  1312 ms of which 962 ms has a request outstanding, against 10 ms of zstd and
+  73 ms of decode. Warm is 414 ms and almost all of it is Leaflet. The open
+  phase — header, then dictionary and index together — is 494-673 ms on every
+  layer and is now the floor for anything not already cached; on TN.roads that
+  is a 512 KiB dictionary and a 428 KiB index, and the dictionary is fetched
+  even when the render needs one block.
 - **`US.signals` and `US.camera` do carry a PTCI aux.** This file previously
   implied the published layers predate it. Measured 2026-08-05: signals 5.0 KiB
   aux against a 4014 KiB index, camera 1.7 KiB against 1359 KiB. `TN.roads` and
