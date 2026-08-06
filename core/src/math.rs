@@ -31,6 +31,10 @@ mod imp {
     pub fn round(x: f64) -> f64 {
         x.round()
     }
+    #[inline]
+    pub fn ceil(x: f64) -> f64 {
+        x.ceil()
+    }
 }
 
 #[cfg(not(feature = "std"))]
@@ -55,9 +59,13 @@ mod imp {
     pub fn round(x: f64) -> f64 {
         libm::round(x)
     }
+    #[inline]
+    pub fn ceil(x: f64) -> f64 {
+        libm::ceil(x)
+    }
 }
 
-pub(crate) use imp::{atan2, cos, round, sin, sqrt};
+pub(crate) use imp::{atan2, ceil, cos, round, sin, sqrt};
 
 #[cfg(test)]
 mod tests {
@@ -71,6 +79,7 @@ mod tests {
             assert!((sin(x) - x.sin()).abs() < 1e-12, "sin({x})");
             assert!((cos(x) - x.cos()).abs() < 1e-12, "cos({x})");
             assert_eq!(round(x), x.round(), "round({x})");
+            assert_eq!(ceil(x), x.ceil(), "ceil({x})");
             if x >= 0.0 {
                 assert!((sqrt(x) - x.sqrt()).abs() < 1e-12, "sqrt({x})");
             }

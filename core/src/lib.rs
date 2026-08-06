@@ -39,6 +39,7 @@ pub mod proximity;
 pub mod query;
 pub mod route_graph;
 pub mod scoring;
+pub mod viewshed;
 
 pub use codec::DecodeError;
 
@@ -72,6 +73,7 @@ pub use query::{
 };
 pub use route_graph::{RouteResult, keep_road_class, profile_allows_driving, route_roads};
 pub use scoring::{Candidate, CandidateKind, Fix, ScoringParams, score_candidates};
+pub use viewshed::{ViewBuilding, Visibility, estimate_height, viewshed};
 
 pub use coarse::{CoarseBracket, CoarseIndex, CoarseSample, parse as parse_coarse_index};
 pub use file::{BlockOffsetBase, FileError, IndexLayout, PtilesFile, index_layout};
