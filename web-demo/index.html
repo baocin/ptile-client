@@ -1036,6 +1036,29 @@ function errText(e, max) {
 // slower link ever wants a different number, this is the knob.
 var PREFETCH_LIMIT = 8;
 
+// How many cells at the centre of the viewport are fetched as their own range.
+//
+// Coalescing pulls a viewport as one or two big ranges, which is the fastest
+// way to get all of it -- and it means nothing at all is on screen until the
+// last byte of the last cell arrives. These go in a separate, much smaller
+// range issued at the same instant, so the middle of the screen fills while the
+// edges are still coming. It costs a request, not a round trip: both are in
+// flight together.
+//
+// 7 is the centre cell and its ring at res 7, which is what the viewport shows
+// at the zooms this layer is usable at. 3 was measured and is worse on both
+// counts for roads: first feature 1041 ms against 824, total 1550 against 1332.
+//
+// Whether the split happens at all is prefetch's call, not this one: it costs a
+// request, and on a layer whose whole render is one round trip that is a loss.
+var CENTRE_FIRST_CELLS = 7;
+
+// The most cells one render will touch. Nobody had justified this number; it is
+// left where it was because at the zoom where it binds (10-11) the viewport
+// already holds more cells than a render can usefully draw, and the sort in
+// renderViewport now decides *which* 300 rather than leaving it to chance.
+var VIEWPORT_MAX_CELLS = 300;
+
 // Run thunks with at most `limit` outstanding. Rejections are swallowed: this
 // is a warm-up, and the draw loop below already handles a failed cell.
 function runLimited(jobs, limit) {
@@ -1072,7 +1095,10 @@ function prefetchCells(cells, enabled) {
     // object but the same Layer underneath.
     var whole = layer.reader.file && layer.reader.file.layer;
     if (whole && whole.prefetch) {
-      whole.prefetch(want).catch(function() {});
+      // `want` is in centre-outward order, so the head of it is the middle of
+      // the screen. prefetch decides whether splitting it off is worth the
+      // extra request -- it can see the block sizes and this cannot.
+      whole.prefetch(want, { head: CENTRE_FIRST_CELLS }).catch(function() {});
       return;
     }
     // A coarse reader has to fetch a run of the index before it knows where
@@ -1245,7 +1271,32 @@ async function renderViewport() {
   // keeps its centre off it. The centre cell and its ring cover both.
   var near = h3.gridDisk(centerCell, 1);
   cells = Array.from(new Set(cells.concat(near)));
-  cells = cells.slice(0, 300);
+
+  // Nearest the map centre first.
+  //
+  // Two separate things were arbitrary here. The order renderPtilesForCells
+  // draws in was whatever polygonToCells returned, with the centre ring
+  // appended *last*, so the cell under the crosshair was routinely the last one
+  // drawn. And the cap below kept the first N of that same arbitrary order, so
+  // at low zoom -- where the viewport holds more than the cap -- the cells it
+  // dropped could be the ones in the middle of the screen. Sorting fixes both:
+  // the user looks at the centre, so the centre is what should arrive first and
+  // what should survive being capped.
+  //
+  // Longitude is scaled by cos(lat) so the comparison is in something like
+  // metres rather than degrees; without it, at 36 N a cell is ranked as if it
+  // were 24% further east than it is. Squared distance, because only the order
+  // matters and a square root per cell buys nothing.
+  var kLon = Math.cos(center.lat * Math.PI / 180);
+  cells = cells.map(function(hex) {
+    var c = h3.cellToLatLng(hex);
+    var dLat = c[0] - center.lat, dLon = (c[1] - center.lng) * kLon;
+    return { hex: hex, d2: dLat * dLat + dLon * dLon };
+  }).sort(function(a, b) {
+    return a.d2 - b.d2;
+  }).slice(0, VIEWPORT_MAX_CELLS).map(function(e) {
+    return e.hex;
+  });
 
   // Buildings memoize per cell in `bldgs.rendered`, so a cell already drawn is
   // skipped -- which means flipping 3D, or moving the exaggeration slider,

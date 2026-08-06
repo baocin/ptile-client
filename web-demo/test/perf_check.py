@@ -9,6 +9,7 @@ half: same page, same live tiles, but timed and attributed.
 Per layer, at a fixed viewport, cold and warm:
 
   open    ticking the box -> the layer's reader exists (header + dict + index)
+  first   ticking the box -> the first feature is on the map
   render  clicking PTILES Mode -> the feature count stops moving
   split   fetch / zstd / decode / other, from window.__ptiles.perf()
   wire    range requests and compressed bytes, counted at the fetch call
@@ -93,26 +94,33 @@ def serve(directory, port):
 
 
 def settle(page, key, timeout_s, poll_s=0.25):
-    """Wall seconds until the feature count stopped changing, and the count.
+    """Seconds to the first drawn feature and to the last change, and the count.
 
-    Returns the moment of the *last change*, so the samples spent confirming
-    stability are not billed to the layer.
+    Two numbers because they answer different questions. The last change is
+    when the layer is done; the first feature is when the user stops looking at
+    an empty map, and a change that fetches the middle of the viewport before
+    its edges moves that one without moving the other.
+
+    The clock stops at the last *change*, not when the settle loop notices, so
+    the samples spent confirming stability are not billed to the layer.
     """
     t0 = time.monotonic()
-    last, last_change, stable = -1, t0, 0
+    last, last_change, first, stable = -1, t0, None, 0
     deadline = t0 + timeout_s
     while time.monotonic() < deadline:
         page.wait_for_timeout(int(poll_s * 1000))
         n = page.evaluate("() => window.__ptiles.featureCounts()")[key]["features"]
+        if first is None and n > 0:
+            first = time.monotonic()
         if n == last:
             stable += 1
             if stable >= 3 and n > 0:
-                return last_change - t0, n
+                return (first or last_change) - t0, last_change - t0, n
         else:
             stable = 0
             last_change = time.monotonic()
         last = n
-    return last_change - t0, last
+    return (first or last_change) - t0, last_change - t0, last
 
 
 def measure(page, base, key, checkbox, where, timeout_s):
@@ -137,11 +145,11 @@ def measure(page, base, key, checkbox, where, timeout_s):
     open_s = time.monotonic() - t0
 
     page.click("#btnPtiles")
-    render_s, features = settle(page, key, timeout_s)
+    first_s, render_s, features = settle(page, key, timeout_s)
 
     perf = page.evaluate("(ms) => window.__ptiles.perf(ms)", (open_s + render_s) * 1000)
     perf.update(openMs=round(open_s * 1000), renderMs=round(render_s * 1000),
-                features=features)
+                firstMs=round((open_s + first_s) * 1000), features=features)
     return perf
 
 
@@ -224,7 +232,8 @@ def main():
         browser.close()
     httpd.shutdown()
 
-    hdr = (f"\n{'layer':8s} {'cache':5s} {'open':>13s} {'render':>15s} "
+    hdr = (f"\n{'layer':8s} {'cache':5s} {'open':>13s} {'first':>15s} "
+           f"{'render':>15s} "
            f"{'total':>15s} {'net':>13s} {'netsum':>13s} {'zstd':>8s} "
            f"{'decode':>8s} {'rest':>13s} {'req':>5s} {'KiB':>8s} {'feats':>7s}")
     print(hdr)
@@ -235,7 +244,8 @@ def main():
             kib = [{"kib": r["bytes"] / 1024} for r in rows]
             total = [{"t": r["openMs"] + r["renderMs"]} for r in rows]
             print(f"{key:8s} {cache:5s} "
-                  f"{fmt(rows, 'openMs'):>13s} {fmt(rows, 'renderMs'):>15s} "
+                  f"{fmt(rows, 'openMs'):>13s} {fmt(rows, 'firstMs'):>15s} "
+                  f"{fmt(rows, 'renderMs'):>15s} "
                   f"{fmt(total, 't'):>15s} "
                   f"{fmt(rows, 'netWallMs'):>13s} {fmt(rows, 'netSumMs'):>13s} "
                   f"{fmt(rows, 'zstdMs'):>8s} {fmt(rows, 'decodeMs'):>8s} "

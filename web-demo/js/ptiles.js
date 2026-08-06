@@ -270,10 +270,22 @@ export function createPtiles(wasm) {
      * draw loop that reaches a cell mid-flight joins the coalesced read rather
      * than starting its own. That ordering is the whole design; without it the
      * prefetch and the loop race and the request count does not fall.
+     *
+     * `head` splits the first N cells -- which the caller has ordered nearest
+     * the map centre first -- into their own, smaller range, so the middle of
+     * the screen fills before the edges rather than the whole viewport landing
+     * at once. That costs one more request, and only pays for itself on a layer
+     * with enough bytes to be worth waiting for, so it is skipped below
+     * `splitMinBytes`. Measured cold at Nashville z14: splitting unconditionally
+     * took water from 802 to 1103 ms and parks from 597 to 843 ms, both of whose
+     * whole render is a single round trip, while roads' first feature went from
+     * 1174 to 824 ms for 2% on the total.
      */
-    prefetch(cells, { maxGap = 65536 } = {}) {
+    prefetch(cells, { maxGap = 65536, head = 0, splitMinBytes = 262144 } = {}) {
       // Several cells share one block on a merged layer, so dedupe by offset
-      // or the same range gets queued once per cell in it.
+      // or the same range gets queued once per cell in it. Insertion order is
+      // the caller's order, which is what `head` slices on -- so this dedupe
+      // must not sort, and the run builder sorts its own copy.
       const byOffset = new Map();
       for (const cell of cells) {
         const e = this.entryFor(cell);
@@ -281,20 +293,28 @@ export function createPtiles(wasm) {
         if (this.blocks.has(e.block_offset)) continue;
         byOffset.set(String(e.block_offset), e);
       }
-      const wanted = [...byOffset.values()]
-        .sort((a, b) => Number(a.block_offset) - Number(b.block_offset));
+      const wanted = [...byOffset.values()];
       if (!wanted.length) return Promise.resolve();
 
+      const total = wanted.reduce((n, e) => n + e.block_length, 0);
+      const split = head > 0 && wanted.length > head && total >= splitMinBytes;
+      const batches = split ? [wanted.slice(0, head), wanted.slice(head)] : [wanted];
+
       const runs = [];
-      for (const e of wanted) {
-        const start = Number(e.block_offset);
-        const end = start + e.block_length - 1;
-        const last = runs[runs.length - 1];
-        if (last && start - last.end - 1 <= maxGap) {
-          last.end = Math.max(last.end, end);
-          last.entries.push(e);
-        } else {
-          runs.push({ start, end, entries: [e] });
+      for (const batch of batches) {
+        const sorted = [...batch].sort(
+          (a, b) => Number(a.block_offset) - Number(b.block_offset));
+        let open = null;
+        for (const e of sorted) {
+          const start = Number(e.block_offset);
+          const end = start + e.block_length - 1;
+          if (open && start - open.end - 1 <= maxGap) {
+            open.end = Math.max(open.end, end);
+            open.entries.push(e);
+          } else {
+            open = { start, end, entries: [e] };
+            runs.push(open);
+          }
         }
       }
 

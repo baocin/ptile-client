@@ -155,6 +155,40 @@ test("prefetch coalesces neighbouring blocks, and hands back the same bytes", as
   }
 });
 
+test("splitting the centre cells off is opt-in, and still returns the same bytes", async () => {
+  // The split exists so the middle of the screen fills first, and it costs a
+  // request, so it must not fire on a layer too small to pay for it. Both
+  // halves of that are asserted here: forced on, it makes a second read and the
+  // records are unchanged; left to its own judgement on a corpus slice, whose
+  // blocks are far under the threshold, it does not fire at all.
+  const name = "TN.roads.ptiles";
+  const plain = await P.open(source(name));
+  const cells = plain.entries.slice(0, 24)
+    .filter((e) => e.block_length > 0)
+    .map((e) => asCaller(e.h3_cell));
+  const want = [];
+  for (const cell of cells) want.push(await plain.cellRecords(cell));
+
+  const forced = countingSource(name);
+  const split = await P.open(forced.src);
+  forced.reads.length = 0;
+  await split.prefetch(cells, { head: 4, splitMinBytes: 0 });
+  assert.equal(forced.reads.length, 2, "head and tail should be one read each");
+
+  const got = [];
+  for (const cell of cells) got.push(await split.cellRecords(cell));
+  assert.deepEqual(got, want, "splitting changed the bytes");
+
+  const judged = countingSource(name);
+  const whole = await P.open(judged.src);
+  judged.reads.length = 0;
+  await whole.prefetch(cells, { head: 4 });
+  assert.equal(
+    judged.reads.length, 1,
+    "split on a payload far under splitMinBytes -- it is paying a request for nothing",
+  );
+});
+
 test("merged layers slice the cell out rather than returning the whole block", async () => {
   // Handing a whole merged block to a record decoder does not error -- it
   // parses the cell table as records and yields plausible garbage. So the
