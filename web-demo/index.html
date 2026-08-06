@@ -1656,6 +1656,51 @@ function addMarker(lat, lon, color) {
   }).addTo(map);
 }
 
+// How far past its own outline a building looks for the businesses that belong
+// to it. 1.5 is linear, so a footprint covers 2.25x its area.
+//
+// The alternative it replaces was a flat 200 m circle around the click, which
+// is the wrong shape twice over: on a shopping centre it stops short of the far
+// end of the building itself, and on a corner shop it reaches across the street
+// and picks up two neighbouring blocks. Scaling the footprint makes the search
+// area follow the building -- big for a big one, tight for a small one.
+var BIZ_OUTLINE_SCALE = 1.5;
+
+// A ring scaled about a point. Ring vertices are [lon, lat], as everything that
+// comes out of the decoders is.
+//
+// Scaling degrees directly is correct here even though a degree of longitude is
+// shorter than a degree of latitude: this is a ratio about a fixed centre, so
+// 1.5x in longitude-degrees is 1.5x in metres east just as 1.5x in
+// latitude-degrees is 1.5x in metres north. The two axes have different scales
+// and each is preserved. (A cos(lat) term would be needed to compare or add the
+// two, which is why haversine below has one and this does not.)
+function scaleRing(ring, cLat, cLon, k) {
+  if (cLat == null || cLon == null) {
+    // Vertex mean, for a record that carries no centroid. Not the area
+    // centroid, but a footprint is convex enough for the difference not to
+    // matter at this scale factor.
+    cLat = 0; cLon = 0;
+    for (var i = 0; i < ring.length; i++) { cLon += ring[i][0]; cLat += ring[i][1]; }
+    cLat /= ring.length; cLon /= ring.length;
+  }
+  var out = [];
+  for (var j = 0; j < ring.length; j++) {
+    out.push([cLon + (ring[j][0] - cLon) * k, cLat + (ring[j][1] - cLat) * k]);
+  }
+  return out;
+}
+
+// Metres from a point to the furthest vertex of a ring -- how wide the
+// candidate fetch has to be for the ring to fit inside it.
+function ringReachM(ring, lat, lon) {
+  var max = 0;
+  for (var i = 0; i < ring.length; i++) {
+    max = Math.max(max, haversineM(lat, lon, ring[i][1], ring[i][0]));
+  }
+  return max;
+}
+
 function pointInPolygon(lat, lon, poly) {
   var inside = false;
   for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -2213,7 +2258,35 @@ async function doLookup(lat, lon) {
       document.getElementById("bizList").innerHTML = "";
 
       var bizReader = await ensureBizReader();
-      var bizResults = await bizReader.query(lat, lon, 0.2);
+
+      // Candidates are the businesses inside the footprint grown by half,
+      // rather than everything within 200 m of where the pointer landed.
+      //
+      // The fetch radius is derived from that grown ring so it cannot clip it:
+      // a 200 m circle centred on a click near one door of a shopping centre
+      // does not reach the other end of the same building. It costs nothing to
+      // widen -- query() decodes the clicked cell and its ring either way, and
+      // the radius is only a filter over records already in hand.
+      //
+      // If the grown outline holds nothing, the radius list stands. A POI point
+      // placed on the kerb, or a footprint drawn slightly off, is common enough
+      // that answering "no business here" for a building with one 5 m outside
+      // its outline would be worse than answering with a distance attached --
+      // and the row already marks how sure the ranking is.
+      var ring = (b.coordinates && b.coordinates.length >= 3) ? b.coordinates : null;
+      var grown = ring ? scaleRing(ring, b.centroidLat, b.centroidLon, BIZ_OUTLINE_SCALE) : null;
+      var reachKm = grown ? ringReachM(grown, lat, lon) / 1000 : 0;
+      var bizResults = await bizReader.query(lat, lon, Math.max(reachKm, 0.2));
+      var bizScope = "within 200 m";
+      if (grown) {
+        var inOutline = bizResults.filter(function(br) {
+          return pointInPolygon(br.lat, br.lon, grown);
+        });
+        if (inOutline.length) {
+          bizResults = inOutline;
+          bizScope = "in the footprint +50%";
+        }
+      }
       if (bizResults.length > 0) {
         // Which of the businesses around a building *is* the building.
         //
@@ -2311,7 +2384,12 @@ async function doLookup(lat, lon) {
         document.getElementById("bizDistRow").style.display = "flex";
 
         var shownBiz = Math.min(scored.length, 40);
-        var headerText = bizResults.length === shownBiz ? "All nearby (" + bizResults.length + "):" : "Showing " + shownBiz + " of " + bizResults.length + ":";
+        // Name the scope. "All nearby (64)" and "All nearby (7)" are the same
+        // sentence about two different questions, and after this change which
+        // one was asked depends on whether the grown outline found anything.
+        var headerText = (bizResults.length === shownBiz
+          ? "All " + bizScope + " (" + bizResults.length + "):"
+          : "Showing " + shownBiz + " of " + bizResults.length + " " + bizScope + ":");
         var listEl = document.getElementById("bizList");
         listEl.style.display = "block";
         listEl.innerHTML = "";

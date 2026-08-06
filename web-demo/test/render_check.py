@@ -552,12 +552,14 @@ def main():
         biz = page.evaluate("""() => ({
           bldg: document.getElementById('bldgName').textContent.trim(),
           shown: document.getElementById('bizRow').style.display !== 'none',
-          name: document.getElementById('bizName').textContent.trim()
+          name: document.getElementById('bizName').textContent.trim(),
+          header: (document.getElementById('bizList').firstChild || {}).textContent || ''
         })""")
         # The row carries a "(+63 more)" tail and a confidence mark, so compare
         # the name itself rather than the cell's text.
         picked = re.sub(r"^[^A-Za-z0-9]*", "", biz["name"]).split(" (+")[0].strip()
         print(f"\n  building '{biz['bldg']}' -> business '{picked}'")
+        print(f"  candidates: {biz['header']}")
         if not biz["shown"]:
             failures.append("business match: no business found for the Smyrna Target")
         elif picked.lower() != "target":
@@ -565,6 +567,21 @@ def main():
                 f"business match: the building named Target resolved to "
                 f"'{picked}' -- an exact name match must outrank a record that "
                 f"merely contains the name, even one inside the footprint")
+
+        # Candidates come from the footprint grown by half, and the code falls
+        # back to a 200 m circle when that grown ring holds nothing. The
+        # fallback is the failure mode worth guarding: a ring built with lat and
+        # lon the wrong way round, or scaled about the wrong point, contains no
+        # business at all, and the panel then answers from the circle and looks
+        # entirely normal. The header is the only place that distinction
+        # surfaces. Measured here: 95 records within 200 m, 31 in the grown
+        # outline.
+        if "footprint" not in biz["header"]:
+            failures.append(
+                f"business match: candidates came from the radius fallback "
+                f"('{biz['header']}') -- the grown footprint matched nothing, "
+                f"which for a shopping centre with 31 businesses in it means "
+                f"the ring is being built wrong")
 
         for e in errors[:3]:
             print(f"           {e}")
