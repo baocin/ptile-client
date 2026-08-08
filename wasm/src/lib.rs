@@ -16,11 +16,12 @@ use wasm_bindgen::prelude::*;
 
 use ptiles_core::{decode_buildings as core_decode_buildings, decode_business as core_decode_business,
     decode_parks as core_decode_parks, decode_rail as core_decode_rail, decode_roads as core_decode_roads,
-    decode_water as core_decode_water};
+    decode_trails as core_decode_trails, decode_water as core_decode_water};
 use ptiles_core::{
     decode_road_block as core_decode_road_block,
     nearest_intersection as core_nearest_intersection, nearest_road as core_nearest_road,
-    route_roads as core_route_roads, score_candidates as core_score_candidates, Fix, RoadSegment,
+    route_roads_with as core_route_roads_with, score_candidates as core_score_candidates,
+    Fix, RoadSegment, RoutePrefs,
     ScoringParams, DEFAULT_THRESHOLD_M,
 };
 use ptiles_core::address::merged_block_cell_slice;
@@ -166,6 +167,12 @@ pub fn decode_rail(data: &[u8]) -> Result<JsValue, JsValue> {
 }
 
 #[wasm_bindgen]
+pub fn decode_trails(data: &[u8]) -> Result<JsValue, JsValue> {
+    let trails = core_decode_trails(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&trails)
+}
+
+#[wasm_bindgen]
 pub fn decode_roads(data: &[u8]) -> Result<JsValue, JsValue> {
     let roads = core_decode_roads(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
     to_js(&roads)
@@ -236,6 +243,8 @@ pub fn route_from_segments(
     lat2: f64,
     lon2: f64,
     snap_m: Option<f64>,
+    avoid_highways: Option<bool>,
+    avoid_intersections: Option<bool>,
 ) -> Result<JsValue, JsValue> {
     #[derive(serde::Deserialize)]
     struct SegIn {
@@ -270,7 +279,11 @@ pub fn route_from_segments(
             .map_err(|e| JsValue::from_str(&format!("zone_middle: {e}")))?
     };
     let snap = snap_m.unwrap_or(100.0);
-    match core_route_roads(&roads, &middle, lat1, lon1, lat2, lon2, snap) {
+    let prefs = RoutePrefs {
+        avoid_highways: avoid_highways.unwrap_or(false),
+        avoid_intersections: avoid_intersections.unwrap_or(false),
+    };
+    match core_route_roads_with(&roads, &middle, lat1, lon1, lat2, lon2, snap, prefs) {
         Some(r) => to_js(&r),
         None => Ok(JsValue::NULL),
     }
@@ -578,6 +591,19 @@ pub fn viewshed_multi(
 #[wasm_bindgen]
 pub fn estimated_height_for(building_type: &str) -> f64 {
     ptiles_core::estimate_height(building_type)
+}
+
+/// The height to draw a building at: the published one, or this crate's guess
+/// when none was published.
+///
+/// Returns a bare `f64`, not a struct. serde-wasm-bindgen hands objects to the
+/// browser as a `Map` in some engines, where `r.height_m` reads `undefined` --
+/// which would silently extrude every guessed building to `NaN`. The caller
+/// already knows whether it passed a height, so the flag adds nothing here;
+/// `height_or_estimate` in core still returns it for Rust callers.
+#[wasm_bindgen]
+pub fn resolved_height(height_m: Option<f64>, building_type: &str) -> f64 {
+    ptiles_core::height_or_estimate(height_m, building_type).0
 }
 
 /// internal fallback (see module doc above for why this isn't a direct call

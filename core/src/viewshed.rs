@@ -123,6 +123,23 @@ pub fn estimate_height(building_type: &str) -> f64 {
     estimate_height_range(building_type).typical
 }
 
+/// The height to draw a building at, and whether it was guessed.
+///
+/// One resolver so every consumer -- extrusion, viewshed, a caller's own
+/// renderer -- guesses the same way. Height coverage is per-state and is
+/// exactly zero in TX, GA, WA, OH, MI, IL and TN, so a renderer that draws
+/// only published heights draws nothing at all across those states; one that
+/// guesses privately disagrees with what the viewshed reports for the same
+/// building. Returning the flag alongside the number is the point: a caller
+/// that cannot distinguish measured from guessed will present a guess as a
+/// measurement.
+pub fn height_or_estimate(height_m: Option<f64>, building_type: &str) -> (f64, bool) {
+    match height_m {
+        Some(h) => (h, false),
+        None => (estimate_height(building_type), true),
+    }
+}
+
 /// The encoder stores height as a `u8` of half-metre steps, so 127.5 m is a
 /// ceiling rather than a measurement -- a 300 m tower is written as 127.5 too.
 /// Treated as "at least this" when occluding, because assuming a skyscraper is

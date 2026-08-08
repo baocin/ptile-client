@@ -33,6 +33,44 @@ pub struct RouteResult {
     pub path: Vec<[f64; 2]>,
 }
 
+/// Optional routing preferences.
+///
+/// Both are **penalties, not prohibitions**. A hard ban returns "no route" the
+/// moment the only river crossing for miles is a trunk bridge, or the only way
+/// out of a subdivision is its one signalised exit; a penalty routes around
+/// when there is an alternative and still gets you there when there is not.
+///
+/// They are applied to edge weights at graph build time, so the A* heuristic
+/// (free-flow travel time, a lower bound) stays admissible: penalties only ever
+/// raise a cost, never lower one.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RoutePrefs {
+    /// Multiply motorway/trunk edge time so the route prefers arterials.
+    pub avoid_highways: bool,
+    /// Charge time for passing through junctions, so the route prefers fewer
+    /// of them even when that means a slightly longer road.
+    pub avoid_intersections: bool,
+}
+
+/// Cost multiplier for a highway edge under `avoid_highways`. Chosen so a
+/// motorway at 105 km/h costs about what a 25 km/h residential street does per
+/// metre: enough to reject a highway used for convenience, not enough to make
+/// a 30 km detour look attractive.
+const HIGHWAY_PENALTY: f64 = 4.0;
+
+/// Seconds charged per junction arm beyond a simple two-way node, under
+/// `avoid_intersections`. A four-way costs 2 arms x this; roughly the delay of
+/// a signal cycle, split across the edges that enter it.
+const INTERSECTION_PENALTY_S: f64 = 12.0;
+
+fn is_highway_class(class: &str) -> bool {
+    matches!(
+        class,
+        "motorway" | "motorway_link" | "trunk" | "trunk_link"
+    )
+}
+
 #[inline]
 fn weight_from_seconds(seconds: f64) -> Weight {
     math::round(seconds * 100.0) as Weight
@@ -125,7 +163,7 @@ struct Graph {
     edge_geom: BTreeMap<(u32, u32), Vec<[f64; 2]>>,
 }
 
-fn build_graph(roads: &[RoadSegment], zone_middle: &[bool]) -> Option<Graph> {
+fn build_graph(roads: &[RoadSegment], zone_middle: &[bool], prefs: RoutePrefs) -> Option<Graph> {
     let mut coord_to_node: BTreeMap<[i32; 2], u32> = BTreeMap::new();
     let mut node_micro: Vec<[i32; 2]> = Vec::new();
     let mut node_geo: Vec<[f64; 2]> = Vec::new();
@@ -181,7 +219,11 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool]) -> Option<Graph> {
             let w = if speed < 0.1 {
                 Weight::MAX / 4
             } else {
-                weight_from_seconds(meters / ((speed * SPEED_FACTOR) / 3.6))
+                let mut secs = meters / ((speed * SPEED_FACTOR) / 3.6);
+                if prefs.avoid_highways && is_highway_class(&seg.road_class) {
+                    secs *= HIGHWAY_PENALTY;
+                }
+                weight_from_seconds(secs)
             };
             let ow = seg.oneway.as_deref();
             if ow != Some("reverse") {
@@ -273,6 +315,29 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool]) -> Option<Graph> {
             .entry((rf, rt))
             .and_modify(|e| *e = (*e).min(w))
             .or_insert(w);
+    }
+
+    // Junction penalty, charged on arrival at a node.
+    //
+    // Applied here rather than in build-time edge construction because degree
+    // is only knowable after the spatial merge: before it, one intersection is
+    // several coincident nodes, each looking like a plain two-way. Counting
+    // distinct neighbours (not edge entries) keeps a two-way street at degree
+    // 2 whether or not both directions were emitted.
+    if prefs.avoid_intersections {
+        let mut degree: BTreeMap<u32, alloc::collections::BTreeSet<u32>> = BTreeMap::new();
+        for &(f, t) in adj_map.keys() {
+            degree.entry(f).or_default().insert(t);
+            degree.entry(t).or_default().insert(f);
+        }
+        for (&(_, to), w) in adj_map.iter_mut() {
+            let arms = degree.get(&to).map(|s| s.len()).unwrap_or(0);
+            if arms > 2 {
+                *w = w.saturating_add(weight_from_seconds(
+                    INTERSECTION_PENALTY_S * (arms - 2) as f64,
+                ));
+            }
+        }
     }
 
     // densify: walk each original polyline through remapped nodes; keep full coords
@@ -524,6 +589,9 @@ fn bi_astar(
 }
 
 /// Route on pre-decoded segments. `zone_middle` empty ⇒ all end-cap (full driving).
+///
+/// Kept at the original signature so existing callers are unaffected; see
+/// [`route_roads_with`] for the preference-aware form.
 pub fn route_roads(
     roads: &[RoadSegment],
     zone_middle: &[bool],
@@ -533,7 +601,31 @@ pub fn route_roads(
     lon2: f64,
     snap_m: f64,
 ) -> Option<RouteResult> {
-    let g = build_graph(roads, zone_middle)?;
+    route_roads_with(
+        roads,
+        zone_middle,
+        lat1,
+        lon1,
+        lat2,
+        lon2,
+        snap_m,
+        RoutePrefs::default(),
+    )
+}
+
+/// [`route_roads`] with preferences applied.
+#[allow(clippy::too_many_arguments)]
+pub fn route_roads_with(
+    roads: &[RoadSegment],
+    zone_middle: &[bool],
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+    snap_m: f64,
+    prefs: RoutePrefs,
+) -> Option<RouteResult> {
+    let g = build_graph(roads, zone_middle, prefs)?;
     if g.adj.is_empty() {
         return None;
     }
@@ -595,6 +687,93 @@ mod tests {
             surface: None,
             bridge_tunnel: None,
         }
+    }
+
+    // --- RoutePrefs ---------------------------------------------------
+    //
+    // Layout for both: A --- B, reachable two ways.
+    //   motorway  A -> M -> B   (fast, direct)
+    //   residential A -> R -> B (slower, longer)
+    // With no preference the motorway wins; avoid_highways must flip it.
+    fn two_route_choices() -> alloc::vec::Vec<RoadSegment> {
+        vec![
+            // Motorway: straight east along 36.0.
+            seg("motorway", vec![[-86.00, 36.0], [-85.98, 36.0]], None),
+            seg("motorway", vec![[-85.98, 36.0], [-85.96, 36.0]], None),
+            // Residential: a detour north and back, same endpoints.
+            seg("residential", vec![[-86.00, 36.0], [-85.98, 36.004]], None),
+            seg("residential", vec![[-85.98, 36.004], [-85.96, 36.0]], None),
+        ]
+    }
+
+    fn max_detour_lat(r: &RouteResult) -> f64 {
+        r.path.iter().fold(f64::MIN, |m, p| if p[0] > m { p[0] } else { m })
+    }
+
+    #[test]
+    fn default_prefs_take_the_motorway() {
+        let roads = two_route_choices();
+        let r = route_roads(&roads, &[], 36.0, -86.0, 36.0, -85.96, 500.0).unwrap();
+        // Straight down the motorway: never leaves the 36.0 line.
+        assert!(max_detour_lat(&r) < 36.001, "expected the direct motorway, got {:?}", r.path);
+    }
+
+    #[test]
+    fn avoid_highways_takes_the_slower_surface_street() {
+        let roads = two_route_choices();
+        let prefs = RoutePrefs { avoid_highways: true, avoid_intersections: false };
+        let r = route_roads_with(&roads, &[], 36.0, -86.0, 36.0, -85.96, 500.0, prefs).unwrap();
+        assert!(
+            max_detour_lat(&r) > 36.003,
+            "avoid_highways should route via the residential detour, got {:?}",
+            r.path
+        );
+    }
+
+    #[test]
+    fn avoid_highways_still_routes_when_the_highway_is_the_only_link() {
+        // Penalty, not prohibition: with no alternative a route must still exist.
+        let roads = vec![seg("motorway", vec![[-86.0, 36.0], [-85.98, 36.0]], None)];
+        let prefs = RoutePrefs { avoid_highways: true, avoid_intersections: false };
+        let r = route_roads_with(&roads, &[], 36.0, -86.0, 36.0, -85.98, 500.0, prefs);
+        assert!(r.is_some(), "a penalty must not make the only road unusable");
+    }
+
+    #[test]
+    fn avoid_intersections_costs_more_through_a_junction() {
+        // A cross: the east-west road is crossed by a north-south one at the
+        // midpoint, making that node a 4-arm junction.
+        let roads = vec![
+            seg("residential", vec![[-86.00, 36.0], [-85.99, 36.0]], None),
+            seg("residential", vec![[-85.99, 36.0], [-85.98, 36.0]], None),
+            seg("residential", vec![[-85.99, 35.99], [-85.99, 36.0]], None),
+            seg("residential", vec![[-85.99, 36.0], [-85.99, 36.01]], None),
+        ];
+        let plain = route_roads(&roads, &[], 36.0, -86.0, 36.0, -85.98, 500.0).unwrap();
+        let avoid = route_roads_with(
+            &roads, &[], 36.0, -86.0, 36.0, -85.98, 500.0,
+            RoutePrefs { avoid_highways: false, avoid_intersections: true },
+        )
+        .unwrap();
+        // Same geometry either way -- there is no detour available -- but the
+        // junction now carries a time cost, which is what steers a real route.
+        assert!(
+            avoid.duration_s > plain.duration_s,
+            "junction should cost time: {} vs {}",
+            avoid.duration_s,
+            plain.duration_s
+        );
+    }
+
+    #[test]
+    fn prefs_default_to_no_penalty() {
+        let p = RoutePrefs::default();
+        assert!(!p.avoid_highways && !p.avoid_intersections);
+        let roads = two_route_choices();
+        let a = route_roads(&roads, &[], 36.0, -86.0, 36.0, -85.96, 500.0).unwrap();
+        let b = route_roads_with(&roads, &[], 36.0, -86.0, 36.0, -85.96, 500.0, RoutePrefs::default()).unwrap();
+        assert_eq!(a.path, b.path, "default prefs must match the old entry point");
+        assert_eq!(a.duration_s, b.duration_s);
     }
 
     #[test]
