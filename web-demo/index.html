@@ -1198,8 +1198,10 @@ async function renderPtilesForCells(cells) {
         if (raw) { var feats = wasm_decode_trails(raw); feats.forEach(function(feat) {
           var gt = feat.geom_type != null ? feat.geom_type : feat.geomType;
           // Dashed for anything unpaved enough to need boots; solid otherwise.
-          var tt = feat.trail_type || "";
-          var hard = (tt === "cycleway" || tt === "footway");
+          // Developed-vs-natural is core's call: it owns the type vocabulary,
+          // so re-listing "cycleway"/"footway" here would be a second copy to
+          // keep in step with the builder.
+          var hard = wasm.trail_is_developed(feat.trail_type || "");
           if (gt === 0 && feat.coords && feat.coords.length >= 2)
             L.polyline(feat.coords.map(function(c){return [c[1],c[0]];}),
               {color:"#d29922",weight:hard?2:1.5,opacity:0.85,
@@ -1268,7 +1270,7 @@ async function renderPtilesForCells(cells) {
             // line-of-sight panel reports, and is drawn faded so it still reads
             // as an estimate rather than a measurement.
             if (rec.heightM == null) {
-              rec.heightM = wasm.resolved_height(undefined, rec.buildingType || "yes");
+              rec.heightM = wasm.resolved_height(undefined, rec.buildingType || "");
               rec.heightEstimated = true;
               bldgEstimatedInView++;
             } else {

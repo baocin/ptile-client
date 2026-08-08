@@ -547,6 +547,16 @@ export function createPtiles(wasm) {
     cameras: (b) => wasm.decode_cameras(b),
   };
 
+  // Format vocabulary questions answered by ptiles-core, not re-implemented
+  // here. A caller that needs to know what a value *means* -- rather than just
+  // what bytes it came from -- should reach for these instead of hardcoding the
+  // layer's enums in JavaScript.
+  const classify = {
+    trailIsDeveloped: (trailType) => wasm.trail_is_developed(trailType || ""),
+    buildingHeight: (heightM, buildingType) =>
+      wasm.resolved_height(heightM == null ? undefined : heightM, buildingType || ""),
+  };
+
   // H3, from ptiles-core rather than h3-js.
   const h3 = {
     cellFor: (lat, lon) => wasm.cell_for_coord(lat, lon),
@@ -555,5 +565,5 @@ export function createPtiles(wasm) {
     forBounds: (a, b, c, d) => wasm.cells_for_bounds(a, b, c, d),
   };
 
-  return { httpSource, bytesSource, open, openCoarse, decode, h3, Layer, CoarseLayer, stats };
+  return { httpSource, bytesSource, open, openCoarse, decode, classify, h3, Layer, CoarseLayer, stats };
 }

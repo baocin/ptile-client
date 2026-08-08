@@ -106,6 +106,20 @@ fn decode_trail_record(
     ))
 }
 
+/// Whether a trail type is developed infrastructure rather than a natural way.
+///
+/// `cycleway` and `footway` are built, surfaced routes -- a greenway or a park
+/// path with a hard surface. `path`, `track`, `bridleway` and `steps` are the
+/// walking/riding kind. A renderer usually wants to draw the two differently,
+/// and the split is a property of the layer's type vocabulary, not of any one
+/// renderer, so it lives here rather than being re-derived by each caller.
+///
+/// A trailhead is a point, not a way, and is not developed either way; it
+/// answers false so a caller styling lines is never handed a surprise.
+pub fn trail_is_developed(trail_type: &str) -> bool {
+    matches!(trail_type, "cycleway" | "footway")
+}
+
 /// Decode a decompressed trail block into its features. Sequential records,
 /// no length prefix — a record that fails to decode stops the scan.
 pub fn decode_trails(data: &[u8]) -> Result<Vec<TrailFeature>, DecodeError> {
@@ -147,6 +161,19 @@ mod tests {
         d.extend_from_slice(&9u16.to_le_bytes());
         d.extend_from_slice(b"Highline ");
         d
+    }
+
+    #[test]
+    fn developed_split_covers_every_type_in_the_table() {
+        // Every type the builder can emit must classify without a surprise,
+        // so a new type added to the table cannot silently fall through.
+        for (_, name) in tables::TRAIL_TYPE_REVERSE {
+            let d = trail_is_developed(name);
+            let expected = matches!(*name, "cycleway" | "footway");
+            assert_eq!(d, expected, "{name} classified wrong");
+        }
+        assert!(!trail_is_developed("trailhead"));
+        assert!(!trail_is_developed("unknown(200)"));
     }
 
     #[test]

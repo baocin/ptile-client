@@ -778,6 +778,20 @@ export function score_candidates(fix_json, roads_block, buildings_block, busines
 }
 
 /**
+ * Whether a trail type is built infrastructure (cycleway, footway) rather
+ * than a natural way. Exposed so a renderer styles the two apart without
+ * re-listing the layer's type vocabulary in JavaScript.
+ * @param {string} trail_type
+ * @returns {boolean}
+ */
+export function trail_is_developed(trail_type) {
+    const ptr0 = passStringToWasm0(trail_type, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.trail_is_developed(ptr0, len0);
+    return ret !== 0;
+}
+
+/**
  * Decompress a compressed `.ptiles` block, trying the layer's zstd
  * dictionary first and falling back to plain (dict-less) decompress on
  * failure. Mirrors `ptiles/compression.py`'s `decompress_block` /

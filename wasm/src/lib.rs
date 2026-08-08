@@ -166,6 +166,14 @@ pub fn decode_rail(data: &[u8]) -> Result<JsValue, JsValue> {
     to_js(&rail)
 }
 
+/// Whether a trail type is built infrastructure (cycleway, footway) rather
+/// than a natural way. Exposed so a renderer styles the two apart without
+/// re-listing the layer's type vocabulary in JavaScript.
+#[wasm_bindgen]
+pub fn trail_is_developed(trail_type: &str) -> bool {
+    ptiles_core::trail_is_developed(trail_type)
+}
+
 #[wasm_bindgen]
 pub fn decode_trails(data: &[u8]) -> Result<JsValue, JsValue> {
     let trails = core_decode_trails(data).map_err(|e| JsValue::from_str(&e.to_string()))?;

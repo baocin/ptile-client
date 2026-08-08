@@ -340,6 +340,13 @@ export function route_from_segments(segments_js: any, zone_middle: any, lat1: nu
 export function score_candidates(fix_json: string, roads_block: Uint8Array, buildings_block: Uint8Array, business_block: Uint8Array, cell_center_lat: number, cell_center_lon: number): any;
 
 /**
+ * Whether a trail type is built infrastructure (cycleway, footway) rather
+ * than a natural way. Exposed so a renderer styles the two apart without
+ * re-listing the layer's type vocabulary in JavaScript.
+ */
+export function trail_is_developed(trail_type: string): boolean;
+
+/**
  * Decompress a compressed `.ptiles` block, trying the layer's zstd
  * dictionary first and falling back to plain (dict-less) decompress on
  * failure. Mirrors `ptiles/compression.py`'s `decompress_block` /
@@ -414,6 +421,7 @@ export interface InitOutput {
     readonly resolved_height: (a: number, b: number, c: number, d: number) => number;
     readonly route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly score_candidates: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+    readonly trail_is_developed: (a: number, b: number) => number;
     readonly viewshed: (a: any, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly viewshed_multi: (a: any, b: any, c: number, d: number) => [number, number, number];
     readonly roads_in_block: (a: number, b: number) => [number, number, number];

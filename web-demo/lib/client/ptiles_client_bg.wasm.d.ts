@@ -36,6 +36,7 @@ export const parse_index_layout: (a: number, b: number, c: number, d: number) =>
 export const resolved_height: (a: number, b: number, c: number, d: number) => number;
 export const route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
 export const score_candidates: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+export const trail_is_developed: (a: number, b: number) => number;
 export const viewshed: (a: any, b: number, c: number, d: number, e: number) => [number, number, number];
 export const viewshed_multi: (a: any, b: any, c: number, d: number) => [number, number, number];
 export const roads_in_block: (a: number, b: number) => [number, number, number];
