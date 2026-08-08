@@ -1418,7 +1418,7 @@ async function loadPtilesLayer(key, filename) {
   setLayerStatus(key + " loading...");
   try {
     var st = currentState;
-    layer.reader = await LayerReader.fromUrl("https://maps.mydatatimeline.com/maps/" + st + "." + filename + ".ptiles");
+    layer.reader = await LayerReader.fromUrl(stateUrl(st, filename));
     layer.state = st; // ponytail: route must not reuse TN reader after switch
     setLayerStatus(key + " ready (" + st + ")");
     scheduleViewportRender();
@@ -1445,7 +1445,7 @@ async function loadPtilesLayerUS(key, filename) {
     // this function since the coarse reader landed; the map layer was still
     // pulling the whole index, so enabling Signals cost 4.5 MB.
     layer.reader = await openPointReader(
-      "https://maps.mydatatimeline.com/maps/US." + filename + ".ptiles");
+      stateUrl("US", filename));
     setLayerStatus(key + " ready");
     scheduleViewportRender();
   } catch(e) {
@@ -1519,7 +1519,7 @@ var PTILES_LOADERS = {
   parks: function() { return loadPtilesLayer("parks", "parks"); },
   rail: function() { return loadPtilesLayer("rail", "rail"); },
   // trails ships versioned in its filename; the older layers do not.
-  trails: function() { return loadPtilesLayer("trails", "trails_v1"); },
+  trails: function() { return loadPtilesLayer("trails", "trails"); },
   bldgs: function() { return loadPtilesLayerBldgs(); },
   camera: function() { return loadPtilesLayerUS("camera", US_LAYER_FILES.camera); },
   signal: function() { return loadPtilesLayerUS("signal", US_LAYER_FILES.signal); }
@@ -1535,7 +1535,7 @@ async function loadPtilesLayerBldgs() {
   setLayerStatus("bldgs loading...");
   try {
     var st = currentState;
-    layer.reader = await PtilesWasmReader.fromUrl(stateUrl(st, "buildings_v8"));
+    layer.reader = await PtilesWasmReader.fromUrl(stateUrl(st, "buildings"));
     layer.state = st;
     setLayerStatus("bldgs ready (" + st + ")");
     scheduleViewportRender();
@@ -1814,8 +1814,43 @@ var bldgReaderPromise = null;
 var bizReaderPromise = null;
 var roadsByState = {}; // abbr -> LayerReader (route may use 2 states)
 
+// Everything is served from one dated snapshot prefix. The date names the
+// build; the version in each filename names the wire format, which moves per
+// layer (address v2, buildings v9, business v4, rail v1) and so cannot be a
+// single number in the path.
+//
+// The flat /maps/ root this used to read is the legacy set: unversioned names,
+// mixed vintages from May to August, and in several layers the output of a
+// builder that has since been fixed. Pointing here is what makes the page show
+// the data the builders actually produce today.
+var PTILES_BASE = "https://maps.mydatatimeline.com/maps/2026-08-07/";
+
+// layer key -> filename stem in that snapshot.
+var LAYER_FILES = {
+  roads: "roads_v2",
+  water: "water_v1",
+  parks: "parks_v1",
+  rail: "rail_v1",
+  trails: "trails_v1",
+  buildings: "buildings_v9",
+  business: "business_v4",
+  business_name_index: "business_name_index",
+  address: "address_v2",
+  highways: "highways_v2",
+  places: "places_v1",
+  admin: "admin",
+  camera: "camera",
+  signals: "signals",
+};
+
+function layerFile(layer) {
+  // Unknown keys pass through unchanged so a caller can still name a file
+  // directly; every known layer goes through the table.
+  return LAYER_FILES[layer] || layer;
+}
+
 function stateUrl(state, layer) {
-  return "https://maps.mydatatimeline.com/maps/" + state + "." + layer + ".ptiles";
+  return PTILES_BASE + state + "." + layerFile(layer) + ".ptiles";
 }
 
 // US.admin.ptiles carries no per-cell blocks: its `aux` section is one flat
@@ -1886,7 +1921,7 @@ document.getElementById("adminValue").addEventListener("click", async function(e
 });
 
 function ensureBldgReader() {
-  if (!bldgReaderPromise) bldgReaderPromise = PtilesWasmReader.fromUrl(stateUrl(currentState, "buildings_v8"));
+  if (!bldgReaderPromise) bldgReaderPromise = PtilesWasmReader.fromUrl(stateUrl(currentState, "buildings"));
   return bldgReaderPromise;
 }
 function ensureBizReader() {
@@ -2734,14 +2769,14 @@ async function openPointReader(url) {
 function ensureSignalReader() {
   if (!signalReaderPromise) {
     signalReaderPromise = openPointReader(
-      "https://maps.mydatatimeline.com/maps/US.signals.ptiles");
+      stateUrl("US", "signals"));
   }
   return signalReaderPromise;
 }
 function ensureCameraReader() {
   if (!cameraReaderPromise) {
     cameraReaderPromise = openPointReader(
-      "https://maps.mydatatimeline.com/maps/US.camera.ptiles");
+      stateUrl("US", "camera"));
   }
   return cameraReaderPromise;
 }
