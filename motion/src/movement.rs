@@ -907,13 +907,13 @@ mod tests {
     #[test]
     fn a_majority_outlives_the_votes_that_built_it() {
         let mut d = VoteDebouncer::new(DebounceConfig::default());
-        let mut now = feed(&mut d, MovementType::Walking, 80, 0);
-        now = feed(&mut d, MovementType::Driving, 4, now); // 4 votes, 10 s apart below
+        let t = feed(&mut d, MovementType::Walking, 80, 0);
+        feed(&mut d, MovementType::Driving, 4, t); // 4 votes, 1 s apart
         assert_eq!(d.current(), MovementType::Walking, "not yet: 3 s of evidence");
         // Same four votes spread over 30 s, then Stationary votes: Driving is
         // still the window majority long enough to clear the 15 s latency.
         let mut d = VoteDebouncer::new(DebounceConfig::default());
-        now = feed(&mut d, MovementType::Walking, 80, 0);
+        let mut now = feed(&mut d, MovementType::Walking, 80, 0);
         for _ in 0..4 {
             d.tick(&vote(MovementType::Driving), now);
             now += 10_000;

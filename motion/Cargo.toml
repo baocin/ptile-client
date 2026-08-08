@@ -21,3 +21,9 @@ default = ["std"]
 std = ["ptiles-core/std"]
 # Serialize/deserialize the movement types (used by the wasm + ffi wrappers).
 serde = ["dep:serde", "ptiles-core/serde"]
+
+# The integration tests replay real GPX traces and decode a real roads block,
+# so they need core's `std` file/decoder surface directly -- `Fix` alone comes
+# through this crate's own re-export.
+[dev-dependencies]
+ptiles-core = { path = "../core", features = ["std"] }

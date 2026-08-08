@@ -24,6 +24,10 @@ use alloc::collections::VecDeque;
 
 use ptiles_core::{haversine_distance_m, Fix};
 
+// Re-exported because a `TimedFix` cannot be built without it: a caller that
+// only wants motion classification should not have to name ptiles-core.
+pub use ptiles_core::Fix as CoreFix;
+
 pub mod movement;
 pub use movement::{
     AccelStats, DebounceConfig, MovementType, RoadContext, TrafficControl, Vote, VoteDebouncer,
@@ -172,26 +176,32 @@ impl MotionClassifier {
     /// Effective speed for a fix: prefer a valid platform `speed_mps`, else
     /// derive from the displacement since the last accepted fix. Returns
     /// `None` when neither is available or the time delta is unusable (first
-    /// fix, non-monotonic time, or a gap beyond `max_gap_ms` — the latter also
-    /// resets the smoothing window so stale speeds don't linger).
+    /// fix, non-monotonic time, or a derived speed across a gap beyond
+    /// `max_gap_ms`).
+    ///
+    /// The gap is checked *before* the platform-speed shortcut, not after.
+    /// Staleness is a property of the interval since the last fix, not of
+    /// where this fix's speed came from: checking it second meant a track fed
+    /// platform speeds never reset its window, so after an hour parked the
+    /// smoothed speed still averaged in speeds from the trip before.
     fn effective_speed(&mut self, f: &TimedFix) -> Option<f64> {
-        if let Some(s) = f.fix.speed_mps {
-            if s.is_finite() && s >= 0.0 {
-                return Some(s);
-            }
+        let dt_ms = self.last.and_then(|prev| f.t_ms.checked_sub(prev.t_ms));
+        if dt_ms.is_some_and(|dt| dt > self.cfg.max_gap_ms) {
+            // Stale: the buffered speeds describe an older trip.
+            self.speeds.clear();
+            self.pending = None;
+            // A platform speed still describes *this instant*, so it seeds the
+            // fresh window; only a position-derived speed would be measuring
+            // across the gap and is dropped.
+            return platform_speed(f);
+        }
+        if let Some(s) = platform_speed(f) {
+            return Some(s);
         }
         let prev = self.last?;
-        let dt_ms = f.t_ms.checked_sub(prev.t_ms);
         match dt_ms {
             // Non-monotonic (time went backwards or stood still): unusable.
             None | Some(0) => None,
-            Some(dt) if dt > self.cfg.max_gap_ms => {
-                // Stale: derived speed would be meaningless and the window is
-                // no longer representative. Reset smoothing, keep no speed.
-                self.speeds.clear();
-                self.pending = None;
-                None
-            }
             Some(dt) => {
                 let meters = haversine_distance_m(
                     prev.fix.lat,
@@ -207,7 +217,8 @@ impl MotionClassifier {
         }
     }
 
-    /// Raw band for a smoothed speed, before debouncing.
+    /// Raw band for a smoothed speed, before debouncing (see also
+    /// [`platform_speed`] for what counts as a usable reported speed).
     fn band(&self, v: f64) -> MovementType {
         if v <= self.cfg.stationary_max_mps {
             MovementType::Stationary
@@ -239,6 +250,16 @@ impl MotionClassifier {
     }
 }
 
+/// The fix's reported speed, if it is one: finite and non-negative. A
+/// negative, NaN or infinite reading is a driver artefact, not a measurement,
+/// and must fall through to the position-derived path rather than be banded.
+fn platform_speed(f: &TimedFix) -> Option<f64> {
+    match f.fix.speed_mps {
+        Some(s) if s.is_finite() && s >= 0.0 => Some(s),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +282,36 @@ mod tests {
     /// longitude is ~899 m, so 1e-5 deg is ~9 cm.
     fn moved_fix(lon_steps: i64, speed_mps: Option<f64>) -> Fix {
         fix(36.16, -86.79 + lon_steps as f64 * 0.00001, speed_mps)
+    }
+
+    #[test]
+    fn a_gap_resets_the_window_even_when_the_platform_reports_speed() {
+        // The bug this pins: the gap check used to sit *after* the
+        // platform-speed shortcut, so a track fed platform speeds never reset.
+        // Drive at 12 m/s, park for 90 s (> max_gap_ms), then report 0.5 m/s.
+        let mut c = MotionClassifier::new(MotionConfig::default());
+        feed_speed(&mut c, 12.0, 5, 0);
+        assert_eq!(c.smoothed_speed_mps(), Some(12.0));
+        c.push(TimedFix::new(fix(36.16, -86.79, Some(0.5)), 4_000 + 90_000));
+        assert_eq!(
+            c.smoothed_speed_mps(),
+            Some(0.5),
+            "the window must hold only the post-gap sample, not an average with the old trip"
+        );
+    }
+
+    #[test]
+    fn a_gap_still_drops_a_derived_speed_measured_across_it() {
+        // The other half: with no platform speed there is nothing to seed the
+        // fresh window with, so the gap leaves it empty rather than dividing a
+        // 90 s displacement into a speed.
+        let mut c = MotionClassifier::new(MotionConfig::default());
+        for i in 0..6 {
+            c.push(TimedFix::new(moved_fix(i as i64 * 10, None), i * 1000));
+        }
+        assert!(c.smoothed_speed_mps().is_some());
+        c.push(TimedFix::new(moved_fix(1000, None), 5_000 + 90_000));
+        assert_eq!(c.smoothed_speed_mps(), None);
     }
 
     #[test]
