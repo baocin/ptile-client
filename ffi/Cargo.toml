@@ -16,6 +16,9 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 ptiles-core = { path = "../core", features = ["std", "http"] }
+# Movement classification. Exposed through src/motion.rs so a mobile caller stops
+# re-implementing the decision tree against a copy of the thresholds.
+ptiles-motion = { path = "../motion" }
 uniffi = "0.29.4"
 thiserror = "2.0.18"
 

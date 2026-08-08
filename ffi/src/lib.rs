@@ -41,6 +41,8 @@ use ptiles_core::source::SourceError;
 use ptiles_core::{AdminFile as CoreAdminFile, AdminInfo as CoreAdminInfo};
 use ptiles_core::{AddressFile as CoreAddressFile, AddressRecord as CoreAddressRecord};
 
+pub mod motion;
+
 uniffi::setup_scaffolding!();
 
 // --- Errors -----------------------------------------------------------------
