@@ -187,7 +187,9 @@ def serve(directory, port):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--headed", action="store_true")
-    ap.add_argument("--port", type=int, default=8731)
+    # 0 asks the OS for a free port; a fixed one collides with whatever else is
+    # already listening on this machine. Pass --port to pin it.
+    ap.add_argument("--port", type=int, default=0)
     args = ap.parse_args()
 
     try:
@@ -199,8 +201,8 @@ def main():
     # Serve the repo root, not label-gpx/, so the page can fetch the committed
     # GPX fixtures. `file://` would not do: Cache API is undefined on an
     # insecure origin, and module imports are blocked.
-    serve(ROOT, args.port)
-    url = f"http://127.0.0.1:{args.port}/label-gpx/index.html"
+    httpd = serve(ROOT, args.port)
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/label-gpx/index.html"
 
     failures = []
     with sync_playwright() as pw:

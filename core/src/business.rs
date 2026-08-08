@@ -457,8 +457,14 @@ pub fn decode_business(data: &[u8]) -> Result<Vec<Business>, DecodeError> {
             return result;
         }
     }
-    // Try v4 (sequential records, no framing)
-    decode_business_v4(data)
+    // Not v3 framing, so this is v4 -- and v4 cannot be decoded from bytes alone.
+    // Falling through to `decode_business_v4(data)` here is what produced the
+    // whole Null Island class of bug: it "succeeds", with every record a few
+    // hundred metres from (0, 0).
+    Err(DecodeError::CellRequired {
+        layer: "business",
+        version: 4,
+    })
 }
 
 #[cfg(test)]
@@ -948,6 +954,25 @@ mod tests {
         // The check that would have caught Null Island.
         assert!(out[0].lat > 36.0 && out[0].lat < 36.7, "lat {}", out[0].lat);
         assert!(out[0].lon > -86.5 && out[0].lon < -85.6, "lon {}", out[0].lon);
+    }
+
+    #[test]
+    fn sniffing_a_v4_block_refuses_rather_than_answering_null_island() {
+        // The whole bug class in one assertion. A v4 block has no cell in it, and
+        // decoding it against an origin of (0, 0) does not fail -- it returns
+        // records in the Gulf of Guinea, which every caller downstream reads as
+        // "no businesses here". Refusing is the only honest answer.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("test-fixtures")
+            .join("golden");
+        let block = std::fs::read(dir.join("business_v4.block.bin")).expect("read v4 block");
+        assert!(matches!(
+            decode_business(&block),
+            Err(DecodeError::CellRequired { layer: "business", version: 4 })
+        ));
+        // And the same bytes decode fine once the cell is supplied.
+        assert!(!decode_business_for_cell(&block, 609196074095083519u64).unwrap().is_empty());
     }
 
     #[test]

@@ -88,7 +88,13 @@ def haversine_m(lat1, lon1, lat2, lon2):
 
 def serve(directory, port):
     """A plain static server. Only the page's own assets come from here -- the
-    .ptiles files are fetched from the live host, which does support Range."""
+    .ptiles files are fetched from the live host, which does support Range.
+
+    Port 0 asks the OS for a free one, which is the default: a fixed port turns
+    "something else on this machine is already listening" into a traceback ten
+    minutes into a run. Pass `--port` to pin it when you want a stable URL.
+    Returns the server; read the real port off `httpd.server_address[1]`.
+    """
     handler = lambda *a, **kw: http.server.SimpleHTTPRequestHandler(
         *a, directory=str(directory), **kw)
     socketserver.TCPServer.allow_reuse_address = True
@@ -99,7 +105,8 @@ def serve(directory, port):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8899)
+    ap.add_argument("--port", type=int, default=0,
+                    help="0 (the default) picks any free port")
     ap.add_argument("--timeout", type=int, default=45000)
     ap.add_argument("--keep-open", action="store_true")
     args = ap.parse_args()
@@ -110,7 +117,7 @@ def main():
         sys.exit("needs playwright: pip install playwright && playwright install chromium")
 
     httpd = serve(WEB_DEMO, args.port)
-    base = f"http://127.0.0.1:{args.port}/index.html"
+    base = f"http://127.0.0.1:{httpd.server_address[1]}/index.html"
     print(f"serving {WEB_DEMO} at {base}\n")
 
     results = {}

@@ -171,7 +171,9 @@ def fmt(rows, field, unit=""):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8901)
+    # 0 asks the OS for a free port; a fixed one collides with whatever else is
+    # already listening on this machine. Pass --port to pin it.
+    ap.add_argument("--port", type=int, default=0)
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--layers", nargs="*", default=list(LAYERS))
     ap.add_argument("--timeout", type=int, default=90, help="seconds per phase")
@@ -189,7 +191,7 @@ def main():
         sys.exit(f"unknown layers: {unknown}")
 
     httpd = serve(WEB_DEMO, args.port)
-    base = f"http://127.0.0.1:{args.port}/index.html"
+    base = f"http://127.0.0.1:{httpd.server_address[1]}/index.html"
     print(f"serving {WEB_DEMO} at {base}")
     print(f"{args.runs} run(s) per layer, live tiles from maps.mydatatimeline.com\n")
 

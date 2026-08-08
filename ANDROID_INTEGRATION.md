@@ -282,6 +282,14 @@ segment and turn underscores into spaces. `label-gpx/js/context.js`'s
 so keep the raw index too — a label is a lookup against a file with its own
 vintage, the index is what the layer actually holds.
 
+The version-sniffing `decode_business` now **refuses** a v4 block
+(`DecodeError::CellRequired`) instead of decoding it against an origin of
+(0, 0). That silent success was the bug: records parsed cleanly and came back a
+few hundred metres off Null Island, which every caller downstream reads as "no
+businesses here". `PtilesLayer.businessesNear` already routes through the
+versioned path, so nothing in the FFI changes -- but a caller reaching for the
+raw decoder now gets an error that names the fix.
+
 **New in `BusinessInfo`: `sourceType`, `sourceId`, `confidence`,** from an
 extended-attributes trailer every record carries and the decoder used to skip
 entirely. `sourceType` is 1 = Overture, 2 = Foursquare; `sourceId` is that

@@ -151,8 +151,9 @@ export function decode_buildings_for_cell(block_bytes: Uint8Array, cell_hex: str
 /**
  * Decode a business block without knowing its version or its cell.
  *
- * v3 only, in practice: the version sniff decodes v4 to Null Island. Kept for
- * callers that have neither a header nor a cell id.
+ * **v3 only.** A v4 block is rejected rather than decoded: its coordinates are
+ * offsets from the block's cell centre, and this entry point has no cell. Use
+ * [`decode_business_versioned`] or [`decode_business_for_cell`] instead.
  */
 export function decode_business(data: Uint8Array): any;
 

@@ -18,6 +18,17 @@ pub enum DecodeError {
     /// cell-relative geometry onto null island without complaint.
     #[error("{cell:#x} is not a valid H3 cell index")]
     InvalidCell { cell: u64 },
+    /// A block whose coordinates are stored *relative to its own cell* was handed
+    /// to a decoder that was given no cell. Refused rather than defaulted: the
+    /// records parse perfectly against an origin of (0, 0) and come back a few
+    /// hundred metres off Null Island, which reads downstream as "nothing here"
+    /// rather than as an error. Decode with the cell-taking entry point instead
+    /// (`decode_business_for_cell` / `decode_business_versioned`).
+    #[error(
+        "{layer} v{version} stores coordinates relative to the block's cell; \
+         decode it with that cell, not by sniffing the bytes"
+    )]
+    CellRequired { layer: &'static str, version: u8 },
     #[error("varint at offset {offset} did not terminate within input")]
     VarintOverrun { offset: usize },
     #[error("record length {len} at offset {offset} overruns block of length {block_len}")]
