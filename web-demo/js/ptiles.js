@@ -77,7 +77,10 @@ export function createPtiles(wasm) {
   // Getting this wrong is silent: a lookup simply misses and the layer renders
   // empty, which is indistinguishable from sparse coverage. It is how the
   // first version of this module drew nothing at all.
-  const CELL_MASK = 0xffffffffffe00000n;
+  // The mask comes from core (`cell_filler_mask`), not a literal here: it is a
+  // property of the H3 id layout, and a second copy in JavaScript is exactly
+  // the kind of drift this module exists to prevent.
+  const CELL_MASK = wasm.cell_filler_mask();
   const norm = (cell) => BigInt(cell) & CELL_MASK;
 
   // --------------------------------------------------------------- sources
@@ -553,6 +556,8 @@ export function createPtiles(wasm) {
   // layer's enums in JavaScript.
   const classify = {
     trailIsDeveloped: (trailType) => wasm.trail_is_developed(trailType || ""),
+    distanceM: (lat1, lon1, lat2, lon2) => wasm.distance_m(lat1, lon1, lat2, lon2),
+    normalizeCell: (cell) => wasm.normalize_cell(BigInt(cell)),
     buildingHeight: (heightM, buildingType) =>
       wasm.resolved_height(heightM == null ? undefined : heightM, buildingType || ""),
   };

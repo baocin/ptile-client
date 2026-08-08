@@ -89,6 +89,16 @@ export function cell_center(cell_hex) {
 }
 
 /**
+ * The filler-bit mask itself, for callers that must mask in their own code
+ * (a `Map` keyed by cell id, say) rather than call across the boundary per id.
+ * @returns {bigint}
+ */
+export function cell_filler_mask() {
+    const ret = wasm.cell_filler_mask();
+    return BigInt.asUintN(64, ret);
+}
+
+/**
  * H3 res-7 cell (lowercase hex string) containing `(lat, lon)`. Demo/browser
  * boundary for `ptiles_core::cell_for_coord` -- replaces `h3-js`'s
  * `latLngToCell` for every caller in this workspace.
@@ -325,6 +335,26 @@ export function decompress_block(compressed, dict) {
 }
 
 /**
+ * Whether a trail type is built infrastructure (cycleway, footway) rather
+ * than a natural way. Exposed so a renderer styles the two apart without
+ * re-listing the layer's type vocabulary in JavaScript.
+ * Great-circle distance in metres.
+ *
+ * The page had 31 sites doing this by hand in JavaScript -- each one its own
+ * chance to use the wrong earth radius or drop the cos(lat) term. One
+ * implementation, in core, is the point of this client.
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @returns {number}
+ */
+export function distance_m(lat1, lon1, lat2, lon2) {
+    const ret = wasm.distance_m(lat1, lon1, lat2, lon2);
+    return ret;
+}
+
+/**
  * The height this crate would assume for a building type with no published
  * height. Exposed so a UI can explain a guess rather than just draw it.
  * @param {string} building_type
@@ -549,6 +579,17 @@ export function neighbor_cells(cell_hex) {
     var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v2;
+}
+
+/**
+ * Drop an H3 id's unused low digits, so two ids naming the same res-7 cell
+ * compare equal. The mask is a property of the id layout, not of any caller.
+ * @param {bigint} cell
+ * @returns {bigint}
+ */
+export function normalize_cell(cell) {
+    const ret = wasm.normalize_cell(cell);
+    return BigInt.asUintN(64, ret);
 }
 
 /**
@@ -778,9 +819,6 @@ export function score_candidates(fix_json, roads_block, buildings_block, busines
 }
 
 /**
- * Whether a trail type is built infrastructure (cycleway, footway) rather
- * than a natural way. Exposed so a renderer styles the two apart without
- * re-listing the layer's type vocabulary in JavaScript.
  * @param {string} trail_type
  * @returns {boolean}
  */

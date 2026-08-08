@@ -80,7 +80,10 @@ pub use route_graph::{
 pub use scoring::{Candidate, CandidateKind, Fix, ScoringParams, score_candidates};
 pub use viewshed::{ViewBuilding, Visibility, estimate_height, height_or_estimate, viewshed};
 
-pub use coarse::{CoarseBracket, CoarseIndex, CoarseSample, parse as parse_coarse_index};
+pub use coarse::{
+    CELL_FILLER_BITS, CoarseBracket, CoarseIndex, CoarseSample, normalize_cell,
+    parse as parse_coarse_index,
+};
 pub use file::{BlockOffsetBase, FileError, IndexLayout, PtilesFile, index_layout};
 pub use header::Header;
 #[cfg(feature = "http")]

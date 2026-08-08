@@ -33,6 +33,12 @@ export function address_cell(block_bytes: Uint8Array, cell_hex: string): any;
 export function cell_center(cell_hex: string): Float64Array;
 
 /**
+ * The filler-bit mask itself, for callers that must mask in their own code
+ * (a `Map` keyed by cell id, say) rather than call across the boundary per id.
+ */
+export function cell_filler_mask(): bigint;
+
+/**
  * H3 res-7 cell (lowercase hex string) containing `(lat, lon)`. Demo/browser
  * boundary for `ptiles_core::cell_for_coord` -- replaces `h3-js`'s
  * `latLngToCell` for every caller in this workspace.
@@ -104,6 +110,18 @@ export function decode_water(data: Uint8Array): any;
  * into core). Pass an empty `dict` slice for dict-less layers (parks/address).
  */
 export function decompress_block(compressed: Uint8Array, dict: Uint8Array): Uint8Array;
+
+/**
+ * Whether a trail type is built infrastructure (cycleway, footway) rather
+ * than a natural way. Exposed so a renderer styles the two apart without
+ * re-listing the layer's type vocabulary in JavaScript.
+ * Great-circle distance in metres.
+ *
+ * The page had 31 sites doing this by hand in JavaScript -- each one its own
+ * chance to use the wrong earth radius or drop the cos(lat) term. One
+ * implementation, in core, is the point of this client.
+ */
+export function distance_m(lat1: number, lon1: number, lat2: number, lon2: number): number;
 
 /**
  * The height this crate would assume for a building type with no published
@@ -223,6 +241,12 @@ export function nearest_road(block_bytes: Uint8Array, lat: number, lon: number, 
 export function neighbor_cells(cell_hex: string): any[];
 
 /**
+ * Drop an H3 id's unused low digits, so two ids naming the same res-7 cell
+ * compare equal. The mask is a property of the id layout, not of any caller.
+ */
+export function normalize_cell(cell: bigint): bigint;
+
+/**
  * Parse the PTCI sampled index from a file's `aux` region.
  *
  * Returns `null` when `aux` is not a coarse index -- empty, too short, or
@@ -339,11 +363,6 @@ export function route_from_segments(segments_js: any, zone_middle: any, lat1: nu
  */
 export function score_candidates(fix_json: string, roads_block: Uint8Array, buildings_block: Uint8Array, business_block: Uint8Array, cell_center_lat: number, cell_center_lon: number): any;
 
-/**
- * Whether a trail type is built infrastructure (cycleway, footway) rather
- * than a natural way. Exposed so a renderer styles the two apart without
- * re-listing the layer's type vocabulary in JavaScript.
- */
 export function trail_is_developed(trail_type: string): boolean;
 
 /**
@@ -391,6 +410,7 @@ export interface InitOutput {
     readonly adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
     readonly adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly cell_center: (a: number, b: number) => [number, number, number, number];
+    readonly cell_filler_mask: () => bigint;
     readonly cell_for_coord: (a: number, b: number) => [number, number];
     readonly cells_for_bounds: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly coarse_bracket: (a: number, b: number, c: number, d: number, e: bigint, f: number) => [number, number, number];
@@ -413,6 +433,7 @@ export interface InitOutput {
     readonly nearest_intersection: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly nearest_road: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly neighbor_cells: (a: number, b: number) => [number, number, number, number];
+    readonly normalize_cell: (a: bigint) => bigint;
     readonly parse_coarse_index: (a: number, b: number) => [number, number, number];
     readonly parse_entry_run: (a: number, b: number, c: number) => [number, number, number];
     readonly parse_header: (a: number, b: number) => [number, number, number];
@@ -424,6 +445,7 @@ export interface InitOutput {
     readonly trail_is_developed: (a: number, b: number) => number;
     readonly viewshed: (a: any, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly viewshed_multi: (a: any, b: any, c: number, d: number) => [number, number, number];
+    readonly distance_m: (a: number, b: number, c: number, d: number) => number;
     readonly roads_in_block: (a: number, b: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

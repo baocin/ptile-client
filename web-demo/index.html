@@ -374,7 +374,17 @@ var wasm_nearest_road = function(b, la, lo, t) { return wasm.nearest_road(b, la,
 var wasm_route_from_segments = function() { return wasm.route_from_segments.apply(null, arguments); };
 
 // Init WASM in background
-var wasmInit = init_wasm().then(function() { P = createPtiles(wasm); });
+// H3 res-7 ids carry filler digits in their low 21 bits. The mask that clears
+// them is a property of the id layout, so it is read from core rather than
+// written out here -- it was spelled 0xffffffffffe00000n in 17 places, each a
+// copy that could drift from the Rust one.
+var CELL_MASK = null;
+
+var wasmInit = init_wasm().then(function() {
+  P = createPtiles(wasm);
+  // Format constants come from core once, not from literals in this file.
+  CELL_MASK = wasm.cell_filler_mask();
+});
 
 // --- State data ---
 var STATE_CENTERS = {
@@ -540,13 +550,13 @@ function adaptLayer(layer, url) {
   var entries = layer.entries.map(adaptEntry);
   // Key by the NORMALISED cell. A res-7 H3 id carries filler digits in its low
   // 21 bits; the index stores them set, and every caller here comes from
-  // h3.latLngToCell masked with 0xffffffffffe00000n. Keying by the stored id
+  // h3.latLngToCell masked with CELL_MASK. Keying by the stored id
   // made `cellMap.has(cell)` false for every cell -- js/ptiles.js normalises
   // internally so cellRecords still worked, which hid it, but anything reading
   // cellMap directly (BusinessReader.query) missed every lookup.
   var cellMap = new Map();
   for (var i = 0; i < entries.length; i++) {
-    cellMap.set(entries[i].h3Cell & 0xffffffffffe00000n, i);
+    cellMap.set(entries[i].h3Cell & CELL_MASK, i);
   }
   return {
     url: url,
@@ -633,7 +643,7 @@ PtilesWasmReader.fromUrl = async function(url) {
   return new PtilesWasmReader(await openPtilesRemote(url));
 };
 PtilesWasmReader.prototype._decompressBlock = async function(cellHex) {
-  return fetchCellRecords(this.file, BigInt("0x" + cellHex) & 0xffffffffffe00000n);
+  return fetchCellRecords(this.file, BigInt("0x" + cellHex) & CELL_MASK);
 };
 PtilesWasmReader.prototype.query = async function(lat, lon) {
   await wasmInit;
@@ -647,10 +657,7 @@ PtilesWasmReader.prototype.query = async function(lat, lon) {
   for (var i = 0; i < bldgs.length; i++) {
     var b = mapWasmBuilding(bldgs[i], lat, lon);
     if (b.inPoly) return b;
-    var dlat = (b.centroidLat - lat) * Math.PI / 180;
-    var dlon = (b.centroidLon - lon) * Math.PI / 180;
-    var a = Math.sin(dlat/2)**2 + Math.cos(lat*Math.PI/180)*Math.cos(b.centroidLat*Math.PI/180)*Math.sin(dlon/2)**2;
-    var d = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    var d = haversineM(lat, lon, b.centroidLat, b.centroidLon);
     if (d < bestDist) { bestDist = d; best = b; }
   }
   return bestDist < 50 ? best : null;
@@ -676,8 +683,13 @@ PtilesWasmReader.prototype.renderAllInCell = async function(lat, lon, addPolyFn)
   return bldgs.length;
 };
 
-// Business: JS v3 decoder (wasm business is wrong framing for live files)
-// ponytail: reuse steele.red/ptiles BusinessReader record layout
+// Business: fetch and spatial query here, record decoding in core.
+//
+// The header used to read "JS v3 decoder (wasm business is wrong framing for
+// live files)". That stopped being true when _decodeRecords moved to
+// wasm.decode_business below, and a comment claiming this page still owns the
+// record layout is worse than no comment -- it invites the next reader to add
+// a second decoder beside it.
 function BusinessReader(file) {
   this.file = file;
   this.header = file.header; this.entries = file.entries; this.cellMap = file.cellMap; this.dict = file.dict;
@@ -725,11 +737,11 @@ BusinessReader.prototype._decodeRecords = function(raw) {
 BusinessReader.prototype.query = async function(lat, lon, radiusKm) {
   radiusKm = radiusKm || 0.05;
   var cellHex = h3.latLngToCell(lat, lon, 7);
-  var cellInt = BigInt("0x" + cellHex) & 0xffffffffffe00000n;
+  var cellInt = BigInt("0x" + cellHex) & CELL_MASK;
   var cells = [cellInt];
   try {
     var ring = h3.gridRing(cellHex, 1);
-    for (var r = 0; r < ring.length; r++) cells.push(BigInt("0x" + ring[r]) & 0xffffffffffe00000n);
+    for (var r = 0; r < ring.length; r++) cells.push(BigInt("0x" + ring[r]) & CELL_MASK);
   } catch (e) {}
   var results = [];
   for (var ci = 0; ci < cells.length; ci++) {
@@ -740,10 +752,7 @@ BusinessReader.prototype.query = async function(lat, lon, radiusKm) {
     var recs = this._decodeRecords(raw);
     for (var ri = 0; ri < recs.length; ri++) {
       var br = recs[ri];
-      var dlat2 = (br.lat - lat) * Math.PI / 180;
-      var dlon2 = (br.lon - lon) * Math.PI / 180;
-      var a2 = Math.sin(dlat2/2)**2 + Math.cos(lat*Math.PI/180)*Math.cos(br.lat*Math.PI/180)*Math.sin(dlon2/2)**2;
-      var dist = 6371000 * 2 * Math.atan2(Math.sqrt(a2), Math.sqrt(1 - a2));
+      var dist = haversineM(lat, lon, br.lat, br.lon);
       if (dist <= radiusKm * 1000) results.push(Object.assign({}, br, { distance: dist }));
     }
   }
@@ -771,8 +780,8 @@ BusinessReader.prototype.searchAll = async function(queryStr, onResult, onProgre
         return d2;
       }
       order.sort(function(a, b) {
-        var ca = self.file.entries[a].h3Cell & 0xffffffffffe00000n;
-        var cb = self.file.entries[b].h3Cell & 0xffffffffffe00000n;
+        var ca = self.file.entries[a].h3Cell & CELL_MASK;
+        var cb = self.file.entries[b].h3Cell & CELL_MASK;
         return cellDist2(ca) - cellDist2(cb);
       });
     } catch (e) {}
@@ -1092,7 +1101,7 @@ function runLimited(jobs, limit) {
 // still in flight it joins that request rather than issuing a second one.
 function prefetchCells(cells, enabled) {
   var ids = cells.map(function(hex) {
-    return BigInt("0x" + hex) & 0xffffffffffe00000n;
+    return BigInt("0x" + hex) & CELL_MASK;
   });
   enabled.forEach(function(key) {
     var layer = ptilesLayers[key];
@@ -1141,7 +1150,7 @@ async function renderPtilesForCells(cells) {
 
   for (var ci = 0; ci < cells.length; ci++) {
     var cellHex = cells[ci];
-    var cellInt = BigInt("0x" + cellHex) & 0xffffffffffe00000n;
+    var cellInt = BigInt("0x" + cellHex) & CELL_MASK;
 
     if (chkRoads && ptilesLayers.roads.reader && !ptilesLayers.roads.rendered.has(cellInt)) {
       ptilesLayers.roads.rendered.add(cellInt);
@@ -2050,10 +2059,7 @@ async function doSearch() {
   function addHit(result) {
     if (abortRef.aborted) return;
     searchResultCount++;
-    var dlat = (result.lat - origin[0]) * Math.PI / 180;
-    var dlon = (result.lon - origin[1]) * Math.PI / 180;
-    var a = Math.sin(dlat/2)**2 + Math.cos(origin[0]*Math.PI/180)*Math.cos(result.lat*Math.PI/180)*Math.sin(dlon/2)**2;
-    result._dist = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    result._dist = haversineM(origin[0], origin[1], result.lat, result.lon);
     // Render immediately so hits are clickable while the scan continues
     insertSearchResult(listEl, results, result);
     updateSearchProgress();
@@ -2824,7 +2830,7 @@ async function queryIntersection(lat, lon) {
   for (var i = 0; i < cells.length; i++) {
     var raw = null;
     try {
-      raw = await reader.decompressCell(BigInt("0x" + cells[i]) & 0xffffffffffe00000n);
+      raw = await reader.decompressCell(BigInt("0x" + cells[i]) & CELL_MASK);
     } catch (e) { continue; }
     decodeSignalRecords(raw).forEach(function(s) {
       s.distM = haversineM(lat, lon, s.lat, s.lon);
@@ -2854,7 +2860,7 @@ async function queryIntersection(lat, lon) {
 async function camerasNear(lat, lon, radiusM) {
   try {
     var reader = await ensureCameraReader();
-    var cell = BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & 0xffffffffffe00000n;
+    var cell = BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & CELL_MASK;
     var raw = await reader.decompressCell(cell);
     if (!raw) return [];
     // This page carried the PTILESC layout three times over: here, in the map
@@ -2876,11 +2882,13 @@ async function camerasNear(lat, lon, radiusM) {
   } catch (e) { return []; }
 }
 
+// Great-circle distance, from ptiles-core. This page had five separate
+// hand-rolled copies of the haversine formula; each one was its own chance to
+// pick a different earth radius or drop the cos(lat) term, and none of them
+// was tested. core::haversine_distance_m is, and the router already uses it,
+// so the page agreeing with the router is now structural rather than lucky.
 function haversineM(lat1, lon1, lat2, lon2) {
-  var dlat = (lat2 - lat1) * Math.PI / 180, dlon = (lon2 - lon1) * Math.PI / 180;
-  var a = Math.sin(dlat / 2) ** 2
-    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dlon / 2) ** 2;
-  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return wasm.distance_m(lat1, lon1, lat2, lon2);
 }
 
 // Adaptive corridor — long routes must stay under ~300-400 cells or tab stalls
@@ -3093,7 +3101,7 @@ async function nearestRoadDetail(lat, lon) {
   for (var ci = 0; ci < cells.length; ci++) {
     var raw = null;
     try {
-      raw = await reader.decompressCell(BigInt("0x" + cells[ci]) & 0xffffffffffe00000n);
+      raw = await reader.decompressCell(BigInt("0x" + cells[ci]) & CELL_MASK);
     } catch (e) { continue; }
     if (!raw) continue;
     var segs;
@@ -3148,7 +3156,7 @@ async function nearestRoadInState(state, lat, lon) {
   }
   var best = null;
   for (var ci = 0; ci < cells.length; ci++) {
-    var cellInt = BigInt("0x" + cells[ci]) & 0xffffffffffe00000n;
+    var cellInt = BigInt("0x" + cells[ci]) & CELL_MASK;
     var raw = await reader.decompressCell(cellInt);
     if (!raw) continue;
     var segs;
@@ -3224,7 +3232,7 @@ async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle) 
     setStatus("Route: " + done + "/" + cells.length + " cells · " + segments.length + " segs · " + elapsed.toFixed(1) + "s");
     var chunk = cells.slice(n, n + batch);
     var raws = await Promise.all(chunk.map(async function(hex) {
-      var cellInt = BigInt("0x" + hex) & 0xffffffffffe00000n;
+      var cellInt = BigInt("0x" + hex) & CELL_MASK;
       for (var ri = 0; ri < readers.length; ri++) {
         try {
           var raw = await readers[ri].decompressCell(cellInt);
@@ -3347,7 +3355,7 @@ async function loadRouteCorridorLoose(lat1, lon1, lat2, lon2, width) {
     setStatus("Route: loose " + Math.min(n + batch, cells.length) + "/" + cells.length + "…");
     var chunk = cells.slice(n, n + batch);
     var raws = await Promise.all(chunk.map(async function(hex) {
-      var cellInt = BigInt("0x" + hex) & 0xffffffffffe00000n;
+      var cellInt = BigInt("0x" + hex) & CELL_MASK;
       for (var ri = 0; ri < readers.length; ri++) {
         var raw = await readers[ri].decompressCell(cellInt);
         if (raw) return raw;
@@ -3766,7 +3774,7 @@ async function eachFeatureNear(layerKey, lat, lon, radiusM, visit) {
   var decode = { water: wasm.decode_water, parks: wasm.decode_parks, rail: wasm.decode_rail };
   for (var i = 0; i < cells.length; i++) {
     var raw = null;
-    try { raw = await reader.decompressCell(BigInt("0x" + cells[i]) & 0xffffffffffe00000n); }
+    try { raw = await reader.decompressCell(BigInt("0x" + cells[i]) & CELL_MASK); }
     catch (e) { continue; }
     if (!raw) continue;
     var feats;
@@ -4146,7 +4154,7 @@ window.__ptiles = {
     var all = [];
     for (var i = 0; i < cells.length; i++) {
       var raw = await reader.decompressCell(
-        BigInt("0x" + cells[i]) & 0xffffffffffe00000n);
+        BigInt("0x" + cells[i]) & CELL_MASK);
       decodeSignalRecords(raw).forEach(function(s) {
         s.distM = haversineM(lat, lon, s.lat, s.lon);
         all.push(s);

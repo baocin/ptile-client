@@ -169,6 +169,30 @@ pub fn decode_rail(data: &[u8]) -> Result<JsValue, JsValue> {
 /// Whether a trail type is built infrastructure (cycleway, footway) rather
 /// than a natural way. Exposed so a renderer styles the two apart without
 /// re-listing the layer's type vocabulary in JavaScript.
+/// Great-circle distance in metres.
+///
+/// The page had 31 sites doing this by hand in JavaScript -- each one its own
+/// chance to use the wrong earth radius or drop the cos(lat) term. One
+/// implementation, in core, is the point of this client.
+#[wasm_bindgen]
+pub fn distance_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    ptiles_core::haversine_distance_m(lat1, lon1, lat2, lon2)
+}
+
+/// Drop an H3 id's unused low digits, so two ids naming the same res-7 cell
+/// compare equal. The mask is a property of the id layout, not of any caller.
+#[wasm_bindgen]
+pub fn normalize_cell(cell: u64) -> u64 {
+    ptiles_core::normalize_cell(cell)
+}
+
+/// The filler-bit mask itself, for callers that must mask in their own code
+/// (a `Map` keyed by cell id, say) rather than call across the boundary per id.
+#[wasm_bindgen]
+pub fn cell_filler_mask() -> u64 {
+    !ptiles_core::CELL_FILLER_BITS
+}
+
 #[wasm_bindgen]
 pub fn trail_is_developed(trail_type: &str) -> bool {
     ptiles_core::trail_is_developed(trail_type)

@@ -49,12 +49,12 @@ pub const COARSE_VERSION: u8 = 1;
 const HEADER_LEN: usize = 20;
 
 /// Low 21 bits of an H3 id: the unused digits below resolution 7.
-const CELL_FILLER_BITS: u64 = 0x1f_ffff;
+pub const CELL_FILLER_BITS: u64 = 0x1f_ffff;
 
 /// Drop an H3 id's unused low digits so ids that name the same res-7 cell
 /// compare equal regardless of whether the caller kept the filler bits.
 #[inline]
-fn normalize_cell(cell: u64) -> u64 {
+pub fn normalize_cell(cell: u64) -> u64 {
     cell & !CELL_FILLER_BITS
 }
 
