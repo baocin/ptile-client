@@ -96,6 +96,46 @@ file.
     PATH="$HOME/.cargo/bin:$PATH" wasm-pack build wasm --target web \
       --out-dir ../web-demo/lib/client --out-name ptiles_client --release
 
+## Deploying
+
+**Pushing this repo does not deploy anything.** The live site is a static S3
+bucket, `steele.red` serves straight out of it (`server: AmazonS3` on any
+response), and nothing watches git. The `steele.red` repo builds into
+`output/`, which is `.gitignore`d, so a commit there does not deploy either.
+Both pushes are for history; the sync below is what users see.
+
+    cd ~/kino/projects/steele.red
+    python3 build.py                      # copies web-demo/ -> output/ptiles/
+
+    export AWS_PROFILE=steele-red-deploy  # in ~/.aws/credentials
+    aws s3 sync output/ptiles/ s3://steele.red/ptiles/ --dryrun --delete
+    aws s3 sync output/ptiles/ s3://steele.red/ptiles/ --exclude "*.wasm"
+    aws s3 cp output/ptiles/lib/client/ptiles_client_bg.wasm \
+      s3://steele.red/ptiles/lib/client/ptiles_client_bg.wasm \
+      --content-type application/wasm
+
+Three things that are easy to get wrong:
+
+- **The wasm needs an explicit content type.** `aws s3 sync` guesses from the
+  local mimetypes database, and a `.wasm` served as `application/octet-stream`
+  makes `WebAssembly.instantiateStreaming` fail — the page loads, the map
+  draws, and every layer stays empty. This machine happens to map `.wasm`
+  correctly; a machine that does not would deploy a broken demo silently. Hence
+  the separate `cp` rather than trusting the guess.
+- **Dry-run first, and scope the sync to `/ptiles/`.** The bucket holds the
+  whole site. `--delete` against the bucket root with only the demo staged
+  would remove every other page.
+- **The build must run before the sync.** `output/ptiles/` is a *copy*, not the
+  symlink — editing `web-demo/index.html` and syncing without `build.py` ships
+  the previous build.
+
+Verify against the live URL, not a local server: the deployed page fetches
+`.ptiles` from the CDN, so a local check cannot catch a bad content type, a
+stale build, or a 403 on the data.
+
+    curl -sI https://steele.red/ptiles/lib/client/ptiles_client_bg.wasm \
+      | grep -i content-type          # must be application/wasm
+
 ## Verifying
 
     node --test web-demo/test/ptiles.test.mjs   # reader vs the corpus
