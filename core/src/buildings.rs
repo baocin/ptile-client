@@ -225,6 +225,21 @@ fn decode_building_record(
 /// end of input. `cell_center_lat`/`cell_center_lon` are the H3 res-7 cell's
 /// center in degrees (looked up by the caller via `query::cell_center`);
 /// first-vertex offsets in each record are relative to this point.
+/// Decode a buildings block for the cell it belongs to.
+///
+/// Prefer this over [`decode_buildings`]: v8/v9 coordinates are deltas from the
+/// cell centre, so passing the wrong centre yields a full set of well-formed
+/// buildings in the wrong place, with no error to notice. The single most common
+/// way to get it wrong is asking for the centre of a *masked* cell id (the low
+/// filler bits cleared for index lookup), which is not a valid H3 index at all --
+/// `cell_center` answers null island for it and every building lands ~9,700 km
+/// away. Deriving the centre here from the same id the caller already has makes
+/// that mistake unrepresentable.
+pub fn decode_buildings_for_cell(data: &[u8], cell: u64) -> Result<Vec<Building>, DecodeError> {
+    let (lat, lon) = crate::query::try_cell_center(cell).ok_or(DecodeError::InvalidCell { cell })?;
+    decode_buildings(data, lat, lon)
+}
+
 pub fn decode_buildings(
     data: &[u8],
     cell_center_lat: f64,
@@ -292,6 +307,56 @@ pub fn decode_buildings_v8(
 
 #[cfg(test)]
 mod tests {
+    /// The masked-cell trap, pinned in the library that used to enable it.
+    ///
+    /// A caller looking a cell up in an index masks the res-7 filler bits. That
+    /// masked value is not a valid H3 index, `cell_center` answers (0, 0) for it,
+    /// and v8/v9 buildings decoded against that centre come out on the far side
+    /// of the planet -- well-formed records, wrong continent, no error. The
+    /// cell-taking entry point refuses instead.
+    #[test]
+    fn decode_for_cell_refuses_a_cell_h3_does_not_know() {
+        // A real res-7 id, and the same id with its filler bits cleared.
+        let real: u64 = 0x87264d106ffffff;
+        let masked = real & 0xffff_ffff_ffe0_0000;
+        assert!(crate::query::try_cell_center(real).is_some());
+        assert!(
+            crate::query::try_cell_center(masked).is_none(),
+            "a masked lookup key is not a cell, and must not answer as one"
+        );
+        // cell_center keeps its lossy contract for existing callers...
+        assert_eq!(crate::cell_center(masked), (0.0, 0.0));
+        // ...but the decode path that would turn that into wrong geometry stops.
+        let err = decode_buildings_for_cell(&[], masked).expect_err("must refuse");
+        assert!(matches!(err, DecodeError::InvalidCell { .. }), "{err:?}");
+    }
+
+    /// And the correct path agrees with passing the centre by hand, so the safe
+    /// entry point is not a different decoder.
+    #[test]
+    fn decode_for_cell_matches_an_explicit_centre() {
+        let p = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-fixtures/golden/buildings_v8.block.bin"
+        );
+        let Ok(bytes) = std::fs::read(p) else {
+            eprintln!("skipping: buildings golden block not present");
+            return;
+        };
+        let cell: u64 = 0x87264d106ffffff;
+        let (lat, lon) = crate::query::try_cell_center(cell).unwrap();
+        let by_hand = decode_buildings(&bytes, lat, lon);
+        let by_cell = decode_buildings_for_cell(&bytes, cell);
+        match (by_hand, by_cell) {
+            (Ok(a), Ok(b)) => {
+                assert_eq!(a.len(), b.len());
+                assert_eq!(a.first().map(|x| x.osm_id), b.first().map(|x| x.osm_id));
+            }
+            (Err(_), Err(_)) => {}
+            (a, b) => panic!("paths disagree: {:?} vs {:?}", a.is_ok(), b.is_ok()),
+        }
+    }
+
     use super::*;
     use alloc::vec;
 

@@ -20,8 +20,8 @@
 use ptiles_core::Fix;
 
 use ptiles_motion::{
-    classify, AccelStats, DebounceConfig, MotionClassifier, MotionConfig, MovementType, TimedFix,
-    VoteDebouncer,
+    classify, significant_shifts, AccelStats, DebounceConfig, MotionClassifier, MotionConfig,
+    MovementType, ShiftConfig, TimedFix, VoteDebouncer,
 };
 
 // ---------------------------------------------------------------- fixtures
@@ -210,6 +210,9 @@ struct Replay {
     speeds: Vec<f64>,
     /// Pushes where the smoothed speed was `None` (first fix, or a gap reset).
     speed_gaps: usize,
+    /// `(t_ms, smoothed speed)` per accepted fix, the series the change-point
+    /// detector runs on.
+    series: Vec<(u64, f64)>,
 }
 
 fn count(list: &mut Vec<(MovementType, usize)>, t: MovementType) {
@@ -270,7 +273,10 @@ fn replay(points: &[Pt]) -> Replay {
         let band = speed.push(TimedFix::new(fix, p.t_ms));
         count(&mut r.band, band);
         match speed.smoothed_speed_mps() {
-            Some(v) => r.speeds.push(v),
+            Some(v) => {
+                r.speeds.push(v);
+                r.series.push((p.t_ms, v));
+            }
             None => r.speed_gaps += 1,
         }
 
@@ -674,4 +680,139 @@ fn adversarial_fixes_never_panic() {
     // So is a one-point trace: nothing to derive a speed from.
     let one = replay(&[Pt { lat: 36.16, lon: -86.79, t_ms: 1_300_000_000_000 }]);
     assert!(one.speeds.is_empty());
+}
+
+// ---------------------------------------------------------------- shifts
+
+/// Change-point detection against the classifier, on real traces.
+///
+/// These are two independent readings of the same series: `significant_shifts`
+/// knows nothing about movement types or thresholds, only about whether the mean
+/// speed changed by more than noise explains. Where they agree, the boundary is
+/// real; where they do not is exactly what a person labelling wants to look at.
+#[test]
+fn shifts_and_transitions_agree_on_the_drive() {
+    let Some(traces) = load_all() else {
+        eprintln!("skipping: test-fixtures/gpx/ not present");
+        return;
+    };
+    let (e, points) = traces
+        .iter()
+        .find(|(e, _)| e.pace == Pace::Vehicle)
+        .expect("the vehicular fixture");
+    let r = replay(points);
+    let shifts = significant_shifts(&r.series, ShiftConfig::default());
+
+    // A two-hour drive through suburbs, a highway and open country has real
+    // structure: lights, turns, ramps, stops. Bound the *rate*, not the count --
+    // 41 shifts over 125 minutes is one every three minutes, which is what
+    // driving looks like, and a flat cap would just be a length limit.
+    let minutes = (points.last().unwrap().t_ms - points[0].t_ms) as f64 / 60_000.0;
+    let per_10min = shifts.len() as f64 / (minutes / 10.0);
+    assert!(
+        !shifts.is_empty() && per_10min <= 6.0,
+        "{}: {:.1} shifts per 10 min over {minutes:.0} min: {:?}",
+        e.stem,
+        per_10min,
+        shifts.iter().map(|s| (s.index, s.delta_mps().round())).collect::<Vec<_>>()
+    );
+    // And they are vehicle-scale changes, not drift: the median jump is metres
+    // per second, where the walk below moves by fractions of one.
+    let mut deltas: Vec<f64> = shifts.iter().map(|s| s.delta_mps().abs()).collect();
+    deltas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median = deltas[deltas.len() / 2];
+    assert!(median >= 3.0, "{}: median |delta| {median:.1} m/s", e.stem);
+    // Every reported shift must clear its own corrected bar and move the mean
+    // meaningfully -- the config promises both, so the output has to honour them.
+    for s in &shifts {
+        assert!(s.p_value <= s.alpha_corrected, "{s:?}");
+        assert!(s.delta_mps().abs() >= ShiftConfig::default().min_delta_mps, "{s:?}");
+        assert!(s.t_stat.is_finite() && s.before_mps.is_finite() && s.after_mps.is_finite());
+    }
+    // Sorted, separated, and inside the series.
+    assert!(shifts.windows(2).all(|w| w[1].index - w[0].index >= 8));
+    assert!(shifts.iter().all(|s| s.index < r.series.len()));
+
+    // Most committed transitions should have a shift nearby: the debouncer only
+    // commits after a sustained change, and a sustained change in speed is what
+    // this test detects. Loose on purpose -- the debouncer's latency means the
+    // transition lands well after the change that caused it.
+    let transition_times: Vec<u64> = {
+        let mut out = Vec::new();
+        let mut last = MovementType::Unknown;
+        let mut t = 0u64;
+        let mut speed = MotionClassifier::new(MotionConfig::default());
+        let mut deb = VoteDebouncer::new(DebounceConfig::default());
+        for p in points {
+            speed.push(TimedFix::new(fix_at(p), p.t_ms));
+            let vote = classify(speed.smoothed_speed_mps(), None, None, Some(&AccelStats::EMPTY));
+            let now = deb.tick(&vote, p.t_ms);
+            if now != last {
+                out.push(p.t_ms);
+                last = now;
+            }
+            t = p.t_ms;
+        }
+        let _ = t;
+        out
+    };
+    let near = transition_times
+        .iter()
+        .filter(|&&tt| {
+            shifts
+                .iter()
+                .any(|s| s.t_ms.abs_diff(tt) <= 5 * 60_000)
+        })
+        .count();
+    assert!(
+        near * 2 >= transition_times.len(),
+        "{}: only {near} of {} transitions have a shift within 5 min",
+        e.stem,
+        transition_times.len()
+    );
+}
+
+#[test]
+fn a_steady_walk_has_little_structure_to_find() {
+    // The other end: 94 minutes at 1.2 m/s. Whatever the detector reports here
+    // is pauses and resumptions, not mode changes, so there should be far fewer
+    // than on the drive -- and every one must still clear its own bar.
+    let Some(traces) = load_all() else { return };
+    let (e, points) = traces
+        .iter()
+        .find(|(e, _)| e.pace == Pace::Stroll)
+        .expect("the stroll fixture");
+    let r = replay(points);
+    let shifts = significant_shifts(&r.series, ShiftConfig::default());
+    for s in &shifts {
+        assert!(s.p_value <= s.alpha_corrected);
+        assert!(s.delta_mps().abs() >= ShiftConfig::default().min_delta_mps);
+    }
+    // What it finds here is pauses and resumptions on a hike, so the changes are
+    // fractions of a metre per second -- an order of magnitude below the drive's.
+    // That contrast is the claim worth testing: one detector, two regimes, and no
+    // pace-specific tuning anywhere in it.
+    let mut deltas: Vec<f64> = shifts.iter().map(|s| s.delta_mps().abs()).collect();
+    deltas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median = if deltas.is_empty() { 0.0 } else { deltas[deltas.len() / 2] };
+    assert!(
+        median <= 1.5,
+        "{}: median |delta| {median:.2} m/s is vehicle-scale for a 1.2 m/s walk: {:?}",
+        e.stem,
+        deltas
+    );
+    let minutes = (points.last().unwrap().t_ms - points[0].t_ms) as f64 / 60_000.0;
+    let per_10min = shifts.len() as f64 / (minutes / 10.0);
+    assert!(per_10min <= 3.0, "{}: {per_10min:.1} shifts per 10 min", e.stem);
+}
+
+#[test]
+fn shift_detection_is_deterministic_on_real_data() {
+    let Some(traces) = load_all() else { return };
+    for (e, points) in &traces {
+        let r = replay(points);
+        let a = significant_shifts(&r.series, ShiftConfig::default());
+        let b = significant_shifts(&r.series, ShiftConfig::default());
+        assert_eq!(a, b, "{} differs between runs", e.stem);
+    }
 }

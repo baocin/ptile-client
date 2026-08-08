@@ -364,12 +364,10 @@ export function createBasemap(map, P, wasm, ctx, { onStatus = () => {} } = {}) {
   }
 
   function drawBuildings(bytes, cellId) {
-    // v9 building coordinates are deltas from the cell centre, so the decoder
-    // needs the centre -- getting this wrong yields plausible geometry in the
-    // wrong place rather than an error.
-    const [clat, clon] = wasm.cell_center(cellId.toString(16));
+    // The cell-taking decoder works the centre out from the id, so the
+    // wrong-centre bug (plausible geometry, wrong continent) cannot happen here.
     let n = 0;
-    for (const b of wasm.decode_buildings(bytes, clat, clon)) {
+    for (const b of wasm.decode_buildings_for_cell(bytes, cellId.toString(16))) {
       const coords = b.coords || b.coordinates;
       if (!coords || coords.length < 3) continue;
       L.polygon(toLatLngs(coords), {

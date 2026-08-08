@@ -286,11 +286,16 @@ export function createResolver(P, wasm) {
     const got = await recordsAt("buildings", lat, lon);
     if (got.error) throw new Error(`buildings: ${got.error}`);
     if (!got.bytes) return null;
-    // v9 buildings are deltas from the cell centre, and the centre must come from
-    // the id the builder stored.
-    const [clat, clon] = wasm.cell_center(got.entry.h3_cell.toString(16));
+    // The cell-taking decoder derives the centre itself, so there is no way to
+    // hand it the wrong one -- which is exactly the bug this used to have.
+    let decoded;
+    try {
+      decoded = wasm.decode_buildings_for_cell(got.bytes, got.entry.h3_cell.toString(16));
+    } catch (e) {
+      throw new Error(`buildings: ${e?.message ?? e}`);
+    }
     let best = null;
-    for (const b of wasm.decode_buildings(got.bytes, clat, clon)) {
+    for (const b of decoded) {
       const coords = b.coords || b.coordinates || [];
       const inside = coords.length >= 3 && pointInPolygon(lat, lon, coords);
       const d = wasm.distance_m(lat, lon, b.centroid_lat, b.centroid_lon);

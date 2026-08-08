@@ -12,6 +12,12 @@ use alloc::vec::Vec;
 pub enum DecodeError {
     #[error("unexpected end of input at offset {offset} (needed {needed} more bytes)")]
     UnexpectedEof { offset: usize, needed: usize },
+    /// A cell id that H3 does not recognise was used where a *position* had to be
+    /// derived from it. Reported rather than defaulted: the usual cause is a
+    /// masked lookup key, and defaulting its centre to (0, 0) decodes
+    /// cell-relative geometry onto null island without complaint.
+    #[error("{cell:#x} is not a valid H3 cell index")]
+    InvalidCell { cell: u64 },
     #[error("varint at offset {offset} did not terminate within input")]
     VarintOverrun { offset: usize },
     #[error("record length {len} at offset {offset} overruns block of length {block_len}")]

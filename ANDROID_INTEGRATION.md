@@ -69,6 +69,16 @@ fix, which is the most trusted value there is.
 
 `ptiles-motion` is built for partial input, and this is tested rather than asserted:
 
+**A cell id that H3 does not recognise is an error, not a position.**
+`cell_center` answers `(0.0, 0.0)` for an invalid id, and that fallback is how a
+masked lookup key -- the low filler bits cleared for an index probe -- silently
+became null island, putting every v8/v9 building it positioned ~9,700 km from
+where it belonged. Well-formed records, wrong planet, no error. There is now
+`try_cell_center` returning `Option`, and `decode_buildings_for_cell(bytes, cell)`
+which derives the centre from the same id the caller already holds, so the wrong
+centre is unrepresentable rather than merely discouraged. Prefer it to
+`decode_buildings`; the wasm export of the same name does the same thing.
+
 **Absence lives in the type, not in a sentinel value.** `mean_magnitude` and `window_duration_s`
 are `Option<f64>`. A three-field reading deserializes with those two as `None`, never `0.0`, so a
 partial window is never half-interpreted as an absent one. A future rule that wants mean magnitude
@@ -262,6 +272,23 @@ right next to the two above, and that is a builder change, not a client one.
 
 (Signals are unaffected: `.signals` records already carry their type as a string,
 decoded from the format's own table. `BuildingInfo.category` likewise.)
+
+### Change points, as a second opinion on the classifier
+
+`ptiles_motion::significant_shifts` answers "where did the motion actually change?"
+from the speed series alone -- Welch's t-test on adjacent windows, no thresholds
+and no movement vocabulary, Bonferroni-corrected across the candidates tested and
+thinned so one change reports once. It returns an index, a timestamp, the signed
+t statistic, the p-value, and the corrected level it was accepted at.
+
+Worth having on the phone for two reasons. It is a cheap sanity check on the
+classifier: a committed transition with no shift near it usually means the
+debouncer reacted to noise, and a shift with no transition usually means a real
+change the thresholds missed. And it needs no map and no accelerometer, so it
+works where everything else degrades.
+
+Also exported through wasm as `significant_shifts(t_ms, speed_mps, config)`, which
+is what `label-gpx`'s "Speed & shifts" view draws.
 
 ## 5. On the second implementation in the server
 

@@ -58,6 +58,22 @@ still as the classifier proposed them are dimmed with a hairline. That is the `s
 `source="human"` distinction from `SCHEMA.md`, and it decides whether a segment counts as evidence,
 so it is in the picture rather than buried in a column. Click a band to select it.
 
+**Speed & shifts** (toolbar) draws the speed profile under the ribbon, with a marker wherever a
+Welch t-test says the motion genuinely changed. This is a different question from the classifier's
+transitions: no thresholds and no movement vocabulary are involved, only whether the mean speed moved
+by more than noise explains, with the significance level Bonferroni-corrected by the number of
+candidate positions tested. The two disagreeing is the useful case — a shift with no segment boundary
+near it is usually a real change the thresholds missed, and a boundary with no shift near it is
+usually the debouncer reacting to noise.
+
+Marker prominence follows the size of the change, not the p-value: a real drive produces dozens of
+changes that are all far past any threshold, so ranking them by p-value would make a 15 m/s
+motorway entry look like a 1 m/s corner. Nothing is hidden; small changes are simply drawn faintly.
+The **sensitivity** control sets how many samples are compared on each side — `fine` (6) finds a pause
+at a junction, `coarse` (24) finds the change from town driving to open road, and neither is more
+correct. The detector lives in `motion/src/shifts.rs` with its own tests, including the t-distribution
+checked against published critical values.
+
 **The basemap switch** (bottom-left of the map) chooses between OSM raster tiles and the ptiles
 layers — water, parks, rail, trails, roads, and buildings from zoom 15 — decoded in the page from the
 same files the road context comes from. The raster tiles are always right about the world; the vector ones are
@@ -84,6 +100,7 @@ is not one of the five label hues.
 | --- | --- |
 | `index.html` | page + CSS. Leaflet from unpkg, `preferCanvas` (a 2,000-vertex polyline as SVG is sluggish to pan). |
 | `js/basemap.js` | the two backdrops: OSM raster tiles, or the ptiles layers drawn from the same files the classifier reads. |
+| `js/chart.js` | the speed profile and the significant shifts, as inline SVG. |
 | `js/app.js` | wiring: file input, map, table, buttons. Only the browser-specific parts. |
 | `js/gpx.js` | the only XML in the project. `DOMParser` in, `XMLSerializer` out. |
 | `js/segments.js` | classify → coalesce → split/merge/relabel/undo. No DOM, no fetch, so `node --test` drives it. |

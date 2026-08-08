@@ -257,6 +257,43 @@ def main():
         if sel != last:
             failures.append(f"ui: ribbon click selected {sel}, expected {last}")
 
+        # --- speed chart and significant shifts
+        page.click("#chartToggle")
+        page.wait_for_selector("#chart svg", timeout=20000)
+        chart = page.evaluate(
+            "() => { const s = window.__labelGpx.shifts || [];"
+            " return [s.length, document.querySelectorAll('#chart .shift').length,"
+            "   document.querySelectorAll('#chart .speed').length,"
+            "   s.every(x => typeof x.t_ms === 'number' && Number.isFinite(x.t_ms)),"
+            "   s.every(x => x.p_value <= x.alpha_corrected)]; }"
+        )
+        n, marks, lines, plain_numbers, significant = chart
+        print(f"ok   ui: chart drew {lines} speed line(s) and {marks} shift marks for {n} shifts")
+        if marks != n:
+            failures.append(f"ui: {n} shifts but {marks} marks drawn")
+        if lines != 1:
+            failures.append(f"ui: expected one speed polyline, got {lines}")
+        # A u64 timestamp serialises as BigInt by default, and the first thing any
+        # consumer does with a timestamp is subtract it -- which throws "Cannot
+        # mix BigInt and other types" and leaves the chart blank. The wasm
+        # boundary converts; this is what keeps it converted.
+        if not plain_numbers:
+            failures.append("ui: shift t_ms is not a plain JS number (BigInt leak?)")
+        if not significant:
+            failures.append("ui: a reported shift does not clear its corrected level")
+        # The sensitivity knob has to actually change the answer.
+        page.select_option("#chartWindow", "6")
+        page.wait_for_timeout(700)
+        fine = page.evaluate("() => (window.__labelGpx.shifts || []).length")
+        page.select_option("#chartWindow", "24")
+        page.wait_for_timeout(700)
+        coarse = page.evaluate("() => (window.__labelGpx.shifts || []).length")
+        print(f"ok   ui: sensitivity fine={fine} normal={n} coarse={coarse}")
+        if fine == coarse and n == fine:
+            failures.append("ui: the window control changed nothing")
+        page.select_option("#chartWindow", "12")
+        page.click("#chartToggle")
+
         # --- basemap switch
         # Painted, not merely present. Under COEP a blocked tile still leaves its
         # <img> in the DOM, so counting elements says the map works when it is

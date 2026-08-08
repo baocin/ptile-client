@@ -10,6 +10,7 @@ import {
   sampleIndices, createHistory, timePerLabel,
 } from "./segments.js";
 import { createResolver, SNAPSHOT, stateAt, stateUrl } from "./context.js";
+import { renderChart } from "./chart.js";
 import { createBasemap } from "./basemap.js";
 
 const COLORS = {
@@ -26,6 +27,11 @@ const state = {
   selected: -1,
   resolved: false,
   history: createHistory(20),
+  chartOn: false,
+  chartWindow: 12,
+  // Invalidated whenever the classification changes: the shifts describe a
+  // particular speed series, and a re-classify produces a different one.
+  shifts: null,
 };
 
 let P = null;
@@ -356,6 +362,75 @@ function attachPlace() {
   warn(`attached ${place.building?.name ?? "this place"} to segment ${i + 1}`);
 }
 
+// ---------------------------------------------------------------- chart
+
+/**
+ * The speed series the chart and the shift detector both run on.
+ *
+ * Built from what the tracker derived per point, not from raw position deltas: it
+ * is the same smoothed series the classifier saw, so a shift the chart marks is a
+ * shift in the evidence the classifier had.
+ */
+function speedSeries() {
+  if (!state.parsed || !state.results) return [];
+  const out = [];
+  state.parsed.points.forEach((p, i) => {
+    const v = state.results[i] && state.results[i].speed;
+    if (Number.isFinite(v)) out.push({ t_ms: p.t_ms, speed: v });
+  });
+  return out;
+}
+
+/** Significant shifts, computed once per classification and cached. */
+function shifts() {
+  if (state.shifts) return state.shifts;
+  const series = speedSeries();
+  if (series.length < 30) return (state.shifts = []);
+  const t = new Float64Array(series.map((s) => s.t_ms));
+  const v = new Float64Array(series.map((s) => s.speed));
+  try {
+    // The window is the one knob worth exposing: it sets what counts as an
+    // "event". Six samples finds a pause at a junction, twenty-four finds the
+    // change from town driving to highway, and neither is more correct.
+    state.shifts = wasm.significant_shifts(t, v, { window: state.chartWindow });
+  } catch (err) {
+    warn(`shift detection failed: ${err}`);
+    state.shifts = [];
+  }
+  return state.shifts;
+}
+
+function renderChartIfShown() {
+  if (!state.chartOn) return;
+  renderChart(el("chart"), {
+    series: speedSeries(),
+    shifts: shifts(),
+    segments: state.segments,
+    colors: COLORS,
+    onSeek: (t_ms) => {
+      const i = state.segments.findIndex((s) => t_ms >= s.t0 && t_ms <= s.t1);
+      if (i >= 0) select(i);
+    },
+  });
+}
+
+el("chartWindow").addEventListener("change", (e) => {
+  state.chartWindow = Number(e.target.value);
+  state.shifts = null;
+  renderChartIfShown();
+});
+
+el("chartToggle").addEventListener("click", () => {
+  state.chartOn = !state.chartOn;
+  el("chart").hidden = !state.chartOn;
+  el("chartToggle").setAttribute("aria-pressed", String(state.chartOn));
+  renderChartIfShown();
+  if (state.chartOn) {
+    const n = shifts().length;
+    warn(n ? "" : "no shift clears the corrected significance level on this trace");
+  }
+});
+
 // ---------------------------------------------------------------- ribbon
 
 /**
@@ -536,6 +611,7 @@ function renderLegend() {
 function render() {
   drawSegments();
   renderRibbon();
+  renderChartIfShown();
   renderPlace();
   renderTable();
   renderDetail();
@@ -604,6 +680,7 @@ el("file").addEventListener("change", async (e) => {
   state.selected = -1;
   state.history = createHistory(20);
   state.results = classifyTrace(wasm, parsed.points);
+  state.shifts = null;
   state.segments = coalesce(parsed.points, state.results);
   // A rook file's own context is kept as-is rather than recomputed: it was
   // captured in the field, and this snapshot is years newer.
@@ -614,6 +691,8 @@ el("file").addEventListener("change", async (e) => {
   });
   el("reclassify").disabled = false;
   el("download").disabled = false;
+  el("chartToggle").disabled = false;
+  el("chartWindow").disabled = false;
   // Only the cells the trace occupies are worth drawing or fetching -- see
   // basemap.setTrace. A 90 km drive is ~50 cells; the viewport at a working zoom
   // asks for hundreds, nearly all of them nowhere near the trace.
@@ -673,6 +752,7 @@ async function classifyWithContext() {
       return s && s.context ? { road: s.context.road, intersection: s.context.intersection } : {};
     };
     state.results = classifyTrace(wasm, state.parsed.points, { contextFor: ctxAt });
+    state.shifts = null;
     const fresh = coalesce(state.parsed.points, state.results);
     for (const h of edited) {
       for (const seg of fresh) {

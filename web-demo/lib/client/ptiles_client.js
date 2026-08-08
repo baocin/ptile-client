@@ -320,6 +320,31 @@ export function decode_buildings(data, cell_center_lat, cell_center_lon) {
 }
 
 /**
+ * Decode a buildings block for the cell it came from.
+ *
+ * Prefer this to [`decode_buildings`]: v8/v9 coordinates are deltas from the
+ * cell centre, and passing the wrong centre produces a full set of well-formed
+ * buildings in the wrong place with nothing to notice. Deriving the centre from
+ * the cell id here removes the chance to get it wrong -- including the common
+ * case of handing over a *masked* lookup key, which is not a valid H3 index and
+ * used to answer null island.
+ * @param {Uint8Array} block_bytes
+ * @param {string} cell_hex
+ * @returns {any}
+ */
+export function decode_buildings_for_cell(block_bytes, cell_hex) {
+    const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_buildings_for_cell(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {Uint8Array} data
  * @returns {any}
  */
@@ -1034,6 +1059,35 @@ export function score_candidates(fix_json, roads_block, buildings_block, busines
 }
 
 /**
+ * Statistically significant changes in a speed series.
+ *
+ * `t_ms` and `speed_mps` are parallel arrays in time order (a `Float64Array`
+ * each). `config` is optional (`null` = defaults): any subset of
+ * `{window, alpha, min_separation, min_delta_mps}`.
+ *
+ * Returns `[{index, t_ms, t_stat, p_value, alpha_corrected, before_mps,
+ * after_mps}, ...]` in index order. This is a different question from the
+ * classifier's transitions -- Welch's t-test on adjacent windows, no thresholds
+ * and no movement vocabulary involved -- so the two disagreeing is information
+ * rather than a bug. See `motion/src/shifts.rs`.
+ * @param {Float64Array} t_ms
+ * @param {Float64Array} speed_mps
+ * @param {any} config
+ * @returns {any}
+ */
+export function significant_shifts(t_ms, speed_mps, config) {
+    const ptr0 = passArrayF64ToWasm0(t_ms, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArrayF64ToWasm0(speed_mps, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.significant_shifts(ptr0, len0, ptr1, len1, config);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} trail_type
  * @returns {boolean}
  */
@@ -1475,6 +1529,13 @@ function passArray8ToWasm0(arg, malloc) {
 function passArrayF32ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 4, 4) >>> 0;
     getFloat32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayF64ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 8, 8) >>> 0;
+    getFloat64ArrayMemory0().set(arg, ptr / 8);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }

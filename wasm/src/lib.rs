@@ -25,8 +25,9 @@ use ptiles_core::{
     ScoringParams, DEFAULT_THRESHOLD_M,
 };
 use ptiles_motion::{
-    classify, AccelStats, DebounceConfig, MotionClassifier, MotionConfig, MovementType,
-    RoadContext, TimedFix, TrafficControl, Vote, VoteDebouncer,
+    classify, significant_shifts as core_significant_shifts, AccelStats, DebounceConfig,
+    MotionClassifier, MotionConfig, MovementType, RoadContext, ShiftConfig, TimedFix,
+    TrafficControl, Vote, VoteDebouncer,
 };
 
 use ptiles_core::address::merged_block_cell_slice;
@@ -36,7 +37,7 @@ use ptiles_core::{
     match_business_name_block as core_match_business_name_block, name_to_key as core_name_to_key,
 };
 use ptiles_core::{
-    cell_center as core_cell_center, cell_for_coord as core_cell_for_coord,
+    cell_for_coord as core_cell_for_coord,
     neighbor_cells as core_neighbor_cells,
 };
 use ptiles_core::{
@@ -112,6 +113,22 @@ fn parse_fix_input(fix_json: &str) -> Result<Fix, String> {
         horizontal_accuracy_m: fix_input.horizontal_accuracy_m,
         speed_mps: fix_input.speed_mps,
     })
+}
+
+/// Decode a buildings block for the cell it came from.
+///
+/// Prefer this to [`decode_buildings`]: v8/v9 coordinates are deltas from the
+/// cell centre, and passing the wrong centre produces a full set of well-formed
+/// buildings in the wrong place with nothing to notice. Deriving the centre from
+/// the cell id here removes the chance to get it wrong -- including the common
+/// case of handing over a *masked* lookup key, which is not a valid H3 index and
+/// used to answer null island.
+#[wasm_bindgen]
+pub fn decode_buildings_for_cell(block_bytes: &[u8], cell_hex: &str) -> Result<JsValue, JsValue> {
+    let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
+    let buildings = ptiles_core::decode_buildings_for_cell(block_bytes, cell)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&buildings)
 }
 
 #[wasm_bindgen]
@@ -999,7 +1016,11 @@ pub fn cell_for_coord(lat: f64, lon: f64) -> String {
 #[wasm_bindgen]
 pub fn cell_center(cell_hex: &str) -> Result<Vec<f64>, JsValue> {
     let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
-    let (lat, lon) = core_cell_center(cell);
+    // Refuse an id H3 does not recognise rather than answering null island for
+    // it. The lossy default is how a masked lookup key silently became a
+    // position, and a position is exactly what callers do arithmetic on.
+    let (lat, lon) = ptiles_core::try_cell_center(cell)
+        .ok_or_else(|| JsValue::from_str(&format!("{cell_hex} is not a valid H3 cell index")))?;
     Ok(vec![lat, lon])
 }
 
@@ -1098,6 +1119,85 @@ pub fn intersection_type_name(intersection_type: u8) -> String {
 #[wasm_bindgen]
 pub fn intersection_holds_traffic(intersection_type: u8) -> bool {
     matches!(intersection_type, 1 | 2 | 3)
+}
+
+/// Statistically significant changes in a speed series.
+///
+/// `t_ms` and `speed_mps` are parallel arrays in time order (a `Float64Array`
+/// each). `config` is optional (`null` = defaults): any subset of
+/// `{window, alpha, min_separation, min_delta_mps}`.
+///
+/// Returns `[{index, t_ms, t_stat, p_value, alpha_corrected, before_mps,
+/// after_mps}, ...]` in index order. This is a different question from the
+/// classifier's transitions -- Welch's t-test on adjacent windows, no thresholds
+/// and no movement vocabulary involved -- so the two disagreeing is information
+/// rather than a bug. See `motion/src/shifts.rs`.
+#[wasm_bindgen]
+pub fn significant_shifts(
+    t_ms: &[f64],
+    speed_mps: &[f64],
+    config: JsValue,
+) -> Result<JsValue, JsValue> {
+    if t_ms.len() != speed_mps.len() {
+        return Err(JsValue::from_str(&format!(
+            "t_ms has {} samples but speed_mps has {}",
+            t_ms.len(),
+            speed_mps.len()
+        )));
+    }
+    let cfg: ShiftConfig = if config.is_null() || config.is_undefined() {
+        ShiftConfig::default()
+    } else {
+        from_js(config, "shift config")?
+    };
+    // The series is `(u64, f64)` in Rust; JS has no u64 array, so timestamps
+    // arrive as f64 (exact to 2^53 ms, i.e. year 287396) and are floored.
+    let samples: Vec<(u64, f64)> = t_ms
+        .iter()
+        .zip(speed_mps.iter())
+        .map(|(t, v)| (t.max(0.0) as u64, *v))
+        .collect();
+    let shifts: Vec<ShiftJs> = core_significant_shifts(&samples, cfg)
+        .into_iter()
+        .map(ShiftJs::from)
+        .collect();
+    to_js(&shifts)
+}
+
+/// A [`ptiles_motion::Shift`] with a JS-safe timestamp.
+///
+/// `Shift.t_ms` is a `u64`, and this crate's serializer sends large integer types
+/// as `BigInt` (see `to_js` -- business `osm_id` needs that). A BigInt timestamp
+/// then throws "Cannot mix BigInt and other types" the first time a caller does
+/// arithmetic on it, which is every caller, because a timestamp exists to be
+/// subtracted. Milliseconds are exact in an f64 out to year 287396, so the
+/// boundary converts once here rather than making every consumer remember to.
+#[derive(serde::Serialize)]
+struct ShiftJs {
+    index: usize,
+    t_ms: f64,
+    t_stat: f64,
+    p_value: f64,
+    alpha_corrected: f64,
+    before_mps: f64,
+    after_mps: f64,
+    /// Signed change in mean speed, so a caller does not have to subtract.
+    delta_mps: f64,
+}
+
+impl From<ptiles_motion::Shift> for ShiftJs {
+    fn from(s: ptiles_motion::Shift) -> Self {
+        ShiftJs {
+            index: s.index,
+            t_ms: s.t_ms as f64,
+            t_stat: s.t_stat,
+            p_value: s.p_value,
+            alpha_corrected: s.alpha_corrected,
+            before_mps: s.before_mps,
+            after_mps: s.after_mps,
+            delta_mps: s.delta_mps(),
+        }
+    }
 }
 
 /// Accelerometer window summary from three same-length `Float32Array`s (raw
@@ -1536,6 +1636,39 @@ mod tests {
         assert!(serde_json::from_value::<RoadContext>(no_class).is_err());
         let no_distance = serde_json::json!({"road_class": "footway"});
         assert!(serde_json::from_value::<RoadContext>(no_distance).is_err());
+    }
+
+    #[test]
+    fn shift_config_partial_and_mismatched_arrays() {
+        // Partial config keeps the other defaults, same contract as the debouncer.
+        let cfg: ShiftConfig =
+            serde_json::from_value(serde_json::json!({"window": 20})).expect("partial");
+        let d = ShiftConfig::default();
+        assert_eq!(cfg.window, 20);
+        assert_eq!(cfg.alpha, d.alpha);
+        assert_eq!(cfg.min_delta_mps, d.min_delta_mps);
+        assert_eq!(cfg.min_separation, d.min_separation);
+        // The shape a caller passes from a Float64Array pair, checked for length
+        // agreement before anything is zipped -- zip would silently truncate to
+        // the shorter one and analyse a series that does not exist.
+        let step: Vec<(u64, f64)> = (0..80)
+            .map(|i| (i as u64 * 1000, if i < 40 { 0.3 } else { 12.0 } + (i % 3) as f64 * 0.1))
+            .collect();
+        let shifts = ptiles_motion::significant_shifts(&step, ShiftConfig::default());
+        assert_eq!(shifts.len(), 1, "{shifts:?}");
+        // The JS-facing shape: every field present, and `t_ms` a plain number
+        // rather than the BigInt a u64 would serialize to. A BigInt timestamp
+        // throws "Cannot mix BigInt and other types" in the first consumer that
+        // subtracts two of them, which is every consumer.
+        let json = serde_json::to_value(ShiftJs::from(shifts[0])).expect("serialize");
+        for key in [
+            "index", "t_ms", "t_stat", "p_value", "alpha_corrected", "before_mps", "after_mps",
+            "delta_mps",
+        ] {
+            assert!(json.get(key).is_some(), "missing {key} in {json}");
+        }
+        assert!(json["t_ms"].is_f64(), "t_ms must be a plain number: {json}");
+        assert!((json["delta_mps"].as_f64().unwrap() - 11.7).abs() < 0.5, "{json}");
     }
 
     #[test]

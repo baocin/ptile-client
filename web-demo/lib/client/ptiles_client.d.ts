@@ -136,6 +136,18 @@ export function coarse_bracket(aux: Uint8Array, cell_hex: string, index_offset: 
 
 export function decode_buildings(data: Uint8Array, cell_center_lat: number, cell_center_lon: number): any;
 
+/**
+ * Decode a buildings block for the cell it came from.
+ *
+ * Prefer this to [`decode_buildings`]: v8/v9 coordinates are deltas from the
+ * cell centre, and passing the wrong centre produces a full set of well-formed
+ * buildings in the wrong place with nothing to notice. Deriving the centre from
+ * the cell id here removes the chance to get it wrong -- including the common
+ * case of handing over a *masked* lookup key, which is not a valid H3 index and
+ * used to answer null island.
+ */
+export function decode_buildings_for_cell(block_bytes: Uint8Array, cell_hex: string): any;
+
 export function decode_business(data: Uint8Array): any;
 
 /**
@@ -458,6 +470,21 @@ export function route_from_segments(segments_js: any, zone_middle: any, lat1: nu
  */
 export function score_candidates(fix_json: string, roads_block: Uint8Array, buildings_block: Uint8Array, business_block: Uint8Array, cell_center_lat: number, cell_center_lon: number): any;
 
+/**
+ * Statistically significant changes in a speed series.
+ *
+ * `t_ms` and `speed_mps` are parallel arrays in time order (a `Float64Array`
+ * each). `config` is optional (`null` = defaults): any subset of
+ * `{window, alpha, min_separation, min_delta_mps}`.
+ *
+ * Returns `[{index, t_ms, t_stat, p_value, alpha_corrected, before_mps,
+ * after_mps}, ...]` in index order. This is a different question from the
+ * classifier's transitions -- Welch's t-test on adjacent windows, no thresholds
+ * and no movement vocabulary involved -- so the two disagreeing is information
+ * rather than a bug. See `motion/src/shifts.rs`.
+ */
+export function significant_shifts(t_ms: Float64Array, speed_mps: Float64Array, config: any): any;
+
 export function trail_is_developed(trail_type: string): boolean;
 
 /**
@@ -512,6 +539,7 @@ export interface InitOutput {
     readonly cells_for_bounds: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly coarse_bracket: (a: number, b: number, c: number, d: number, e: bigint, f: number) => [number, number, number];
     readonly decode_buildings: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly decode_buildings_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly decode_business: (a: number, b: number) => [number, number, number];
     readonly decode_cameras: (a: number, b: number) => [number, number, number];
     readonly decode_parks: (a: number, b: number) => [number, number, number];
@@ -548,6 +576,7 @@ export interface InitOutput {
     readonly resolved_height: (a: number, b: number, c: number, d: number) => number;
     readonly route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly score_candidates: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+    readonly significant_shifts: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly trail_is_developed: (a: number, b: number) => number;
     readonly viewshed: (a: any, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly viewshed_multi: (a: any, b: any, c: number, d: number) => [number, number, number];

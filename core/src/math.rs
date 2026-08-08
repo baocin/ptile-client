@@ -1,6 +1,7 @@
 //! Float functions that libcore does not provide.
 //!
-//! `sin`, `cos`, `sqrt`, `atan2` and `round` are inherent `f64` methods only
+//! `sin`, `cos`, `sqrt`, `atan2`, `round`, `exp` and `ln` are inherent `f64`
+//! methods only
 //! when `std` is linked; under `no_std` they need a software implementation.
 //! Mirrors h3o's own strategy (`h3o::math::functions-libm.rs`): native methods
 //! under `std`, `libm` otherwise.
@@ -35,6 +36,14 @@ mod imp {
     pub fn ceil(x: f64) -> f64 {
         x.ceil()
     }
+    #[inline]
+    pub fn exp(x: f64) -> f64 {
+        x.exp()
+    }
+    #[inline]
+    pub fn ln(x: f64) -> f64 {
+        x.ln()
+    }
 }
 
 #[cfg(not(feature = "std"))]
@@ -63,9 +72,17 @@ mod imp {
     pub fn ceil(x: f64) -> f64 {
         libm::ceil(x)
     }
+    #[inline]
+    pub fn exp(x: f64) -> f64 {
+        libm::exp(x)
+    }
+    #[inline]
+    pub fn ln(x: f64) -> f64 {
+        libm::log(x)
+    }
 }
 
-pub use imp::{atan2, ceil, cos, round, sin, sqrt};
+pub use imp::{atan2, ceil, cos, exp, ln, round, sin, sqrt};
 
 #[cfg(test)]
 mod tests {
@@ -82,6 +99,14 @@ mod tests {
             assert_eq!(ceil(x), x.ceil(), "ceil({x})");
             if x >= 0.0 {
                 assert!((sqrt(x) - x.sqrt()).abs() < 1e-12, "sqrt({x})");
+            }
+            // exp overflows past ~709 and ln needs a positive argument, so the
+            // agreement check stays inside both domains.
+            if x.abs() < 100.0 {
+                assert!((exp(x) - x.exp()).abs() <= 1e-9 * x.exp().max(1.0), "exp({x})");
+            }
+            if x > 0.0 {
+                assert!((ln(x) - x.ln()).abs() < 1e-12, "ln({x})");
             }
         }
         assert!((atan2(1.0, 2.0) - 1.0f64.atan2(2.0)).abs() < 1e-12);

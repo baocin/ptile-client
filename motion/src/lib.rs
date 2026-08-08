@@ -29,6 +29,8 @@ use ptiles_core::{haversine_distance_m, Fix};
 pub use ptiles_core::Fix as CoreFix;
 
 pub mod movement;
+pub mod shifts;
+pub use shifts::{significant_shifts, Shift, ShiftConfig};
 pub use movement::{
     AccelStats, DebounceConfig, MovementType, RoadContext, TrafficControl, Vote, VoteDebouncer,
     classify, classify_accel_only, DRIVING_FLOOR_MPS, GPS_ACCURACY_GATE_M, WALKING_CEILING_MPS,

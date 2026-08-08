@@ -89,13 +89,22 @@ pub fn cell_for_coord(lat: f64, lon: f64) -> u64 {
 /// `(0.0, 0.0)` for an invalid `cell` id (mirrors `cell_for_coord`'s
 /// no-panic-on-bad-input stance).
 pub fn cell_center(cell: u64) -> (f64, f64) {
-    match CellIndex::try_from(cell) {
-        Ok(idx) => {
-            let ll = LatLng::from(idx);
-            (ll.lat(), ll.lng())
-        }
-        Err(_) => (0.0, 0.0),
-    }
+    try_cell_center(cell).unwrap_or((0.0, 0.0))
+}
+
+/// Centre of an H3 cell, or `None` if `cell` is not a valid H3 index.
+///
+/// [`cell_center`] answers `(0.0, 0.0)` for an invalid id, and that fallback has
+/// cost real debugging: a caller that masks an id's filler bits before asking
+/// gets null island back, and a decoder that positions its records relative to
+/// that centre produces geometry ~9,700 km from where it belongs -- plausible
+/// records, wrong planet, no error anywhere. Anything deriving a *position* from
+/// a cell should use this and handle the `None`, which is why
+/// [`crate::decode_buildings_for_cell`] exists.
+pub fn try_cell_center(cell: u64) -> Option<(f64, f64)> {
+    let idx = CellIndex::try_from(cell).ok()?;
+    let ll = LatLng::from(idx);
+    Some((ll.lat(), ll.lng()))
 }
 
 /// Ring-1 neighbors of `cell` at the same resolution, **excluding** the

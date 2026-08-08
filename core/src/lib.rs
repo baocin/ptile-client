@@ -51,7 +51,7 @@ pub use address::{
 pub use admin::{
     AdminFile, AdminGridEntry, AdminInfo, AdminLookup, AdminPolygon, AdminStringTables,
 };
-pub use buildings::{Building, decode_buildings};
+pub use buildings::{Building, decode_buildings, decode_buildings_for_cell};
 pub use business::{Business, decode_business, decode_business_v3, decode_business_v4};
 pub use business_search::{
     BusinessHit, match_business_name_block, name_to_key, search_business_brute_force,
@@ -79,6 +79,7 @@ pub use proximity::{
 };
 pub use query::{
     BoundsError, MAX_BOUNDS_CELLS, cell_center, cell_for_coord, cells_for_bounds, neighbor_cells,
+    try_cell_center,
 };
 pub use route_graph::{
     RoutePrefs, RouteResult, keep_road_class, profile_allows_driving, route_roads,
