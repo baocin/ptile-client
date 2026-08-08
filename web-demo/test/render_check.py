@@ -39,6 +39,7 @@ import os
 import re
 import socketserver
 import sys
+import math
 import threading
 from pathlib import Path
 
@@ -73,6 +74,16 @@ ENABLE = """(id) => {
   e.dispatchEvent(new Event('change', {bubbles: true}));
   return true;
 }"""
+
+
+def haversine_m(lat1, lon1, lat2, lon2):
+    """Great-circle metres. Local so this file needs nothing but the stdlib."""
+    r = 6371008.8
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(min(1, math.sqrt(a)))
 
 
 def serve(directory, port):
@@ -505,7 +516,12 @@ def main():
                 f"inspector: road row shown but blank ('{road['name']}' / "
                 f"'{road['cls']}') -- fields are not reaching the panel")
 
-        page.evaluate("() => document.getElementById('adminLoad').click()")
+        # The retry link only exists when the 28 MB grid failed or has not been
+        # asked for; the page loads admin on startup now, so clicking
+        # unconditionally throws on a *successful* load. Click it if it is there.
+        page.evaluate(
+            "() => { const b = document.getElementById('adminLoad'); if (b) b.click(); }"
+        )
         page.wait_for_timeout(45000)
         admin = page.evaluate("""() => ({
           value: document.getElementById('adminValue').textContent.trim(),
@@ -553,7 +569,11 @@ def main():
           bldg: document.getElementById('bldgName').textContent.trim(),
           shown: document.getElementById('bizRow').style.display !== 'none',
           name: document.getElementById('bizName').textContent.trim(),
-          header: (document.getElementById('bizList').firstChild || {}).textContent || ''
+          header: (document.getElementById('bizList').firstChild || {}).textContent || '',
+          category: document.getElementById('bizCat').textContent.trim(),
+          // Straight off the decoded record, not the panel: this is what the
+          // v4 framing bug corrupted.
+          rec: window.__ptiles.lastBusiness ? window.__ptiles.lastBusiness() : null
         })""")
         # The row carries a "(+63 more)" tail and a confidence mark, so compare
         # the name itself rather than the cell's text.
@@ -583,9 +603,94 @@ def main():
                 f"which for a shopping centre with 31 businesses in it means "
                 f"the ring is being built wrong")
 
+        # Where the record actually is, and what its category resolves to.
+        #
+        # Both are the v4 fallout. Decoded with v3 framing and no cell centre,
+        # these records came out a few hundred metres from 0,0 -- the panel then
+        # shows nothing at all, because nothing is within 200 m of the click, and
+        # "no business here" is indistinguishable from "the decoder is broken".
+        # The category is a second, quieter failure: read 0-based against
+        # {ST}.business_categories.json, every record wears its neighbour's label.
+        rec = biz["rec"]
+        if not rec:
+            failures.append("business match: no decoded record exposed for inspection")
+        else:
+            d = haversine_m(35.979629, -86.571064, rec["lat"], rec["lon"])
+            print(f"  record at {rec['lat']:.5f},{rec['lon']:.5f} ({d:.0f} m away) "
+                  f"cat={biz['category']!r} src={rec.get('sourceType')}")
+            if d > 500:
+                failures.append(
+                    f"business match: the picked record is {d / 1000:.0f} km from the "
+                    f"click ({rec['lat']:.4f},{rec['lon']:.4f}) -- v4 coordinates are "
+                    f"i16 offsets from the cell centre, so this is a decode with the "
+                    f"wrong origin, not a data gap")
+            if rec.get("sourceType") not in (1, 2):
+                failures.append(
+                    f"business match: source_type is {rec.get('sourceType')!r} -- the "
+                    f"extended-attributes trailer did not decode, which in v4 means "
+                    f"the record stream is out of sync")
+            if not biz["category"] or biz["category"] == "--" or biz["category"].startswith("(cat:"):
+                failures.append(
+                    f"business match: category shown as {biz['category']!r} -- "
+                    f"{{ST}}.business_categories.json is published and should resolve it")
+
         for e in errors[:3]:
             print(f"           {e}")
             failures.append(f"business match page error: {e}")
+        page.close()
+
+        # --- routing: a preference toggle must re-run the leg on screen
+        #
+        # It did not. `routeA`/`routeB` are cleared the moment a route is drawn so
+        # the next click starts a fresh A, and the checkbox handler was guarded on
+        # exactly those two variables -- so after any completed route, ticking
+        # "avoid highways" recomputed nothing and left the old line on the map.
+        # Counted rather than compared: a re-run on a leg with no motorway in it
+        # legitimately produces the same distance, so distance cannot be the test.
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"{base}#state=TN&lat=36.1627&lon=-86.7816&zoom=15",
+                  wait_until="load", timeout=90_000)
+        page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
+        page.wait_for_timeout(2500)
+        page.click("#btnRoute")
+        page.evaluate("() => map.fire('click', { latlng: L.latLng(36.1627, -86.7816) })")
+        page.wait_for_timeout(6000)
+        page.evaluate("() => map.fire('click', { latlng: L.latLng(36.1509, -86.7920) })")
+        try:
+            page.wait_for_function("() => (window.__routeRuns || 0) >= 1", timeout=60_000)
+            page.wait_for_timeout(3000)
+            first = page.evaluate("""() => ({
+              runs: window.__routeRuns || 0,
+              status: document.getElementById('status').textContent.trim()
+            })""")
+            print(f"\n  route: {first['status']} (runs={first['runs']})")
+            page.check("#chkAvoidHwy")
+            page.wait_for_function(
+                f"() => (window.__routeRuns || 0) > {first['runs']}", timeout=60_000)
+            page.wait_for_timeout(2500)
+            after = page.evaluate("""() => ({
+              runs: window.__routeRuns || 0,
+              status: document.getElementById('status').textContent.trim(),
+              drawn: !!document.querySelector('#map path')
+            })""")
+            print(f"  avoid highways: {after['status']} (runs={after['runs']})")
+            if after["runs"] <= first["runs"]:
+                failures.append(
+                    "routing: ticking 'avoid highways' did not re-run the route")
+            if not after["status"].startswith("Route"):
+                failures.append(
+                    f"routing: after the toggle the status reads {after['status']!r} "
+                    f"-- the re-run has to draw and report, not just recompute")
+            if not after["drawn"]:
+                failures.append("routing: the re-run left no path on the map")
+        except Exception as e:
+            print(f"  skip routing: {str(e)[:120]}")
+
+        for e in errors[:3]:
+            print(f"           {e}")
+            failures.append(f"routing page error: {e}")
         page.close()
 
         if args.keep_open:

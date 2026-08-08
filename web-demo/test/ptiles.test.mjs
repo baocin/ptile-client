@@ -229,7 +229,11 @@ test("records decode through wasm on every layer that has a decoder", async () =
     for (const e of layer.entries.slice(0, 6)) {
       const rec = await layer.cellRecords(asCaller(e.h3_cell));
       if (!rec) continue;
-      const out = P.decode[kind](rec);
+      // business needs the schema version and the entry's stored cell id; every
+      // other layer here is self-describing.
+      const out = kind === "business"
+        ? P.decode.business(rec, layer.header.version, e.h3_cell.toString(16))
+        : P.decode[kind](rec);
       assert.ok(Array.isArray(out), `${name}: ${kind} did not return an array`);
       decoded += out.length;
     }
@@ -349,3 +353,66 @@ test("name index search finds by prefix, and does not pretend to do substrings",
       "mid-word query reached another bucket -- the prefix-only caveat is stale",
     );
   });
+
+// --- business v4, the framing this reader got wrong for months --------------
+//
+// The corpus is all v3, and v3 is forgiving: a `u32 record_len` in front of every
+// record resynchronises the stream, so a decoder that stops early still produces
+// correct records. v4 dropped the prefix. A decoder that leaves the
+// extended-attributes trailer unread therefore starts the next record 30-42 bytes
+// early, and because a v4 record has no structural check the result is thousands
+// of well-formed garbage records followed by "unexpected end of input at offset
+// 42". That is what every business lookup in this demo was doing against the
+// published `business_v4` files.
+//
+// The fixture is the real block for the res-7 cell containing 36.35605,-86.07246,
+// captured by test-fixtures/extract_business_v4.py.
+const GOLDEN = join(ROOT, "test-fixtures", "golden");
+
+test("business v4 decodes flush, in place, and with its provenance", async (t) => {
+  const blockPath = join(GOLDEN, "business_v4.block.bin");
+  const metaPath = join(GOLDEN, "business_v4.meta.json");
+  if (!existsSync(blockPath) || !existsSync(metaPath)) {
+    t.skip("no business_v4 golden fixture");
+    return;
+  }
+  const block = new Uint8Array(readFileSync(blockPath));
+  const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+
+  const recs = P.decode.business(block, meta.file_version, meta.cell_id_hex);
+  // Exactly the index's count: with no per-record framing this is the only cheap
+  // signal that the stream stayed in sync.
+  assert.equal(recs.length, meta.feature_count_in_index,
+    "record count must match the index's feature_count");
+  for (const b of recs) {
+    assert.ok(b.name.length > 0, `unnamed record at ${b.lat},${b.lon}`);
+    // Inside its own cell. A res-7 cell is ~5 km across; the old decoder answered
+    // a few hundred metres from 0,0 with no error at all.
+    assert.ok(Math.abs(b.lat - meta.cell_center_lat) < 0.05, `${b.name} lat ${b.lat}`);
+    assert.ok(Math.abs(b.lon - meta.cell_center_lon) < 0.05, `${b.name} lon ${b.lon}`);
+    // The trailer the decoder used to skip.
+    assert.ok([1, 2].includes(b.source_type), `${b.name} source_type ${b.source_type}`);
+    assert.ok(b.source_id && b.source_id.length >= 20, `${b.name} source_id ${b.source_id}`);
+  }
+});
+
+test("a v4 block decoded as v3 is wrong, which is why the version is required", async (t) => {
+  const blockPath = join(GOLDEN, "business_v4.block.bin");
+  if (!existsSync(blockPath)) {
+    t.skip("no business_v4 golden fixture");
+    return;
+  }
+  const block = new Uint8Array(readFileSync(blockPath));
+  // Pinning the failure mode, not just the fix: reading v4 with v3 framing must
+  // not quietly return plausible records. It either throws or returns a different
+  // count -- what it must never do is look like success.
+  let v3 = null;
+  try {
+    v3 = P.decode.business(block, 3, "8744c9a0affffff");
+  } catch {
+    v3 = null;
+  }
+  assert.notEqual(v3 && v3.length, 7,
+    "a v4 block read as v3 returned exactly the right number of records, " +
+    "which would mean this test can no longer tell the two framings apart");
+});

@@ -374,7 +374,6 @@ var wasm_decode_trails = timedDecode(function(b) { return wasm.decode_trails(b);
 var wasm_decode_buildings = timedDecode(function(b, la, lo) { return wasm.decode_buildings(b, la, lo); });
 var wasm_decode_cameras = timedDecode(function(b) { return wasm.decode_cameras(b); });
 var wasm_decode_signals = timedDecode(function(b) { return wasm.decode_signals(b); });
-var wasm_decode_business = function(b) { return wasm.decode_business(b); };
 var wasm_nearest_road = function(b, la, lo, t) { return wasm.nearest_road(b, la, lo, t); };
 var wasm_route_from_segments = function() { return wasm.route_from_segments.apply(null, arguments); };
 
@@ -699,8 +698,11 @@ function BusinessReader(file) {
   this.file = file;
   this.header = file.header; this.entries = file.entries; this.cellMap = file.cellMap; this.dict = file.dict;
 }
-BusinessReader.fromUrl = async function(url) {
-  return new BusinessReader(await openPtilesRemote(url));
+BusinessReader.fromUrl = async function(url, state) {
+  var reader = new BusinessReader(await openPtilesRemote(url));
+  // Attached, not fetched per record: the table is one small file per state.
+  reader.categories = state ? await businessCategories(state) : [];
+  return reader;
 };
 BusinessReader.prototype._decodeBlock = async function(entry) {
   return fetchDecompressEntry(this.file, entry);
@@ -712,16 +714,27 @@ BusinessReader.prototype._decodeBlock = async function(entry) {
 // records: these uids run past 2^53 and it accumulated them in Number space,
 // so some rounded and some flipped sign. See
 // demo/test/business_differential.test.mjs.
-BusinessReader.prototype._decodeRecords = function(raw) {
+// `entry` is not optional. v4 has no per-record length prefix and stores
+// coordinates as i16 offsets from the cell centre, so the decoder needs the
+// file's schema version and the entry's *stored* cell id. Passing neither --
+// which is what `wasm.decode_business`'s version sniff does -- decoded the
+// published `business_v4` files as v3 and put every record a few hundred metres
+// off Null Island, then died with "unexpected end of input" once a garbage
+// length ran past the block. Every business lookup on this page was broken by it.
+BusinessReader.prototype._decodeRecords = function(raw, entry) {
   if (!raw) return [];
-  return wasm.decode_business(raw).map(function(b) {
+  var version = this.file.header.version;
+  var cats = this.categories || [];
+  var cellHex = (entry.h3Cell !== undefined ? entry.h3Cell : entry.h3_cell).toString(16);
+  return wasm.decode_business_versioned(raw, version, cellHex).map(function(b) {
     return {
       uid: b.osm_id,
       name: b.name,
-      // A raw table index, shown as one, because no categories sidecar is
-      // published anywhere -- see core/src/business.rs:36. There is nothing to
-      // resolve it against, so a number is the honest rendering.
-      category: b.category_idx ? "(cat:" + b.category_idx + ")" : "",
+      // Resolved against {ST}.business_categories.json, which *is* published --
+      // an earlier comment here claimed no sidecar existed anywhere. The raw
+      // index is kept as a fallback when the sidecar is a different vintage.
+      category: categoryLabel(cats, b.category_idx)
+        || (b.category_idx ? "(cat:" + b.category_idx + ")" : ""),
       brand: b.brand || "",
       phone: b.phone || "",
       website: b.website || "",
@@ -754,7 +767,7 @@ BusinessReader.prototype.query = async function(lat, lon, radiusKm) {
     if (ei === undefined) continue;
     var raw = await this._decodeBlock(this.file.entries[ei]);
     if (!raw) continue;
-    var recs = this._decodeRecords(raw);
+    var recs = this._decodeRecords(raw, this.file.entries[ei]);
     for (var ri = 0; ri < recs.length; ri++) {
       var br = recs[ri];
       var dist = haversineM(lat, lon, br.lat, br.lon);
@@ -804,7 +817,10 @@ BusinessReader.prototype.searchAll = async function(queryStr, onResult, onProgre
     for (var ri = 0; ri < raws.length && hits < hitCap; ri++) {
       var raw = raws[ri];
       if (!raw) continue;
-      var recs = this._decodeRecords(raw);
+      // `order[n + ri]`, not `ri`: the blocks were fetched in distance order, and
+      // v4 needs each block's own cell. Pairing a block with the wrong cell moves
+      // its records kilometres without erroring.
+      var recs = this._decodeRecords(raw, this.file.entries[order[n + ri]]);
       for (var k = 0; k < recs.length && hits < hitCap; k++) {
         if (recs[k].name.toLowerCase().includes(queryLower)) {
           hits++;
@@ -1858,6 +1874,37 @@ function stateUrl(state, layer) {
   return PTILES_BASE + state + "." + layerFile(layer) + ".ptiles";
 }
 
+// `{ST}.business_categories.json` -- the vocabulary for a record's category_idx,
+// published next to the layers (11 KB for TN). Fetched once per state; a failure
+// caches an empty table, because an unlabelled category is cosmetic and must not
+// fail the lookup around it.
+var categoryTables = {};
+function businessCategories(state) {
+  // Guarded rather than assumed: the readers above are defined earlier in this
+  // file than the `var` initialiser, and function declarations hoist while
+  // assignments do not.
+  if (!categoryTables) categoryTables = {};
+  if (!categoryTables[state]) {
+    categoryTables[state] = fetch(PTILES_BASE + state + ".business_categories.json")
+      .then(function(r) { return r.ok ? r.json() : { categories: [] }; })
+      .then(function(j) { return Array.isArray(j && j.categories) ? j.categories : []; })
+      .catch(function() { return []; });
+  }
+  return categoryTables[state];
+}
+
+// The index is 1-based: the builder assigns `i + 1` over a 0-based array, so 0
+// means "no category" and n names categories[n - 1]. Reading it 0-based labels
+// every record with its neighbour's category and nothing errors. Names arrive as
+// either a taxonomy path ("Business and Professional Services > Office") or a
+// bare slug ("church_cathedral"); both reduce to the last segment.
+function categoryLabel(names, idx) {
+  if (!idx || !names || idx > names.length) return "";
+  var raw = names[idx - 1];
+  if (typeof raw !== "string" || !raw.trim()) return "";
+  return raw.split(">").pop().trim().replace(/_/g, " ");
+}
+
 // US.admin.ptiles carries no per-cell blocks: its `aux` section is one flat
 // H3 res-7 grid (1,785,304 entries x 16 bytes = 28 MB) and `dict` is the zstd
 // string tables. AdminReader wants the whole grid, so it is fetched once on
@@ -1938,7 +1985,9 @@ function ensureBldgReader() {
   return bldgReaderPromise;
 }
 function ensureBizReader() {
-  if (!bizReaderPromise) bizReaderPromise = BusinessReader.fromUrl(stateUrl(currentState, "business"));
+  if (!bizReaderPromise) {
+    bizReaderPromise = BusinessReader.fromUrl(stateUrl(currentState, "business"), currentState);
+  }
   return bizReaderPromise;
 }
 function ensureReaders() {
@@ -2605,6 +2654,11 @@ var ROUTE_MAX_CELLS = 400;
 var ROUTE_END_CAP_K = 2;
 var routeMode = false;
 var routeA = null, routeB = null, routeLayer = null, routeBusy = false;
+// The last leg that was actually routed. `routeA`/`routeB` are cleared the moment
+// a route is drawn so the next click starts a fresh A, which meant the preference
+// checkboxes had nothing left to re-run: their handler's `routeA && routeB` guard
+// was never true after a route finished, so toggling a box did nothing at all.
+var lastLeg = null;
 
 // --- Signals / intersections ---
 //
@@ -3511,6 +3565,7 @@ document.getElementById("btnRoute").addEventListener("click", function() {
   this.textContent = routeMode ? "Route ON" : "Route";
   routeA = routeB = null;
   routeBusy = false;
+  lastLeg = null;
   clearRouteLayer();
   // Both modes claim the map click; only one can have it.
   if (routeMode && losMode) document.getElementById("btnLos").click();
@@ -3522,7 +3577,12 @@ document.getElementById("btnRoute").addEventListener("click", function() {
 // toggle is visible without re-picking both endpoints.
 ["chkAvoidHwy", "chkAvoidInt"].forEach(function(id) {
   document.getElementById(id).addEventListener("change", function() {
-    if (routeMode && routeA && routeB && !routeBusy) runRoute(routeA, routeB);
+    // `lastLeg`, not routeA/routeB: those are cleared as soon as a route is
+    // drawn. And `routeAndDraw`, not `runRoute`: computing a new path without
+    // redrawing it left the old line on the map, which reads as "the toggle
+    // does nothing".
+    if (!routeMode || routeBusy || !lastLeg) return;
+    routeAndDraw(lastLeg.a, lastLeg.b);
   });
 });
 
@@ -4034,25 +4094,40 @@ async function handleRouteClick(lat, lon) {
   }
 
   routeB = { lat: snapLat, lon: snapLon, road: road };
+  await routeAndDraw(routeA, routeB);
+  routeA = routeB = null;
+}
+
+/**
+ * Route a leg, draw it, and report it. Also records the leg as `lastLeg` so a
+ * preference toggle can re-run exactly this one.
+ */
+async function routeAndDraw(a, b) {
+  // Counted for the browser test: "toggling a preference re-runs routing" is a
+  // claim about how many times the router ran, and nothing else on the page
+  // records that -- an identical distance is a perfectly possible outcome of a
+  // real re-run on a leg with no motorway on it.
+  window.__routeRuns = (window.__routeRuns || 0) + 1;
   clearRouteLayer();
-  drawRouteEndpoints(routeA, routeB);
+  drawRouteEndpoints(a, b);
   routeBusy = true;
   try {
-    var result = await runRoute(routeA, routeB);
+    var result = await runRoute(a, b);
     clearRouteLayer();
-    drawRouteEndpoints(routeA, routeB);
+    drawRouteEndpoints(a, b);
     if (!result || !result.path || result.path.length < 2) {
       setStatus("No path — try closer to named roads", true);
+      lastLeg = { a: a, b: b };
     } else {
       var n = drawRoutePath(result.path);
       if (n < 2) setStatus("Route path empty after normalize", true);
       else setStatus(formatRouteStatus(result, n));
+      lastLeg = { a: a, b: b };
     }
   } catch (e) {
     setStatus("Route error: " + (e.message || e), true);
   }
   routeBusy = false;
-  routeA = routeB = null;
 }
 
 document.getElementById("btnPtiles").addEventListener("click", function() {
@@ -4295,6 +4370,17 @@ window.__ptiles = {
                  offsetBase: f.offsetBase.kind, entries: f.entries.length } : null;
   },
   view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; },
+  // The business record the panel is currently showing, as decoded -- not as
+  // rendered. The panel can only say "nothing here", which is exactly what a
+  // record decoded to the wrong coordinates looks like, so the test needs the
+  // record itself to tell a data gap from a broken decode.
+  lastBusiness: function() {
+    return lastBiz ? {
+      name: lastBiz.name, lat: lastBiz.lat, lon: lastBiz.lon,
+      category: lastBiz.category, distance: lastBiz.distance,
+      sourceType: lastBiz.sourceType, sourceId: lastBiz.sourceId
+    } : null;
+  },
   // Where the wall clock went. `other` is the residual -- Leaflet plus this
   // page's own JS -- computed rather than timed, because the draw loops are
   // interleaved with the decode calls and timing them separately would mean a

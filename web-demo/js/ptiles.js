@@ -545,7 +545,13 @@ export function createPtiles(wasm) {
     rail: (b) => wasm.decode_rail(b),
     trails: (b) => wasm.decode_trails(b),
     buildings: (b, lat, lon) => wasm.decode_buildings(b, lat, lon),
-    business: (b) => wasm.decode_business(b),
+    // Both extra arguments are required, exactly like `buildings` needs the cell
+    // centre. v4 records have no length prefix and store coordinates as i16
+    // offsets from the cell centre, so a version-and-cell-free call cannot be
+    // right: the sniffing decoder read the published v4 files as v3 and put every
+    // record near Null Island before dying on "unexpected end of input". Pass the
+    // *stored* cell id from the index entry, not a masked lookup key.
+    business: (b, version, cellHex) => wasm.decode_business_versioned(b, version, cellHex),
     signals: (b) => wasm.decode_signals(b),
     cameras: (b) => wasm.decode_cameras(b),
   };
