@@ -138,6 +138,42 @@ pub fn decode_buildings(data: &[u8], cell_center_lat: f64, cell_center_lon: f64)
     to_js(&buildings)
 }
 
+/// Decode a business block for the cell it came from.
+///
+/// Prefer this to [`decode_business`], for the same reason
+/// `decode_buildings_for_cell` exists: v4 stores coordinates as `i16` offsets
+/// from the cell centre, and `decode_business`'s version sniff decodes v4 with a
+/// centre of `(0, 0)` -- every record a few hundred metres off Null Island.
+#[wasm_bindgen]
+pub fn decode_business_for_cell(block_bytes: &[u8], cell_hex: &str) -> Result<JsValue, JsValue> {
+    let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
+    let business = ptiles_core::decode_business_for_cell(block_bytes, cell)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&business)
+}
+
+/// Decode a business block whose file version is known (from the header).
+///
+/// `version >= 4` reads v4 framing against the cell centre; anything lower reads
+/// v3's length-prefixed framing. Use this over [`decode_business`] whenever the
+/// header is at hand -- the sniff cannot tell the two apart reliably, because a
+/// v4 block starts with a small zigzag uid that is also a plausible v3 length.
+#[wasm_bindgen]
+pub fn decode_business_versioned(
+    block_bytes: &[u8],
+    version: u8,
+    cell_hex: &str,
+) -> Result<JsValue, JsValue> {
+    let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
+    let business = ptiles_core::decode_business_versioned(block_bytes, version, cell)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&business)
+}
+
+/// Decode a business block without knowing its version or its cell.
+///
+/// v3 only, in practice: the version sniff decodes v4 to Null Island. Kept for
+/// callers that have neither a header nor a cell id.
 #[wasm_bindgen]
 pub fn decode_business(data: &[u8]) -> Result<JsValue, JsValue> {
     let business = core_decode_business(data).map_err(|e| JsValue::from_str(&e.to_string()))?;

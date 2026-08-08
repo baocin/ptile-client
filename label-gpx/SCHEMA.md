@@ -103,6 +103,7 @@ they would be that point's data. `label-gpx` writes them under `<trk>`.
       </rook:addresses>
       <rook:businesses>
         <rook:business><osm_id>11</osm_id><name>Taco Bell</name><category_idx>7</category_idx>
+          <category>Fast Food Restaurant</category><source_type>1</source_type>
                        <phone>+1 865 555 0100</phone>
                        <website>https://example.com/?a=1&amp;b=2</website>
                        <status>open</status><distance_m>34.0</distance_m></rook:business>
@@ -166,7 +167,7 @@ Child blocks, all optional, all "absent means nothing mapped there":
 | `rook:intersection` | `lat`, `lon`, `distance_m`, `type` | `nearest_intersection`. `type` is `signals` \| `stop` \| `give_way` \| `roundabout` \| `junction`, from the numeric `intersection_type` 1-4/0. The first three extend the "still driving" window; the others do not. |
 | `rook:building` | `osm_id`, `name`, `type`, `category`, `distance_m`, `inside` | `decode_buildings`. `inside` is `true` when the point fell inside the footprint and `false` when it merely landed within 50 m — the difference between "in this shop" and "on the pavement outside it", recorded rather than re-inferred from the distance. Note `type` is frequently OSM's `yes`, which means "a building, nothing further claimed". |
 | `rook:addresses` | `rook:address` × n with `housenumber`, `street` | `address_cell` |
-| `rook:businesses` | `rook:business` × n with `osm_id`, `name`, `category_idx`, `phone`, `website`, `status`, `distance_m` | `decode_business`. **`osm_id` can exceed 2^53** — keep it a string/BigInt, never a JS `Number`. |
+| `rook:businesses` | `rook:business` × n with `osm_id`, `name`, `category_idx`, `category`, `phone`, `website`, `status`, `source_type`, `source_id`, `confidence`, `distance_m` | `decode_business_versioned`. **`osm_id` can exceed 2^53** — keep it a string/BigInt, never a JS `Number`. `category` is `category_idx` resolved against `{ST}.business_categories.json` and is written only when that sidecar answered; the raw index is always written, because the sidecar has its own vintage. `source_type` (1 = Overture, 2 = Foursquare), `source_id` and `confidence` come from the record's extended-attributes trailer, so `rook:business` carries a handle back to the upstream dataset. |
 | `rook:device` | `battery_percent`, `charging`, `screen_on`, `automotive` | Device state at capture. Only the app can supply this; the labeler never synthesizes it. |
 
 `label-gpx` writes `rook:admin`, `rook:road` and `rook:intersection` from the automatic pass, and

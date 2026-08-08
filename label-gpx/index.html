@@ -135,11 +135,20 @@
   }
   #ribbonHandles .handle:hover::before,
   #ribbonHandles .handle.dragging::before { opacity: 1; background: var(--accent); }
+  /* Bands are positioned absolutely by time, not laid out by flex. Flex with a
+     `min-width` made a band's laid-out left edge diverge from its time fraction:
+     100 clamped out-of-window bands ate 200 px of the track, so the boundary
+     handles -- which are positioned from time -- drifted away from the edges they
+     were supposed to sit on. Absolute left/width in percent makes the geometry
+     *be* the time mapping, so handles, hover and clicks agree by construction. */
   #ribbon {
-    display: flex; align-items: stretch; height: 32px; overflow: hidden;
+    position: relative; height: 32px; overflow: hidden;
     background: var(--void); border: 1px solid var(--rule); border-radius: 3px;
   }
-  #ribbon .seg { position: relative; min-width: 2px; opacity: 0.5; cursor: pointer; transition: opacity 90ms; }
+  #ribbon .seg {
+    position: absolute; top: 0; bottom: 0; opacity: 0.5; cursor: pointer;
+    transition: opacity 90ms;
+  }
   #ribbon .seg.human { opacity: 1; }
   #ribbon .seg:hover { opacity: 0.85; }
   #ribbon .seg.sel { opacity: 1; box-shadow: inset 0 0 0 1px var(--ink); }
@@ -148,12 +157,20 @@
     background: currentColor; filter: brightness(1.4);
   }
   #ribbon .seg.human::after { height: 4px; }
+  /* The hovered trace point, marked on the ribbon itself as well as the map. */
+  #ribbon .cursor {
+    position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ink);
+    pointer-events: none; opacity: 0.8;
+  }
   #ribbon .empty {
-    display: flex; align-items: center; justify-content: center; width: 100%;
+    display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
     color: var(--ink-faint); font-size: 11px;
   }
+  /* Fixed height, and the hover readout is never empty: this row sits directly
+     above the chart, so a collapsing line moves the chart while the pointer is
+     mid-drag on it. */
   .ribbon-axis {
-    display: flex; justify-content: space-between; margin-top: 4px;
+    display: flex; justify-content: space-between; margin-top: 4px; min-height: 13px;
     font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
   }
 
@@ -421,6 +438,9 @@
   </div>
   <div class="ribbon-axis">
     <span id="tStart"></span><span id="tSpan"></span><span id="tEnd"></span>
+  </div>
+  <div class="ribbon-axis" id="hoverAxis" aria-live="off">
+    <span id="hoverInfo">&nbsp;</span>
   </div>
   <div id="chart" hidden></div>
 </div>

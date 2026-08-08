@@ -96,7 +96,8 @@ checked against published critical values.
 
 **The overview strip** at the very top is the whole trace, always. The box on it is the current zoom
 window: drag its body to pan, its edges to resize, click empty track to jump, double-click to reset.
-Wheel over the chart zooms about the pointer. The overview, the ribbon and the speed chart share one
+Wheel anywhere over the timeline strip — the overview, the ribbon or the chart — zooms about the
+pointer. (The map keeps Leaflet's own wheel zoom.) The overview, the ribbon and the speed chart share one
 window, so zooming anywhere zooms everything; the table and legend deliberately do not filter, because
 a segment you meant to fix should never vanish because of where you were looking — in-window rows get
 a marker instead.
@@ -106,9 +107,23 @@ zooming into a 12-minute stop in a 125-minute drive shows its detail instead of 
 the bottom of a 33 m/s axis. The axis labels are what keep it honest, and they thin themselves out
 when there is no room rather than printing numbers on top of each other.
 
-**Boundary handles** sit on the ribbon, one per interior boundary. Drag one to move where a segment
-ends — one gesture instead of split-then-merge. Both sides are marked human, because moving a boundary
-asserts that these points belong to that label and those to the other.
+**Boundary handles** sit on the ribbon, one per interior boundary, exactly on the edge of the band
+they move. Drag one to move where a segment ends — one gesture instead of split-then-merge. Both sides
+are marked human, because moving a boundary asserts that these points belong to that label and those
+to the other.
+
+Bands are positioned absolutely by time rather than laid out by flex, which is what makes a band's
+left edge and its handle the same place. One consequence: a segment narrower than a pixel is not
+clickable on the ribbon. It never really was, and the table row and the handles still reach it.
+
+**Hovering the ribbon** marks the trace point under the cursor on the map and reads out its clock,
+index and speed under the strip. Hovering the speed chart does the same thing through the same code,
+so the two views cannot disagree about where a moment is.
+
+**Buildings on trace** (next to the basemap switch) outlines every building footprint the trace goes
+*inside* — one decode per cell for the whole trace, on demand because it is the most expensive thing
+this page can ask for. Each outline is clickable to attach that building to the segment its points
+belong to, and the inspector lists them for the selected segment.
 
 **The basemap switch** (bottom-left of the map) chooses between OSM raster tiles and the ptiles
 layers — water, parks, rail, trails, roads, and buildings from zoom 15 — decoded in the page from the

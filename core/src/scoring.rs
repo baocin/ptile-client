@@ -331,6 +331,9 @@ mod tests {
             operating_status: String::from("open"),
             emails: Vec::new(),
             socials: Vec::new(),
+            source_type: None,
+            source_id: None,
+            confidence: None,
         }
     }
 

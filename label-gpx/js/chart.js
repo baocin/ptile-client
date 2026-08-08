@@ -112,7 +112,8 @@ function ticksHtml(bands, vmax) {
  * like the ribbon does.
  */
 export function renderChart(host, {
-  series, shifts, segments, colors, thresholds, view, onSeek, onSlice, onZoom,
+  series, shifts, segments, colors, thresholds, view, onSeek, onSlice,
+  onZoomAbout, onHover, onHoverEnd,
 }) {
   if (!series || series.length < 2) {
     host.innerHTML = `<div class="chart-empty">No speed series yet — a trace needs at least
@@ -317,31 +318,29 @@ export function renderChart(host, {
   const caption = host.querySelector("#chartCursor");
   const captionText = caption ? caption.textContent : "";
   svg.addEventListener("pointermove", (e) => {
-    if (!caption) return;
     const at = toData(e);
+    // Same highlighter the ribbon uses, so hovering either view marks the point
+    // on the map -- one behaviour, not two that drift apart.
+    if (onHover) onHover(at.t_ms);
+    if (!caption) return;
     const clock = new Date(at.t_ms).toISOString().slice(11, 19);
     caption.textContent = `${clock} · ${at.speed.toFixed(1)} m/s`;
   });
   svg.addEventListener("pointerleave", () => {
+    if (onHoverEnd) onHoverEnd();
     if (caption) caption.textContent = captionText;
   });
 
   // Wheel zooms about the pointer, so the sample under the cursor stays put --
-  // the whole point of zooming is to look closer at *that* moment.
-  if (onZoom) {
+  // the whole point of zooming is to look closer at *that* moment. The arithmetic
+  // lives in the caller's `zoomAbout` so the ribbon and the chart zoom
+  // identically; this only turns a wheel delta into a factor.
+  if (onZoomAbout) {
     svg.addEventListener(
       "wheel",
       (e) => {
         e.preventDefault();
-        const at = toData(e);
-        const factor = e.deltaY > 0 ? 1.35 : 1 / 1.35;
-        const width = Math.min(fullT1 - fullT0, Math.max(5000, span * factor));
-        const frac = (at.t_ms - t0) / span;
-        let lo = at.t_ms - width * frac;
-        let hi = lo + width;
-        if (lo < fullT0) { lo = fullT0; hi = lo + width; }
-        if (hi > fullT1) { hi = fullT1; lo = hi - width; }
-        onZoom(hi - lo >= fullT1 - fullT0 - 1 ? null : { t0: lo, t1: hi });
+        onZoomAbout(toData(e).t_ms, e.deltaY > 0 ? 1.35 : 1 / 1.35);
       },
       { passive: false },
     );

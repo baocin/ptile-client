@@ -148,7 +148,33 @@ export function decode_buildings(data: Uint8Array, cell_center_lat: number, cell
  */
 export function decode_buildings_for_cell(block_bytes: Uint8Array, cell_hex: string): any;
 
+/**
+ * Decode a business block without knowing its version or its cell.
+ *
+ * v3 only, in practice: the version sniff decodes v4 to Null Island. Kept for
+ * callers that have neither a header nor a cell id.
+ */
 export function decode_business(data: Uint8Array): any;
+
+/**
+ * Decode a business block for the cell it came from.
+ *
+ * Prefer this to [`decode_business`], for the same reason
+ * `decode_buildings_for_cell` exists: v4 stores coordinates as `i16` offsets
+ * from the cell centre, and `decode_business`'s version sniff decodes v4 with a
+ * centre of `(0, 0)` -- every record a few hundred metres off Null Island.
+ */
+export function decode_business_for_cell(block_bytes: Uint8Array, cell_hex: string): any;
+
+/**
+ * Decode a business block whose file version is known (from the header).
+ *
+ * `version >= 4` reads v4 framing against the cell centre; anything lower reads
+ * v3's length-prefixed framing. Use this over [`decode_business`] whenever the
+ * header is at hand -- the sniff cannot tell the two apart reliably, because a
+ * v4 block starts with a small zigzag uid that is also a plausible v3 length.
+ */
+export function decode_business_versioned(block_bytes: Uint8Array, version: number, cell_hex: string): any;
 
 /**
  * Decode a `camera` cell's records (PTILESC v1). Same merged-block caveat as
@@ -570,6 +596,8 @@ export interface InitOutput {
     readonly decode_buildings: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly decode_buildings_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly decode_business: (a: number, b: number) => [number, number, number];
+    readonly decode_business_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly decode_business_versioned: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly decode_cameras: (a: number, b: number) => [number, number, number];
     readonly decode_parks: (a: number, b: number) => [number, number, number];
     readonly decode_rail: (a: number, b: number) => [number, number, number];

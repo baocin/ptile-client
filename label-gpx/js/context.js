@@ -104,6 +104,46 @@ export function stateAt(lat, lon) {
  * has roads, water, parks and buildings published, so this path is a guard
  * rather than a routine occurrence.
  */
+/**
+ * Ray casting on `[lon, lat]` rings, which is the order the format stores.
+ *
+ * Module-scope and exported because the trace-wide building scan tests every
+ * trace point against every footprint in a block; going through `buildingAt`
+ * would re-fetch and re-decode the block once per point.
+ */
+export function pointInPolygon(lat, lon, coords) {
+  let hit = false;
+  for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+    const [xi, yi] = coords[i];
+    const [xj, yj] = coords[j];
+    if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) hit = !hit;
+  }
+  return hit;
+}
+
+/**
+ * Display label for a `category_idx` against a categories sidecar.
+ *
+ * The published array mixes two shapes: full taxonomy paths
+ * (`"Business and Professional Services > Office"`) and bare slugs
+ * (`"church_cathedral"`). Both become the last `>`-separated segment with
+ * underscores turned into spaces -- `"Office"`, `"church cathedral"`.
+ *
+ * The index is **1-based**: the builder assigns `i + 1` over a 0-based array
+ * (`build_full_ptilesb.py`: `cat_idx = {c: i + 1 ...}`, sidecar = `cat_rev`), so
+ * `category_idx` 0 means "no category" and `n` names `categories[n - 1]`. Reading
+ * it 0-based labels every record with its neighbour's category, which no error
+ * would ever reveal. An index past the array means the sidecar is a different
+ * vintage than the layer; that returns `null` rather than a wrong label.
+ */
+export function categoryLabel(names, idx) {
+  if (!idx || !Array.isArray(names) || idx > names.length) return null;
+  const raw = names[idx - 1];
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const leaf = raw.split(">").pop().trim();
+  return leaf.replace(/_/g, " ") || null;
+}
+
 export function createResolver(P, wasm) {
   const layers = new Map(); // state -> Promise<Layer|null>
   const failures = new Map(); // state -> message
@@ -305,17 +345,6 @@ export function createResolver(P, wasm) {
     return best;
   }
 
-  /** Ray casting on `[lon, lat]` rings, which is the order the format stores. */
-  function pointInPolygon(lat, lon, coords) {
-    let hit = false;
-    for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
-      const [xi, yi] = coords[i];
-      const [xj, yj] = coords[j];
-      if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) hit = !hit;
-    }
-    return hit;
-  }
-
   /**
    * Addresses near a point, nearest first.
    *
@@ -352,20 +381,109 @@ export function createResolver(P, wasm) {
       .slice(0, limit);
   }
 
-  /** Businesses within `radius_m` of a point, nearest first. */
+  /**
+   * Every building footprint on the trace that contains at least one trace point.
+   *
+   * One decode per cell for the whole trace, not one per point: a cell's block
+   * holds thousands of footprints, and `buildingAt` re-fetches and re-decodes it
+   * on every call. Points are tested against footprints in memory instead, which
+   * is why `pointInPolygon` is module-scope and exported.
+   *
+   * Returns `[{ ...building, coords, points: [i, ...] }]`, each with the trace
+   * point indices that fell inside it -- enough for the caller to draw the
+   * outline and say which part of the trace was in it.
+   */
+  async function buildingsOnTrace(points) {
+    const byState = survey(points);
+    // Which trace points sit in which cell, so each cell only tests its own.
+    const pointsByCell = new Map();
+    points.forEach((p, i) => {
+      const st = stateAt(p.lat, p.lon);
+      if (!st) return;
+      const key = `${st}/${norm(BigInt("0x" + wasm.cell_for_coord(p.lat, p.lon)))}`;
+      if (!pointsByCell.has(key)) pointsByCell.set(key, []);
+      pointsByCell.get(key).push(i);
+    });
+
+    const hits = [];
+    for (const [state, cells] of byState) {
+      const layer = await layerFor(state, "buildings");
+      if (!layer) continue;
+      await layer.prefetch([...cells]);
+      for (const cell of cells) {
+        const mine = pointsByCell.get(`${state}/${cell}`) ?? [];
+        if (!mine.length) continue;
+        const entry = layer.entryFor(cell);
+        if (!entry || !entry.block_length) continue;
+        let decoded;
+        try {
+          const bytes = await layer.cellRecords(cell);
+          if (!bytes) continue;
+          decoded = wasm.decode_buildings_for_cell(bytes, entry.h3_cell.toString(16));
+        } catch {
+          // One unreadable cell is not a reason to abandon the scan.
+          continue;
+        }
+        for (const b of decoded) {
+          const coords = b.coords || b.coordinates || [];
+          if (coords.length < 3) continue;
+          const inside = mine.filter((i) => pointInPolygon(points[i].lat, points[i].lon, coords));
+          if (inside.length) hits.push({ ...b, coords, points: inside });
+        }
+      }
+    }
+    return hits;
+  }
+
+  /**
+   * `{ST}.business_categories.json` -- the vocabulary for `category_idx`, which
+   * is otherwise a bare integer. Published alongside the layers (11 KB for TN),
+   * fetched once per state and cached like a layer. A failure resolves to an
+   * empty array rather than throwing: an unlabelled category is a cosmetic loss,
+   * not a reason to fail the whole place lookup.
+   */
+  const categoryCache = new Map();
+  function categories(state) {
+    if (!state) return Promise.resolve([]);
+    if (!categoryCache.has(state)) {
+      categoryCache.set(
+        state,
+        fetch(`${PTILES_BASE}${state}.business_categories.json`)
+          .then((r) => (r.ok ? r.json() : { categories: [] }))
+          .then((j) => (Array.isArray(j?.categories) ? j.categories : []))
+          .catch(() => []),
+      );
+    }
+    return categoryCache.get(state);
+  }
+
+  /**
+   * Businesses within `radius_m` of a point, nearest first.
+   *
+   * Decoded with the *versioned* decoder, not `decode_business`: the published
+   * layer is v4, whose records carry no length prefix and store coordinates as
+   * offsets from the cell centre. The sniffing decoder got both wrong, which is
+   * where `unexpected end of input at offset 42` came from.
+   */
   async function businessesNear(lat, lon, radius_m = 150, limit = 5) {
     const got = await recordsAt("business", lat, lon);
     if (got.error) throw new Error(`businesses: ${got.error}`);
     if (!got.bytes) return [];
     let records;
     try {
-      records = wasm.decode_business(got.bytes);
+      records = wasm.decode_business_versioned(
+        got.bytes,
+        got.layer.header.version,
+        got.entry.h3_cell.toString(16),
+      );
     } catch (e) {
       // wasm rejects with a bare string, so wrap it: "businesses: ..." is what a
       // reader needs, where the raw text alone says nothing about which layer.
       throw new Error(`businesses: ${e?.message ?? e}`);
     }
+    const names = await categories(stateAt(lat, lon));
     return records
+      .map((b) => ({ ...b, category: categoryLabel(names, b.category_idx) }))
       .map((b) => ({ ...b, distance_m: wasm.distance_m(lat, lon, b.lat, b.lon) }))
       .filter((b) => b.distance_m <= radius_m)
       .sort((a, b) => a.distance_m - b.distance_m)
@@ -406,6 +524,7 @@ export function createResolver(P, wasm) {
 
   return {
     survey, prefetch, at, forSegment, admin, failures, stateAt,
-    layerFor, buildingAt, addressesAt, businessesNear,
+    layerFor, buildingAt, addressesAt, businessesNear, categories, categoryLabel,
+    buildingsOnTrace,
   };
 }

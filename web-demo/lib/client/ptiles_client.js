@@ -345,6 +345,10 @@ export function decode_buildings_for_cell(block_bytes, cell_hex) {
 }
 
 /**
+ * Decode a business block without knowing its version or its cell.
+ *
+ * v3 only, in practice: the version sniff decodes v4 to Null Island. Kept for
+ * callers that have neither a header nor a cell id.
  * @param {Uint8Array} data
  * @returns {any}
  */
@@ -352,6 +356,53 @@ export function decode_business(data) {
     const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.decode_business(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decode a business block for the cell it came from.
+ *
+ * Prefer this to [`decode_business`], for the same reason
+ * `decode_buildings_for_cell` exists: v4 stores coordinates as `i16` offsets
+ * from the cell centre, and `decode_business`'s version sniff decodes v4 with a
+ * centre of `(0, 0)` -- every record a few hundred metres off Null Island.
+ * @param {Uint8Array} block_bytes
+ * @param {string} cell_hex
+ * @returns {any}
+ */
+export function decode_business_for_cell(block_bytes, cell_hex) {
+    const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_business_for_cell(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decode a business block whose file version is known (from the header).
+ *
+ * `version >= 4` reads v4 framing against the cell centre; anything lower reads
+ * v3's length-prefixed framing. Use this over [`decode_business`] whenever the
+ * header is at hand -- the sniff cannot tell the two apart reliably, because a
+ * v4 block starts with a small zigzag uid that is also a plausible v3 length.
+ * @param {Uint8Array} block_bytes
+ * @param {number} version
+ * @param {string} cell_hex
+ * @returns {any}
+ */
+export function decode_business_versioned(block_bytes, version, cell_hex) {
+    const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_business_versioned(ptr0, len0, version, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

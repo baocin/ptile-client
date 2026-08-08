@@ -430,9 +430,19 @@ function contextNode(doc, rook, s, intersectionTypeName) {
       leaf(one, "osm_id", biz.osm_id === undefined ? undefined : String(biz.osm_id));
       leaf(one, "name", biz.name);
       leaf(one, "category_idx", biz.category_idx);
+      // The resolved name from {ST}.business_categories.json, when the sidecar
+      // answered. Written alongside the raw index, never instead of it: the
+      // index is what the layer holds, the name is a lookup against a sidecar
+      // that has its own vintage.
+      leaf(one, "category", biz.category);
       leaf(one, "phone", biz.phone);
       leaf(one, "website", biz.website);
       leaf(one, "status", biz.operating_status ?? biz.status);
+      // Provenance from the record's extended-attributes trailer: which upstream
+      // dataset this POI came from and its id there.
+      leaf(one, "source_type", biz.source_type);
+      leaf(one, "source_id", biz.source_id);
+      leaf(one, "confidence", biz.confidence);
       leaf(one, "distance_m", round1(biz.distance_m));
       list.appendChild(one);
     }

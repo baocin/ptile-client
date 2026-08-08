@@ -52,7 +52,10 @@ pub use admin::{
     AdminFile, AdminGridEntry, AdminInfo, AdminLookup, AdminPolygon, AdminStringTables,
 };
 pub use buildings::{Building, decode_buildings, decode_buildings_for_cell};
-pub use business::{Business, decode_business, decode_business_v3, decode_business_v4};
+pub use business::{
+    Business, decode_business, decode_business_for_cell, decode_business_v3, decode_business_v4,
+    decode_business_v4_at, decode_business_versioned,
+};
 pub use business_search::{
     BusinessHit, match_business_name_block, name_to_key, search_business_brute_force,
     search_business_indexed,

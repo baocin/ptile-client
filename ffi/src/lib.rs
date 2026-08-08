@@ -30,7 +30,7 @@
 use std::sync::Arc;
 
 use ptiles_core::{
-    cell_center, cell_for_coord, decode_buildings, decode_business, decode_road_block,
+    cell_center, cell_for_coord, decode_buildings, decode_business_versioned, decode_road_block,
     decode_roads, haversine_distance_m, nearest_intersection as core_nearest_intersection,
     nearest_road as core_nearest_road, neighbor_cells, score_candidates, search_business_indexed,
     Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind, FileSource,
@@ -220,6 +220,14 @@ pub struct BusinessInfo {
     pub phone: Option<String>,
     pub website: Option<String>,
     pub operating_status: String,
+    /// Upstream dataset: 1 = Overture, 2 = Foursquare. `None` on records with
+    /// no extended-attributes trailer.
+    pub source_type: Option<u8>,
+    /// Upstream record id (a GERS id for Overture, a venue id for Foursquare) --
+    /// the only stable handle back to the source dataset.
+    pub source_id: Option<String>,
+    /// Upstream confidence, 0-100.
+    pub confidence: Option<u8>,
 }
 
 /// One hit from [`PtilesLayer::search_business`], the shape of
@@ -607,14 +615,19 @@ impl PtilesLayer {
     }
 
     fn decoded_business(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<Business>, PtilesError> {
+        let version = self.file.version();
         let mut businesses = Vec::new();
         for cell in self.cells_for(lat, lon, ring) {
             let Some(block) = self.block(cell)? else {
                 continue;
             };
-            let mut b = decode_business(&block).map_err(|e| PtilesError::Decode {
-                message: e.to_string(),
-            })?;
+            // Versioned, not sniffed: v4 stores coordinates relative to the
+            // cell centre, so decoding it without the cell puts every record
+            // near Null Island (see `core::business::decode_business_for_cell`).
+            let mut b =
+                decode_business_versioned(&block, version, cell).map_err(|e| PtilesError::Decode {
+                    message: e.to_string(),
+                })?;
             businesses.append(&mut b);
         }
         Ok(businesses)
@@ -1048,6 +1061,9 @@ impl PtilesLayer {
                 phone: b.phone.clone(),
                 website: b.website.clone(),
                 operating_status: b.operating_status.clone(),
+                source_type: b.source_type,
+                source_id: b.source_id.clone(),
+                confidence: b.confidence,
             })
             .collect())
     }

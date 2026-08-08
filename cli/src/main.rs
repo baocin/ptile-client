@@ -56,7 +56,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use ptiles_core::{
-    cell_center, cell_for_coord, decode_buildings, decode_business, decode_road_block,
+    cell_center, cell_for_coord, decode_buildings, decode_business_versioned, decode_road_block,
     decode_roads, nearest_intersection, nearest_road, score_candidates,
     search_business_brute_force, search_business_indexed, Building, Business, BusinessHit,
     Candidate, CandidateKind, FileSource, Fix, HttpSource, PtilesFile, RoadSegment, ScoringParams,
@@ -86,10 +86,19 @@ enum Layer {
 }
 
 impl Layer {
+    /// The published snapshots version the filename stem
+    /// (`TN.business_v4.ptiles`, `TN.roads_v2.ptiles`, `TN.buildings_v9.ptiles`),
+    /// while the local corpus does not (`TN.business.ptiles`). Strip a trailing
+    /// `_v<N>` so both name shapes resolve to the same layer -- the schema
+    /// version comes from the header, never the filename.
     fn from_filename_token(token: &str) -> Option<Layer> {
-        match token {
+        let base = match token.rsplit_once("_v") {
+            Some((stem, digits)) if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) => stem,
+            _ => token,
+        };
+        match base {
             "roads" => Some(Layer::Roads),
-            "buildings_v8" => Some(Layer::BuildingsV8),
+            "buildings" => Some(Layer::BuildingsV8),
             "business" => Some(Layer::Business),
             _ => None,
         }
@@ -594,8 +603,12 @@ impl OpenedLayer {
                 }
             }
             Layer::Business => {
-                for block in self.blocks_for(&cells) {
-                    if let Ok(mut b) = decode_business(&block) {
+                // Per cell, not `blocks_for`: v4 coordinates are offsets from
+                // the cell centre, so the block and its cell must stay paired.
+                let version = self.file.version();
+                for &cell in &cells {
+                    let Some(block) = self.read_block(cell) else { continue };
+                    if let Ok(mut b) = decode_business_versioned(&block, version, cell) {
                         businesses.append(&mut b);
                     }
                 }
@@ -675,10 +688,11 @@ impl OpenedLayer {
                 json!({"building": building, "candidate_count": buildings.len()})
             }
             Layer::Business => {
-                let blocks = self.blocks_for(&cells);
+                let version = self.file.version();
                 let mut businesses: Vec<Business> = Vec::new();
-                for block in &blocks {
-                    match decode_business(block) {
+                for &cell in &cells {
+                    let Some(block) = self.read_block(cell) else { continue };
+                    match decode_business_versioned(&block, version, cell) {
                         Ok(mut b) => businesses.append(&mut b),
                         Err(e) => return json!({"error": format!("decode_business: {e}")}),
                     }
@@ -945,6 +959,9 @@ fn business_json(b: &Business) -> Value {
         "phone": b.phone,
         "website": b.website,
         "operating_status": b.operating_status,
+        "source_type": b.source_type,
+        "source_id": b.source_id,
+        "confidence": b.confidence,
     })
 }
 
@@ -1343,6 +1360,17 @@ mod tests {
         );
         assert_eq!(layer_from_path("http://host/US.business.ptiles"), Some(Layer::Business));
         // Unknown 2nd token and missing token both yield None.
+        // Versioned stems from the published snapshots resolve the same way.
+        assert_eq!(
+            layer_from_path("https://host/maps/TN.business_v4.ptiles"),
+            Some(Layer::Business)
+        );
+        assert_eq!(layer_from_path("/data/TN.roads_v2.ptiles"), Some(Layer::Roads));
+        assert_eq!(
+            layer_from_path("/data/TN.buildings_v9.ptiles"),
+            Some(Layer::BuildingsV8)
+        );
+        assert_eq!(layer_from_path("/data/TN.water_v1.ptiles"), None);
         assert_eq!(layer_from_path("/data/TN.water.ptiles"), None);
         assert_eq!(layer_from_path("/data/noextension"), None);
     }

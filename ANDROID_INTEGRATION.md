@@ -250,9 +250,12 @@ exists and no range read can improve on that. Inside it does *not* promise a
 block: the corpus slice has a whole-state bbox and 48 cells, which is exactly the
 distinction that caught out the first version of the tests here.
 
-**One caveat, recorded because the number lies:** `feature_count` is 0 on every
-published business layer — a builder bug (it compares a string to an int) — while
-the records decode fine. Treat 0 as unknown, not empty.
+**One caveat, recorded because the number lies:** `feature_count` is 0 on the
+**v3** business layers — a builder bug (it compares a string to an int) — while
+the records decode fine. Treat 0 as unknown, not empty. On the published
+`business_v4` files the count is correct, and worth checking: v4 records have no
+length prefix, so "decoded fewer records than the index claims" is the only cheap
+signal that the byte stream desynchronised rather than the block being short.
 
 ### The intersection vocabulary, and the one that does not exist
 
@@ -263,12 +266,30 @@ a red light from an arrival. Both come from `ptiles_core::intersection_type_name
 so the vocabulary has one home; `label-gpx`'s hand-written copy of the same five
 strings is deleted, and the wasm build exports the same two functions.
 
-**`categoryIdx` has no vocabulary to expose, and this library cannot invent one.**
-The published `business_v4` files carry the index and no category table, and no
-sidecar mapping ships with them. Logging the raw integer is the correct behavior,
-not a shortcoming of the caller. If the POI builder starts emitting a category
-table — in `aux`, or as a sidecar — a `businessCategoryName` accessor belongs
-right next to the two above, and that is a builder change, not a client one.
+**`categoryIdx` does have a vocabulary, and an earlier version of this note said
+it did not. Correction:** the builder publishes `{ST}.business_categories.json`
+next to the layers (11 KB for TN, `{"categories": [...]}`), so the mapping is one
+plain fetch away — no `aux` change and no client-side invention needed.
+
+Read it **1-based**: the builder assigns `i + 1` over a 0-based array, so
+`categoryIdx == 0` means "no category" and `n` names `categories[n - 1]`. Reading
+it 0-based labels every POI with its neighbour's category and nothing errors.
+
+The array mixes full taxonomy paths (`"Business and Professional Services >
+Office"`) with bare slugs (`"church_cathedral"`); take the last `>`-separated
+segment and turn underscores into spaces. `label-gpx/js/context.js`'s
+`categoryLabel` is the reference implementation. The sidecar carries no version,
+so keep the raw index too — a label is a lookup against a file with its own
+vintage, the index is what the layer actually holds.
+
+**New in `BusinessInfo`: `sourceType`, `sourceId`, `confidence`,** from an
+extended-attributes trailer every record carries and the decoder used to skip
+entirely. `sourceType` is 1 = Overture, 2 = Foursquare; `sourceId` is that
+dataset's own id (a GERS uuid, or a Foursquare venue id) and is the only stable
+handle back to the source. Skipping the trailer was harmless in v3, whose length
+prefix resynchronises every record, and fatal in v4, which has none: the stream
+desynchronised after record #1 and produced thousands of well-formed garbage
+records before dying with `unexpected end of input`.
 
 (Signals are unaffected: `.signals` records already carry their type as a string,
 decoded from the format's own table. `BuildingInfo.category` likewise.)

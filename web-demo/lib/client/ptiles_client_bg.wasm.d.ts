@@ -15,6 +15,8 @@ export const coarse_bracket: (a: number, b: number, c: number, d: number, e: big
 export const decode_buildings: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const decode_buildings_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const decode_business: (a: number, b: number) => [number, number, number];
+export const decode_business_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const decode_business_versioned: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const decode_cameras: (a: number, b: number) => [number, number, number];
 export const decode_parks: (a: number, b: number) => [number, number, number];
 export const decode_rail: (a: number, b: number) => [number, number, number];

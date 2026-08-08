@@ -27,6 +27,7 @@ import {
 } from "../js/segments.js";
 import { speedBands } from "../js/chart.js";
 import { LABELS } from "../js/gpx.js";
+import { categoryLabel, pointInPolygon } from "../js/context.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -40,6 +41,13 @@ if (!existsSync(WASM_PKG)) {
   );
 }
 const wasm = createRequire(import.meta.url)(WASM_PKG);
+const GOLDEN = join(ROOT, "test-fixtures", "golden");
+
+/** A golden fixture as bytes, or `null` when it is not checked out. */
+function fixture(name) {
+  const path = join(GOLDEN, name);
+  return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+}
 
 /**
  * Minimal trkpt scan, deliberately not `js/gpx.js`.
@@ -531,5 +539,55 @@ test("a boundary move keeps the trace tiled", () => {
       assert.equal(segs[i].start, segs[i - 1].end + 1, `gap after moving to ${at}`);
     }
     for (const s of segs) assert.ok(s.end >= s.start, `empty segment after moving to ${at}`);
+  }
+});
+
+// --- the categories sidecar, and the v4 decoder it labels ------------------
+
+test("categoryLabel reads the sidecar 1-based and flattens both name shapes", () => {
+  // Shape and indexing taken from the published TN sidecar: index 83 is
+  // "public_and_government_association", which is `categories[82]`.
+  const names = ["Community and Government > Spiritual Center > Church", "church_cathedral", "Office"];
+  assert.equal(categoryLabel(names, 1), "Church");
+  assert.equal(categoryLabel(names, 2), "church cathedral");
+  assert.equal(categoryLabel(names, 3), "Office");
+  // 0 is "no category", not the first entry -- reading it 0-based would label
+  // every uncategorised POI as a church and nothing would error.
+  assert.equal(categoryLabel(names, 0), null);
+  // Past the end means the sidecar is a different vintage than the layer.
+  assert.equal(categoryLabel(names, 4), null);
+  assert.equal(categoryLabel(names, 255), null);
+  // A missing or malformed sidecar degrades to no label, never to a throw.
+  assert.equal(categoryLabel([], 3), null);
+  assert.equal(categoryLabel(null, 3), null);
+  assert.equal(categoryLabel([""], 1), null);
+});
+
+test("pointInPolygon answers containment on [lon, lat] rings", () => {
+  // A unit square from (0,0) to (2,2) in [lon, lat] order.
+  const square = [[0, 0], [2, 0], [2, 2], [0, 2]];
+  assert.equal(pointInPolygon(1, 1, square), true);
+  assert.equal(pointInPolygon(3, 1, square), false);
+  assert.equal(pointInPolygon(1, 3, square), false);
+});
+
+test("the real v4 business block decodes flush and in place", () => {
+  const block = fixture("business_v4.block.bin");
+  const meta = fixture("business_v4.meta.json");
+  if (!block || !meta) return; // fixture absent: nothing to assert
+  const m = JSON.parse(new TextDecoder().decode(meta));
+  const recs = wasm.decode_business_for_cell(block, m.cell_id_hex);
+  // Exactly the index's count. This is the assertion the trailer bug broke: the
+  // old sniffing decoder produced garbage records and then threw
+  // "unexpected end of input at offset 42".
+  assert.equal(recs.length, m.feature_count_in_index);
+  for (const b of recs) {
+    // Not JSON.stringify: osm_id is a BigInt, which it refuses to serialise.
+    assert.ok(b.name.length > 0, `unnamed record at ${b.lat},${b.lon}`);
+    assert.ok([1, 2].includes(b.source_type), `source_type ${b.source_type} on ${b.name}`);
+    // Inside its own cell, not off Null Island -- v4 coordinates are offsets
+    // from the cell centre, so a wrong origin is silent.
+    assert.ok(Math.abs(b.lat - m.cell_center_lat) < 0.05, `${b.name} lat ${b.lat}`);
+    assert.ok(Math.abs(b.lon - m.cell_center_lon) < 0.05, `${b.name} lon ${b.lon}`);
   }
 });

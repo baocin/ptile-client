@@ -59,6 +59,13 @@ const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([36.
 let basemap = null;
 const segLayer = L.layerGroup().addTo(map);
 const vertexLayer = L.layerGroup().addTo(map);
+// The hovered trace point. Its own layer, and one reused marker, so `render()`
+// never touches it: `drawSegments`/`drawVertices` clear their layers wholesale,
+// which would delete the marker mid-hover.
+const hoverLayer = L.layerGroup().addTo(map);
+const hoverMarker = L.circleMarker([0, 0], {
+  radius: 6, color: "#fff", weight: 2, fillColor: "#fff", fillOpacity: 0.9,
+});
 let polylines = [];
 
 function drawSegments() {
@@ -179,6 +186,7 @@ basemapControl.onAdd = () => {
     <div class="basemap">
       <button data-mode="osm" class="on">OSM tiles</button>
       <button data-mode="ptiles">PTiles layers</button>
+      <button id="scanBuildings" title="Outline every building footprint the trace goes inside">Buildings on trace</button>
     </div>
     <div class="basemap-note" id="basemapNote"></div>`;
   L.DomEvent.disableClickPropagation(wrap);
@@ -192,9 +200,82 @@ basemapControl.onAdd = () => {
       status();
     });
   });
+  wrap.querySelector("#scanBuildings").addEventListener("click", scanBuildings);
   return wrap;
 };
 basemapControl.addTo(map);
+
+/**
+ * Outline every building footprint the trace passes inside.
+ *
+ * Its own layer, deliberately not the vector basemap's `ptilesFill` pane: those
+ * polygons are `interactive: false`, carry no id, share one canvas, and only
+ * exist in ptiles mode above zoom 15. This works in either basemap mode at any
+ * zoom, and each outline is clickable to attach that building to a segment.
+ *
+ * On demand, not automatic: it decodes every buildings block the trace touches,
+ * which is the most expensive thing this page can ask for.
+ */
+const buildingLayer = L.layerGroup().addTo(map);
+let scanning = false;
+async function scanBuildings() {
+  if (!state.parsed || scanning) return;
+  const btn = el("scanBuildings");
+  scanning = true;
+  if (btn) btn.textContent = "Scanning...";
+  buildingLayer.clearLayers();
+  try {
+    const hits = await resolver.buildingsOnTrace(state.parsed.points);
+    for (const b of hits) {
+      // Rings are [lon, lat]; Leaflet wants [lat, lon].
+      const ring = b.coords.map(([lon, lat]) => [lat, lon]);
+      const name = b.name || b.category || b.type || "building";
+      L.polygon(ring, { color: "#fff", weight: 2, fillColor: "#fff", fillOpacity: 0.15 })
+        .bindTooltip(`${name} · ${b.points.length} pts inside · click to attach`)
+        .on("click", () => attachBuilding(b))
+        .addTo(buildingLayer);
+    }
+    state.traceBuildings = hits;
+    warn(
+      hits.length
+        ? `${hits.length} building${hits.length === 1 ? "" : "s"} contain trace points`
+        : "no building footprint on this trace contains a trace point",
+    );
+    render();
+  } catch (e) {
+    warn(`building scan: ${e?.message ?? e}`);
+  } finally {
+    scanning = false;
+    if (btn) btn.textContent = "Buildings on trace";
+  }
+}
+
+/**
+ * Attach a scanned building to the segment its points belong to -- the same
+ * `context.building` shape the click-a-place path writes, so the export and the
+ * schema stay one thing.
+ */
+function attachBuilding(b) {
+  const mid = b.points[Math.floor(b.points.length / 2)];
+  const i = state.segments.findIndex((s) => mid >= s.start && mid <= s.end);
+  if (i < 0) return;
+  state.history.snapshot(state.segments);
+  const seg = state.segments[i];
+  const ctx = { ...(seg.context ?? {}) };
+  ctx.snapshot = SNAPSHOT;
+  ctx.building = {
+    osm_id: b.osm_id,
+    name: b.name,
+    type: b.type,
+    category: b.category,
+    distance_m: 0,
+    inside: true,
+  };
+  state.segments[i] = { ...seg, context: ctx, edited: true };
+  delete state.segments[i].sourceContext;
+  select(i);
+  warn(`attached ${b.name || "building"} to segment ${i + 1}`);
+}
 
 function basemapNote(msg) {
   const n = el("basemapNote");
@@ -313,7 +394,7 @@ function renderPlace() {
       <span class="sub data">${a.distance_m.toFixed(0)} m</span></li>`)
     .join("");
   const biz = (place.businesses ?? [])
-    .map((x) => `<li>${escapeHtml(x.name)}
+    .map((x) => `<li>${escapeHtml(x.name)}${x.category ? ` <span class="sub">${escapeHtml(x.category)}</span>` : ""}
       <span class="sub data">${x.distance_m.toFixed(0)} m</span></li>`)
     .join("");
   const target = nearestSegment(place.lat, place.lon);
@@ -428,7 +509,9 @@ function renderChartIfShown() {
     colors: COLORS,
     thresholds,
     view: state.view,
-    onZoom: setView,
+    onZoomAbout: zoomAbout,
+    onHover: showHover,
+    onHoverEnd: hideHover,
     onSeek: (t_ms) => {
       const i = state.segments.findIndex((s) => t_ms >= s.t0 && t_ms <= s.t1);
       if (i >= 0) select(i);
@@ -518,6 +601,40 @@ function fullSpan() {
 /** The effective window: the zoom if set, else the whole trace. */
 function viewWindow() {
   return state.view ?? fullSpan();
+}
+
+/**
+ * The one px<->time conversion on the page, both directions, against the ribbon
+ * track. The bands, the boundary handles, the hover marker and the wheel zoom all
+ * go through this pair; when each computed its own the handles drifted.
+ */
+function timeAtX(clientX) {
+  const w = viewWindow();
+  if (!w) return null;
+  const r = el("ribbon").getBoundingClientRect();
+  if (!r.width) return null;
+  const f = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+  return w.t0 + f * (w.t1 - w.t0);
+}
+
+/** Fraction across the current window, 0..1, for a timestamp. */
+function xForTime(t_ms) {
+  const w = viewWindow();
+  if (!w) return 0;
+  const span = Math.max(1, w.t1 - w.t0);
+  return Math.min(1, Math.max(0, (t_ms - w.t0) / span));
+}
+
+/**
+ * Zoom by `factor` about a fixed timestamp, keeping that instant under the
+ * pointer. `factor < 1` zooms in.
+ */
+function zoomAbout(t_ms, factor) {
+  const w = viewWindow();
+  if (!w || !Number.isFinite(t_ms)) return;
+  const width = Math.max(5000, (w.t1 - w.t0) * factor);
+  const at = Math.min(1, Math.max(0, (t_ms - w.t0) / Math.max(1, w.t1 - w.t0)));
+  setView({ t0: t_ms - at * width, t1: t_ms + (1 - at) * width });
 }
 
 /**
@@ -639,6 +756,43 @@ function wireOverview() {
 
 wireOverview();
 
+/**
+ * The ribbon's own listeners, bound **once** on the persistent hosts rather than
+ * inside `renderRibbon`. Binding per render is the leak `wireOverview` was
+ * extracted to fix; a hover handler would have added one listener per render.
+ *
+ * `wheel` is bound on `#ribbonWrap`, which covers the overview, the ribbon and
+ * the chart, so scrolling anywhere in the timeline strip zooms about the pointer.
+ * `#map` is deliberately left alone: Leaflet's own `scrollWheelZoom` owns it.
+ */
+function wireRibbon() {
+  const wrap = el("ribbonWrap");
+  const ribbon = el("ribbon");
+  if (!wrap || !ribbon) return;
+  wrap.addEventListener(
+    "wheel",
+    (e) => {
+      if (!state.parsed) return;
+      // The chart's own svg handler already zoomed; do not zoom twice.
+      if (e.target.closest && e.target.closest("#chart svg")) return;
+      e.preventDefault();
+      const at = timeAtX(e.clientX);
+      if (at === null) return;
+      zoomAbout(at, e.deltaY > 0 ? 1.35 : 1 / 1.35);
+    },
+    { passive: false },
+  );
+  // Delegated, so it survives every re-render of the bands.
+  ribbon.addEventListener("mousemove", (e) => {
+    if (!state.parsed) return;
+    const at = timeAtX(e.clientX);
+    if (at !== null) showHover(at);
+  });
+  ribbon.addEventListener("mouseleave", hideHover);
+}
+
+wireRibbon();
+
 // ---------------------------------------------------------------- ribbon
 
 /**
@@ -653,31 +807,38 @@ function renderRibbon() {
     return;
   }
   // The ribbon follows the zoom, but keeps *every* band: a band outside the
-  // window gets a near-zero growth factor rather than being dropped. That keeps
-  // the element count equal to the segment count and the widths summing to the
-  // track, which is what makes the ribbon an honest picture of durations.
+  // window gets zero width rather than being dropped. That keeps the element
+  // count equal to the segment count and the in-window bands tiling the track,
+  // which is what makes the ribbon an honest picture of durations.
+  //
+  // Positioned absolutely from time, not laid out by flex: `xForTime` is the same
+  // function the handles and the hover marker use, so a band's left edge and its
+  // boundary handle cannot disagree. Under flex they did -- see the CSS.
   const w = viewWindow();
   const t0 = w.t0;
   const t1 = w.t1;
   const span = Math.max(1, t1 - t0);
   wrap.innerHTML = state.segments
     .map((s, i) => {
-      // Growth factors, not a percentage basis, so the bands always divide the
-      // track exactly. Scaled by 100 on purpose: when flex-grow factors sum to
-      // less than 1, CSS hands each item only `grow x free-space` and leaves the
-      // remainder empty -- which is why the fractions alone left a gap at the
-      // end of the ribbon.
-      const shown = Math.max(0, Math.min(s.t1, t1) - Math.max(s.t0, t0));
-      const grow = Math.max(0.0001, (shown / span) * 100);
+      const from = Math.max(s.t0, t0);
+      const to = Math.min(s.t1, t1);
+      const left = ((from - t0) / span) * 100;
+      // Sub-pixel bands are unclickable on the ribbon. They already were, and the
+      // table row and the boundary handles still reach them.
+      const width = Math.max(0, ((to - from) / span) * 100);
       const mins = ((s.t1 - s.t0) / 60000).toFixed(1);
       const mean = meanSpeed(s);
       return `<span class="seg${s.edited ? " human" : ""}${i === state.selected ? " sel" : ""}"
-        data-i="${i}" style="flex: ${grow} 1 0; background: ${COLORS[s.type] ?? COLORS.unknown};
+        data-i="${i}" style="left: ${left.toFixed(4)}%; width: ${width.toFixed(4)}%;
+        background: ${COLORS[s.type] ?? COLORS.unknown};
         color: ${COLORS[s.type] ?? COLORS.unknown}"
         title="${i + 1}. ${s.type} · ${mins} min · ${s.points} pts${
           mean === null ? "" : ` · ${mean.toFixed(1)} m/s mean`}${s.edited ? " · human" : ""}"></span>`;
     })
     .join("");
+  // The hover cursor is part of the ribbon's markup, so it has to be re-added
+  // after the bands are rewritten. Parked off-screen until a hover moves it.
+  wrap.insertAdjacentHTML("beforeend", '<span class="cursor" style="left:-10px"></span>');
   renderHandles(t0, span);
   wrap.querySelectorAll(".seg").forEach((band) => {
     const i = Number(band.dataset.i);
@@ -751,16 +912,18 @@ function renderHandles(t0, span) {
 function nearestPointIndex(t_ms) {
   const pts = state.parsed && state.parsed.points;
   if (!pts || !pts.length) return null;
-  let best = 0;
-  let bestD = Infinity;
-  for (let i = 0; i < pts.length; i++) {
-    const d = Math.abs(pts[i].t_ms - t_ms);
-    if (d < bestD) {
-      bestD = d;
-      best = i;
-    }
+  // Binary search, not a scan: this runs on every mousemove over the ribbon and
+  // the chart, and a trace is time-ordered by construction (`js/gpx.js` sorts).
+  let lo = 0;
+  let hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid].t_ms < t_ms) lo = mid + 1;
+    else hi = mid;
   }
-  return best;
+  // `lo` is the first point at or after `t_ms`; its predecessor can be nearer.
+  if (lo > 0 && Math.abs(pts[lo - 1].t_ms - t_ms) <= Math.abs(pts[lo].t_ms - t_ms)) return lo - 1;
+  return lo;
 }
 
 /** Mean smoothed speed over a segment, or null when nothing was derived. */
@@ -861,6 +1024,58 @@ function emphasize(i, on) {
   if (line) line.setStyle({ weight: on ? 8 : i === state.selected ? 7 : 4, color: on ? "#fff" : COLORS[state.segments[i].type] });
 }
 
+/**
+ * Mark the trace point at `t_ms` on the map, and read it out under the ribbon.
+ *
+ * The ribbon shows *when*; the map shows *where*. Hovering one and seeing the
+ * other is the only way to tell whether a band covers the stretch of road you
+ * think it does. Driven by both the ribbon and the chart, through the same
+ * function, so the two views cannot answer differently.
+ */
+function showHover(t_ms) {
+  const idx = nearestPointIndex(t_ms);
+  if (idx === null) return;
+  const p = state.parsed.points[idx];
+  hoverMarker.setLatLng([p.lat, p.lon]);
+  if (!hoverLayer.hasLayer(hoverMarker)) hoverMarker.addTo(hoverLayer);
+  const info = el("hoverInfo");
+  if (info) {
+    const clock = new Date(p.t_ms).toISOString().slice(11, 19);
+    const seg = state.segments.findIndex((s) => idx >= s.start && idx <= s.end);
+    const speed = p.speed_mps ?? speedAt(idx);
+    info.textContent =
+      `${clock} · point ${idx + 1}/${state.parsed.points.length}` +
+      (speed === null ? "" : ` · ${speed.toFixed(1)} m/s`) +
+      (seg >= 0 ? ` · segment ${seg + 1} ${state.segments[seg].type}` : "");
+  }
+  const marker = el("ribbon").querySelector(".cursor");
+  if (marker) marker.style.left = `${(xForTime(t_ms) * 100).toFixed(3)}%`;
+}
+
+function hideHover() {
+  hoverLayer.removeLayer(hoverMarker);
+  const info = el("hoverInfo");
+  // A non-breaking space, not "": an empty span collapses the row, the chart
+  // below it moves, and a drag in flight over the chart lands somewhere else.
+  if (info) info.textContent = "\u00a0";
+  const marker = el("ribbon").querySelector(".cursor");
+  if (marker) marker.style.left = "-10px";
+}
+
+/**
+ * Speed at a point index, derived from its neighbours when the trace carries no
+ * `speed` extension -- which most GPX files do not.
+ */
+function speedAt(idx) {
+  const pts = state.parsed && state.parsed.points;
+  if (!pts || pts.length < 2) return null;
+  const a = pts[Math.max(0, idx - 1)];
+  const b = pts[Math.min(pts.length - 1, idx + 1)];
+  const dt = (b.t_ms - a.t_ms) / 1000;
+  if (!(dt > 0)) return null;
+  return wasm.distance_m(a.lat, a.lon, b.lat, b.lon) / dt;
+}
+
 function highlightRow(i, on) {
   const tr = el("segments").querySelector(`tr[data-i="${i}"]`);
   if (tr) tr.style.background = on ? "#2a3240" : "";
@@ -897,6 +1112,11 @@ function renderDetail() {
     return;
   }
   const c = s.context;
+  // Scanned footprints whose contained points fall in this segment. From the
+  // on-demand trace scan, so it is empty until the user runs it.
+  const insideHere = (state.traceBuildings ?? []).filter((b) =>
+    b.points.some((i) => i >= s.start && i <= s.end),
+  );
   const road = c && c.road
     ? `<b>${escapeHtml(c.road.name ?? "(unnamed)")}</b> ${escapeHtml(c.road.road_class)}, ${c.road.distance_m.toFixed(1)} m`
     : state.resolved ? "nothing within 30 m" : "not resolved";
@@ -929,7 +1149,10 @@ function renderDetail() {
         s.context.building.name || s.context.building.building_type || "unnamed",
       )}</b>${s.context.building.inside ? " · inside" : ` · ${s.context.building.distance_m.toFixed(0)} m`}</dd>` : ""}
       ${s.context && s.context.businesses && s.context.businesses.length ? `<dt>businesses</dt><dd>${
-        s.context.businesses.map((b) => escapeHtml(b.name)).join(", ")}</dd>` : ""}
+        s.context.businesses.map((b) => escapeHtml(b.category ? `${b.name} (${b.category})` : b.name)).join(", ")}</dd>` : ""}
+      ${insideHere.length ? `<dt>inside</dt><dd>${insideHere
+        .map((b) => `${escapeHtml(b.name || b.type || "building")} <span class="sub">${b.points.length} pts</span>`)
+        .join(", ")}</dd>` : ""}
       ${s.context && s.context.addresses && s.context.addresses.length ? `<dt>address</dt><dd>${
         escapeHtml(s.context.addresses[0].housenumber)} ${escapeHtml(s.context.addresses[0].street)}</dd>` : ""}
       <dt>vintage</dt><dd>trace recorded ${new Date(s.t0).getFullYear()}, map snapshot
@@ -1022,6 +1245,10 @@ el("file").addEventListener("change", async (e) => {
   state.results = classifyTrace(wasm, parsed.points);
   state.shifts = null;
   state.view = null;
+  // Scanned footprints belong to the previous trace.
+  state.traceBuildings = null;
+  buildingLayer.clearLayers();
+  hideHover();
   state.segments = coalesce(parsed.points, state.results);
   // A rook file's own context is kept as-is rather than recomputed: it was
   // captured in the field, and this snapshot is years newer.
@@ -1166,3 +1393,16 @@ el("download").addEventListener("click", () => {
 // too, so a test can fire a click at a real coordinate rather than guess a pixel.
 window.__labelGpx = state;
 window.__leafletMap = map;
+// For the browser tests: where the hover marker is, or null when hidden. The
+// marker is a Leaflet internal otherwise, and asserting on the DOM canvas cannot
+// tell you *which* point it is on.
+// For the browser tests: run the trace-wide building scan over an arbitrary point
+// list, so a synthetic one-point "trace" inside a known footprint can exercise the
+// containment path even when every committed fixture is a trail through woodland.
+state.scanForTests = (pts) => resolver.buildingsOnTrace(pts);
+// A getter, not a snapshot: `resolver` is null until wasm finishes initialising.
+Object.defineProperty(state, "resolverForTests", { get: () => resolver });
+state.hoverMarkerLatLng = () =>
+  hoverLayer.hasLayer(hoverMarker)
+    ? [hoverMarker.getLatLng().lat, hoverMarker.getLatLng().lng]
+    : null;

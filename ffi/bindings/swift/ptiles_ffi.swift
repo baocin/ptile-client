@@ -1816,10 +1816,35 @@ public struct BusinessInfo {
     public var phone: String?
     public var website: String?
     public var operatingStatus: String
+    /**
+     * Upstream dataset: 1 = Overture, 2 = Foursquare. `None` on records with
+     * no extended-attributes trailer.
+     */
+    public var sourceType: UInt8?
+    /**
+     * Upstream record id (a GERS id for Overture, a venue id for Foursquare) --
+     * the only stable handle back to the source dataset.
+     */
+    public var sourceId: String?
+    /**
+     * Upstream confidence, 0-100.
+     */
+    public var confidence: UInt8?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(osmId: Int64, name: String, location: LatLon, categoryIdx: UInt8, phone: String?, website: String?, operatingStatus: String) {
+    public init(osmId: Int64, name: String, location: LatLon, categoryIdx: UInt8, phone: String?, website: String?, operatingStatus: String, 
+        /**
+         * Upstream dataset: 1 = Overture, 2 = Foursquare. `None` on records with
+         * no extended-attributes trailer.
+         */sourceType: UInt8?, 
+        /**
+         * Upstream record id (a GERS id for Overture, a venue id for Foursquare) --
+         * the only stable handle back to the source dataset.
+         */sourceId: String?, 
+        /**
+         * Upstream confidence, 0-100.
+         */confidence: UInt8?) {
         self.osmId = osmId
         self.name = name
         self.location = location
@@ -1827,6 +1852,9 @@ public struct BusinessInfo {
         self.phone = phone
         self.website = website
         self.operatingStatus = operatingStatus
+        self.sourceType = sourceType
+        self.sourceId = sourceId
+        self.confidence = confidence
     }
 }
 
@@ -1858,6 +1886,15 @@ extension BusinessInfo: Equatable, Hashable {
         if lhs.operatingStatus != rhs.operatingStatus {
             return false
         }
+        if lhs.sourceType != rhs.sourceType {
+            return false
+        }
+        if lhs.sourceId != rhs.sourceId {
+            return false
+        }
+        if lhs.confidence != rhs.confidence {
+            return false
+        }
         return true
     }
 
@@ -1869,6 +1906,9 @@ extension BusinessInfo: Equatable, Hashable {
         hasher.combine(phone)
         hasher.combine(website)
         hasher.combine(operatingStatus)
+        hasher.combine(sourceType)
+        hasher.combine(sourceId)
+        hasher.combine(confidence)
     }
 }
 
@@ -1887,7 +1927,10 @@ public struct FfiConverterTypeBusinessInfo: FfiConverterRustBuffer {
                 categoryIdx: FfiConverterUInt8.read(from: &buf), 
                 phone: FfiConverterOptionString.read(from: &buf), 
                 website: FfiConverterOptionString.read(from: &buf), 
-                operatingStatus: FfiConverterString.read(from: &buf)
+                operatingStatus: FfiConverterString.read(from: &buf), 
+                sourceType: FfiConverterOptionUInt8.read(from: &buf), 
+                sourceId: FfiConverterOptionString.read(from: &buf), 
+                confidence: FfiConverterOptionUInt8.read(from: &buf)
         )
     }
 
@@ -1899,6 +1942,9 @@ public struct FfiConverterTypeBusinessInfo: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.phone, into: &buf)
         FfiConverterOptionString.write(value.website, into: &buf)
         FfiConverterString.write(value.operatingStatus, into: &buf)
+        FfiConverterOptionUInt8.write(value.sourceType, into: &buf)
+        FfiConverterOptionString.write(value.sourceId, into: &buf)
+        FfiConverterOptionUInt8.write(value.confidence, into: &buf)
     }
 }
 
@@ -3047,6 +3093,30 @@ extension PtilesError: Foundation.LocalizedError {
 
 
 
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt8: FfiConverterRustBuffer {
+    typealias SwiftType = UInt8?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt8.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt8.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
 
 #if swift(>=5.8)
 @_documentation(visibility: private)

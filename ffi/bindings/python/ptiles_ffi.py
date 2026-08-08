@@ -1468,7 +1468,24 @@ class BusinessInfo:
     phone: "typing.Optional[str]"
     website: "typing.Optional[str]"
     operating_status: "str"
-    def __init__(self, *, osm_id: "int", name: "str", location: "LatLon", category_idx: "int", phone: "typing.Optional[str]", website: "typing.Optional[str]", operating_status: "str"):
+    source_type: "typing.Optional[int]"
+    """
+    Upstream dataset: 1 = Overture, 2 = Foursquare. `None` on records with
+    no extended-attributes trailer.
+    """
+
+    source_id: "typing.Optional[str]"
+    """
+    Upstream record id (a GERS id for Overture, a venue id for Foursquare) --
+    the only stable handle back to the source dataset.
+    """
+
+    confidence: "typing.Optional[int]"
+    """
+    Upstream confidence, 0-100.
+    """
+
+    def __init__(self, *, osm_id: "int", name: "str", location: "LatLon", category_idx: "int", phone: "typing.Optional[str]", website: "typing.Optional[str]", operating_status: "str", source_type: "typing.Optional[int]", source_id: "typing.Optional[str]", confidence: "typing.Optional[int]"):
         self.osm_id = osm_id
         self.name = name
         self.location = location
@@ -1476,9 +1493,12 @@ class BusinessInfo:
         self.phone = phone
         self.website = website
         self.operating_status = operating_status
+        self.source_type = source_type
+        self.source_id = source_id
+        self.confidence = confidence
 
     def __str__(self):
-        return "BusinessInfo(osm_id={}, name={}, location={}, category_idx={}, phone={}, website={}, operating_status={})".format(self.osm_id, self.name, self.location, self.category_idx, self.phone, self.website, self.operating_status)
+        return "BusinessInfo(osm_id={}, name={}, location={}, category_idx={}, phone={}, website={}, operating_status={}, source_type={}, source_id={}, confidence={})".format(self.osm_id, self.name, self.location, self.category_idx, self.phone, self.website, self.operating_status, self.source_type, self.source_id, self.confidence)
 
     def __eq__(self, other):
         if self.osm_id != other.osm_id:
@@ -1495,6 +1515,12 @@ class BusinessInfo:
             return False
         if self.operating_status != other.operating_status:
             return False
+        if self.source_type != other.source_type:
+            return False
+        if self.source_id != other.source_id:
+            return False
+        if self.confidence != other.confidence:
+            return False
         return True
 
 class _UniffiConverterTypeBusinessInfo(_UniffiConverterRustBuffer):
@@ -1508,6 +1534,9 @@ class _UniffiConverterTypeBusinessInfo(_UniffiConverterRustBuffer):
             phone=_UniffiConverterOptionalString.read(buf),
             website=_UniffiConverterOptionalString.read(buf),
             operating_status=_UniffiConverterString.read(buf),
+            source_type=_UniffiConverterOptionalUInt8.read(buf),
+            source_id=_UniffiConverterOptionalString.read(buf),
+            confidence=_UniffiConverterOptionalUInt8.read(buf),
         )
 
     @staticmethod
@@ -1519,6 +1548,9 @@ class _UniffiConverterTypeBusinessInfo(_UniffiConverterRustBuffer):
         _UniffiConverterOptionalString.check_lower(value.phone)
         _UniffiConverterOptionalString.check_lower(value.website)
         _UniffiConverterString.check_lower(value.operating_status)
+        _UniffiConverterOptionalUInt8.check_lower(value.source_type)
+        _UniffiConverterOptionalString.check_lower(value.source_id)
+        _UniffiConverterOptionalUInt8.check_lower(value.confidence)
 
     @staticmethod
     def write(value, buf):
@@ -1529,6 +1561,9 @@ class _UniffiConverterTypeBusinessInfo(_UniffiConverterRustBuffer):
         _UniffiConverterOptionalString.write(value.phone, buf)
         _UniffiConverterOptionalString.write(value.website, buf)
         _UniffiConverterString.write(value.operating_status, buf)
+        _UniffiConverterOptionalUInt8.write(value.source_type, buf)
+        _UniffiConverterOptionalString.write(value.source_id, buf)
+        _UniffiConverterOptionalUInt8.write(value.confidence, buf)
 
 
 class BusinessSearchHit:
@@ -2327,6 +2362,33 @@ class _UniffiConverterTypePtilesError(_UniffiConverterRustBuffer):
             buf.write_i32(8)
         if isinstance(value, PtilesError.InvalidBounds):
             buf.write_i32(9)
+
+
+
+class _UniffiConverterOptionalUInt8(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterUInt8.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterUInt8.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterUInt8.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
 
 
 

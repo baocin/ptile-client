@@ -1,0 +1,17 @@
+{
+  "block_length_compressed": 385,
+  "block_length_decompressed": 646,
+  "cell_center_lat": 36.3561865341295,
+  "cell_center_lon": -86.07440826430097,
+  "cell_id_hex": "8744c9a0affffff",
+  "cell_id_int": 609196074095083519,
+  "feature_count_in_index": 7,
+  "file_version": 4,
+  "index_entry_size": 19,
+  "layer": "business",
+  "query_point": [
+    36.35605,
+    -86.07246
+  ],
+  "source_file": "TN.business_v4.ptiles"
+}

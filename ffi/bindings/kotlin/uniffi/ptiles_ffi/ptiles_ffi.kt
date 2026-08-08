@@ -3117,7 +3117,21 @@ data class BusinessInfo (
     var `categoryIdx`: kotlin.UByte, 
     var `phone`: kotlin.String?, 
     var `website`: kotlin.String?, 
-    var `operatingStatus`: kotlin.String
+    var `operatingStatus`: kotlin.String, 
+    /**
+     * Upstream dataset: 1 = Overture, 2 = Foursquare. `None` on records with
+     * no extended-attributes trailer.
+     */
+    var `sourceType`: kotlin.UByte?, 
+    /**
+     * Upstream record id (a GERS id for Overture, a venue id for Foursquare) --
+     * the only stable handle back to the source dataset.
+     */
+    var `sourceId`: kotlin.String?, 
+    /**
+     * Upstream confidence, 0-100.
+     */
+    var `confidence`: kotlin.UByte?
 ) {
     
     companion object
@@ -3136,6 +3150,9 @@ public object FfiConverterTypeBusinessInfo: FfiConverterRustBuffer<BusinessInfo>
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalUByte.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalUByte.read(buf),
         )
     }
 
@@ -3146,7 +3163,10 @@ public object FfiConverterTypeBusinessInfo: FfiConverterRustBuffer<BusinessInfo>
             FfiConverterUByte.allocationSize(value.`categoryIdx`) +
             FfiConverterOptionalString.allocationSize(value.`phone`) +
             FfiConverterOptionalString.allocationSize(value.`website`) +
-            FfiConverterString.allocationSize(value.`operatingStatus`)
+            FfiConverterString.allocationSize(value.`operatingStatus`) +
+            FfiConverterOptionalUByte.allocationSize(value.`sourceType`) +
+            FfiConverterOptionalString.allocationSize(value.`sourceId`) +
+            FfiConverterOptionalUByte.allocationSize(value.`confidence`)
     )
 
     override fun write(value: BusinessInfo, buf: ByteBuffer) {
@@ -3157,6 +3177,9 @@ public object FfiConverterTypeBusinessInfo: FfiConverterRustBuffer<BusinessInfo>
             FfiConverterOptionalString.write(value.`phone`, buf)
             FfiConverterOptionalString.write(value.`website`, buf)
             FfiConverterString.write(value.`operatingStatus`, buf)
+            FfiConverterOptionalUByte.write(value.`sourceType`, buf)
+            FfiConverterOptionalString.write(value.`sourceId`, buf)
+            FfiConverterOptionalUByte.write(value.`confidence`, buf)
     }
 }
 
@@ -3755,6 +3778,38 @@ public object FfiConverterTypePtilesError : FfiConverterRustBuffer<PtilesExcepti
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalUByte: FfiConverterRustBuffer<kotlin.UByte?> {
+    override fun read(buf: ByteBuffer): kotlin.UByte? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterUByte.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.UByte?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterUByte.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.UByte?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterUByte.write(value, buf)
+        }
+    }
 }
 
 

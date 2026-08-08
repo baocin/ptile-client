@@ -406,6 +406,86 @@ def main():
             page.evaluate("() => { window.__labelGpx.view = null; }")
             page.evaluate("() => window.dispatchEvent(new Event('resize'))")
 
+        # --- a handle sits on the edge of the band it moves
+        # (Run before the zoom checks below, which leave the view reset.)
+        # It did not before: `.seg` was a flex item with `min-width: 2px`, so a
+        # band's laid-out left edge was not its time fraction, while the handles
+        # were positioned from time. With 100 out-of-window bands clamped to 2 px
+        # each, the drift was 200 px.
+        edges = page.evaluate(
+            "() => [...document.querySelectorAll('#ribbon .seg')].map(e =>"
+            "  ({ i: +e.dataset.i, left: e.getBoundingClientRect().left }))"
+        )
+        handle_pos = page.evaluate(
+            "() => [...document.querySelectorAll('#ribbonHandles .handle')].map(e =>"
+            "  ({ i: +e.dataset.boundary, left: e.getBoundingClientRect().left"
+            "     + e.getBoundingClientRect().width / 2 }))"
+        )
+        by_i = {e["i"]: e["left"] for e in edges}
+        worst = 0.0
+        for h in handle_pos:
+            if h["i"] in by_i:
+                worst = max(worst, abs(h["left"] - by_i[h["i"]]))
+        print(f"ok   ui: {len(handle_pos)} handles sit within {worst:.1f}px of their band edge")
+        if worst > 2:
+            failures.append(f"ui: a boundary handle is {worst:.1f}px from its band's edge")
+
+        # --- wheel over the ribbon zooms, not only over the chart
+        page.evaluate("() => { window.__labelGpx.view = null; }")
+        page.evaluate("() => window.dispatchEvent(new Event('resize'))")
+        page.wait_for_timeout(200)
+        rb = page.locator("#ribbon").bounding_box()
+        page.mouse.move(rb["x"] + rb["width"] * 0.5, rb["y"] + rb["height"] / 2)
+        page.mouse.wheel(0, -240)
+        page.wait_for_timeout(400)
+        rib_zoom = page.evaluate("() => window.__labelGpx.view")
+        span_min = None if not rib_zoom else (rib_zoom["t1"] - rib_zoom["t0"]) / 60000
+        print("ok   ui: wheel over the ribbon zoomed to "
+              + ("nothing" if span_min is None else f"{span_min:.0f} min"))
+        if not rib_zoom:
+            failures.append("ui: wheeling over the ribbon did not zoom")
+        obox = page.locator("#overview").bounding_box()
+        page.mouse.dblclick(obox["x"] + 3, obox["y"] + obox["height"] / 2)
+        page.wait_for_timeout(400)
+        if page.evaluate("() => window.__labelGpx.view") is not None:
+            failures.append("ui: could not reset the zoom after the ribbon wheel")
+
+        # --- hovering the ribbon marks the point on the map
+        rb = page.locator("#ribbon").bounding_box()
+        page.mouse.move(rb["x"] + rb["width"] * 0.4, rb["y"] + rb["height"] / 2)
+        page.wait_for_timeout(250)
+        hover = page.evaluate(
+            "() => { const s = window.__labelGpx;"
+            " const txt = document.getElementById('hoverInfo').textContent.trim();"
+            " const m = txt.match(/point (\\d+)/);"
+            " const idx = m ? +m[1] - 1 : null;"
+            " return { txt, idx, t: idx === null ? null : s.parsed.points[idx].t_ms,"
+            "   markers: s.hoverMarkerLatLng ? s.hoverMarkerLatLng() : null }; }"
+        )
+        want = page.evaluate(
+            "() => { const s = window.__labelGpx; const w = s.view ??"
+            " { t0: s.parsed.points[0].t_ms, t1: s.parsed.points.at(-1).t_ms };"
+            " return w.t0 + (w.t1 - w.t0) * 0.4; }"
+        )
+        drift = abs((hover["t"] or 0) - want) / 1000
+        print(f"ok   ui: hovering the ribbon read '{hover['txt'][:40]}' "
+              f"({drift:.0f}s from the hovered time)")
+        if hover["idx"] is None:
+            failures.append("ui: hovering the ribbon reported no point")
+        elif drift > 30:
+            failures.append(f"ui: the hovered point is {drift:.0f}s from the hovered x")
+        if hover["markers"] is None:
+            failures.append("ui: hovering the ribbon put no marker on the map")
+        else:
+            p = page.evaluate(
+                f"() => {{ const p = window.__labelGpx.parsed.points[{hover['idx']}];"
+                " return [p.lat, p.lon]; }"
+            )
+            if abs(p[0] - hover["markers"][0]) > 1e-6 or abs(p[1] - hover["markers"][1]) > 1e-6:
+                failures.append("ui: the map marker is not on the hovered point")
+        page.mouse.move(rb["x"] + rb["width"] / 2, rb["y"] - 40)
+        page.wait_for_timeout(150)
+
         # --- boundary handles
         handles = page.locator("#ribbonHandles .handle")
         n_handles = handles.count()
@@ -593,6 +673,72 @@ def main():
                       + ("" if wrote else " (this trail has none nearby)"))
         except Exception as e:
             print(f"skip ui: place lookup unavailable ({str(e)[:60]})")
+
+        # --- the trace-wide building scan
+        # Remote layers again, so a host failure reports rather than fails. What
+        # is asserted when it does run: the outlines are drawn in their own layer
+        # (not the vector basemap's shared pane), each one really does contain a
+        # trace point, and the inspector names them for the selected segment.
+        try:
+            page.click("#scanBuildings")
+            page.wait_for_function(
+                "() => document.getElementById('scanBuildings').textContent"
+                "  === 'Buildings on trace'",
+                timeout=60000,
+            )
+            page.wait_for_timeout(300)
+            scan = page.evaluate(
+                "() => { const s = window.__labelGpx; const hits = s.traceBuildings || [];"
+                " const note = document.getElementById('warn').textContent;"
+                " return { n: hits.length, note,"
+                "   allInside: hits.every(b => b.points.length > 0),"
+                "   firstSeg: hits.length ? hits[0].points[0] : null }; }"
+            )
+            print(f"ok   ui: building scan outlined {scan['n']} footprint(s) — {scan['note'][:60]}")
+            if not scan["allInside"]:
+                failures.append("ui: a scanned building contains no trace point")
+            if not scan["n"]:
+                # Every committed fixture is a trail through woodland, so zero is
+                # the honest answer there. Exercise the containment path with a
+                # synthetic one-point trace inside a footprint the place lookup
+                # already confirmed we are standing in.
+                synth = page.evaluate(
+                    "async () => { const s = window.__labelGpx;"
+                    " const p0 = s.parsed.points[0];"
+                    # Any footprint near the trace will do; its own centroid is a
+                    # point inside it, which is what the scan has to find.
+                    " const b = await s.resolverForTests.buildingAt(p0.lat, p0.lon);"
+                    " if (!b) return { skipped: 'no building within 50 m of the trace start' };"
+                    " const hits = await s.scanForTests("
+                    "   [{ lat: b.centroid_lat, lon: b.centroid_lon, t_ms: 0 }]);"
+                    " return { n: hits.length, name: hits.length ? hits[0].name : b.name }; }"
+                )
+                if synth.get("skipped"):
+                    print(f"skip ui: synthetic building scan — {synth['skipped']}")
+                else:
+                    print(f"ok   ui: scan over a point inside a footprint found "
+                          f"{synth['n']} ({synth['name'] or 'unnamed'})")
+                    if not synth["n"]:
+                        failures.append(
+                            "ui: the scan found no footprint at a point buildingAt calls inside"
+                        )
+            if scan["n"]:
+                # Select the segment the first hit belongs to; the inspector must
+                # name it under "inside".
+                page.evaluate(
+                    f"() => {{ const s = window.__labelGpx;"
+                    f" const i = s.segments.findIndex(x => {scan['firstSeg']} >= x.start"
+                    f"   && {scan['firstSeg']} <= x.end);"
+                    " if (i >= 0) document.querySelector(`#segments tr[data-i=\"${i}\"]`)?.click(); }"
+                )
+                page.wait_for_timeout(300)
+                dl = page.eval_on_selector("#detail", "e => e.textContent")
+                if "inside" not in dl:
+                    failures.append("ui: the inspector did not list the scanned building")
+                else:
+                    print("ok   ui: the inspector lists the footprint the segment is inside")
+        except Exception as e:
+            print(f"skip ui: building scan unavailable ({str(e)[:200]})")
 
         # The export half, deterministically: the live lookup above lands on a
         # rural trail with no buildings, addresses or businesses within range, so
