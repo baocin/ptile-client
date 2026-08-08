@@ -109,16 +109,26 @@ function annotate(s, points, results) {
   return s;
 }
 
-/** Merge adjacent segments that carry the same label. */
+/**
+ * Merge adjacent segments that carry the same label *and the same provenance*.
+ *
+ * The provenance half is not fussiness. Slicing 25 minutes out of a 67-minute
+ * driving stretch and labelling it `driving` used to merge straight back into its
+ * neighbours, and because the merged span inherited `edited`, the whole 67
+ * minutes then exported as `source="human"` -- a human decision about a quarter
+ * of it, laundered into a claim about all of it. Fixtures are only worth having
+ * if that attribute means what it says, so a human-marked span and an
+ * auto-labelled one stay separate even when they agree on the label.
+ */
 export function autoMerge(segments) {
   const out = [];
   for (const s of segments) {
     const last = out[out.length - 1];
-    if (last && last.type === s.type) {
+    if (last && last.type === s.type && !!last.edited === !!s.edited) {
       last.end = s.end;
       last.points = last.end - last.start + 1;
-      last.edited = last.edited || s.edited;
       last.t1 = s.t1;
+      last.t0 = Math.min(last.t0 ?? s.t0, s.t0 ?? last.t0);
     } else {
       out.push({ ...s });
     }
@@ -127,29 +137,48 @@ export function autoMerge(segments) {
 }
 
 /**
- * Split segment `i` so that `at` starts a new segment. Returns a new array;
- * both halves are marked edited, because a human decided where the boundary is
- * and that is exactly the signal a fixture consumer looks for.
+ * Split segment `i` so that `at` starts a new segment.
+ *
+ * Each half keeps whatever provenance it had. Splitting is a statement about a
+ * *boundary*, not about either label: a person who cuts a stretch in two has not
+ * thereby vouched for what lies on both sides, and marking both halves human
+ * meant a split-then-merge exported a whole hour as `source="human"` off the back
+ * of one click. `relabel` and `sliceRange` are what claim a label.
  */
-export function splitSegment(segments, i, at) {
+export function splitSegment(segments, i, at, points = null) {
   const s = segments[i];
   if (!s || at <= s.start || at > s.end) return segments;
-  const head = { ...s, end: at - 1, points: at - s.start, edited: true };
-  const tail = { ...s, start: at, points: s.end - at + 1, edited: true };
+  const head = retime({ ...s, end: at - 1, points: at - s.start }, points);
+  const tail = retime({ ...s, start: at, points: s.end - at + 1 }, points);
   const out = segments.slice();
   out.splice(i, 1, head, tail);
   return out;
 }
 
+/**
+ * Recompute a segment's `t0`/`t1` from the points it now covers.
+ *
+ * Every structural change has to do this. Splitting used to copy the parent's
+ * timestamps into both halves, so three consecutive segments all reported the
+ * same start time and the same 67-minute duration -- in the table, in the ribbon
+ * widths, and in the `start_time`/`end_time` a fixture exports. Wrong times in a
+ * fixture are worse than missing ones.
+ */
+function retime(seg, points) {
+  if (!points || !points[seg.start] || !points[seg.end]) return seg;
+  return { ...seg, t0: points[seg.start].t_ms, t1: points[seg.end].t_ms };
+}
+
 /** Merge segment `i` into its predecessor. */
-export function mergeWithPrevious(segments, i) {
+export function mergeWithPrevious(segments, i, points = null) {
   if (i <= 0 || i >= segments.length) return segments;
   const out = segments.slice();
-  const prev = { ...out[i - 1] };
+  let prev = { ...out[i - 1] };
   prev.end = out[i].end;
   prev.t1 = out[i].t1;
   prev.points = prev.end - prev.start + 1;
   prev.edited = true;
+  prev = retime(prev, points);
   out.splice(i - 1, 2, prev);
   return out;
 }
@@ -164,6 +193,66 @@ export function relabel(segments, i, type) {
   const out = segments.slice();
   out[i] = { ...out[i], type, edited: true };
   return autoMerge(out);
+}
+
+/**
+ * Carve `[startIdx, endIdx]` out of the segment list and label it `type`.
+ *
+ * This is what a dragged rectangle on the speed chart turns into: the range
+ * becomes its own segment, whatever it used to straddle. Splitting at both ends
+ * first means the operation never disturbs a point outside the range -- a slice
+ * that quietly relabelled the rest of the segment it landed in would be worse
+ * than useless for building fixtures.
+ *
+ * The result is marked edited, because a person drew it.
+ */
+export function sliceRange(segments, startIdx, endIdx, type, points = null) {
+  if (!LABELS.includes(type)) throw new Error(`not a MovementType: ${type}`);
+  const lo = Math.min(startIdx, endIdx);
+  const hi = Math.max(startIdx, endIdx);
+  let out = segments.slice();
+
+  // Split at the start, then at one past the end. Both are no-ops when the
+  // boundary already exists, which is what makes repeated slices idempotent.
+  const first = out.findIndex((s) => lo > s.start && lo <= s.end);
+  if (first >= 0) out = splitSegment(out, first, lo, points);
+  const last = out.findIndex((s) => hi + 1 > s.start && hi + 1 <= s.end);
+  if (last >= 0) out = splitSegment(out, last, hi + 1, points);
+
+  out = out.map((s) =>
+    s.start >= lo && s.end <= hi ? { ...s, type, edited: true } : s,
+  );
+  return autoMerge(out);
+}
+
+/**
+ * The dominant band inside a rectangle drawn on the speed chart.
+ *
+ * `bandOf` is the library's own bucketing (`wasm.speed_band`), so the answer here
+ * is the classifier's vocabulary and thresholds rather than a second opinion
+ * invented in JavaScript. Samples outside the rectangle's speed range are
+ * excluded, which is the reason to drag a rectangle rather than a time range: it
+ * lets a person leave a GPS spike out of the vote.
+ *
+ * Returns `{type, share, counted}` -- the share matters, because "62% walking"
+ * and "98% walking" are different claims about the same slice.
+ */
+export function dominantBand(points, results, rect, bandOf) {
+  const counts = new Map();
+  let counted = 0;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    if (p.t_ms < rect.t0 || p.t_ms > rect.t1) continue;
+    const v = results[i] && results[i].speed;
+    if (!Number.isFinite(v)) continue;
+    if (v < rect.vMin || v > rect.vMax) continue;
+    const band = bandOf(v);
+    counts.set(band, (counts.get(band) ?? 0) + 1);
+    counted++;
+  }
+  if (!counted) return { type: null, share: 0, counted: 0 };
+  const [type, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return { type, share: n / counted, counted };
 }
 
 /**

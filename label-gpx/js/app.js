@@ -7,7 +7,7 @@ import { createPtiles } from "./ptiles.js";
 import { parseGpx, writeGpx, LABELS } from "./gpx.js";
 import {
   classifyTrace, coalesce, splitSegment, mergeWithPrevious, relabel,
-  sampleIndices, createHistory, timePerLabel,
+  sampleIndices, createHistory, timePerLabel, sliceRange, dominantBand,
 } from "./segments.js";
 import { createResolver, SNAPSHOT, stateAt, stateUrl } from "./context.js";
 import { renderChart } from "./chart.js";
@@ -88,7 +88,7 @@ function drawVertices() {
       .on("click", () => {
         // Clicking a vertex of the selected segment splits there.
         state.history.snapshot(state.segments);
-        state.segments = splitSegment(state.segments, state.selected, i);
+        state.segments = splitSegment(state.segments, state.selected, i, state.parsed.points);
         render();
       })
       .bindTooltip(`split here (point ${i})`)
@@ -400,18 +400,71 @@ function shifts() {
   return state.shifts;
 }
 
+/** The classifier's speed thresholds, fetched once. */
+let thresholds = null;
+
 function renderChartIfShown() {
   if (!state.chartOn) return;
+  if (!thresholds) {
+    try {
+      thresholds = wasm.motion_thresholds();
+    } catch {
+      thresholds = {};
+    }
+  }
   renderChart(el("chart"), {
     series: speedSeries(),
     shifts: shifts(),
     segments: state.segments,
     colors: COLORS,
+    thresholds,
     onSeek: (t_ms) => {
       const i = state.segments.findIndex((s) => t_ms >= s.t0 && t_ms <= s.t1);
       if (i >= 0) select(i);
     },
+    onSlice: sliceFromRect,
   });
+}
+
+/**
+ * Turn a dragged rectangle into a new labelled slice.
+ *
+ * The label is the dominant speed band among the samples *inside the rectangle*,
+ * bucketed by the library's own `speed_band` -- so the slice gets the
+ * classifier's vocabulary and thresholds rather than a JavaScript opinion. The
+ * vertical extent is what makes this worth dragging as a rectangle: pull the top
+ * edge below a GPS spike and the spike stops voting.
+ */
+function sliceFromRect(rect) {
+  if (!state.parsed || !state.results) return;
+  const pts = state.parsed.points;
+  const inRange = [];
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i].t_ms >= rect.t0 && pts[i].t_ms <= rect.t1) inRange.push(i);
+  }
+  if (inRange.length < 2) {
+    warn("that slice covers fewer than two points — drag a wider box");
+    return;
+  }
+  const { type, share, counted } = dominantBand(pts, state.results, rect, (v) =>
+    wasm.speed_band(v),
+  );
+  if (!type) {
+    warn(`no samples inside that box (${rect.vMin.toFixed(1)}–${rect.vMax.toFixed(1)} m/s)`);
+    return;
+  }
+  state.history.snapshot(state.segments);
+  const lo = inRange[0];
+  const hi = inRange[inRange.length - 1];
+  state.segments = sliceRange(state.segments, lo, hi, type, pts);
+  state.shifts = state.shifts; // unchanged: slicing relabels, it does not reclassify
+  state.selected = state.segments.findIndex((s) => s.start <= lo && s.end >= lo);
+  render();
+  const mins = ((rect.t1 - rect.t0) / 60000).toFixed(1);
+  warn(
+    `sliced ${mins} min as ${type} — ${Math.round(share * 100)}% of ${counted} samples ` +
+      `in the box banded that way`,
+  );
 }
 
 el("chartWindow").addEventListener("change", (e) => {
@@ -524,7 +577,11 @@ function renderTable() {
   el("segments").querySelectorAll("button[data-merge]").forEach((b) => {
     b.addEventListener("click", () => {
       state.history.snapshot(state.segments);
-      state.segments = mergeWithPrevious(state.segments, Number(b.dataset.merge));
+      state.segments = mergeWithPrevious(
+        state.segments,
+        Number(b.dataset.merge),
+        state.parsed.points,
+      );
       state.selected = -1;
       render();
     });

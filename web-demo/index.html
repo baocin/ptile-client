@@ -200,7 +200,7 @@
          is opt-in once per browser rather than on every page view. -->
     <div id="adminSection">
       <div class="row"><span>Jurisdiction</span><span id="adminValue">
-        <a href="#" id="adminLoad" style="color:#58a6ff">Load US.admin (28 MB, once)</a>
+        loading 28 MB...
       </span></div>
       <div class="row" id="adminTzRow" style="display:none"><span>Timezone</span><span id="adminTz"></span></div>
     </div>
@@ -1860,8 +1860,8 @@ function stateUrl(state, layer) {
 
 // US.admin.ptiles carries no per-cell blocks: its `aux` section is one flat
 // H3 res-7 grid (1,785,304 entries x 16 bytes = 28 MB) and `dict` is the zstd
-// string tables. AdminReader wants the whole grid, so the load is deliberately
-// user-triggered and then reused for the rest of the session.
+// string tables. AdminReader wants the whole grid, so it is fetched once on
+// page load and then reused for the rest of the session.
 //
 // ponytail: whole-grid load, opt-in once. The grid is sorted by h3_cell at a
 // fixed 16-byte stride, so a range binary search (~21 x 16-byte GETs, no big
@@ -1909,10 +1909,7 @@ function showAdmin(lat, lon) {
   if (info.timezone) document.getElementById("adminTz").textContent = info.timezone;
 }
 
-// Delegated so the retry link a failed load writes back is live too.
-document.getElementById("adminValue").addEventListener("click", async function(ev) {
-  if (!ev.target || ev.target.id !== "adminLoad") return;
-  ev.preventDefault();
+async function loadAdmin() {
   var valueEl = document.getElementById("adminValue");
   valueEl.textContent = "loading 28 MB...";
   try {
@@ -1923,7 +1920,18 @@ document.getElementById("adminValue").addEventListener("click", async function(e
     valueEl.innerHTML = "failed: " + esc(e.message)
       + ' <a href="#" id="adminLoad" style="color:#58a6ff">retry</a>';
   }
+}
+
+// Delegated so the retry link a failed load writes back is live too.
+document.getElementById("adminValue").addEventListener("click", function(ev) {
+  if (!ev.target || ev.target.id !== "adminLoad") return;
+  ev.preventDefault();
+  loadAdmin();
 });
+
+// Jurisdiction is the one layer worth paying for up front: 28 MB once, then
+// every click answers without a fetch.
+loadAdmin();
 
 function ensureBldgReader() {
   if (!bldgReaderPromise) bldgReaderPromise = PtilesWasmReader.fromUrl(stateUrl(currentState, "buildings"));

@@ -22,7 +22,7 @@ import { createRequire } from "node:module";
 
 import {
   classifyTrace, coalesce, autoMerge, splitSegment, mergeWithPrevious, relabel,
-  sampleIndices, createHistory, timePerLabel,
+  sampleIndices, createHistory, timePerLabel, sliceRange, dominantBand,
 } from "../js/segments.js";
 import { LABELS } from "../js/gpx.js";
 
@@ -151,7 +151,8 @@ test("split then merge is the identity", { skip: !have }, () => {
   assert.equal(back.length, segs.length);
   assert.equal(back[target].start, segs[target].start);
   assert.equal(back[target].end, segs[target].end);
-  // The round trip is a human action, so it stays marked as one.
+  // Merging *is* a claim -- "this whole span is one thing" -- so the result is
+  // marked human even though the split that preceded it was not.
   assert.equal(back[target].edited, true);
 });
 
@@ -163,17 +164,20 @@ test("a split outside the segment is refused rather than corrupting it", { skip:
   assert.equal(mergeWithPrevious(segs, 0), segs, "nothing to merge the first into");
 });
 
-test("relabelling marks human intent and re-merges neighbours", () => {
+test("relabelling marks human intent, and does not extend it to its neighbours", () => {
   const segs = [
     { start: 0, end: 4, type: "walking", edited: false, points: 5, t0: 0, t1: 4000 },
     { start: 5, end: 9, type: "stationary", edited: false, points: 5, t0: 5000, t1: 9000 },
     { start: 10, end: 14, type: "walking", edited: false, points: 5, t0: 10000, t1: 14000 },
   ];
   const out = relabel(segs, 1, "walking");
-  assert.equal(out.length, 1, "the three became one run of walking");
-  assert.equal(out[0].start, 0);
-  assert.equal(out[0].end, 14);
-  assert.equal(out[0].edited, true);
+  // Three spans of walking, and only the middle one is a human's claim. Merging
+  // them would export the outer two as `source="human"` as well, which is a
+  // statement about ground the person never looked at.
+  assert.equal(out.length, 3, JSON.stringify(out.map((s) => [s.start, s.end, s.edited])));
+  assert.deepEqual(out.map((s) => s.type), ["walking", "walking", "walking"]);
+  assert.deepEqual(out.map((s) => s.edited), [false, true, false]);
+  assert.deepEqual([out[1].start, out[1].end], [5, 9]);
   // Confirming the classifier's own label still counts as human input --
   // SCHEMA.md distinguishes source="human" from source="auto".
   const same = relabel(segs, 0, "walking");
@@ -196,16 +200,37 @@ test("runt runs are absorbed instead of cluttering the table", () => {
   assert.equal(segs[0].points, 22);
 });
 
-test("autoMerge keeps spans contiguous", () => {
-  const merged = autoMerge([
+test("autoMerge joins same label and same provenance, and not across them", () => {
+  // Same label, both auto: one segment.
+  const both = autoMerge([
+    { start: 0, end: 3, type: "walking", edited: false, t0: 0, t1: 3 },
+    { start: 4, end: 7, type: "walking", edited: false, t0: 4, t1: 7 },
+  ]);
+  assert.equal(both.length, 1);
+  assert.deepEqual([both[0].start, both[0].end, both[0].points], [0, 7, 8]);
+
+  // Same label, one human: kept apart. Merging them would extend a human's claim
+  // over ground they never looked at, and `source="human"` is the whole basis for
+  // treating a segment as evidence.
+  const mixed = autoMerge([
     { start: 0, end: 3, type: "walking", edited: false, t0: 0, t1: 3 },
     { start: 4, end: 7, type: "walking", edited: true, t0: 4, t1: 7 },
     { start: 8, end: 9, type: "driving", edited: false, t0: 8, t1: 9 },
   ]);
-  assert.equal(merged.length, 2);
-  assert.deepEqual([merged[0].start, merged[0].end], [0, 7]);
-  assert.equal(merged[0].edited, true, "an edited half makes the merge edited");
-  assert.equal(merged[0].points, 8);
+  assert.equal(mixed.length, 3);
+  assert.deepEqual(mixed.map((s) => s.edited), [false, true, false]);
+});
+
+test("a slice keeps its human span exactly, without absorbing its neighbours", () => {
+  // The case that motivated the provenance rule: cutting a range out of a
+  // like-labelled stretch. The slice must not swallow the rest of it.
+  const segs = [{ start: 0, end: 99, type: "driving", edited: false, points: 100, t0: 0, t1: 99000 }];
+  const out = sliceRange(segs, 40, 59, "driving");
+  assert.equal(out.length, 3, JSON.stringify(out.map((s) => [s.start, s.end, s.edited])));
+  assert.deepEqual(out.map((s) => [s.start, s.end]), [[0, 39], [40, 59], [60, 99]]);
+  // Only the drawn range is the human's claim; the pieces either side keep the
+  // provenance they had, which is what stops one drag from vouching for an hour.
+  assert.deepEqual(out.map((s) => s.edited), [false, true, false]);
 });
 
 test("sampleIndices spans the segment and never leaves it", () => {
@@ -275,4 +300,140 @@ test("an intersection keeps a stop from ending the drive", { skip: !have }, () =
     `stationary segments ${stationary(plain)} -> ${stationary(sticky)} with signals reported`,
   );
   assert.ok(sticky.some((s) => s.atControl), "at_traffic_control should be reported back");
+});
+
+test("a sliced range becomes its own segment and disturbs nothing outside it", () => {
+  const segs = [
+    { start: 0, end: 29, type: "driving", edited: false, points: 30, t0: 0, t1: 29000 },
+    { start: 30, end: 59, type: "walking", edited: false, points: 30, t0: 30000, t1: 59000 },
+  ];
+  const out = sliceRange(segs, 10, 39, "stationary");
+  // The slice exists, exactly where it was drawn.
+  const slice = out.find((s) => s.type === "stationary");
+  assert.ok(slice, `no slice in ${JSON.stringify(out.map((s) => s.type))}`);
+  assert.equal(slice.start, 10);
+  assert.equal(slice.end, 39);
+  assert.equal(slice.edited, true, "a person drew it");
+  // And the untouched remainder keeps its old labels and its old boundaries.
+  assert.deepEqual(
+    out.map((s) => [s.start, s.end, s.type]),
+    [[0, 9, "driving"], [10, 39, "stationary"], [40, 59, "walking"]],
+  );
+  // Still a complete tiling: this is the invariant a botched split breaks.
+  assert.equal(out[0].start, 0);
+  assert.equal(out.at(-1).end, 59);
+  for (let i = 1; i < out.length; i++) assert.equal(out[i].start, out[i - 1].end + 1);
+});
+
+test("slicing is idempotent and order-insensitive", () => {
+  const segs = [{ start: 0, end: 99, type: "driving", edited: false, points: 100, t0: 0, t1: 99000 }];
+  const once = sliceRange(segs, 20, 40, "walking");
+  const twice = sliceRange(once, 20, 40, "walking");
+  assert.deepEqual(
+    twice.map((s) => [s.start, s.end, s.type]),
+    once.map((s) => [s.start, s.end, s.type]),
+  );
+  // Dragging right-to-left is the same slice.
+  const backwards = sliceRange(segs, 40, 20, "walking");
+  assert.deepEqual(
+    backwards.map((s) => [s.start, s.end, s.type]),
+    once.map((s) => [s.start, s.end, s.type]),
+  );
+  assert.throws(() => sliceRange(segs, 1, 2, "cycling"), /not a MovementType/);
+});
+
+test("a slice at a segment edge does not create empty segments", () => {
+  const segs = [
+    { start: 0, end: 9, type: "driving", edited: false, points: 10, t0: 0, t1: 9000 },
+    { start: 10, end: 19, type: "walking", edited: false, points: 10, t0: 10000, t1: 19000 },
+  ];
+  for (const [lo, hi] of [[0, 9], [10, 19], [0, 19]]) {
+    const out = sliceRange(segs, lo, hi, "stationary");
+    assert.ok(out.every((s) => s.end >= s.start), `empty segment from ${lo}-${hi}`);
+    assert.equal(out[0].start, 0);
+    assert.equal(out.at(-1).end, 19);
+  }
+});
+
+test("the dominant band ignores samples outside the rectangle", () => {
+  // Eight points: four slow, four fast, and one absurd spike among the slow ones.
+  const points = Array.from({ length: 8 }, (_, i) => ({ lat: 36, lon: -86, t_ms: i * 1000 }));
+  const results = [1.0, 1.1, 40.0, 1.2, 12.0, 12.5, 13.0, 12.2].map((speed) => ({ speed }));
+  const band = (v) => (v <= 0.5 ? "stationary" : v >= 5 ? "driving" : "walking");
+
+  // Whole series, whole speed range: driving wins 5-3 because the spike counts.
+  const all = dominantBand(points, results, { t0: 0, t1: 7000, vMin: 0, vMax: 100 }, band);
+  assert.equal(all.type, "driving");
+  assert.equal(all.counted, 8);
+
+  // Same time range, but the rectangle's top excludes the spike: walking wins.
+  const capped = dominantBand(points, results, { t0: 0, t1: 3000, vMin: 0, vMax: 5 }, band);
+  assert.equal(capped.type, "walking");
+  assert.equal(capped.counted, 3, "the 40 m/s spike is outside the box");
+  assert.equal(capped.share, 1);
+
+  // An empty box reports nothing rather than guessing a label.
+  const none = dominantBand(points, results, { t0: 0, t1: 3000, vMin: 20, vMax: 30 }, band);
+  assert.equal(none.type, null);
+  assert.equal(none.counted, 0);
+});
+
+test("the dominant band reports its share, not just a winner", { skip: !have }, () => {
+  const pts = points(DRIVE);
+  const results = classifyTrace(wasm, pts);
+  const band = (v) => wasm.speed_band(v);
+  const t0 = pts[0].t_ms;
+  const t1 = pts[Math.floor(pts.length / 4)].t_ms;
+  const got = dominantBand(pts, results, { t0, t1, vMin: 0, vMax: 1e9 }, band);
+  assert.ok(got.counted > 50, `only ${got.counted} samples counted`);
+  assert.ok(got.share > 0 && got.share <= 1, `share ${got.share}`);
+  // The label has to be one the library recognises -- it came from wasm.
+  assert.ok(LABELS.includes(got.type), got.type);
+});
+
+test("the library owns the thresholds the chart draws", { skip: !have }, () => {
+  const t = wasm.motion_thresholds();
+  assert.ok(t.stationary_max_mps > 0 && t.driving_min_mps > t.stationary_max_mps, JSON.stringify(t));
+  // The stateless tree's floors sit above the smoothed bands on purpose: that
+  // path has no smoothing behind it, so one fast fix must not read as driving.
+  assert.ok(t.walking_ceiling_mps > t.stationary_max_mps, JSON.stringify(t));
+  assert.ok(t.driving_floor_mps > t.driving_min_mps, JSON.stringify(t));
+  // And speed_band agrees with those numbers rather than having its own.
+  assert.equal(wasm.speed_band(t.stationary_max_mps), "stationary");
+  assert.equal(wasm.speed_band(t.stationary_max_mps + 0.01), "walking");
+  assert.equal(wasm.speed_band(t.driving_min_mps), "driving");
+});
+
+test("every structural change keeps the timestamps matching the spans", { skip: !have }, () => {
+  // The bug this pins was visible in the table: three consecutive segments all
+  // showing 18:03:50 and 67.6 min, because splitting copied the parent's
+  // timestamps into both halves. Those same fields export as start_time and
+  // end_time, so wrong times reach the fixture.
+  const pts = points(DRIVE);
+  const base = coalesce(pts, classifyTrace(wasm, pts));
+  const check = (segs, what) => {
+    for (const s of segs) {
+      assert.equal(s.t0, pts[s.start].t_ms, `${what}: t0 of ${s.start}-${s.end}`);
+      assert.equal(s.t1, pts[s.end].t_ms, `${what}: t1 of ${s.start}-${s.end}`);
+    }
+    const starts = segs.map((s) => s.t0);
+    assert.equal(new Set(starts).size, starts.length, `${what}: duplicate start times`);
+  };
+  check(base, "coalesce");
+
+  const big = base.findIndex((s) => s.points > 40);
+  const at = base[big].start + 20;
+  const split = splitSegment(base, big, at, pts);
+  check(split, "split");
+
+  const merged = mergeWithPrevious(split, big + 1, pts);
+  check(merged, "merge");
+
+  const sliced = sliceRange(base, at, at + 19, "stationary", pts);
+  check(sliced, "slice");
+  // And the sliced span really is the one that was asked for.
+  const mine = sliced.find((s) => s.edited);
+  assert.equal(mine.start, at);
+  assert.equal(mine.end, at + 19);
+  assert.equal(mine.t0, pts[at].t_ms);
 });

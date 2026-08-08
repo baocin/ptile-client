@@ -131,9 +131,14 @@ A `<name>` that is not one of the five is kept verbatim on read and treated as u
 | attribute | values | meaning |
 | --- | --- | --- |
 | `source` | `auto` \| `human` | Who decided the label. `auto` = whatever the classifier proposed. |
-| `edited` | `true` \| `false` | Whether a human touched this segment at all (split, merged, relabeled). |
+| `edited` | `true` \| `false` | Whether a human vouched for **this span's label**. Set by relabelling, slicing, or merging (all of which assert what the span is); *not* by splitting, which is a statement about a boundary and says nothing about either side. |
 | `confidence` | `0..1` | The classifier's own confidence when `source="auto"`. Meaningless for `human`. |
 | `start_time`, `end_time` | ISO 8601 UTC | Redundant with the points; there so a consumer can index segments without parsing them. |
+
+Two spans with the same label are only merged when their provenance also matches, so a human's claim
+never silently widens to cover ground they did not look at. That is worth stating because the
+labeller got it wrong first: slicing 25 minutes out of a 67-minute driving stretch merged straight
+back and exported the whole 67 as `source="human"`.
 
 `source` and `edited` are what make this a ground-truth file rather than a recording of the
 classifier's opinion. **A test that asserts classifier output against `source="auto"` labels is

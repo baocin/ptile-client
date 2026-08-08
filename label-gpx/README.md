@@ -23,6 +23,12 @@ anchoring — so every segment records whether a human touched it (`source="huma
 **A test that asserts classifier output against `source="auto"` labels is asserting that the
 classifier agrees with itself.** Only edited segments are evidence.
 
+That is also why two like-labelled spans are only merged when their provenance matches. Slicing 25
+minutes out of a 67-minute driving stretch used to merge straight back and export the whole 67 as
+`source="human"` — one drag, laundered into a claim about ground nobody looked at. Splitting a segment
+no longer marks either half human either: a split is a statement about a boundary, not about what
+lies on both sides of it.
+
 ## Using it
 
 1. Pick a `.gpx` file. Both flavors work: a plain OSM trace (`<trkpt>` + `<time>`, like the six in
@@ -65,6 +71,20 @@ by more than noise explains, with the significance level Bonferroni-corrected by
 candidate positions tested. The two disagreeing is the useful case — a shift with no segment boundary
 near it is usually a real change the thresholds missed, and a boundary with no shift near it is
 usually the debouncer reacting to noise.
+
+The chart is banded by the classifier's own speed thresholds — stationary, walking, driving — with a
+dashed line at the stateless tree's 2.2 m/s walking floor, the level below which speed alone cannot
+see a walk at all. Those numbers come from `wasm.motion_thresholds()`, never from a copy here: a chart
+whose bands disagree with the classifier is worse than a chart with no bands. There is no running
+band, and that is not an omission — `Running` comes from accelerometer cadence, never from speed, so
+a speed axis has nothing honest to draw for it.
+
+**Drag a rectangle on the chart to cut a slice.** The time range becomes its own segment, labelled by
+the dominant speed band among the samples *inside the box*, bucketed by `wasm.speed_band` so the
+label is the classifier's vocabulary rather than a JavaScript opinion. The vertical extent is the
+reason to drag a rectangle instead of brushing a time range: pull the top edge below a GPS spike and
+the spike stops voting. The status line reports the share it won by, because "62% walking" and "98%
+walking" are different claims about the same slice.
 
 Marker prominence follows the size of the change, not the p-value: a real drive produces dozens of
 changes that are all far past any threshold, so ranking them by p-value would make a 15 m/s

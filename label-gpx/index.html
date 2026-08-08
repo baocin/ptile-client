@@ -120,6 +120,16 @@
     fill: none; stroke: var(--accent); stroke-width: 1.2;
     vector-effect: non-scaling-stroke;
   }
+  #chart .zone { opacity: 0.09; }
+  #chart .floor {
+    stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 4 3;
+    vector-effect: non-scaling-stroke;
+  }
+  #chart .brush {
+    fill: rgba(62, 200, 212, 0.14); stroke: var(--accent); stroke-width: 1;
+    vector-effect: non-scaling-stroke; pointer-events: none;
+  }
+  #chart svg { cursor: crosshair; touch-action: none; }
   #chart .shift line {
     stroke: var(--ink); stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.55;
     vector-effect: non-scaling-stroke;

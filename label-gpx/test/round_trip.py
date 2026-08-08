@@ -281,6 +281,54 @@ def main():
             failures.append("ui: shift t_ms is not a plain JS number (BigInt leak?)")
         if not significant:
             failures.append("ui: a reported shift does not clear its corrected level")
+        # Speed-band zones, drawn from the library's thresholds rather than a copy.
+        zones = page.evaluate(
+            "() => [document.querySelectorAll('#chart .zone').length,"
+            " document.querySelectorAll('#chart .floor').length]"
+        )
+        print(f"ok   ui: chart drew {zones[0]} speed-band zones and {zones[1]} floor line(s)")
+        if zones[0] != 3:
+            failures.append(f"ui: expected 3 speed-band zones, got {zones[0]}")
+
+        # Drag a rectangle: the range becomes its own segment, labelled by the
+        # dominant band inside the box, and nothing outside it moves.
+        before = page.evaluate("() => window.__labelGpx.segments.map(s => [s.start, s.end, s.type])")
+        box = page.locator("#chart svg").bounding_box()
+        x0, x1 = box["x"] + box["width"] * 0.3, box["x"] + box["width"] * 0.5
+        ytop, ybot = box["y"] + box["height"] * 0.2, box["y"] + box["height"] * 0.8
+        page.mouse.move(x0, ytop)
+        page.mouse.down()
+        page.mouse.move((x0 + x1) / 2, (ytop + ybot) / 2, steps=5)
+        brushed = page.evaluate("() => !document.querySelector('#chart .brush').hidden")
+        page.mouse.move(x1, ybot, steps=5)
+        page.mouse.up()
+        page.wait_for_timeout(800)
+        after = page.evaluate(
+            "() => { const s = window.__labelGpx.segments;"
+            " return { n: s.length, human: s.filter(x => x.edited).length,"
+            "   tiled: s.every((x, i) => i === 0 || x.start === s[i-1].end + 1),"
+            "   times: s.every(x => Number.isFinite(x.t0) && Number.isFinite(x.t1) && x.t1 >= x.t0),"
+            "   uniqueStarts: new Set(s.map(x => x.t0)).size === s.length }; }"
+        )
+        note = page.eval_on_selector("#warn", "e => e.textContent")
+        print(f"ok   ui: drag sliced {len(before)} -> {after['n']} segments · {note.strip()[:80]}")
+        if not brushed:
+            failures.append("ui: no selection rectangle appeared during the drag")
+        if after["human"] != 1:
+            failures.append(f"ui: {after['human']} segments marked human, expected exactly 1")
+        if not after["tiled"]:
+            failures.append("ui: segments no longer tile the trace after a slice")
+        # The split halves used to inherit the parent's timestamps, so three
+        # segments reported the same start time and duration -- and those fields
+        # are what a fixture exports as start_time/end_time.
+        if not after["times"] or not after["uniqueStarts"]:
+            failures.append("ui: segment timestamps do not match their spans after a slice")
+        page.click("#undo")
+        page.wait_for_timeout(300)
+        restored = page.evaluate("() => window.__labelGpx.segments.length")
+        if restored != len(before):
+            failures.append(f"ui: undo left {restored} segments, expected {len(before)}")
+
         # The sensitivity knob has to actually change the answer.
         page.select_option("#chartWindow", "6")
         page.wait_for_timeout(700)

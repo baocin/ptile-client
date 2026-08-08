@@ -736,6 +736,30 @@ export function merged_cell_slice(block, cell_hex) {
 }
 
 /**
+ * The speed thresholds the classifier judges a smoothed speed by, and the
+ * stateless tree's own floors, so a UI can draw them without keeping a second
+ * copy that drifts.
+ *
+ * `stationary_max_mps` / `driving_min_mps` are `MotionConfig`'s bands, which is
+ * what the smoothed speed series is actually classified against.
+ * `walking_ceiling_mps` / `driving_floor_mps` are the stateless `classify`
+ * tree's floors -- higher, because that path has no smoothing behind it and a
+ * single fast fix should not read as driving. Both matter to a reader: the first
+ * pair explains the bands, the second explains the votes.
+ *
+ * There is deliberately no running threshold: `Running` comes from
+ * accelerometer cadence, never from speed alone, so a speed axis cannot show one.
+ * @returns {any}
+ */
+export function motion_thresholds() {
+    const ret = wasm.motion_thresholds();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * The nearest address to a point, or null. Separate from `locate_point` for
  * callers that hold only the address layer.
  * @param {number} lat
@@ -1085,6 +1109,28 @@ export function significant_shifts(t_ms, speed_mps, config) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Which band a smoothed speed falls in, as a lowercase `MovementType` name.
+ *
+ * The same function the classifier uses, exported so a caller can bucket a
+ * series without re-implementing the comparison -- which is how a UI's idea of
+ * "walking" drifts from the library's.
+ * @param {number} smoothed_mps
+ * @returns {string}
+ */
+export function speed_band(smoothed_mps) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.speed_band(smoothed_mps);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
 }
 
 /**

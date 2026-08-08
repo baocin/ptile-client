@@ -1121,6 +1121,51 @@ pub fn intersection_holds_traffic(intersection_type: u8) -> bool {
     matches!(intersection_type, 1 | 2 | 3)
 }
 
+/// The speed thresholds the classifier judges a smoothed speed by, and the
+/// stateless tree's own floors, so a UI can draw them without keeping a second
+/// copy that drifts.
+///
+/// `stationary_max_mps` / `driving_min_mps` are `MotionConfig`'s bands, which is
+/// what the smoothed speed series is actually classified against.
+/// `walking_ceiling_mps` / `driving_floor_mps` are the stateless `classify`
+/// tree's floors -- higher, because that path has no smoothing behind it and a
+/// single fast fix should not read as driving. Both matter to a reader: the first
+/// pair explains the bands, the second explains the votes.
+///
+/// There is deliberately no running threshold: `Running` comes from
+/// accelerometer cadence, never from speed alone, so a speed axis cannot show one.
+#[wasm_bindgen]
+pub fn motion_thresholds() -> Result<JsValue, JsValue> {
+    let cfg = MotionConfig::default();
+    to_js(&MotionThresholds {
+        stationary_max_mps: cfg.stationary_max_mps,
+        driving_min_mps: cfg.driving_min_mps,
+        walking_ceiling_mps: ptiles_motion::WALKING_CEILING_MPS,
+        driving_floor_mps: ptiles_motion::DRIVING_FLOOR_MPS,
+    })
+}
+
+#[derive(serde::Serialize)]
+struct MotionThresholds {
+    stationary_max_mps: f64,
+    driving_min_mps: f64,
+    walking_ceiling_mps: f64,
+    driving_floor_mps: f64,
+}
+
+/// Which band a smoothed speed falls in, as a lowercase `MovementType` name.
+///
+/// The same function the classifier uses, exported so a caller can bucket a
+/// series without re-implementing the comparison -- which is how a UI's idea of
+/// "walking" drifts from the library's.
+#[wasm_bindgen]
+pub fn speed_band(smoothed_mps: f64) -> String {
+    MotionClassifier::new(MotionConfig::default())
+        .band_for(smoothed_mps)
+        .as_str()
+        .to_string()
+}
+
 /// Statistically significant changes in a speed series.
 ///
 /// `t_ms` and `speed_mps` are parallel arrays in time order (a `Float64Array`

@@ -219,6 +219,15 @@ impl MotionClassifier {
         }
     }
 
+    /// Which band a smoothed speed falls in, before any debouncing.
+    ///
+    /// Public because a UI that draws the speed bands must ask the classifier
+    /// rather than keep its own copy of the thresholds -- that copy is how a
+    /// chart ends up disagreeing with the labels beside it.
+    pub fn band_for(&self, smoothed_mps: f64) -> MovementType {
+        self.band(smoothed_mps)
+    }
+
     /// Raw band for a smoothed speed, before debouncing (see also
     /// [`platform_speed`] for what counts as a usable reported speed).
     fn band(&self, v: f64) -> MovementType {

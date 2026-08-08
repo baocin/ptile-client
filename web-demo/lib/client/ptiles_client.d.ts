@@ -311,6 +311,23 @@ export function match_business_name_block(block_bytes: Uint8Array, query: string
 export function merged_cell_slice(block: Uint8Array, cell_hex: string): Uint8Array | undefined;
 
 /**
+ * The speed thresholds the classifier judges a smoothed speed by, and the
+ * stateless tree's own floors, so a UI can draw them without keeping a second
+ * copy that drifts.
+ *
+ * `stationary_max_mps` / `driving_min_mps` are `MotionConfig`'s bands, which is
+ * what the smoothed speed series is actually classified against.
+ * `walking_ceiling_mps` / `driving_floor_mps` are the stateless `classify`
+ * tree's floors -- higher, because that path has no smoothing behind it and a
+ * single fast fix should not read as driving. Both matter to a reader: the first
+ * pair explains the bands, the second explains the votes.
+ *
+ * There is deliberately no running threshold: `Running` comes from
+ * accelerometer cadence, never from speed alone, so a speed axis cannot show one.
+ */
+export function motion_thresholds(): any;
+
+/**
  * The nearest address to a point, or null. Separate from `locate_point` for
  * callers that hold only the address layer.
  */
@@ -485,6 +502,15 @@ export function score_candidates(fix_json: string, roads_block: Uint8Array, buil
  */
 export function significant_shifts(t_ms: Float64Array, speed_mps: Float64Array, config: any): any;
 
+/**
+ * Which band a smoothed speed falls in, as a lowercase `MovementType` name.
+ *
+ * The same function the classifier uses, exported so a caller can bucket a
+ * series without re-implementing the comparison -- which is how a UI's idea of
+ * "walking" drifts from the library's.
+ */
+export function speed_band(smoothed_mps: number): string;
+
 export function trail_is_developed(trail_type: string): boolean;
 
 /**
@@ -559,6 +585,7 @@ export interface InitOutput {
     readonly locate_point: (a: number, b: number, c: any, d: any, e: any) => [number, number, number];
     readonly match_business_name_block: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly merged_cell_slice: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly motion_thresholds: () => [number, number, number];
     readonly movementtracker_movement: (a: number) => [number, number];
     readonly movementtracker_new: (a: any) => [number, number, number];
     readonly movementtracker_push: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any, j: any, k: any) => [number, number, number];
@@ -577,6 +604,7 @@ export interface InitOutput {
     readonly route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly score_candidates: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly significant_shifts: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
+    readonly speed_band: (a: number) => [number, number];
     readonly trail_is_developed: (a: number, b: number) => number;
     readonly viewshed: (a: any, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly viewshed_multi: (a: any, b: any, c: number, d: number) => [number, number, number];

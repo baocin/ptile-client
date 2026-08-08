@@ -24,7 +24,9 @@ const PAD_B = 16;
  * `onSeek(t_ms)` is called when the user clicks, so the chart selects a segment
  * like the ribbon does.
  */
-export function renderChart(host, { series, shifts, segments, colors, onSeek }) {
+export function renderChart(host, {
+  series, shifts, segments, colors, thresholds, onSeek, onSlice,
+}) {
   if (!series || series.length < 2) {
     host.innerHTML = `<div class="chart-empty">No speed series yet — a trace needs at least
       two timed points.</div>`;
@@ -41,6 +43,40 @@ export function renderChart(host, { series, shifts, segments, colors, onSeek }) 
   const y = (v) => PAD_T + (1 - v / vmax) * (H - PAD_T - PAD_B);
 
   const line = series.map((s) => `${x(s.t_ms).toFixed(2)},${y(s.speed).toFixed(2)}`).join(" ");
+
+  // Speed bands, filled across the whole width at the height their threshold
+  // sits at. The numbers come from the library (`wasm.motion_thresholds`), never
+  // from a copy here: a chart whose bands disagree with the classifier's is worse
+  // than a chart with no bands.
+  //
+  // There is no running band, and that is not an omission. `Running` comes from
+  // accelerometer cadence, never from speed alone, so a speed axis has nothing to
+  // draw for it -- and inventing one would tell the reader something false.
+  const t = thresholds ?? {};
+  const bandsOf = [];
+  if (Number.isFinite(t.stationary_max_mps) && Number.isFinite(t.driving_min_mps)) {
+    bandsOf.push(
+      { label: "stationary", lo: 0, hi: Math.min(t.stationary_max_mps, vmax) },
+      { label: "walking", lo: t.stationary_max_mps, hi: Math.min(t.driving_min_mps, vmax) },
+      { label: "driving", lo: t.driving_min_mps, hi: vmax },
+    );
+  }
+  const zones = bandsOf
+    .filter((b) => b.hi > b.lo)
+    .map((b) => {
+      const top = y(b.hi);
+      const h = Math.max(0.5, y(b.lo) - top);
+      return `<rect class="zone" x="0" y="${top.toFixed(2)}" width="${W}" height="${h.toFixed(2)}"
+        fill="${colors[b.label] ?? colors.unknown}"></rect>`;
+    })
+    .join("");
+  // The stateless tree's own floor, which sits above the smoothed walking band:
+  // below this line, speed alone cannot see a walk at all, which is the single
+  // most useful thing to know while labelling a slow trace.
+  const floorLine = Number.isFinite(t.walking_ceiling_mps) && t.walking_ceiling_mps < vmax
+    ? `<line class="floor" x1="0" y1="${y(t.walking_ceiling_mps).toFixed(2)}"
+         x2="${W}" y2="${y(t.walking_ceiling_mps).toFixed(2)}"></line>`
+    : "";
 
   // Segment bands along the bottom, so the classifier's opinion sits under the
   // measurement rather than on top of it.
@@ -87,9 +123,12 @@ export function renderChart(host, { series, shifts, segments, colors, onSeek }) 
 
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
       aria-label="Speed over time with significant shifts marked">
+    ${zones}
+    ${floorLine}
     <polyline class="speed" points="${line}"></polyline>
     ${bands}
     ${marks}
+    <rect class="brush" x="0" y="0" width="0" height="0" hidden></rect>
   </svg>
   <div class="chart-axis">
     <span>0 m/s — ${vmax.toFixed(1)} m/s peak · biggest jump ${biggest.toFixed(1)} m/s</span>
@@ -100,10 +139,63 @@ export function renderChart(host, { series, shifts, segments, colors, onSeek }) 
   </div>`;
 
   const svg = host.querySelector("svg");
-  if (svg && onSeek) {
-    svg.addEventListener("click", (e) => {
-      const box = svg.getBoundingClientRect();
-      onSeek(t0 + ((e.clientX - box.left) / box.width) * span);
-    });
-  }
+  if (!svg) return;
+
+  // Screen pixels -> data. The viewBox is non-uniform, so both axes convert
+  // through the rendered box rather than through the user-space width.
+  const toData = (e) => {
+    const box = svg.getBoundingClientRect();
+    const fx = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
+    const fy = Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
+    const yUser = fy * H;
+    const speed = ((H - PAD_B - yUser) / (H - PAD_T - PAD_B)) * vmax;
+    return { t_ms: t0 + fx * span, speed: Math.max(0, Math.min(vmax, speed)), px: fx * W, py: yUser };
+  };
+
+  // Drag a rectangle to cut a slice; click to select. A drag narrower than a few
+  // pixels is a click that wobbled, so it stays a click.
+  const brush = svg.querySelector(".brush");
+  let from = null;
+  const MIN_DRAG_PX = 4;
+
+  svg.addEventListener("pointerdown", (e) => {
+    from = toData(e);
+    svg.setPointerCapture(e.pointerId);
+  });
+
+  svg.addEventListener("pointermove", (e) => {
+    if (!from) return;
+    const now = toData(e);
+    if (Math.abs(now.px - from.px) < MIN_DRAG_PX) return;
+    brush.hidden = false;
+    brush.setAttribute("x", Math.min(from.px, now.px).toFixed(2));
+    brush.setAttribute("width", Math.abs(now.px - from.px).toFixed(2));
+    brush.setAttribute("y", Math.min(from.py, now.py).toFixed(2));
+    brush.setAttribute("height", Math.max(1, Math.abs(now.py - from.py)).toFixed(2));
+  });
+
+  svg.addEventListener("pointerup", (e) => {
+    if (!from) return;
+    const now = toData(e);
+    const start = from;
+    from = null;
+    brush.hidden = true;
+    if (Math.abs(now.px - start.px) < MIN_DRAG_PX) {
+      if (onSeek) onSeek(now.t_ms);
+      return;
+    }
+    if (onSlice) {
+      onSlice({
+        t0: Math.min(start.t_ms, now.t_ms),
+        t1: Math.max(start.t_ms, now.t_ms),
+        vMin: Math.min(start.speed, now.speed),
+        vMax: Math.max(start.speed, now.speed),
+      });
+    }
+  });
+
+  svg.addEventListener("pointercancel", () => {
+    from = null;
+    brush.hidden = true;
+  });
 }
