@@ -369,7 +369,7 @@ async function searchBusinesses(state, query, limit) {
   }
 
   // Brute-force fallback: open business.ptiles, scan every block's
-  // records (via decode_business) for a substring match. Slow over the
+  // records (via decode_business_versioned) for a substring match. Slow over the
   // network -- see docs/INTEGRATION.md's pitfalls section.
   try {
     const biz = new PtilesRemoteFile(wasmMod, stateLayerUrl(state, "business"));
@@ -387,7 +387,12 @@ async function searchBusinesses(state, query, limit) {
         continue;
       }
       if (!raw) continue;
-      const records = wasmMod.decode_business(raw);
+      // Versioned, with the cell: the published business layer is v4, whose
+      // records have no length prefix and whose coordinates are i16 offsets from
+      // the cell centre. The sniffing decoder read it as v3 and produced garbage.
+      const records = wasmMod.decode_business_versioned(
+        raw, biz.header.version, cellHex,
+      );
       for (const r of records) {
         if (r.name.toLowerCase().includes(queryLower)) hits.push(r);
       }

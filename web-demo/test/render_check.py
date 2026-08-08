@@ -573,7 +573,8 @@ def main():
           category: document.getElementById('bizCat').textContent.trim(),
           // Straight off the decoded record, not the panel: this is what the
           // v4 framing bug corrupted.
-          rec: window.__ptiles.lastBusiness ? window.__ptiles.lastBusiness() : null
+          rec: window.__ptiles.lastBusiness ? window.__ptiles.lastBusiness() : null,
+          list: window.__ptiles.businessList ? window.__ptiles.businessList() : []
         })""")
         # The row carries a "(+63 more)" tail and a confidence mark, so compare
         # the name itself rather than the cell's text.
@@ -629,10 +630,24 @@ def main():
                     f"business match: source_type is {rec.get('sourceType')!r} -- the "
                     f"extended-attributes trailer did not decode, which in v4 means "
                     f"the record stream is out of sync")
-            if not biz["category"] or biz["category"] == "--" or biz["category"].startswith("(cat:"):
+            # Not the single picked record: `category_idx` is legitimately 0 on
+            # plenty of records (this Target's own record is one), so a blank
+            # category there proves nothing. Across ~95 neighbours, though, some
+            # must carry an index, and every one of those must resolve to a name.
+            # A raw "(cat:NN)" anywhere in the list means the sidecar never loaded.
+            named = [b for b in biz["list"] if b.get("category")]
+            raw_tags = [b for b in named if str(b["category"]).startswith("(cat:")]
+            print(f"  categories: {len(named)}/{len(biz['list'])} labelled, "
+                  f"e.g. {[b['category'] for b in named[:3]]}")
+            if not named:
                 failures.append(
-                    f"business match: category shown as {biz['category']!r} -- "
-                    f"{{ST}}.business_categories.json is published and should resolve it")
+                    "business match: not one of the neighbouring records resolved a "
+                    "category -- {ST}.business_categories.json is published and the "
+                    "index is 1-based against it")
+            if raw_tags:
+                failures.append(
+                    f"business match: {len(raw_tags)} records fell back to a raw "
+                    f"index ({raw_tags[0]['category']}) -- the sidecar did not load")
 
         for e in errors[:3]:
             print(f"           {e}")
@@ -655,15 +670,15 @@ def main():
         page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
         page.wait_for_timeout(2500)
         page.click("#btnRoute")
-        page.evaluate("() => map.fire('click', { latlng: L.latLng(36.1627, -86.7816) })")
+        page.evaluate("() => window.__ptiles.clickAt(36.1627, -86.7816)")
         page.wait_for_timeout(6000)
-        page.evaluate("() => map.fire('click', { latlng: L.latLng(36.1509, -86.7920) })")
+        page.evaluate("() => window.__ptiles.clickAt(36.1509, -86.7920)")
         try:
             page.wait_for_function("() => (window.__routeRuns || 0) >= 1", timeout=60_000)
             page.wait_for_timeout(3000)
             first = page.evaluate("""() => ({
               runs: window.__routeRuns || 0,
-              status: document.getElementById('status').textContent.trim()
+              status: document.getElementById('statusBar').textContent.trim()
             })""")
             print(f"\n  route: {first['status']} (runs={first['runs']})")
             page.check("#chkAvoidHwy")
@@ -672,7 +687,7 @@ def main():
             page.wait_for_timeout(2500)
             after = page.evaluate("""() => ({
               runs: window.__routeRuns || 0,
-              status: document.getElementById('status').textContent.trim(),
+              status: document.getElementById('statusBar').textContent.trim(),
               drawn: !!document.querySelector('#map path')
             })""")
             print(f"  avoid highways: {after['status']} (runs={after['runs']})")

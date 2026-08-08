@@ -4111,18 +4111,19 @@ async function routeAndDraw(a, b) {
   clearRouteLayer();
   drawRouteEndpoints(a, b);
   routeBusy = true;
+  // Remembered even when no path was found: "no path with these preferences" is
+  // exactly the state where you want to untick a box and try again.
+  lastLeg = { a: a, b: b };
   try {
     var result = await runRoute(a, b);
     clearRouteLayer();
     drawRouteEndpoints(a, b);
     if (!result || !result.path || result.path.length < 2) {
       setStatus("No path — try closer to named roads", true);
-      lastLeg = { a: a, b: b };
     } else {
       var n = drawRoutePath(result.path);
       if (n < 2) setStatus("Route path empty after normalize", true);
       else setStatus(formatRouteStatus(result, n));
-      lastLeg = { a: a, b: b };
     }
   } catch (e) {
     setStatus("Route error: " + (e.message || e), true);
@@ -4448,6 +4449,20 @@ window.__ptiles = {
   // (including the state-follows-viewport switch) is exercised for real
   // rather than simulated.
   setView: function(lat, lon, zoom) { map.setView([lat, lon], zoom || map.getZoom()); },
+  // A map click at a coordinate, for tests. The page is a module, so `map` is
+  // not a window property and a test cannot reach Leaflet directly; synthesising
+  // a mouse event at a pixel would also depend on where the map happens to be
+  // panned. This goes through the same handler a real click does.
+  clickAt: function(lat, lon) { map.fire("click", { latlng: L.latLng(lat, lon) }); },
+  // The business records the panel is currently offering, decoded. `category`
+  // here is the resolved sidecar name, so a test can tell "this record has no
+  // category" from "the sidecar never loaded".
+  businessList: function() {
+    return (lastBizList || []).map(function(b) {
+      return { name: b.name, lat: b.lat, lon: b.lon, category: b.category,
+               distance: b.distance, sourceType: b.sourceType };
+    });
+  },
   state: function() { return currentState; },
   openRemote: function(u) { return openPtilesRemote(u); },
   openCoarse: function(u) { return CoarseReader.open(u); },

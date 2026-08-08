@@ -245,10 +245,6 @@ ln -s ~/kino/projects/ptile-client/label-gpx ~/kino/projects/steele.red/ptile-la
 
 ## Not in v1
 
-- Businesses often fail to decode on the published `business_v4` layer, and the card says so instead
-  of showing an empty list. Reproducible outside the browser: the downtown-Nashville cell of
-  `TN.business_v4.ptiles` is a 966,179-byte block and `decode_business_v4` stops at offset 929,329
-  asking for 57,875 more bytes. Buildings and addresses are unaffected.
 - No sensor synthesis. A plain OSM trace exports derived speed (flagged `derived="true"`) and leaves
   accuracy and accel absent rather than inventing plausible-looking values to match the label —
   those would be numbers generated from the answer, and `SCHEMA.md`'s `synthetic` attribute exists to

@@ -65,10 +65,14 @@ buildings that can see it: `water_type` (river, stream, lake, canal),
 sampled every 60 m up to 24 points and the results unioned, so a building counts
 if it can see any part of the bank.
 
-Business *category* is deliberately absent from that list. It is published as a
-bare table index with no sidecar to resolve it against (`core/src/business.rs`),
-so "everywhere you can see a fast-food place" is not a question this data can
-answer, however much the UI looks like it should.
+Business *category* is absent from that list, and the reason given here used to be
+wrong: the sidecar does exist. `{ST}.business_categories.json` ships beside the
+layers, and the info panel now resolves `category_idx` through it — 1-based, since
+the builder assigns `i + 1` over a 0-based array. What is still missing is the
+reverse index: answering "everywhere you can see a fast-food place" means scanning
+every block for records of one category, which is the same whole-file sweep the
+name search falls back to, so it stays out of the view finder until there is an
+index for it.
 
 Every one of these under-reports rather than over-reports. `viewshed` assumes an
 uncertain building is tall when it occludes and short when it is the target, so
