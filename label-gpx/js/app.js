@@ -8,9 +8,10 @@ import { parseGpx, writeGpx, LABELS } from "./gpx.js";
 import {
   classifyTrace, coalesce, splitSegment, mergeWithPrevious, relabel,
   sampleIndices, createHistory, timePerLabel, sliceRange, dominantBand,
+  bandByHeight, moveBoundary,
 } from "./segments.js";
 import { createResolver, SNAPSHOT, stateAt, stateUrl } from "./context.js";
-import { renderChart } from "./chart.js";
+import { renderChart, speedBands } from "./chart.js";
 import { createBasemap } from "./basemap.js";
 
 const COLORS = {
@@ -29,6 +30,14 @@ const state = {
   history: createHistory(20),
   chartOn: false,
   chartWindow: 12,
+  /**
+   * The zoom window, `{t0, t1}`, or null for the whole trace.
+   *
+   * One window, shared by the overview strip, the ribbon and the chart -- they all
+   * derive their time axis from it, so zooming anywhere zooms everything. View
+   * state, not data: it never reaches the exported file.
+   */
+  view: null,
   // Invalidated whenever the classification changes: the shifts describe a
   // particular speed series, and a re-classify produces a different one.
   shifts: null,
@@ -418,6 +427,8 @@ function renderChartIfShown() {
     segments: state.segments,
     colors: COLORS,
     thresholds,
+    view: state.view,
+    onZoom: setView,
     onSeek: (t_ms) => {
       const i = state.segments.findIndex((s) => t_ms >= s.t0 && t_ms <= s.t1);
       if (i >= 0) select(i);
@@ -446,24 +457,35 @@ function sliceFromRect(rect) {
     warn("that slice covers fewer than two points — drag a wider box");
     return;
   }
-  const { type, share, counted } = dominantBand(pts, state.results, rect, (v) =>
-    wasm.speed_band(v),
-  );
+  // The label comes from the box's *height*: whichever band covers most of the
+  // vertical span you dragged. That works with no samples in the box at all,
+  // which is the case that used to do nothing -- drag a box in the driving band
+  // over a stretch the classifier called stationary and you get driving.
+  const { type, share } = bandByHeight(rect, speedBands(thresholds ?? {}));
   if (!type) {
-    warn(`no samples inside that box (${rect.vMin.toFixed(1)}–${rect.vMax.toFixed(1)} m/s)`);
+    warn("that box does not cover a speed band — drag inside the chart");
     return;
   }
+  // What the samples say, reported alongside rather than instead: agreement is
+  // reassuring and disagreement is the interesting case.
+  const sampled = dominantBand(pts, state.results, { ...rect, vMin: 0, vMax: Infinity }, (v) =>
+    wasm.speed_band(v),
+  );
   state.history.snapshot(state.segments);
   const lo = inRange[0];
   const hi = inRange[inRange.length - 1];
   state.segments = sliceRange(state.segments, lo, hi, type, pts);
-  state.shifts = state.shifts; // unchanged: slicing relabels, it does not reclassify
   state.selected = state.segments.findIndex((s) => s.start <= lo && s.end >= lo);
   render();
   const mins = ((rect.t1 - rect.t0) / 60000).toFixed(1);
+  const agree =
+    sampled.type === type
+      ? `samples agree (${Math.round(sampled.share * 100)}%)`
+      : sampled.type
+        ? `samples said ${sampled.type} (${Math.round(sampled.share * 100)}%)`
+        : "no samples to compare";
   warn(
-    `sliced ${mins} min as ${type} — ${Math.round(share * 100)}% of ${counted} samples ` +
-      `in the box banded that way`,
+    `sliced ${mins} min as ${type} — ${Math.round(share * 100)}% of the box height; ${agree}`,
   );
 }
 
@@ -484,6 +506,139 @@ el("chartToggle").addEventListener("click", () => {
   }
 });
 
+// ---------------------------------------------------------------- zoom
+
+/** Full extent of the loaded trace, or null. */
+function fullSpan() {
+  const pts = state.parsed && state.parsed.points;
+  if (!pts || pts.length < 2) return null;
+  return { t0: pts[0].t_ms, t1: pts[pts.length - 1].t_ms };
+}
+
+/** The effective window: the zoom if set, else the whole trace. */
+function viewWindow() {
+  return state.view ?? fullSpan();
+}
+
+/**
+ * Set the zoom window, clamped to the trace and to a floor of five seconds.
+ *
+ * `null` means the whole trace, and a window that covers everything collapses to
+ * `null` so "zoomed out" has exactly one representation rather than two.
+ */
+function setView(next) {
+  const full = fullSpan();
+  if (!full || !next) {
+    state.view = null;
+    render();
+    return;
+  }
+  const width = Math.max(5000, Math.min(full.t1 - full.t0, next.t1 - next.t0));
+  let t0 = Math.max(full.t0, Math.min(next.t0, full.t1 - width));
+  const t1 = Math.min(full.t1, t0 + width);
+  t0 = t1 - width;
+  state.view = t1 - t0 >= full.t1 - full.t0 - 1 ? null : { t0, t1 };
+  render();
+}
+
+/**
+ * The overview strip: the whole trace, and where the window sits inside it.
+ *
+ * Deliberately not a chart -- it is the segment bands plus a box. Its job is the
+ * question a zoomed view cannot answer, "where am I in the trace?", and it is the
+ * coarse control for moving there.
+ */
+function renderOverview() {
+  const host = el("overview");
+  const full = fullSpan();
+  if (!full || !state.segments.length) {
+    host.innerHTML = "";
+    return;
+  }
+  const span = Math.max(1, full.t1 - full.t0);
+  const pct = (t) => ((t - full.t0) / span) * 100;
+  const bands = state.segments
+    .map((seg) => {
+      const left = pct(seg.t0);
+      const w = Math.max(0.15, pct(seg.t1) - left);
+      return `<span class="ov" style="left:${left.toFixed(3)}%; width:${w.toFixed(3)}%;
+        background:${COLORS[seg.type] ?? COLORS.unknown}; opacity:${seg.edited ? 1 : 0.5}"></span>`;
+    })
+    .join("");
+  const w = viewWindow();
+  const left = pct(w.t0);
+  const width = Math.max(0.6, pct(w.t1) - left);
+  host.innerHTML = `${bands}
+    <span class="window" style="left:${left.toFixed(3)}%; width:${width.toFixed(3)}%">
+      <span class="grip left" data-grip="left"></span>
+      <span class="grip right" data-grip="right"></span>
+    </span>`;
+
+}
+
+/**
+ * Wire the overview strip once.
+ *
+ * `renderOverview` replaces the strip's innerHTML on every render, but the strip
+ * element itself persists -- so binding these there added a fresh listener per
+ * frame, and after a few dozen renders one double-click fired dozens of resets.
+ * Handlers live here, bound once, and read the current window lazily.
+ */
+function wireOverview() {
+  const host = el("overview");
+  let drag = null;
+  const timeAt = (e) => {
+    const full = fullSpan();
+    if (!full) return null;
+    const r = host.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    return full.t0 + f * (full.t1 - full.t0);
+  };
+
+  host.addEventListener("pointerdown", (e) => {
+    const at = timeAt(e);
+    if (at === null) return;
+    const cur = viewWindow();
+    const grip = e.target.dataset && e.target.dataset.grip;
+    const box = host.querySelector(".window");
+    if (grip) {
+      drag = { kind: grip, cur };
+    } else if (box && box.contains(e.target)) {
+      drag = { kind: "pan", cur, from: at };
+    } else {
+      // A click on empty track centres the window there -- the fastest way across
+      // a two-hour trace.
+      const width = cur.t1 - cur.t0;
+      setView({ t0: at - width / 2, t1: at + width / 2 });
+      return;
+    }
+    host.setPointerCapture(e.pointerId);
+  });
+
+  host.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const at = timeAt(e);
+    if (at === null) return;
+    if (drag.kind === "pan") {
+      const shift = at - drag.from;
+      setView({ t0: drag.cur.t0 + shift, t1: drag.cur.t1 + shift });
+    } else if (drag.kind === "left") {
+      setView({ t0: Math.min(at, drag.cur.t1 - 5000), t1: drag.cur.t1 });
+    } else {
+      setView({ t0: drag.cur.t0, t1: Math.max(at, drag.cur.t0 + 5000) });
+    }
+  });
+
+  const stop = () => {
+    drag = null;
+  };
+  host.addEventListener("pointerup", stop);
+  host.addEventListener("pointercancel", stop);
+  host.addEventListener("dblclick", () => setView(null));
+}
+
+wireOverview();
+
 // ---------------------------------------------------------------- ribbon
 
 /**
@@ -497,8 +652,13 @@ function renderRibbon() {
     el("tStart").textContent = el("tSpan").textContent = el("tEnd").textContent = "";
     return;
   }
-  const t0 = state.segments[0].t0;
-  const t1 = state.segments.at(-1).t1;
+  // The ribbon follows the zoom, but keeps *every* band: a band outside the
+  // window gets a near-zero growth factor rather than being dropped. That keeps
+  // the element count equal to the segment count and the widths summing to the
+  // track, which is what makes the ribbon an honest picture of durations.
+  const w = viewWindow();
+  const t0 = w.t0;
+  const t1 = w.t1;
   const span = Math.max(1, t1 - t0);
   wrap.innerHTML = state.segments
     .map((s, i) => {
@@ -507,14 +667,18 @@ function renderRibbon() {
       // less than 1, CSS hands each item only `grow x free-space` and leaves the
       // remainder empty -- which is why the fractions alone left a gap at the
       // end of the ribbon.
-      const grow = Math.max(0.05, ((s.t1 - s.t0) / span) * 100);
+      const shown = Math.max(0, Math.min(s.t1, t1) - Math.max(s.t0, t0));
+      const grow = Math.max(0.0001, (shown / span) * 100);
       const mins = ((s.t1 - s.t0) / 60000).toFixed(1);
+      const mean = meanSpeed(s);
       return `<span class="seg${s.edited ? " human" : ""}${i === state.selected ? " sel" : ""}"
         data-i="${i}" style="flex: ${grow} 1 0; background: ${COLORS[s.type] ?? COLORS.unknown};
         color: ${COLORS[s.type] ?? COLORS.unknown}"
-        title="${i + 1}. ${s.type} · ${mins} min · ${s.points} pts${s.edited ? " · human" : ""}"></span>`;
+        title="${i + 1}. ${s.type} · ${mins} min · ${s.points} pts${
+          mean === null ? "" : ` · ${mean.toFixed(1)} m/s mean`}${s.edited ? " · human" : ""}"></span>`;
     })
     .join("");
+  renderHandles(t0, span);
   wrap.querySelectorAll(".seg").forEach((band) => {
     const i = Number(band.dataset.i);
     band.addEventListener("click", () => select(i));
@@ -524,7 +688,105 @@ function renderRibbon() {
   const hhmm = (t) => new Date(t).toISOString().slice(11, 16);
   el("tStart").textContent = hhmm(t0);
   el("tEnd").textContent = hhmm(t1);
-  el("tSpan").textContent = `${(span / 60000).toFixed(0)} min · ${state.segments.length} segments`;
+  const full = fullSpan();
+  const zoomed = state.view && full;
+  el("tSpan").textContent =
+    `${(span / 60000).toFixed(0)} min · ${state.segments.length} segments` +
+    (zoomed ? ` · zoomed from ${((full.t1 - full.t0) / 60000).toFixed(0)} min` : "");
+}
+
+/**
+ * Boundary handles, as an overlay.
+ *
+ * One per interior boundary, positioned by percentage across the visible window.
+ * They live outside the flex track on purpose (see the CSS): the bands must stay
+ * exactly one element per segment with widths that sum to the track.
+ */
+function renderHandles(t0, span) {
+  const host = el("ribbonHandles");
+  if (!host) return;
+  const inWindow = state.segments
+    .map((s, i) => ({ i, at: s.t0 }))
+    .filter(({ i, at }) => i > 0 && at >= t0 && at <= t0 + span);
+  host.innerHTML = inWindow
+    .map(({ i, at }) => {
+      const left = ((at - t0) / span) * 100;
+      return `<span class="handle" data-boundary="${i}" style="left:${left.toFixed(3)}%"
+        title="Drag to move the boundary between segments ${i} and ${i + 1}"></span>`;
+    })
+    .join("");
+
+  host.querySelectorAll(".handle").forEach((h) => {
+    h.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const i = Number(h.dataset.boundary);
+      const track = el("ribbon").getBoundingClientRect();
+      h.classList.add("dragging");
+      h.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        const f = Math.min(1, Math.max(0, (ev.clientX - track.left) / track.width));
+        h.style.left = `${(f * 100).toFixed(3)}%`;
+      };
+      const drop = (ev) => {
+        h.removeEventListener("pointermove", move);
+        h.removeEventListener("pointerup", drop);
+        h.classList.remove("dragging");
+        const f = Math.min(1, Math.max(0, (ev.clientX - track.left) / track.width));
+        const at = t0 + f * span;
+        const idx = nearestPointIndex(at);
+        if (idx === null) return;
+        state.history.snapshot(state.segments);
+        state.segments = moveBoundary(state.segments, i, idx, state.parsed.points);
+        render();
+        warn(`moved the boundary to ${new Date(at).toISOString().slice(11, 19)}`);
+      };
+      h.addEventListener("pointermove", move);
+      h.addEventListener("pointerup", drop);
+    });
+  });
+}
+
+/** Index of the trace point nearest a timestamp. */
+function nearestPointIndex(t_ms) {
+  const pts = state.parsed && state.parsed.points;
+  if (!pts || !pts.length) return null;
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const d = Math.abs(pts[i].t_ms - t_ms);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** Mean smoothed speed over a segment, or null when nothing was derived. */
+function meanSpeed(seg) {
+  if (!state.results) return null;
+  let sum = 0;
+  let n = 0;
+  for (let i = seg.start; i <= seg.end; i++) {
+    const v = state.results[i] && state.results[i].speed;
+    if (Number.isFinite(v)) {
+      sum += v;
+      n++;
+    }
+  }
+  return n ? sum / n : null;
+}
+
+/** Peak smoothed speed over a segment, or null. */
+function peakSpeed(seg) {
+  if (!state.results) return null;
+  let best = null;
+  for (let i = seg.start; i <= seg.end; i++) {
+    const v = state.results[i] && state.results[i].speed;
+    if (Number.isFinite(v) && (best === null || v > best)) best = v;
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------- table
@@ -536,12 +798,17 @@ function renderTable() {
       const opts = LABELS.map(
         (l) => `<option value="${l}"${l === s.type ? " selected" : ""}>${l}</option>`,
       ).join("");
-      return `<tr data-i="${i}" class="${i === state.selected ? "sel" : ""}">
+      const mean = meanSpeed(s);
+      const w = viewWindow();
+      const inView = w && s.t1 >= w.t0 && s.t0 <= w.t1;
+      return `<tr data-i="${i}" class="${i === state.selected ? "sel" : ""}${
+        state.view && inView ? " in-view" : ""}">
         <td class="num">${i + 1}</td>
         <td class="label-cell"><span class="swatch" style="background:${COLORS[s.type] ?? COLORS.unknown}"></span>
             <select data-relabel="${i}" aria-label="Label for segment ${i + 1}">${opts}</select></td>
         <td class="num">${new Date(s.t0).toISOString().slice(11, 19)}</td>
         <td class="num">${mins}m</td>
+        <td class="num">${mean === null ? "—" : mean.toFixed(1)}</td>
         <td class="num">${s.points}</td>
         <td class="num">${s.edited ? '<span class="tag">human</span>' : (s.confidence ?? 0).toFixed(2)}</td>
         <td class="num">${i > 0 ? `<button class="ghost" data-merge="${i}" title="Merge into the previous segment" aria-label="Merge segment ${i + 1} into the previous one">&uarr;</button>` : ""}</td>
@@ -550,8 +817,9 @@ function renderTable() {
     .join("");
   el("segments").innerHTML = `<table>
     <colgroup><col class="c-n"><col class="c-label"><col class="c-start"><col class="c-dur">
-      <col class="c-pts"><col class="c-conf"><col></colgroup>
-    <thead><tr><th>#</th><th>label</th><th>start</th><th>dur</th><th>pts</th><th>conf</th><th></th></tr></thead>
+      <col class="c-speed"><col class="c-pts"><col class="c-conf"><col></colgroup>
+    <thead><tr><th>#</th><th>label</th><th>start</th><th>dur</th><th>m/s</th><th>pts</th>
+      <th>conf</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   el("segCount").textContent = state.segments.length
     ? `${state.segments.length} · ${state.segments.filter((s) => s.edited).length} human`
@@ -600,6 +868,14 @@ function highlightRow(i, on) {
 
 function select(i) {
   state.selected = i;
+  const sel = state.segments[i];
+  if (sel && state.view && (sel.t1 < state.view.t0 || sel.t0 > state.view.t1)) {
+    // Selecting from the table while zoomed elsewhere would leave every time view
+    // showing something unrelated to the inspector, so the window follows.
+    const pad = Math.max(30_000, (sel.t1 - sel.t0) * 0.25);
+    setView({ t0: sel.t0 - pad, t1: sel.t1 + pad });
+    return;
+  }
   render();
   const s = state.segments[i];
   if (s) {
@@ -640,6 +916,11 @@ function renderDetail() {
         ${s.edited ? "labeled by you" : `proposed, confidence ${(s.confidence ?? 0).toFixed(2)}`}</span>
     </div>
     <dl>
+      <dt>speed</dt><dd>${
+        meanSpeed(s) === null
+          ? "not derived"
+          : `<b>${meanSpeed(s).toFixed(1)} m/s</b> mean · ${peakSpeed(s).toFixed(1)} peak · ${
+              (meanSpeed(s) * 2.23694).toFixed(1)} mph`}</dd>
       <dt>per-fix vote</dt><dd>${s.vote}${s.atControl ? " · at a mapped traffic control" : ""}</dd>
       <dt>road</dt><dd>${road}</dd>
       <dt>intersection</dt><dd>${ix}</dd>
@@ -667,6 +948,7 @@ function renderLegend() {
 
 function render() {
   drawSegments();
+  renderOverview();
   renderRibbon();
   renderChartIfShown();
   renderPlace();
@@ -697,11 +979,12 @@ function status() {
   el("fFlavour").textContent = state.parsed.flavour === "rook" ? "rook (with sensors)" : "plain GPX";
   // A disabled control has to say what would enable it, next to where the eye
   // already is. "Context not resolved" described a state; this names the action.
-  el("status").textContent = state.resolved
-    ? "Map context applied"
-    : state.parsed
-      ? "Classify with map context to apply the road priors"
-      : "No trace open";
+  // Short and shaped the same in every state: a status line that grows is a
+  // status line that rewraps the toolbar. The long hint lives on the button's
+  // title and in the footer instead.
+  el("status").textContent = state.parsed
+    ? `context: ${state.resolved ? "applied" : "none"}${state.view ? " · zoomed" : ""}`
+    : "no trace";
 }
 
 function escapeHtml(v) {
@@ -738,6 +1021,7 @@ el("file").addEventListener("change", async (e) => {
   state.history = createHistory(20);
   state.results = classifyTrace(wasm, parsed.points);
   state.shifts = null;
+  state.view = null;
   state.segments = coalesce(parsed.points, state.results);
   // A rook file's own context is kept as-is rather than recomputed: it was
   // captured in the field, and this snapshot is years newer.

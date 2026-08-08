@@ -23,7 +23,9 @@ import { createRequire } from "node:module";
 import {
   classifyTrace, coalesce, autoMerge, splitSegment, mergeWithPrevious, relabel,
   sampleIndices, createHistory, timePerLabel, sliceRange, dominantBand,
+  bandByHeight, moveBoundary,
 } from "../js/segments.js";
+import { speedBands } from "../js/chart.js";
 import { LABELS } from "../js/gpx.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -436,4 +438,98 @@ test("every structural change keeps the timestamps matching the spans", { skip: 
   assert.equal(mine.start, at);
   assert.equal(mine.end, at + 19);
   assert.equal(mine.t0, pts[at].t_ms);
+});
+
+test("speedBands come from the library's numbers, with the aid marked", { skip: !have }, () => {
+  const t = wasm.motion_thresholds();
+  const bands = speedBands(t);
+  assert.deepEqual(bands.map((b) => b.label), ["stationary", "walking", "running", "driving"]);
+  // Contiguous, ascending, and pinned to the library's thresholds at both real
+  // boundaries.
+  assert.equal(bands[0].lo, 0);
+  assert.equal(bands[0].hi, t.stationary_max_mps);
+  assert.equal(bands[1].hi, t.running_hint_mps);
+  assert.equal(bands[2].hi, t.driving_min_mps);
+  assert.equal(bands[3].hi, Infinity);
+  for (let i = 1; i < bands.length; i++) assert.equal(bands[i].lo, bands[i - 1].hi);
+  // Exactly one band is flagged as a labelling aid, and it is the running one --
+  // the classifier never infers Running from speed.
+  assert.deepEqual(bands.filter((b) => b.aid).map((b) => b.label), ["running"]);
+  // Degenerate thresholds yield nothing rather than a bogus axis.
+  assert.deepEqual(speedBands({}), []);
+  assert.deepEqual(speedBands(null), []);
+});
+
+test("a dragged box takes its label from its own height", { skip: !have }, () => {
+  const bands = speedBands(wasm.motion_thresholds());
+  // A box wholly inside one band is that band, regardless of samples.
+  assert.equal(bandByHeight({ vMin: 8, vMax: 20 }, bands).type, "driving");
+  assert.equal(bandByHeight({ vMin: 0.1, vMax: 0.4 }, bands).type, "stationary");
+  assert.equal(bandByHeight({ vMin: 3.0, vMax: 4.5 }, bands).type, "running");
+  assert.equal(bandByHeight({ vMin: 0.8, vMax: 2.0 }, bands).type, "walking");
+
+  // Straddling: the band covering most of the height wins, and the share says by
+  // how much rather than implying certainty.
+  const straddle = bandByHeight({ vMin: 4.0, vMax: 20.0 }, bands);
+  assert.equal(straddle.type, "driving");
+  assert.ok(straddle.share > 0.9, `share ${straddle.share}`);
+  const mostlyRunning = bandByHeight({ vMin: 2.7, vMax: 5.3 }, bands);
+  assert.equal(mostlyRunning.type, "running");
+  assert.ok(mostlyRunning.share > 0.5 && mostlyRunning.share < 1);
+
+  // Drag direction does not matter, and a flat drag still points at one band.
+  assert.equal(bandByHeight({ vMin: 20, vMax: 8 }, bands).type, "driving");
+  assert.equal(bandByHeight({ vMin: 12, vMax: 12 }, bands).type, "driving");
+  assert.equal(bandByHeight({ vMin: 12, vMax: 12 }, bands).share, 1);
+  // No bands to compare against: no claim.
+  assert.equal(bandByHeight({ vMin: 1, vMax: 2 }, []).type, null);
+});
+
+test("moving a boundary shifts exactly one, and marks both sides human", () => {
+  const points = Array.from({ length: 30 }, (_, i) => ({ lat: 36, lon: -86, t_ms: i * 1000 }));
+  const segs = [
+    { start: 0, end: 9, type: "driving", edited: false, points: 10, t0: 0, t1: 9000 },
+    { start: 10, end: 19, type: "walking", edited: false, points: 10, t0: 10000, t1: 19000 },
+    { start: 20, end: 29, type: "stationary", edited: false, points: 10, t0: 20000, t1: 29000 },
+  ];
+  const out = moveBoundary(segs, 1, 5, points);
+  assert.deepEqual(out.map((s) => [s.start, s.end]), [[0, 4], [5, 19], [20, 29]]);
+  // Both sides of the boundary asserted something, so both are human. The third
+  // segment was not touched and must not claim to be.
+  assert.deepEqual(out.map((s) => s.edited), [true, true, false]);
+  // Times track the new spans -- the same class of bug as the split fix.
+  assert.equal(out[0].t1, points[4].t_ms);
+  assert.equal(out[1].t0, points[5].t_ms);
+  assert.equal(out[1].points, 15);
+
+  // Clamped so neither side can be emptied.
+  const toStart = moveBoundary(segs, 1, 0, points);
+  assert.equal(toStart[0].start, 0);
+  assert.ok(toStart[0].end >= toStart[0].start, "left side survived");
+  assert.equal(toStart[0].points, 1);
+  const toEnd = moveBoundary(segs, 1, 99, points);
+  assert.ok(toEnd[1].end >= toEnd[1].start, "right side survived");
+  assert.equal(toEnd[1].points, 1);
+
+  // A no-op move changes nothing, and the ends have no boundary to move.
+  assert.equal(moveBoundary(segs, 1, 10, points), segs);
+  assert.equal(moveBoundary(segs, 0, 5, points), segs);
+  assert.equal(moveBoundary(segs, 3, 5, points), segs);
+});
+
+test("a boundary move keeps the trace tiled", () => {
+  const points = Array.from({ length: 40 }, (_, i) => ({ lat: 36, lon: -86, t_ms: i * 1000 }));
+  let segs = [
+    { start: 0, end: 19, type: "driving", edited: false, points: 20, t0: 0, t1: 19000 },
+    { start: 20, end: 39, type: "walking", edited: false, points: 20, t0: 20000, t1: 39000 },
+  ];
+  for (const at of [10, 30, 5, 35, 20]) {
+    segs = moveBoundary(segs, 1, at, points);
+    assert.equal(segs[0].start, 0);
+    assert.equal(segs.at(-1).end, 39);
+    for (let i = 1; i < segs.length; i++) {
+      assert.equal(segs[i].start, segs[i - 1].end + 1, `gap after moving to ${at}`);
+    }
+    for (const s of segs) assert.ok(s.end >= s.start, `empty segment after moving to ${at}`);
+  }
 });

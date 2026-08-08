@@ -747,8 +747,11 @@ export function merged_cell_slice(block, cell_hex) {
  * single fast fix should not read as driving. Both matter to a reader: the first
  * pair explains the bands, the second explains the votes.
  *
- * There is deliberately no running threshold: `Running` comes from
- * accelerometer cadence, never from speed alone, so a speed axis cannot show one.
+ * `running_hint_mps` is the odd one out and is labelled as such wherever it is
+ * shown: the classifier never infers `Running` from speed (it needs cadence), so
+ * this is only where a *person* marking up a speed chart would draw the
+ * walking/running line. It is here so every such tool uses the same documented
+ * number instead of inventing one.
  * @returns {any}
  */
 export function motion_thresholds() {

@@ -284,11 +284,36 @@ def main():
         # Speed-band zones, drawn from the library's thresholds rather than a copy.
         zones = page.evaluate(
             "() => [document.querySelectorAll('#chart .zone').length,"
-            " document.querySelectorAll('#chart .floor').length]"
+            " document.querySelectorAll('#chart .floor').length,"
+            " [...document.querySelectorAll('#chart .chart-ticks .tick')].map(e => e.textContent)]"
         )
-        print(f"ok   ui: chart drew {zones[0]} speed-band zones and {zones[1]} floor line(s)")
-        if zones[0] != 3:
-            failures.append(f"ui: expected 3 speed-band zones, got {zones[0]}")
+        print(f"ok   ui: chart drew {zones[0]} speed-band zones, {zones[1]} floor line(s), "
+              f"ticks {zones[2]}")
+        # Four bands: stationary / walking / running / driving, the running split
+        # being the documented labelling aid.
+        if zones[0] != 4:
+            failures.append(f"ui: expected 4 speed-band zones, got {zones[0]}")
+        # The axis has to carry numbers at all -- there was no readable speed
+        # anywhere on this page before.
+        if len(zones[2]) < 2:
+            failures.append(f"ui: speed axis has {len(zones[2])} labels")
+        if not any("*" in t for t in zones[2]) and len(zones[2]) > 3:
+            failures.append("ui: the labelling-aid tick is not marked")
+
+        # A speed column in the table, with a real number in it.
+        speeds = page.evaluate(
+            "() => { const h = [...document.querySelectorAll('#segments thead th')]"
+            "   .map(e => e.textContent.trim());"
+            " const col = h.indexOf('m/s');"
+            " const vals = [...document.querySelectorAll('#segments tbody tr')]"
+            "   .map(r => r.children[col] && r.children[col].textContent.trim());"
+            " return [col, vals.filter(v => v && v !== '\u2014').length]; }"
+        )
+        print(f"ok   ui: table has a speed column at index {speeds[0]} with {speeds[1]} values")
+        if speeds[0] < 0:
+            failures.append("ui: no m/s column in the segment table")
+        if speeds[1] == 0:
+            failures.append("ui: the speed column is empty for every segment")
 
         # Drag a rectangle: the range becomes its own segment, labelled by the
         # dominant band inside the box, and nothing outside it moves.
@@ -328,6 +353,139 @@ def main():
         restored = page.evaluate("() => window.__labelGpx.segments.length")
         if restored != len(before):
             failures.append(f"ui: undo left {restored} segments, expected {len(before)}")
+
+        # --- synced zoom
+        # The overview strip must exist with a window box, and wheeling over the
+        # chart must narrow the shared window -- which every time view reads.
+        ov = page.evaluate(
+            "() => [document.querySelectorAll('#overview .ov').length,"
+            " !!document.querySelector('#overview .window')]"
+        )
+        if ov[0] == 0 or not ov[1]:
+            failures.append(f"ui: overview strip missing bands or window ({ov})")
+        cbox = page.locator("#chart svg").bounding_box()
+        page.mouse.move(cbox["x"] + cbox["width"] / 2, cbox["y"] + cbox["height"] / 2)
+        page.mouse.wheel(0, -500)
+        page.wait_for_timeout(500)
+        zoom = page.evaluate(
+            "() => { const s = window.__labelGpx; const v = s.view;"
+            " const pts = s.parsed.points;"
+            " const full = pts[pts.length - 1].t_ms - pts[0].t_ms;"
+            " const bands = document.querySelectorAll('#ribbon .seg').length;"
+            " const r = document.getElementById('ribbon');"
+            " const w = [...r.querySelectorAll('.seg')].reduce((a, e) => a + e.offsetWidth, 0);"
+            " return { zoomed: !!v, span: v ? v.t1 - v.t0 : full, full, bands,"
+            "   fill: [Math.round(w), r.clientWidth],"
+            "   lines: document.querySelectorAll('#chart .speed').length,"
+            "   segs: s.segments.length }; }"
+        )
+        print(f"ok   ui: wheel zoomed to {zoom['span'] / 60000:.0f} of "
+              f"{zoom['full'] / 60000:.0f} min, ribbon kept {zoom['bands']} bands "
+              f"filling {zoom['fill'][0]}/{zoom['fill'][1]}px")
+        if not zoom["zoomed"] or zoom["span"] >= zoom["full"]:
+            failures.append("ui: wheel over the chart did not narrow the window")
+        # The invariants that make the ribbon honest have to survive zooming: one
+        # band per segment, and the bands still tiling the whole track.
+        if zoom["bands"] != zoom["segs"]:
+            failures.append(f"ui: {zoom['bands']} bands for {zoom['segs']} segments while zoomed")
+        if abs(zoom["fill"][0] - zoom["fill"][1]) > 2:
+            failures.append(f"ui: zoomed ribbon covers {zoom['fill'][0]} of {zoom['fill'][1]}px")
+        if zoom["lines"] != 1:
+            failures.append(f"ui: {zoom['lines']} speed polylines while zoomed, expected 1")
+
+        # Double-clicking the overview resets to the whole trace. Do it on the
+        # strip's own left edge rather than its centre, which is inside the window
+        # box and starts a pan.
+        obox = page.locator("#overview").bounding_box()
+        page.mouse.dblclick(obox["x"] + 3, obox["y"] + obox["height"] / 2)
+        page.wait_for_timeout(400)
+        if page.evaluate("() => window.__labelGpx.view") is not None:
+            failures.append("ui: double-click on the overview did not reset the zoom")
+            # The handle test below counts boundaries inside the window, so a
+            # failed reset would cascade into a confusing second failure.
+            page.evaluate("() => { window.__labelGpx.view = null; }")
+            page.evaluate("() => window.dispatchEvent(new Event('resize'))")
+
+        # --- boundary handles
+        handles = page.locator("#ribbonHandles .handle")
+        n_handles = handles.count()
+        segs_before = page.evaluate("() => window.__labelGpx.segments.map(s => s.start)")
+        if n_handles != len(segs_before) - 1:
+            failures.append(f"ui: {n_handles} handles for {len(segs_before)} segments")
+        # This fixture yields two segments, so there is exactly one interior
+        # boundary; index the last handle rather than assuming several exist.
+        if n_handles == 0:
+            failures.append(
+                f"ui: no boundary handles for {len(segs_before)} segments "
+                f"(view={page.evaluate('() => window.__labelGpx.view')})"
+            )
+        hbox = handles.nth(max(0, n_handles - 1)).bounding_box() if n_handles else None
+        rbox = page.locator("#ribbon").bounding_box()
+        if hbox is None:
+            rbox = None
+        if hbox is not None:
+          page.mouse.move(hbox["x"] + hbox["width"] / 2, hbox["y"] + hbox["height"] / 2)
+        page.mouse.down()
+        page.mouse.move(
+            hbox["x"] + hbox["width"] / 2 - rbox["width"] * 0.08,
+            hbox["y"] + hbox["height"] / 2,
+            steps=5,
+        )
+        page.mouse.up()
+        page.wait_for_timeout(400)
+        moved = page.evaluate(
+            "() => { const s = window.__labelGpx.segments;"
+            " return { starts: s.map(x => x.start), human: s.filter(x => x.edited).length,"
+            "   tiled: s.every((x, i) => i === 0 || x.start === s[i-1].end + 1),"
+            "   times: s.every(x => Number.isFinite(x.t0) && x.t1 >= x.t0) }; }"
+        )
+        changed = [i for i, (a, b) in enumerate(zip(segs_before, moved["starts"])) if a != b]
+        print(f"ok   ui: handle drag moved boundary indices {changed}, "
+              f"{moved['human']} segments human")
+        if not changed:
+            failures.append("ui: dragging a handle moved no boundary")
+        if not moved["tiled"] or not moved["times"]:
+            failures.append("ui: a handle drag broke the tiling or the timestamps")
+        page.click("#undo")
+        page.wait_for_timeout(300)
+
+        # --- a rectangle over empty speed range still slices
+        # This did nothing before: the box's height names the label, so a box drawn
+        # in the driving band over a stationary stretch is a driving slice.
+        page.evaluate(
+            "() => { const s = window.__labelGpx;"
+            " const i = s.segments.findIndex(x => x.type === 'stationary' && x.points > 5);"
+            " window.__target = i >= 0 ? i : 0; }"
+        )
+        target = page.evaluate("() => window.__target")
+        before_type = page.evaluate("() => window.__labelGpx.segments[window.__target].type")
+        span = page.evaluate(
+            "() => { const s = window.__labelGpx.segments[window.__target];"
+            " const p = window.__labelGpx.parsed.points;"
+            " return [s.t0, s.t1, p[0].t_ms, p[p.length-1].t_ms]; }"
+        )
+        # Convert that time range to chart x, and drag high up in the driving zone.
+        cbox = page.locator("#chart svg").bounding_box()
+        frac = lambda t: (t - span[2]) / max(1, span[3] - span[2])
+        x0 = cbox["x"] + cbox["width"] * frac(span[0]) + 2
+        x1 = cbox["x"] + cbox["width"] * frac(span[1]) - 2
+        if x1 - x0 > 6:
+            ytop = cbox["y"] + cbox["height"] * 0.05
+            ybot = cbox["y"] + cbox["height"] * 0.25
+            page.mouse.move(x0, ytop)
+            page.mouse.down()
+            page.mouse.move((x0 + x1) / 2, (ytop + ybot) / 2, steps=4)
+            page.mouse.move(x1, ybot, steps=4)
+            page.mouse.up()
+            page.wait_for_timeout(600)
+            note = page.eval_on_selector("#warn", "e => e.textContent").strip()
+            print(f"ok   ui: empty-band slice over a {before_type} stretch — {note[:90]}")
+            if "box height" not in note:
+                failures.append(f"ui: a box in an empty band did not slice ({note[:60]})")
+            page.click("#undo")
+            page.wait_for_timeout(200)
+        else:
+            print("skip ui: no stationary stretch wide enough to drag over")
 
         # The sensitivity knob has to actually change the answer.
         page.select_option("#chartWindow", "6")

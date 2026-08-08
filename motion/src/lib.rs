@@ -33,7 +33,8 @@ pub mod shifts;
 pub use shifts::{significant_shifts, Shift, ShiftConfig};
 pub use movement::{
     AccelStats, DebounceConfig, MovementType, RoadContext, TrafficControl, Vote, VoteDebouncer,
-    classify, classify_accel_only, DRIVING_FLOOR_MPS, GPS_ACCURACY_GATE_M, WALKING_CEILING_MPS,
+    classify, classify_accel_only, DRIVING_FLOOR_MPS, GPS_ACCURACY_GATE_M,
+    RUNNING_SPEED_HINT_MPS, WALKING_CEILING_MPS,
 };
 
 /// A [`Fix`] stamped with a monotonic millisecond timestamp. Core's `Fix` has

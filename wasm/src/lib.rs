@@ -1132,8 +1132,11 @@ pub fn intersection_holds_traffic(intersection_type: u8) -> bool {
 /// single fast fix should not read as driving. Both matter to a reader: the first
 /// pair explains the bands, the second explains the votes.
 ///
-/// There is deliberately no running threshold: `Running` comes from
-/// accelerometer cadence, never from speed alone, so a speed axis cannot show one.
+/// `running_hint_mps` is the odd one out and is labelled as such wherever it is
+/// shown: the classifier never infers `Running` from speed (it needs cadence), so
+/// this is only where a *person* marking up a speed chart would draw the
+/// walking/running line. It is here so every such tool uses the same documented
+/// number instead of inventing one.
 #[wasm_bindgen]
 pub fn motion_thresholds() -> Result<JsValue, JsValue> {
     let cfg = MotionConfig::default();
@@ -1142,6 +1145,7 @@ pub fn motion_thresholds() -> Result<JsValue, JsValue> {
         driving_min_mps: cfg.driving_min_mps,
         walking_ceiling_mps: ptiles_motion::WALKING_CEILING_MPS,
         driving_floor_mps: ptiles_motion::DRIVING_FLOOR_MPS,
+        running_hint_mps: ptiles_motion::RUNNING_SPEED_HINT_MPS,
     })
 }
 
@@ -1151,6 +1155,8 @@ struct MotionThresholds {
     driving_min_mps: f64,
     walking_ceiling_mps: f64,
     driving_floor_mps: f64,
+    /// Labelling aid only -- see `motion::RUNNING_SPEED_HINT_MPS`.
+    running_hint_mps: f64,
 }
 
 /// Which band a smoothed speed falls in, as a lowercase `MovementType` name.

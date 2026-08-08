@@ -226,6 +226,70 @@ export function sliceRange(segments, startIdx, endIdx, type, points = null) {
 }
 
 /**
+ * The label a dragged rectangle asks for, from the rectangle's own height.
+ *
+ * Whichever speed band covers the most of `[vMin, vMax]` wins. This is geometry,
+ * not statistics, and that is the point: it works when the box contains no
+ * samples at all (drag a box in the driving band over a stretch the classifier
+ * called stationary, and you get `driving`), and it means the label is whatever
+ * you visibly pointed at rather than something inferred from what happened to be
+ * inside.
+ *
+ * `bands` comes from `speedBands(thresholds)` in chart.js, which builds them from
+ * the library's numbers -- including the running split, which is a labelling aid
+ * the classifier itself never uses.
+ *
+ * Returns `{type, share}` where `share` is the winner's fraction of the box height,
+ * so a caller can say "71% of the box" rather than implying certainty.
+ */
+export function bandByHeight(rect, bands) {
+  const lo = Math.min(rect.vMin, rect.vMax);
+  const hi = Math.max(rect.vMin, rect.vMax);
+  const height = hi - lo;
+  let best = null;
+  for (const b of bands ?? []) {
+    const overlap = Math.min(hi, b.hi) - Math.max(lo, b.lo);
+    if (overlap <= 0) continue;
+    if (!best || overlap > best.overlap) best = { type: b.label, overlap };
+  }
+  if (!best) {
+    // A zero-height box (a horizontal drag) still points at exactly one band.
+    const at = (bands ?? []).find((b) => lo >= b.lo && lo < b.hi);
+    return at ? { type: at.label, share: 1 } : { type: null, share: 0 };
+  }
+  return { type: best.type, share: height > 0 ? best.overlap / height : 1 };
+}
+
+/**
+ * Move the boundary between segments `i-1` and `i` to `newIndex`.
+ *
+ * `newIndex` becomes the first point of segment `i`, clamped so neither side is
+ * left empty -- a zero-length segment is not a thing the table, the ribbon or the
+ * exporter can represent.
+ *
+ * Both spans are marked edited, unlike a plain split: moving a boundary asserts
+ * that these points belong to *that* label and those to the other, which is a
+ * claim about both.
+ */
+export function moveBoundary(segments, i, newIndex, points = null) {
+  if (i <= 0 || i >= segments.length) return segments;
+  const prev = segments[i - 1];
+  const next = segments[i];
+  const at = Math.max(prev.start + 1, Math.min(next.end, Math.round(newIndex)));
+  if (at === next.start) return segments;
+  const out = segments.slice();
+  out[i - 1] = retime(
+    { ...prev, end: at - 1, points: at - prev.start, edited: true },
+    points,
+  );
+  out[i] = retime(
+    { ...next, start: at, points: next.end - at + 1, edited: true },
+    points,
+  );
+  return autoMerge(out);
+}
+
+/**
  * The dominant band inside a rectangle drawn on the speed chart.
  *
  * `bandOf` is the library's own bucketing (`wasm.speed_band`), so the answer here

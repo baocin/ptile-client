@@ -247,6 +247,19 @@ pub const DRIVING_FLOOR_MPS: f64 = 8.9;
 /// Above this horizontal accuracy (m) GPS is not trusted at all.
 pub const GPS_ACCURACY_GATE_M: f64 = 30.0;
 
+/// Where a human would put the walking/running line on a speed axis, m/s
+/// (~5.8 mph).
+///
+/// **This is a labelling aid, not a classifier threshold.** Nothing in
+/// [`classify`] or [`classify_accel_only`] reads it, and it never will:
+/// [`MovementType::Running`] is inferred from accelerometer cadence, because
+/// speed alone cannot tell a runner from a slow cyclist or a car in a car park.
+/// It exists so a tool that asks a *person* to mark up a speed chart has one
+/// documented number to draw the line at, instead of each such tool inventing
+/// its own. Treat it as a default a UI may expose for tuning, and never as
+/// evidence about what a trace was doing.
+pub const RUNNING_SPEED_HINT_MPS: f64 = 2.6;
+
 /// Stateless single-fix classification. Order: GPS-accuracy gate (bad fix =>
 /// accel only) -> road-context priors -> speed-only bands -> accel-only.
 ///

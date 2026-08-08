@@ -42,16 +42,22 @@
   a { color: var(--accent); }
 
   /* ---- toolbar ---- */
+  /* The buttons must never move. `#status` used to be nowrap with margin-left
+     auto and no shrink allowance, so it could not give up width -- every status
+     change pushed the shrink onto `.tools`, which is a wrapping flex container
+     and rewrapped its buttons instead. Now `.tools` is rigid, `#status` absorbs
+     its own width changes by ellipsis, and below 1100px the status drops to its
+     own line rather than squeezing anything. */
   header {
     display: flex; align-items: center; gap: 14px; padding: 9px 14px;
-    background: var(--panel); border-bottom: 1px solid var(--rule);
+    background: var(--panel); border-bottom: 1px solid var(--rule); flex-wrap: wrap;
   }
   .brand {
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em;
     text-transform: uppercase; color: var(--ink-dim); white-space: nowrap;
   }
   .brand b { color: var(--ink); font-weight: 600; }
-  .tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .tools { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; flex-wrap: nowrap; }
   .sep { width: 1px; height: 20px; background: var(--rule-bright); }
 
   button, select, .file-btn {
@@ -70,7 +76,14 @@
     font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
     max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  #status { margin-left: auto; color: var(--ink-dim); font-size: 11px; white-space: nowrap; }
+  #status {
+    margin-left: auto; flex: 1 1 auto; min-width: 0; text-align: right;
+    color: var(--ink-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis;
+  }
+  @media (max-width: 1100px) {
+    #status { flex-basis: 100%; text-align: left; margin-left: 0; }
+    .tools { flex-wrap: wrap; }
+  }
   #warn:not(:empty) {
     padding: 6px 14px; color: var(--warn); font-size: 12px;
     background: rgba(224, 129, 60, 0.08); border-bottom: 1px solid rgba(224, 129, 60, 0.25);
@@ -84,6 +97,44 @@
      that difference (source="auto" vs "human") and it decides whether a fixture
      counts as evidence, so it belongs in the picture. */
   #ribbonWrap { padding: 8px 14px 9px; background: var(--panel); border-bottom: 1px solid var(--rule); }
+
+  /* ---- overview: the whole trace, and where the zoom is inside it ---- */
+  #overview {
+    position: relative; height: 12px; margin-bottom: 5px; overflow: hidden;
+    background: var(--void); border: 1px solid var(--rule); border-radius: 2px;
+    cursor: grab;
+  }
+  #overview:empty { display: none; }
+  #overview .ov { position: absolute; top: 0; bottom: 0; }
+  #overview .window {
+    position: absolute; top: -1px; bottom: -1px; box-sizing: border-box;
+    border: 1px solid var(--accent); background: rgba(62, 200, 212, 0.16);
+    border-radius: 2px;
+  }
+  #overview .grip {
+    position: absolute; top: -1px; bottom: -1px; width: 7px; cursor: ew-resize;
+    background: var(--accent); opacity: 0.85;
+  }
+  #overview .grip.left { left: -3px; border-radius: 2px 0 0 2px; }
+  #overview .grip.right { right: -3px; border-radius: 0 2px 2px 0; }
+
+  /* ---- ribbon boundary handles ----
+     An absolutely-positioned overlay, deliberately: the bands themselves must
+     stay exactly `segments.length` elements whose widths sum to the track, which
+     is what the browser test checks and what keeps the ribbon honest about
+     durations. A handle that took part in layout would break both. */
+  .ribbon-track { position: relative; }
+  #ribbonHandles { position: absolute; inset: 0; pointer-events: none; }
+  #ribbonHandles .handle {
+    position: absolute; top: -3px; bottom: -3px; width: 9px; margin-left: -4.5px;
+    pointer-events: auto; cursor: ew-resize;
+  }
+  #ribbonHandles .handle::before {
+    content: ""; position: absolute; left: 3px; top: 0; bottom: 0; width: 3px;
+    background: var(--ink); opacity: 0.35; border-radius: 1px;
+  }
+  #ribbonHandles .handle:hover::before,
+  #ribbonHandles .handle.dragging::before { opacity: 1; background: var(--accent); }
   #ribbon {
     display: flex; align-items: stretch; height: 32px; overflow: hidden;
     background: var(--void); border: 1px solid var(--rule); border-radius: 3px;
@@ -112,10 +163,20 @@
      comparison only works when the two share a time axis. */
   #chart[hidden] { display: none; }
   #chart { margin-top: 8px; }
+  #chart .chart-body { position: relative; padding-left: 44px; }
   #chart svg {
     display: block; width: 100%; height: 116px;
     background: var(--void); border: 1px solid var(--rule); border-radius: 3px;
   }
+  /* Speed labels live in HTML, not in the SVG: the viewBox is non-uniform, so
+     <text> inside it stretches horizontally with the panel width. */
+  #chart .chart-ticks { position: absolute; left: 0; top: 0; bottom: 0; width: 40px; }
+  #chart .chart-ticks .tick {
+    position: absolute; right: 4px; transform: translateY(-50%);
+    font-family: var(--mono); font-size: 9px; color: var(--ink-faint);
+  }
+  #chart .chart-ticks .tick.aid { color: var(--ink-faint); opacity: 0.7; font-style: italic; }
+  #chart .zone.aid { opacity: 0.06; }
   #chart .speed {
     fill: none; stroke: var(--accent); stroke-width: 1.2;
     vector-effect: non-scaling-stroke;
@@ -135,6 +196,16 @@
     vector-effect: non-scaling-stroke;
   }
   #chart .shift polygon { fill: var(--ink); opacity: 0.8; }
+  #chart .tick { fill: var(--ink-faint); font-family: var(--mono); font-size: 8px; }
+  #chart .tick.aid { fill: var(--ink-faint); opacity: 0.75; }
+  #chart .gridline {
+    stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.7;
+  }
+  #chart .cursor line {
+    stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;
+  }
+  #chart .cursor text { fill: var(--ink); font-family: var(--mono); font-size: 9px; }
+  #chart .cursor[hidden] { display: none; }
   #chart .shift:hover line { opacity: 1; stroke: #fff; }
   #chart .chart-axis {
     display: flex; justify-content: space-between; margin-top: 3px;
@@ -171,8 +242,9 @@
 
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   th, td { padding: 5px 8px; text-align: left; white-space: nowrap; }
-  col.c-n { width: 34px; } col.c-label { width: 128px; } col.c-start { width: 74px; }
-  col.c-dur { width: 58px; } col.c-pts { width: 46px; } col.c-conf { width: 52px; }
+  col.c-n { width: 30px; } col.c-label { width: 120px; } col.c-start { width: 70px; }
+  col.c-dur { width: 52px; } col.c-speed { width: 60px; } col.c-pts { width: 42px; }
+  col.c-conf { width: 48px; }
   thead th {
     position: sticky; top: 0; z-index: 1; background: var(--panel);
     border-bottom: 1px solid var(--rule-bright); font-family: var(--mono);
@@ -182,6 +254,10 @@
   tbody tr { border-bottom: 1px solid rgba(36, 40, 46, 0.7); cursor: pointer; }
   tbody tr:hover { background: var(--panel-2); }
   tbody tr.sel { background: #1d2530; box-shadow: inset 2px 0 0 var(--accent); }
+  /* In the zoom window. A marker, not a filter: nothing you can edit should
+     disappear because of where you happen to be looking. */
+  tbody tr.in-view td:first-child { box-shadow: inset 2px 0 0 var(--ink-faint); }
+  tbody tr.sel.in-view td:first-child { box-shadow: none; }
   td.num { text-align: right; color: var(--ink-dim); }
   td.label-cell { display: flex; align-items: center; }
   td select { flex: 1; min-width: 0; padding: 2px 4px; background: transparent; border-color: transparent; }
@@ -336,8 +412,12 @@
 <div id="warn"></div>
 
 <div id="ribbonWrap">
+  <div id="overview" role="group" aria-label="Whole trace, with the current zoom window"></div>
+  <div class="ribbon-track">
   <div id="ribbon" role="group" aria-label="Trace timeline, by label">
     <span class="empty">The trace timeline appears here, to scale, once a file is open</span>
+  </div>
+  <div id="ribbonHandles" aria-hidden="true"></div>
   </div>
   <div class="ribbon-axis">
     <span id="tStart"></span><span id="tSpan"></span><span id="tEnd"></span>

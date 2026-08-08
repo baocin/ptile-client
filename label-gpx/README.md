@@ -94,6 +94,22 @@ at a junction, `coarse` (24) finds the change from town driving to open road, an
 correct. The detector lives in `motion/src/shifts.rs` with its own tests, including the t-distribution
 checked against published critical values.
 
+**The overview strip** at the very top is the whole trace, always. The box on it is the current zoom
+window: drag its body to pan, its edges to resize, click empty track to jump, double-click to reset.
+Wheel over the chart zooms about the pointer. The overview, the ribbon and the speed chart share one
+window, so zooming anywhere zooms everything; the table and legend deliberately do not filter, because
+a segment you meant to fix should never vanish because of where you were looking — in-window rows get
+a marker instead.
+
+The speed axis **rescales to the window**. That is a trade: two windows cannot be compared by eye, but
+zooming into a 12-minute stop in a 125-minute drive shows its detail instead of a flat line pinned to
+the bottom of a 33 m/s axis. The axis labels are what keep it honest, and they thin themselves out
+when there is no room rather than printing numbers on top of each other.
+
+**Boundary handles** sit on the ribbon, one per interior boundary. Drag one to move where a segment
+ends — one gesture instead of split-then-merge. Both sides are marked human, because moving a boundary
+asserts that these points belong to that label and those to the other.
+
 **The basemap switch** (bottom-left of the map) chooses between OSM raster tiles and the ptiles
 layers — water, parks, rail, trails, roads, and buildings from zoom 15 — decoded in the page from the
 same files the road context comes from. The raster tiles are always right about the world; the vector ones are
