@@ -166,6 +166,70 @@ pub fn decode_rail(data: &[u8]) -> Result<JsValue, JsValue> {
     to_js(&rail)
 }
 
+/// Reverse geocode a point against already-decoded features.
+///
+/// `roads_js` / `trails_js` / `addresses_js` are the arrays this module's
+/// `decode_roads`, `decode_trails` and `address_cell` return, for whatever
+/// cells the caller fetched. Returns
+/// `{nearest_way, on_way, address}` — see `ptiles_core::locate`.
+#[wasm_bindgen]
+pub fn locate_point(
+    lat: f64,
+    lon: f64,
+    roads_js: JsValue,
+    trails_js: JsValue,
+    addresses_js: JsValue,
+) -> Result<JsValue, JsValue> {
+    let roads: Vec<ptiles_core::RoadSegment> = from_js_or_empty(roads_js, "roads")?;
+    let trails: Vec<ptiles_core::TrailFeature> = from_js_or_empty(trails_js, "trails")?;
+    let addresses: Vec<ptiles_core::address::AddressRecord> =
+        from_js_or_empty(addresses_js, "addresses")?;
+    to_js(&ptiles_core::locate(lat, lon, &roads, &trails, &addresses))
+}
+
+/// Forward geocode over already-decoded address records: "400 Broadway".
+#[wasm_bindgen]
+pub fn geocode_addresses(
+    query: &str,
+    addresses_js: JsValue,
+    limit: Option<u32>,
+) -> Result<JsValue, JsValue> {
+    let addresses: Vec<ptiles_core::address::AddressRecord> =
+        from_js_or_empty(addresses_js, "addresses")?;
+    let hits = ptiles_core::match_addresses(query, &addresses, limit.unwrap_or(25) as usize);
+    to_js(&hits)
+}
+
+/// The nearest address to a point, or null. Separate from `locate_point` for
+/// callers that hold only the address layer.
+#[wasm_bindgen]
+pub fn nearest_address_to(
+    lat: f64,
+    lon: f64,
+    addresses_js: JsValue,
+    threshold_m: Option<f64>,
+) -> Result<JsValue, JsValue> {
+    let addresses: Vec<ptiles_core::address::AddressRecord> =
+        from_js_or_empty(addresses_js, "addresses")?;
+    let t = threshold_m.unwrap_or(ptiles_core::ADDRESS_THRESHOLD_M);
+    match ptiles_core::nearest_address(lat, lon, &addresses, t) {
+        Some(a) => to_js(&a),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// Deserialize a JS array, treating null/undefined as empty rather than an
+/// error: a caller with no trails loaded should still get a road answer.
+fn from_js_or_empty<T: serde::de::DeserializeOwned>(
+    v: JsValue,
+    what: &str,
+) -> Result<Vec<T>, JsValue> {
+    if v.is_null() || v.is_undefined() {
+        return Ok(Vec::new());
+    }
+    serde_wasm_bindgen::from_value(v).map_err(|e| JsValue::from_str(&format!("{what}: {e}")))
+}
+
 /// Whether a trail type is built infrastructure (cycleway, footway) rather
 /// than a natural way. Exposed so a renderer styles the two apart without
 /// re-listing the layer's type vocabulary in JavaScript.
@@ -989,12 +1053,18 @@ impl AdminReader {
 /// Decode the addresses for one H3 cell from an already-decompressed merged
 /// block (address layer). JS fetches the block bytes (via the v2 index) and
 /// decompresses them (`decompress_block`, empty dict), then calls this per
-/// cell. Returns a JS array of `{osm_id, housenumber, street}` (empty if the
-/// cell isn't in the block). `cell_hex` is a lowercase hex H3 cell string.
+/// cell. Returns a JS array of `{osm_id, housenumber, street, lat, lon}`
+/// (empty if the cell isn't in the block). `cell_hex` is a lowercase hex H3
+/// cell string.
+///
+/// `version` is the file header's version. v2 and later put an `i16` position
+/// offset on every record; the block does not announce it, so passing the
+/// wrong number here reads the coordinate bytes as a string length. Callers
+/// already have `parse_header(...)`.
 #[wasm_bindgen]
-pub fn address_cell(block_bytes: &[u8], cell_hex: &str) -> Result<JsValue, JsValue> {
+pub fn address_cell(block_bytes: &[u8], cell_hex: &str, version: u8) -> Result<JsValue, JsValue> {
     let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
-    let records = merged_block_cell_slice(block_bytes, cell)
+    let records = merged_block_cell_slice(block_bytes, cell, version >= 2)
         .map_err(|e| JsValue::from_str(&e.to_string()))?
         .unwrap_or_default();
     to_js(&records)

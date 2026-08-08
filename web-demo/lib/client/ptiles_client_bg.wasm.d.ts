@@ -2,7 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_adminreader_free: (a: number, b: number) => void;
-export const address_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const address_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
 export const adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const cell_center: (a: number, b: number) => [number, number, number, number];
@@ -22,10 +22,13 @@ export const decode_water: (a: number, b: number) => [number, number, number];
 export const decompress_block: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const estimated_height_for: (a: number, b: number) => number;
 export const find_block_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const geocode_addresses: (a: number, b: number, c: any, d: number) => [number, number, number];
 export const index_entries_absolute: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const key_for_business_name_query: (a: number, b: number) => number;
+export const locate_point: (a: number, b: number, c: any, d: any, e: any) => [number, number, number];
 export const match_business_name_block: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const merged_cell_slice: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const nearest_address_to: (a: number, b: number, c: any, d: number, e: number) => [number, number, number];
 export const nearest_intersection: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const nearest_road: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const neighbor_cells: (a: number, b: number) => [number, number, number, number];

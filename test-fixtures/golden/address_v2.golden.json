@@ -1,0 +1,24 @@
+{
+ "cell": "8744c8182ffffff",
+ "center_micro": [
+  -8452193,
+  3536743
+ ],
+ "count": 2,
+ "records": [
+  {
+   "osm_id": 568392734,
+   "housenumber": "347",
+   "street": "N Industrial Road",
+   "lat": 35.36934,
+   "lon": -84.52266
+  },
+  {
+   "osm_id": 568392735,
+   "housenumber": "134",
+   "street": "Waupaca Drive",
+   "lat": 35.36067,
+   "lon": -84.52269
+  }
+ ]
+}

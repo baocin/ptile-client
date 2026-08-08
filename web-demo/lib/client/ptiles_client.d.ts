@@ -20,10 +20,16 @@ export class AdminReader {
  * Decode the addresses for one H3 cell from an already-decompressed merged
  * block (address layer). JS fetches the block bytes (via the v2 index) and
  * decompresses them (`decompress_block`, empty dict), then calls this per
- * cell. Returns a JS array of `{osm_id, housenumber, street}` (empty if the
- * cell isn't in the block). `cell_hex` is a lowercase hex H3 cell string.
+ * cell. Returns a JS array of `{osm_id, housenumber, street, lat, lon}`
+ * (empty if the cell isn't in the block). `cell_hex` is a lowercase hex H3
+ * cell string.
+ *
+ * `version` is the file header's version. v2 and later put an `i16` position
+ * offset on every record; the block does not announce it, so passing the
+ * wrong number here reads the coordinate bytes as a string length. Callers
+ * already have `parse_header(...)`.
  */
-export function address_cell(block_bytes: Uint8Array, cell_hex: string): any;
+export function address_cell(block_bytes: Uint8Array, cell_hex: string, version: number): any;
 
 /**
  * `[lat, lon]` center of an H3 res-7 cell (hex string). Demo/browser
@@ -146,6 +152,11 @@ export function estimated_height_for(building_type: string): number;
 export function find_block_for_cell(index_bytes: Uint8Array, cell_hex: string): any;
 
 /**
+ * Forward geocode over already-decoded address records: "400 Broadway".
+ */
+export function geocode_addresses(query: string, addresses_js: any, limit?: number | null): any;
+
+/**
  * Every index entry with `block_offset` already resolved to an absolute file
  * offset -- the byte range to Range-request, with no further arithmetic.
  *
@@ -193,6 +204,16 @@ export function index_entries_absolute(header_bytes: Uint8Array, index_bytes: Ui
 export function key_for_business_name_query(query: string): number;
 
 /**
+ * Reverse geocode a point against already-decoded features.
+ *
+ * `roads_js` / `trails_js` / `addresses_js` are the arrays this module's
+ * `decode_roads`, `decode_trails` and `address_cell` return, for whatever
+ * cells the caller fetched. Returns
+ * `{nearest_way, on_way, address}` — see `ptiles_core::locate`.
+ */
+export function locate_point(lat: number, lon: number, roads_js: any, trails_js: any, addresses_js: any): any;
+
+/**
  * See [`key_for_business_name_query`]'s doc comment for the full JS-side
  * flow this is step 4 of. Pure decode-and-match over an already-fetched,
  * already-decompressed name-index block -- no I/O, no H3 lookup.
@@ -208,6 +229,12 @@ export function match_business_name_block(block_bytes: Uint8Array, query: string
  * if the block does not contain the cell.
  */
 export function merged_cell_slice(block: Uint8Array, cell_hex: string): Uint8Array | undefined;
+
+/**
+ * The nearest address to a point, or null. Separate from `locate_point` for
+ * callers that hold only the address layer.
+ */
+export function nearest_address_to(lat: number, lon: number, addresses_js: any, threshold_m?: number | null): any;
 
 /**
  * Decode a roads block and return the nearest labeled intersection to
@@ -406,7 +433,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_adminreader_free: (a: number, b: number) => void;
-    readonly address_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly address_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
     readonly adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly cell_center: (a: number, b: number) => [number, number, number, number];
@@ -426,10 +453,13 @@ export interface InitOutput {
     readonly decompress_block: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly estimated_height_for: (a: number, b: number) => number;
     readonly find_block_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly geocode_addresses: (a: number, b: number, c: any, d: number) => [number, number, number];
     readonly index_entries_absolute: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly key_for_business_name_query: (a: number, b: number) => number;
+    readonly locate_point: (a: number, b: number, c: any, d: any, e: any) => [number, number, number];
     readonly match_business_name_block: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly merged_cell_slice: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly nearest_address_to: (a: number, b: number, c: any, d: number, e: number) => [number, number, number];
     readonly nearest_intersection: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly nearest_road: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly neighbor_cells: (a: number, b: number) => [number, number, number, number];

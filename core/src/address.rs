@@ -19,7 +19,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::codec::{
-    DecodeError, decode_string_u16, decode_varint, read_i32, read_u16, read_u32, read_u64,
+    DecodeError, decode_string_u16, decode_varint, read_i16, read_i32, read_u16, read_u32,
+    read_u64,
     zigzag_decode,
 };
 use crate::file::{FileError, zstd_decompress};
@@ -30,13 +31,20 @@ use crate::source::PtilesSource;
 pub const V2_INDEX_ENTRY_SIZE: usize = 38;
 
 /// One decoded address record. `osm_id` is the absolute id (deltas already
-/// accumulated); the location is implied by the containing cell.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// accumulated).
+///
+/// v2 records carry their own position as an `i16` offset from the block
+/// centre, so `lat`/`lon` are the address itself. v1 records carry none and
+/// leave both `None`; the only location available there is the containing
+/// cell, which is ~5 km across and useless for "which house is this".
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AddressRecord {
     pub osm_id: i64,
     pub housenumber: String,
     pub street: String,
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
 }
 
 /// One v2 spatial-index entry.
@@ -125,7 +133,20 @@ pub fn index_search(index: &[AddressIndexEntry], cell: u64) -> Option<&AddressIn
 
 /// Walk one cell's record slice into [`AddressRecord`]s. Sequential records,
 /// no length prefix; `osm_id` deltas start from 0 for the first record.
-pub fn decode_address_cell(slice: &[u8]) -> Result<Vec<AddressRecord>, DecodeError> {
+///
+/// `centre_micro` is the block's `(center_lon, center_lat)` in 1e-5 degrees,
+/// present on v2 files, whose records carry `i16 off_lon, off_lat` between the
+/// osm_id and the strings. Pass `None` for a v1 file, which has no such bytes.
+///
+/// This used to take the slice alone and read the strings straight after the
+/// osm_id. On a v2 record that lands on the coordinate bytes: `off_lon` is
+/// consumed as the housenumber's `u16` length, so a westward offset of -73
+/// reads as a 65,463-byte string and the decode dies at offset 7. Every
+/// published address file is v2, so the layer did not decode at all.
+pub fn decode_address_cell(
+    slice: &[u8],
+    centre_micro: Option<(i32, i32)>,
+) -> Result<Vec<AddressRecord>, DecodeError> {
     let mut records = Vec::new();
     let mut p = 0usize;
     let mut prev_osm_id = 0i64;
@@ -134,6 +155,20 @@ pub fn decode_address_cell(slice: &[u8]) -> Result<Vec<AddressRecord>, DecodeErr
         p += consumed;
         let osm_id = prev_osm_id.wrapping_add(zigzag_decode(delta));
         prev_osm_id = osm_id;
+
+        let (lat, lon) = match centre_micro {
+            Some((c_lon, c_lat)) => {
+                let off_lon = read_i16(slice, p)?;
+                let off_lat = read_i16(slice, p + 2)?;
+                p += 4;
+                (
+                    Some((c_lat as f64 + off_lat as f64) / 100_000.0),
+                    Some((c_lon as f64 + off_lon as f64) / 100_000.0),
+                )
+            }
+            None => (None, None),
+        };
+
         let (housenumber, c) = decode_string_u16(slice, p)?;
         p += c;
         let (street, c) = decode_string_u16(slice, p)?;
@@ -142,6 +177,8 @@ pub fn decode_address_cell(slice: &[u8]) -> Result<Vec<AddressRecord>, DecodeErr
             osm_id,
             housenumber,
             street,
+            lat,
+            lon,
         });
     }
     Ok(records)
@@ -151,9 +188,14 @@ pub fn decode_address_cell(slice: &[u8]) -> Result<Vec<AddressRecord>, DecodeErr
 /// block. Block layout: `i32 center_lon, i32 center_lat, u32 cell_count`, then
 /// `cell_count × (u64 cell_id, u32 rel_offset)`, then record data; a cell's
 /// records span `rel_offset[i]..rel_offset[i+1]` (or record-data end).
+/// `has_coords` must come from the file header's version: v2 and later carry
+/// per-record positions, v1 does not. The block itself does not say, and
+/// guessing either way silently mangles the other format -- so the caller,
+/// which read the header, is made to answer.
 pub fn merged_block_cell_slice(
     block: &[u8],
     cell_id: u64,
+    has_coords: bool,
 ) -> Result<Option<Vec<AddressRecord>>, DecodeError> {
     let cell_count = read_u32(block, 8)? as usize;
     let table_start = 12usize;
@@ -211,13 +253,22 @@ pub fn merged_block_cell_slice(
             needed: stop,
         });
     }
-    Ok(Some(decode_address_cell(&block[start..stop])?))
+    // The block header's centre is what the record offsets are relative to.
+    let centre = if has_coords {
+        Some((read_i32(block, 0)?, read_i32(block, 4)?))
+    } else {
+        None
+    };
+    Ok(Some(decode_address_cell(&block[start..stop], centre)?))
 }
 
 /// An opened `.address.ptiles` file over any [`PtilesSource`].
 pub struct AddressFile<S: PtilesSource> {
     source: S,
     index: Vec<AddressIndexEntry>,
+    /// v2 and later carry per-record positions. Read from the header at open,
+    /// because the blocks themselves do not say.
+    has_coords: bool,
 }
 
 impl<S: PtilesSource> AddressFile<S> {
@@ -244,7 +295,11 @@ impl<S: PtilesSource> AddressFile<S> {
         let mut index_buf = alloc::vec![0u8; header.index_length as usize];
         source.read_exact_at(header.index_offset, &mut index_buf)?;
         let index = parse_v2_index(&index_buf)?;
-        Ok(AddressFile { source, index })
+        Ok(AddressFile {
+            source,
+            index,
+            has_coords: header.version >= 2,
+        })
     }
 
     /// The parsed v2 index.
@@ -261,7 +316,7 @@ impl<S: PtilesSource> AddressFile<S> {
         let mut buf = alloc::vec![0u8; entry.block_length as usize];
         self.source.read_exact_at(entry.block_offset, &mut buf)?;
         let block = zstd_decompress(&buf)?;
-        Ok(merged_block_cell_slice(&block, entry.h3_cell)?.unwrap_or_default())
+        Ok(merged_block_cell_slice(&block, entry.h3_cell, self.has_coords)?.unwrap_or_default())
     }
 
     /// All addresses in a specific H3 cell (empty if the cell isn't indexed).
@@ -348,19 +403,63 @@ mod tests {
         b
     }
 
+    // A cell lifted straight out of the published TN.address_v2.ptiles, with
+    // the values the Python reader produces for the same bytes. Before the
+    // coordinate bytes were read, this input errored at offset 7 claiming it
+    // needed 65,463 more bytes -- the i16 lon offset -73 read as a u16 string
+    // length. Every published address file is v2, so nothing decoded.
+    #[test]
+    fn decodes_a_real_v2_cell_with_positions() {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-fixtures/golden/address_v2.cell.bin"
+        ))
+        .unwrap();
+        let centre = (-8_452_193i32, 3_536_743i32); // block header, 1e-5 deg
+        let recs = decode_address_cell(&bytes, Some(centre)).unwrap();
+        assert_eq!(recs.len(), 2, "python reads 2 records from this cell");
+
+        assert_eq!(recs[0].osm_id, 568_392_734);
+        assert_eq!(recs[0].housenumber, "347");
+        assert_eq!(recs[0].street, "N Industrial Road");
+        assert!((recs[0].lat.unwrap() - 35.36934).abs() < 1e-5, "lat {:?}", recs[0].lat);
+        assert!((recs[0].lon.unwrap() - -84.52266).abs() < 1e-5, "lon {:?}", recs[0].lon);
+
+        assert_eq!(recs[1].osm_id, 568_392_735);
+        assert_eq!(recs[1].housenumber, "134");
+        assert_eq!(recs[1].street, "Waupaca Drive");
+        assert!((recs[1].lat.unwrap() - 35.36067).abs() < 1e-5);
+        assert!((recs[1].lon.unwrap() - -84.52269).abs() < 1e-5);
+    }
+
+    #[test]
+    fn v2_bytes_read_as_v1_do_not_silently_succeed() {
+        // The old behaviour, pinned: skipping the coordinate bytes on a v2
+        // record must fail loudly rather than return a plausible wrong string.
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-fixtures/golden/address_v2.cell.bin"
+        ))
+        .unwrap();
+        assert!(decode_address_cell(&bytes, None).is_err());
+    }
+
     #[test]
     fn decode_cell_accumulates_delta_osm_ids() {
         let mut slice = Vec::new();
         slice.extend(record(1000, 0, "100", "Broadway"));
         slice.extend(record(1005, 1000, "102", "Broadway"));
-        let recs = decode_address_cell(&slice).unwrap();
+        // The `record` helper builds v1-shaped bytes (no coordinates).
+        let recs = decode_address_cell(&slice, None).unwrap();
         assert_eq!(recs.len(), 2);
         assert_eq!(
             recs[0],
             AddressRecord {
                 osm_id: 1000,
                 housenumber: "100".into(),
-                street: "Broadway".into()
+                street: "Broadway".into(),
+                lat: None,
+                lon: None,
             }
         );
         assert_eq!(recs[1].osm_id, 1005);
@@ -368,14 +467,14 @@ mod tests {
 
     #[test]
     fn empty_cell_slice_is_empty() {
-        assert!(decode_address_cell(&[]).unwrap().is_empty());
+        assert!(decode_address_cell(&[], None).unwrap().is_empty());
     }
 
     #[test]
     fn truncated_record_errors_not_panic() {
         // Valid varint then a truncated u16 length.
         let slice = [0x02u8, 0x05];
-        assert!(decode_address_cell(&slice).is_err());
+        assert!(decode_address_cell(&slice, None).is_err());
     }
 
     #[test]
@@ -435,14 +534,14 @@ mod tests {
         block.extend_from_slice(&c0_recs);
         block.extend_from_slice(&c1_recs);
 
-        let a = merged_block_cell_slice(&block, 100).unwrap().unwrap();
+        let a = merged_block_cell_slice(&block, 100, false).unwrap().unwrap();
         assert_eq!(a.len(), 2);
         assert_eq!(a[0].housenumber, "1");
         assert_eq!(a[1].osm_id, 12);
-        let b = merged_block_cell_slice(&block, 200).unwrap().unwrap();
+        let b = merged_block_cell_slice(&block, 200, false).unwrap().unwrap();
         assert_eq!(b.len(), 1);
         assert_eq!(b[0].street, "B Ave");
         // Missing cell -> None, not error.
-        assert!(merged_block_cell_slice(&block, 999).unwrap().is_none());
+        assert!(merged_block_cell_slice(&block, 999, false).unwrap().is_none());
     }
 }

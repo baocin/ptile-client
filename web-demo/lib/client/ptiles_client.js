@@ -1,4 +1,4 @@
-/* @ts-self-types="./ptiles_wasm.d.ts" */
+/* @ts-self-types="./ptiles_client.d.ts" */
 
 export class AdminReader {
     __destroy_into_raw() {
@@ -51,18 +51,25 @@ if (Symbol.dispose) AdminReader.prototype[Symbol.dispose] = AdminReader.prototyp
  * Decode the addresses for one H3 cell from an already-decompressed merged
  * block (address layer). JS fetches the block bytes (via the v2 index) and
  * decompresses them (`decompress_block`, empty dict), then calls this per
- * cell. Returns a JS array of `{osm_id, housenumber, street}` (empty if the
- * cell isn't in the block). `cell_hex` is a lowercase hex H3 cell string.
+ * cell. Returns a JS array of `{osm_id, housenumber, street, lat, lon}`
+ * (empty if the cell isn't in the block). `cell_hex` is a lowercase hex H3
+ * cell string.
+ *
+ * `version` is the file header's version. v2 and later put an `i16` position
+ * offset on every record; the block does not announce it, so passing the
+ * wrong number here reads the coordinate bytes as a string length. Callers
+ * already have `parse_header(...)`.
  * @param {Uint8Array} block_bytes
  * @param {string} cell_hex
+ * @param {number} version
  * @returns {any}
  */
-export function address_cell(block_bytes, cell_hex) {
+export function address_cell(block_bytes, cell_hex, version) {
     const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(cell_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.address_cell(ptr0, len0, ptr1, len1);
+    const ret = wasm.address_cell(ptr0, len0, ptr1, len1, version);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -397,6 +404,23 @@ export function find_block_for_cell(index_bytes, cell_hex) {
 }
 
 /**
+ * Forward geocode over already-decoded address records: "400 Broadway".
+ * @param {string} query
+ * @param {any} addresses_js
+ * @param {number | null} [limit]
+ * @returns {any}
+ */
+export function geocode_addresses(query, addresses_js, limit) {
+    const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.geocode_addresses(ptr0, len0, addresses_js, isLikeNone(limit) ? Number.MAX_SAFE_INTEGER : (limit) >>> 0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Every index entry with `block_offset` already resolved to an absolute file
  * offset -- the byte range to Range-request, with no further arithmetic.
  *
@@ -464,6 +488,28 @@ export function key_for_business_name_query(query) {
 }
 
 /**
+ * Reverse geocode a point against already-decoded features.
+ *
+ * `roads_js` / `trails_js` / `addresses_js` are the arrays this module's
+ * `decode_roads`, `decode_trails` and `address_cell` return, for whatever
+ * cells the caller fetched. Returns
+ * `{nearest_way, on_way, address}` — see `ptiles_core::locate`.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {any} roads_js
+ * @param {any} trails_js
+ * @param {any} addresses_js
+ * @returns {any}
+ */
+export function locate_point(lat, lon, roads_js, trails_js, addresses_js) {
+    const ret = wasm.locate_point(lat, lon, roads_js, trails_js, addresses_js);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * See [`key_for_business_name_query`]'s doc comment for the full JS-side
  * flow this is step 4 of. Pure decode-and-match over an already-fetched,
  * already-decompressed name-index block -- no I/O, no H3 lookup.
@@ -510,6 +556,23 @@ export function merged_cell_slice(block, cell_hex) {
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     }
     return v3;
+}
+
+/**
+ * The nearest address to a point, or null. Separate from `locate_point` for
+ * callers that hold only the address layer.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {any} addresses_js
+ * @param {number | null} [threshold_m]
+ * @returns {any}
+ */
+export function nearest_address_to(lat, lon, addresses_js, threshold_m) {
+    const ret = wasm.nearest_address_to(lat, lon, addresses_js, !isLikeNone(threshold_m), isLikeNone(threshold_m) ? 0 : threshold_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
 }
 
 /**
@@ -905,6 +968,12 @@ function __wbg_get_imports() {
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
         },
+        __wbg___wbindgen_bigint_get_as_i64_d9e915702856f831: function(arg0, arg1) {
+            const v = arg1;
+            const ret = typeof(v) === 'bigint' ? v : undefined;
+            getDataViewMemory0().setBigInt64(arg0 + 8 * 1, isLikeNone(ret) ? BigInt(0) : ret, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
+        },
         __wbg___wbindgen_boolean_get_edaed31a367ce1bd: function(arg0) {
             const v = arg0;
             const ret = typeof(v) === 'boolean' ? v : undefined;
@@ -919,6 +988,10 @@ function __wbg_get_imports() {
         },
         __wbg___wbindgen_in_4990f46af709e33c: function(arg0, arg1) {
             const ret = arg0 in arg1;
+            return ret;
+        },
+        __wbg___wbindgen_is_bigint_90b5ccfe67c78460: function(arg0) {
+            const ret = typeof(arg0) === 'bigint';
             return ret;
         },
         __wbg___wbindgen_is_function_acc5528be2b923f2: function(arg0) {
@@ -936,6 +1009,10 @@ function __wbg_get_imports() {
         },
         __wbg___wbindgen_is_undefined_721f8decd50c87a3: function(arg0) {
             const ret = arg0 === undefined;
+            return ret;
+        },
+        __wbg___wbindgen_jsval_eq_4e8c38722cb8ff51: function(arg0, arg1) {
+            const ret = arg0 === arg1;
             return ret;
         },
         __wbg___wbindgen_jsval_loose_eq_4b9aba9e5b3c4582: function(arg0, arg1) {
@@ -1084,7 +1161,7 @@ function __wbg_get_imports() {
     };
     return {
         __proto__: null,
-        "./ptiles_wasm_bg.js": import0,
+        "./ptiles_client_bg.js": import0,
     };
 }
 

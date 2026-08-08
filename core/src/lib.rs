@@ -28,6 +28,7 @@ pub mod business;
 pub mod business_search;
 pub mod camera;
 mod math;
+pub mod locate;
 pub mod merged;
 pub mod parks;
 pub mod rail;
@@ -63,6 +64,10 @@ pub use rail::{RailFeature, decode_rail};
 pub use roads::{Intersection, RoadSegment, decode_road_block, decode_roads};
 pub use signals::{Signal, decode_signals};
 pub use trails::{TrailFeature, decode_trails, trail_is_developed};
+pub use locate::{
+    ADDRESS_THRESHOLD_M, Located, NearbyAddress, NearbyWay, ON_WAY_THRESHOLD_M, locate,
+    match_addresses, nearest_address, nearest_road_way, nearest_trail,
+};
 pub use water::{WaterFeature, decode_water};
 
 pub use proximity::{

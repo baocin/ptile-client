@@ -134,6 +134,11 @@
       <label title="Penalise motorway and trunk roads; still used when nothing else connects"><input type="checkbox" id="chkAvoidHwy"> avoid highways</label>
       <label title="Charge time for each junction passed through, favouring fewer turns"><input type="checkbox" id="chkAvoidInt"> avoid intersections</label>
     </span>
+    <button id="btnGeo" class="toggle-off" title="Click the map for the road or trail you are on and the nearest address; or type an address to find it">Geocode</button>
+    <span id="geoOpts" style="display:none">
+      <input type="text" id="geoInput" placeholder="400 Broadway" style="width:130px" />
+      <button id="btnGeoFind">Find</button>
+    </span>
     <button id="btnLos" class="toggle-off" title="Click the map to see what is in line of sight from there">Line of sight</button>
     <button id="btnView" class="toggle-off" title="Find buildings with a view of a river, a park or a named business">View finder</button>
     <button id="btnPtiles" class="toggle-off">PTILES Mode</button>
@@ -4047,10 +4052,180 @@ document.getElementById("btnPtiles").addEventListener("click", function() {
   else activatePtilesMode();
 });
 
+// --- Geocoding -----------------------------------------------------------
+//
+// Both directions are answered by ptiles-core: `locate_point` for reverse
+// (which road or trail is under this point, and what address is nearest) and
+// `geocode_addresses` for forward. This page only decides which cells to fetch
+// and how to draw the answer -- the thresholds, the road-vs-trail tie-break and
+// the address ranking all live in `core/src/locate.rs`, so a second consumer
+// gets the same answers without reimplementing them.
+var geoMode = false;
+var geoLayer = L.layerGroup();
+var geoReaders = {};   // "<ST>:<layer>" -> LayerReader promise
+
+function geoReader(state, layer) {
+  var k = state + ":" + layer;
+  if (!geoReaders[k]) {
+    geoReaders[k] = LayerReader.fromUrl(stateUrl(state, layer)).catch(function(e) {
+      console.warn("[geocode] " + k + " unavailable:", errText(e, 80));
+      return null;
+    });
+  }
+  return geoReaders[k];
+}
+
+// Address records for one cell. The address layer keeps positions as offsets
+// from the *block* centre, so core needs the whole block, not the cell slice
+// every other layer here works with -- and it needs the header version, since
+// v1 records carry no position and the block does not say which it is.
+async function addressesInCell(rdr, cellInt) {
+  if (!rdr) return [];
+  var ei = rdr.file.cellMap.get(cellInt);
+  if (ei === undefined) return [];
+  var entry = rdr.file.entries[ei];
+  var block = await fetchDecompressEntry(rdr.file, entry);
+  if (!block) return [];
+  try {
+    // Slice by the entry's *stored* cell id, not the normalised one used to
+    // find it: the block's cell table holds the id as written, filler bits and
+    // all, and an exact comparison against a masked id matches nothing. Masked
+    // returns 0 records here where stored returns 143 -- silently, with no
+    // error, which is how an empty layer and a missing layer look identical.
+    return wasm.address_cell(block, BigInt(entry.h3Cell).toString(16), rdr.header.version) || [];
+  } catch (e) {
+    console.warn("[geocode] address_cell:", errText(e, 90));
+    return [];
+  }
+}
+
+function cellsAroundHex(lat, lon) {
+  var hex = h3.latLngToCell(lat, lon, 7);
+  var out = [hex];
+  try {
+    h3.gridRing(hex, 1).forEach(function(c) { out.push(c); });
+  } catch (e) {}
+  return out;
+}
+async function cellsAround(lat, lon) {
+  return cellsAroundHex(lat, lon).map(normCell);
+}
+function normCell(hex) { return BigInt("0x" + hex) & CELL_MASK; }
+
+async function runLocate(lat, lon) {
+  setStatus("locating...");
+  geoLayer.clearLayers();
+  var st = currentState;
+  var cells = await cellsAround(lat, lon);
+  var rd = await geoReader(st, "roads"), tr = await geoReader(st, "trails"),
+      ad = await geoReader(st, "address");
+
+  var roads = [], trails = [], addrs = [];
+  for (var i = 0; i < cells.length; i++) {
+    var c = cells[i];
+    try {
+      if (rd) { var r = await rd.decompressCell(c); if (r) roads = roads.concat(wasm.decode_roads(r)); }
+    } catch (e) {}
+    try {
+      if (tr) { var s = await tr.decompressCell(c); if (s) trails = trails.concat(wasm.decode_trails(s)); }
+    } catch (e) {}
+    addrs = addrs.concat(await addressesInCell(ad, c));
+  }
+
+  var res = wasm.locate_point(lat, lon, roads, trails, addrs);
+  var way = res.on_way || res.nearest_way;
+  var parts = [];
+  if (way) {
+    parts.push((way.on_it ? "on " : "near ") + (way.name || "(unnamed " + way.class + ")")
+      + " [" + way.kind + "/" + way.class + ", " + way.distance_m.toFixed(0) + " m]");
+    L.circleMarker([way.snapped[0], way.snapped[1]],
+      {radius:6, color: way.kind === "trail" ? "#d29922" : "#388bfd", weight:2,
+       fillOpacity:0.6, interactive:false}).addTo(geoLayer);
+  } else {
+    parts.push("no road or trail nearby");
+  }
+  if (res.address) {
+    parts.push(res.address.housenumber + " " + res.address.street
+      + " (" + res.address.distance_m.toFixed(0) + " m)");
+    L.circleMarker([res.address.lat, res.address.lon],
+      {radius:5, color:"#3fb950", weight:2, fillOpacity:0.7, interactive:false}).addTo(geoLayer);
+  } else {
+    parts.push("no address within 150 m");
+  }
+  geoLayer.addTo(map);
+  setStatus(parts.join("  |  "));
+  return res;
+}
+
+async function runGeocode(query) {
+  if (!query.trim()) return [];
+  setStatus("searching addresses in view...");
+  geoLayer.clearLayers();
+  var b = map.getBounds();
+  var ad = await geoReader(currentState, "address");
+  if (!ad) { setStatus("address layer unavailable"); return []; }
+
+  // The cells on screen, plus the ring around the centre. A res-7 cell is
+  // roughly 5 km across, so at street zoom the whole viewport sits inside one
+  // cell -- and an address a block away can be in the next one, which made
+  // "find 919 Broadway" miss while standing on it. The address layer has no
+  // name index, so this stays a bounded local scan rather than a state-wide
+  // one; the ring is what makes that bound cover what the user can see.
+  //
+  // cells_for_bounds hands back hex strings, not numbers -- BigInt("87264d10...")
+  // throws without the 0x, which is what normCell exists to get right.
+  var seen = {}, cells = [];
+  wasm.cells_for_bounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
+    .concat(cellsAroundHex(map.getCenter().lat, map.getCenter().lng))
+    .forEach(function(c) {
+      var k = normCell(c);
+      if (!seen[k]) { seen[k] = 1; cells.push(k); }
+    });
+  var CAP = 24;
+  var truncated = cells.length > CAP;
+  cells = cells.slice(0, CAP);
+
+  var addrs = [];
+  for (var i = 0; i < cells.length; i++) addrs = addrs.concat(await addressesInCell(ad, cells[i]));
+  var hits = wasm.geocode_addresses(query, addrs, 25) || [];
+
+  hits.forEach(function(h) {
+    L.circleMarker([h.lat, h.lon], {radius:5, color:"#3fb950", weight:2, fillOpacity:0.7})
+      .bindTooltip(h.housenumber + " " + h.street).addTo(geoLayer);
+  });
+  geoLayer.addTo(map);
+  if (hits.length) map.setView([hits[0].lat, hits[0].lon], Math.max(map.getZoom(), 17));
+  setStatus(hits.length
+    ? hits.length + " match" + (hits.length === 1 ? "" : "es") + " in view"
+        + (truncated ? " (searched the first " + CAP + " cells on screen)" : "")
+    : "no match in the " + cells.length + " cells on screen"
+        + (truncated ? " -- zoom in, the search is capped at " + CAP + " cells" : ""));
+  return hits;
+}
+
+document.getElementById("btnGeo").addEventListener("click", function() {
+  geoMode = !geoMode;
+  this.className = geoMode ? "toggle-on" : "toggle-off";
+  this.textContent = geoMode ? "Geocode ON" : "Geocode";
+  document.getElementById("geoOpts").style.display = geoMode ? "inline" : "none";
+  // Route and line-of-sight also claim the map click; only one can have it.
+  if (geoMode && routeMode) document.getElementById("btnRoute").click();
+  if (geoMode && losMode) document.getElementById("btnLos").click();
+  if (!geoMode) { geoLayer.clearLayers(); map.removeLayer(geoLayer); }
+  setStatus(geoMode ? "Geocode: click the map, or type an address and press Find" : "");
+});
+document.getElementById("btnGeoFind").addEventListener("click", function() {
+  runGeocode(document.getElementById("geoInput").value);
+});
+document.getElementById("geoInput").addEventListener("keydown", function(e) {
+  if (e.key === "Enter") runGeocode(this.value);
+});
+
 map.on("click", function(e) {
   coordInput.value = e.latlng.lat.toFixed(6) + ", " + e.latlng.lng.toFixed(6);
   if (routeMode) { handleRouteClick(e.latlng.lat, e.latlng.lng); return; }
   if (losMode) { runLos(e.latlng.lat, e.latlng.lng); return; }
+  if (geoMode) { runLocate(e.latlng.lat, e.latlng.lng); return; }
   doLookup(e.latlng.lat, e.latlng.lng);
 });
 
