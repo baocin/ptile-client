@@ -9,7 +9,8 @@ import {
   classifyTrace, coalesce, splitSegment, mergeWithPrevious, relabel,
   sampleIndices, createHistory, timePerLabel,
 } from "./segments.js";
-import { createResolver, SNAPSHOT } from "./context.js";
+import { createResolver, SNAPSHOT, stateAt, stateUrl } from "./context.js";
+import { createBasemap } from "./basemap.js";
 
 const COLORS = {
   unknown: "#6b7280", stationary: "#a78bfa", walking: "#34d399",
@@ -32,17 +33,15 @@ let resolver = null;
 const ready = init_wasm().then(() => {
   P = createPtiles(wasm);
   resolver = createResolver(P, wasm);
+  basemap = createBasemap(map, P, wasm, { stateAt, stateUrl }, { onStatus: basemapNote });
 });
 
 // ---------------------------------------------------------------- map
 
 // preferCanvas: a 2,000-vertex polyline plus per-segment overlays as SVG is
 // visibly sluggish to pan; as canvas it is not.
-const map = L.map("map", { preferCanvas: true }).setView([36.16, -86.78], 12);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-}).addTo(map);
+const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([36.16, -86.78], 12);
+let basemap = null;
 const segLayer = L.layerGroup().addTo(map);
 const vertexLayer = L.layerGroup().addTo(map);
 let polylines = [];
@@ -91,6 +90,93 @@ function drawVertices() {
   }
 }
 
+// ---------------------------------------------------------------- basemap
+
+// Two backdrops, one switch. The raster tiles are always right about the world;
+// the ptiles layers are right about *what the classifier read*. When a label
+// hinges on footway-versus-traffic-lane, the second one is the honest backdrop --
+// and flipping between them is the fastest way to spot the tiles and the layer
+// disagreeing, which happens and which a raster-only map hides.
+const basemapControl = L.control({ position: "bottomleft" });
+basemapControl.onAdd = () => {
+  const wrap = L.DomUtil.create("div");
+  wrap.innerHTML = `
+    <div class="basemap">
+      <button data-mode="osm" class="on">OSM tiles</button>
+      <button data-mode="ptiles">PTiles layers</button>
+    </div>
+    <div class="basemap-note" id="basemapNote"></div>`;
+  L.DomEvent.disableClickPropagation(wrap);
+  wrap.querySelectorAll("button[data-mode]").forEach((b) => {
+    b.addEventListener("click", () => {
+      if (!basemap) return;
+      const mode = basemap.setMode(b.dataset.mode);
+      wrap.querySelectorAll("button[data-mode]").forEach((x) => {
+        x.classList.toggle("on", x.dataset.mode === mode);
+      });
+      status();
+    });
+  });
+  return wrap;
+};
+basemapControl.addTo(map);
+
+function basemapNote(msg) {
+  const n = el("basemapNote");
+  if (n) n.textContent = msg ?? "";
+  status();
+}
+
+// Debounced: panning fires moveend continuously, and each pass may open layers.
+let moveTimer = null;
+map.on("moveend zoomend", () => {
+  clearTimeout(moveTimer);
+  moveTimer = setTimeout(() => basemap && basemap.refresh(), 250);
+});
+
+// ---------------------------------------------------------------- ribbon
+
+/**
+ * The trace as a time-proportional strip: the one view that shows how long each
+ * label actually lasted. Doubles as navigation -- click a band to select it.
+ */
+function renderRibbon() {
+  const wrap = el("ribbon");
+  if (!state.parsed || !state.segments.length) {
+    wrap.innerHTML = '<span class="empty">The trace timeline appears here, to scale, once a file is open</span>';
+    el("tStart").textContent = el("tSpan").textContent = el("tEnd").textContent = "";
+    return;
+  }
+  const t0 = state.segments[0].t0;
+  const t1 = state.segments.at(-1).t1;
+  const span = Math.max(1, t1 - t0);
+  wrap.innerHTML = state.segments
+    .map((s, i) => {
+      // Growth factors, not a percentage basis, so the bands always divide the
+      // track exactly. Scaled by 100 on purpose: when flex-grow factors sum to
+      // less than 1, CSS hands each item only `grow x free-space` and leaves the
+      // remainder empty -- which is why the fractions alone left a gap at the
+      // end of the ribbon.
+      const grow = Math.max(0.05, ((s.t1 - s.t0) / span) * 100);
+      const mins = ((s.t1 - s.t0) / 60000).toFixed(1);
+      return `<span class="seg${s.edited ? " human" : ""}${i === state.selected ? " sel" : ""}"
+        data-i="${i}" style="flex: ${grow} 1 0; background: ${COLORS[s.type] ?? COLORS.unknown};
+        color: ${COLORS[s.type] ?? COLORS.unknown}"
+        title="${i + 1}. ${s.type} · ${mins} min · ${s.points} pts${s.edited ? " · human" : ""}"></span>`;
+    })
+    .join("");
+  wrap.querySelectorAll(".seg").forEach((band) => {
+    const i = Number(band.dataset.i);
+    band.addEventListener("click", () => select(i));
+    band.addEventListener("mouseover", () => emphasize(i, true));
+    band.addEventListener("mouseout", () => emphasize(i, false));
+  });
+  const hhmm = (t) => new Date(t).toISOString().slice(11, 16);
+  el("tStart").textContent = hhmm(t0);
+  el("tEnd").textContent = hhmm(t1);
+  el("tSpan").textContent = `${(span / 60000).toFixed(0)} min · ${state.segments.length} segments`;
+}
+
 // ---------------------------------------------------------------- table
 
 function renderTable() {
@@ -102,19 +188,24 @@ function renderTable() {
       ).join("");
       return `<tr data-i="${i}" class="${i === state.selected ? "sel" : ""}">
         <td class="num">${i + 1}</td>
-        <td><span class="swatch" style="background:${COLORS[s.type] ?? COLORS.unknown}"></span>
-            <select data-relabel="${i}">${opts}</select></td>
+        <td class="label-cell"><span class="swatch" style="background:${COLORS[s.type] ?? COLORS.unknown}"></span>
+            <select data-relabel="${i}" aria-label="Label for segment ${i + 1}">${opts}</select></td>
         <td class="num">${new Date(s.t0).toISOString().slice(11, 19)}</td>
         <td class="num">${mins}m</td>
         <td class="num">${s.points}</td>
-        <td class="num">${s.edited ? '<span class="edited">human</span>' : (s.confidence ?? 0).toFixed(2)}</td>
-        <td class="num">${i > 0 ? `<button data-merge="${i}" title="merge into previous">^</button>` : ""}</td>
+        <td class="num">${s.edited ? '<span class="tag">human</span>' : (s.confidence ?? 0).toFixed(2)}</td>
+        <td class="num">${i > 0 ? `<button class="ghost" data-merge="${i}" title="Merge into the previous segment" aria-label="Merge segment ${i + 1} into the previous one">&uarr;</button>` : ""}</td>
       </tr>`;
     })
     .join("");
   el("segments").innerHTML = `<table>
-    <thead><tr><th>#</th><th>label</th><th>from</th><th>dur</th><th>pts</th><th>conf</th><th></th></tr></thead>
+    <colgroup><col class="c-n"><col class="c-label"><col class="c-start"><col class="c-dur">
+      <col class="c-pts"><col class="c-conf"><col></colgroup>
+    <thead><tr><th>#</th><th>label</th><th>start</th><th>dur</th><th>pts</th><th>conf</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
+  el("segCount").textContent = state.segments.length
+    ? `${state.segments.length} · ${state.segments.filter((s) => s.edited).length} human`
+    : "";
 
   el("segments").querySelectorAll("tr[data-i]").forEach((tr) => {
     const i = Number(tr.dataset.i);
@@ -169,8 +260,10 @@ function renderDetail() {
   const s = state.segments[state.selected];
   if (!s) {
     el("detail").innerHTML = state.parsed
-      ? `${state.segments.length} segments. Click one to inspect it; click a vertex to split.`
-      : "Load a GPX file to begin.";
+      ? `<div class="hint">Select a segment — in the table, on the ribbon, or on the map — to
+           inspect it. With one selected, clicking a vertex splits it there.</div>`
+      : `<div class="hint">Open a GPX file to start. Parsing and classification run in this tab;
+           map context is read from the tile host by byte range, and only when you ask for it.</div>`;
     return;
   }
   const c = s.context;
@@ -183,28 +276,37 @@ function renderDetail() {
   const adm = c && c.admin
     ? `${escapeHtml(c.admin.county ?? "?")} · ${escapeHtml(c.admin.zip ?? "?")} · ${escapeHtml(c.admin.timezone ?? "?")}`
     : "not resolved";
+  const mins = ((s.t1 - s.t0) / 60000).toFixed(1);
   el("detail").innerHTML = `
-    <div><b>segment ${state.selected + 1}</b> — ${s.type}
-      ${s.edited ? '<span class="edited">(human)</span>' : `(auto, conf ${(s.confidence ?? 0).toFixed(2)})`}
-      ${s.atControl ? " · at a traffic control" : ""}</div>
-    <div><span class="k">votes</span>${s.vote}</div>
-    <div><span class="k">road</span>${road}</div>
-    <div><span class="k">intersection</span>${ix}</div>
-    <div><span class="k">admin</span>${adm}</div>
-    <div><span class="k">snapshot</span>${SNAPSHOT} — the map, not the trace: this trace was
-      recorded ${new Date(s.t0).getFullYear()}</div>`;
+    <div class="hdr">
+      <span class="swatch" style="background:${COLORS[s.type] ?? COLORS.unknown}"></span>
+      <span class="label">${s.type}</span>
+      <span class="meta">segment ${state.selected + 1} of ${state.segments.length} ·
+        ${mins} min · ${s.points} points ·
+        ${s.edited ? "labeled by you" : `proposed, confidence ${(s.confidence ?? 0).toFixed(2)}`}</span>
+    </div>
+    <dl>
+      <dt>per-fix vote</dt><dd>${s.vote}${s.atControl ? " · at a mapped traffic control" : ""}</dd>
+      <dt>road</dt><dd>${road}</dd>
+      <dt>intersection</dt><dd>${ix}</dd>
+      <dt>admin</dt><dd>${adm}</dd>
+      <dt>vintage</dt><dd>trace recorded ${new Date(s.t0).getFullYear()}, map snapshot
+        ${SNAPSHOT} — context is what the map says <em>now</em></dd>
+    </dl>`;
 }
 
 function renderLegend() {
   const per = timePerLabel(state.segments);
-  el("legend").innerHTML = LABELS.filter((l) => per.has(l))
+  const mins = (ms) => (ms >= 60000 ? `${Math.round(ms / 60000)} min` : `${Math.round(ms / 1000)} s`);
+  el("legend").innerHTML = LABELS.filter((l) => (per.get(l) ?? 0) > 0)
     .map((l) => `<span><span class="swatch" style="background:${COLORS[l]}"></span>${l}
-      ${((per.get(l) ?? 0) / 60000).toFixed(0)}m</span>`)
+      ${mins(per.get(l))}</span>`)
     .join("");
 }
 
 function render() {
   drawSegments();
+  renderRibbon();
   renderTable();
   renderDetail();
   renderLegend();
@@ -212,16 +314,25 @@ function render() {
   status();
 }
 
+/**
+ * Footer counters. The request/byte numbers come from js/ptiles.js's own stats,
+ * so the page's claims about how little it fetches stay falsifiable rather than
+ * decorative.
+ */
 function status() {
+  const s = P ? P.stats : { requests: 0, bytes: 0 };
+  el("fReq").textContent = s.requests;
+  el("fBytes").textContent = `${(s.bytes / 1e6).toFixed(1)} MB`;
+  el("fSnapshot").textContent = SNAPSHOT;
   if (!state.parsed) return;
-  const s = P ? P.stats : { requests: 0, bytes: 0, blocks: 0 };
   const mins = (
     (state.parsed.points.at(-1).t_ms - state.parsed.points[0].t_ms) / 60000
   ).toFixed(0);
-  el("status").textContent =
-    `${state.parsed.points.length} pts · ${mins} min · ${state.segments.length} segs · ` +
-    `${state.parsed.flavour} flavour · ${s.requests} requests · ${(s.bytes / 1e6).toFixed(1)} MB · ` +
-    `${s.blocks} blocks`;
+  el("fPoints").textContent = state.parsed.points.length;
+  el("fDur").textContent = `${mins} min`;
+  el("fSegs").textContent = state.segments.length;
+  el("fFlavour").textContent = state.parsed.flavour === "rook" ? "rook (with sensors)" : "plain GPX";
+  el("status").textContent = state.resolved ? "Context resolved" : "Context not resolved";
 }
 
 function escapeHtml(v) {
@@ -251,6 +362,7 @@ el("file").addEventListener("change", async (e) => {
     return;
   }
   state.file = file.name;
+  el("fileName").textContent = file.name;
   state.parsed = parsed;
   state.resolved = false;
   state.selected = -1;

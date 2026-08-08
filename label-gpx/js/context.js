@@ -15,9 +15,21 @@
 export const PTILES_BASE = "https://maps.mydatatimeline.com/maps/2026-08-07/";
 export const SNAPSHOT = "2026-08-07";
 
-/** Layer key -> filename stem in that snapshot. */
+/**
+ * Layer key -> filename stem in that snapshot.
+ *
+ * Every layer this page can open belongs here. A missing key falls through to
+ * the bare name, which produces a 404 that looks exactly like "that state has no
+ * such layer" -- which is how a half-copied table cost an afternoon: water and
+ * parks were absent here, so the vector basemap reported them unavailable while
+ * `NC.water_v1.ptiles` sat on the host perfectly happily.
+ */
 const LAYER_FILES = {
   roads: "roads_v2",
+  water: "water_v1",
+  parks: "parks_v1",
+  trails: "trails_v1",
+  rail: "rail_v1",
   buildings: "buildings_v9",
   business: "business_v4",
   address: "address_v2",
@@ -83,11 +95,14 @@ export function stateAt(lat, lon) {
 /**
  * Per-state roads layers, opened once and reused.
  *
- * A layer that fails to open (a state with no file in this snapshot -- NC is
- * the live example, five of the six committed fixture traces are in NC) is
- * recorded as an explicit failure rather than retried per point, and the caller
- * reports it. Silently producing context-free segments is the failure mode the
- * whole client exists to eliminate.
+ * A layer that fails to open -- a state with no file in this snapshot, or a host
+ * that cannot be reached -- is recorded as an explicit failure rather than
+ * retried per point, and the caller reports it. Silently producing context-free
+ * segments is the failure mode the whole client exists to eliminate.
+ *
+ * As of the 2026-08-07 snapshot every state the fixture traces touch (TN and NC)
+ * has roads, water, parks and buildings published, so this path is a guard
+ * rather than a routine occurrence.
  */
 export function createResolver(P, wasm) {
   const layers = new Map(); // state -> Promise<Layer|null>

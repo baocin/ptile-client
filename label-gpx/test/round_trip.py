@@ -217,6 +217,63 @@ def main():
         if pts != 721:
             failures.append(f"ui: expected 721 points, got {pts}")
 
+        # --- the ribbon: the trace's whole timeline, to scale
+        bands = page.locator("#ribbon .seg").count()
+        if bands != n:
+            failures.append(f"ui: {bands} ribbon bands for {n} segments")
+        # The bands must divide the track exactly. They did not at first: CSS
+        # gives each item only `flex-grow x free-space` when the growth factors
+        # sum to less than 1, so duration fractions left a gap at the end.
+        fill = page.evaluate(
+            "() => { const r = document.getElementById('ribbon');"
+            " const w = [...r.querySelectorAll('.seg')].reduce((a, e) => a + e.offsetWidth, 0);"
+            " return [w, r.clientWidth]; }"
+        )
+        if abs(fill[0] - fill[1]) > 2:
+            failures.append(f"ui: ribbon bands cover {fill[0]}px of {fill[1]}px")
+        print(f"ok   ui: ribbon {bands} bands covering {fill[0]}/{fill[1]}px")
+
+        # Clicking a band selects that segment -- the ribbon is navigation, not
+        # decoration.
+        # The last band, whatever the trace happens to produce -- this fixture
+        # yields two segments, so a hardcoded index would depend on the
+        # classifier's segmentation staying put.
+        last = bands - 1
+        page.locator("#ribbon .seg").nth(last).click()
+        sel = page.evaluate("window.__labelGpx.selected")
+        if sel != last:
+            failures.append(f"ui: ribbon click selected {sel}, expected {last}")
+
+        # --- basemap switch
+        raster = page.evaluate(
+            "() => document.querySelectorAll('.leaflet-tile-pane img').length > 0"
+        )
+        if not raster:
+            failures.append("ui: OSM tiles did not load in the default basemap")
+        page.click('.basemap button[data-mode="ptiles"]')
+        page.wait_for_timeout(600)
+        on = page.eval_on_selector(".basemap button.on", "e => e.dataset.mode")
+        if on != "ptiles":
+            failures.append(f"ui: basemap switch stuck on {on}")
+        # The vector draw needs the public tile host. Report what happened either
+        # way rather than failing a UI test on somebody else's uptime.
+        try:
+            page.wait_for_function(
+                "() => (document.getElementById('basemapNote').textContent || '').length > 0",
+                timeout=25000,
+            )
+            note = page.eval_on_selector("#basemapNote", "e => e.textContent")
+            drew = page.evaluate(
+                "() => document.querySelectorAll('.leaflet-pane[class*=ptiles] path,"
+                " .leaflet-pane[class*=ptiles] canvas').length"
+            )
+            print(f"ok   ui: ptiles basemap — {note} ({drew} layer nodes)")
+            if "unavailable" in note or "zoom" in note:
+                print("     (nothing drawn: see the note above)")
+        except Exception:
+            print("skip ui: ptiles basemap drew nothing — tile host unreachable?")
+        page.click('.basemap button[data-mode="osm"]')
+
         # A page that throws while still drawing looks fine in a screenshot.
         real = [e for e in errors if "favicon" not in e]
         if real:

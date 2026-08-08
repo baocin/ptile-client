@@ -6,76 +6,265 @@
 <title>label-gpx — motion fixtures from GPS traces</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
+  /* One rule governs this palette: chrome is achromatic, hue is data. Every
+     saturated colour on the page is a movement label, so a coloured pixel always
+     means something. The interactive accent is cyan precisely because it is not
+     one of the five label hues -- "you can click this" can never be mistaken for
+     "this stretch is walking". */
   :root {
-    --bg: #14161a; --panel: #1c1f26; --line: #2b303a; --fg: #dfe3ea; --dim: #8d95a5;
-    --accent: #5aa9e6;
-    /* One colour per MovementType, used by the table, the map and the legend. */
+    --void: #101215;        /* page and map void */
+    --panel: #16191d;
+    --panel-2: #1b1f24;
+    --rule: #24282e;
+    --rule-bright: #333941;
+    --ink: #dfe4ea;
+    --ink-dim: #8b939f;
+    --ink-faint: #5b626c;
+    --accent: #3ec8d4;
+    --warn: #e0813c;
+
     --unknown: #6b7280; --stationary: #a78bfa; --walking: #34d399;
     --running: #fbbf24; --driving: #f87171;
+
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, monospace;
+    --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--fg);
-    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    display: flex; flex-direction: column; height: 100vh;
+    margin: 0; background: var(--void); color: var(--ink);
+    font: 13px/1.5 var(--ui);
+    display: flex; flex-direction: column; overflow: hidden;
   }
-  header { border-bottom: 1px solid var(--line); padding: 8px 12px; }
-  h1 { font-size: 14px; margin: 0 0 6px; font-weight: 600; }
-  h1 small { color: var(--dim); font-weight: 400; margin-left: 8px; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  button, select, input[type=file] {
-    background: var(--panel); color: var(--fg); border: 1px solid var(--line);
-    border-radius: 4px; padding: 4px 8px; font: inherit;
-  }
-  button:hover:enabled { border-color: var(--accent); cursor: pointer; }
-  button:disabled { opacity: 0.45; }
-  #status { color: var(--dim); margin-left: auto; font-variant-numeric: tabular-nums; }
-  #warn { color: #fbbf24; }
-  main { flex: 1; display: flex; min-height: 0; }
-  #map { flex: 1; background: #0e1013; }
-  aside {
-    width: 430px; border-left: 1px solid var(--line); display: flex; flex-direction: column;
-    min-height: 0;
-  }
-  #segments { flex: 1; overflow: auto; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); }
-  th { position: sticky; top: 0; background: var(--panel); color: var(--dim); font-weight: 500; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tr.sel { background: #232937; }
-  tr:hover { background: #1f2430; cursor: pointer; }
-  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
-  .edited { color: var(--accent); }
-  #detail { border-top: 1px solid var(--line); padding: 8px; color: var(--dim); min-height: 96px; }
-  #detail b { color: var(--fg); font-weight: 600; }
-  #detail .k { display: inline-block; width: 84px; color: var(--dim); }
-  .legend { display: flex; gap: 10px; flex-wrap: wrap; padding: 6px 8px; border-top: 1px solid var(--line); }
+  /* Everything measured is monospaced and tabular: columns of times and counts
+     line up, and a number that changes does not shift its row. */
+  td.num, .stat b, #status, .data { font-family: var(--mono); font-variant-numeric: tabular-nums; }
   a { color: var(--accent); }
+
+  /* ---- toolbar ---- */
+  header {
+    display: flex; align-items: center; gap: 14px; padding: 9px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--rule);
+  }
+  .brand {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--ink-dim); white-space: nowrap;
+  }
+  .brand b { color: var(--ink); font-weight: 600; }
+  .tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .sep { width: 1px; height: 20px; background: var(--rule-bright); }
+
+  button, select, .file-btn {
+    font: inherit; color: var(--ink); background: var(--panel-2);
+    border: 1px solid var(--rule-bright); border-radius: 4px; padding: 5px 10px;
+    cursor: pointer;
+  }
+  button:hover:enabled, .file-btn:hover, select:hover { border-color: var(--accent); color: #fff; }
+  button:disabled { color: var(--ink-faint); border-color: var(--rule); cursor: default; }
+  button.primary:enabled { border-color: var(--accent); color: var(--accent); }
+  button.primary:enabled:hover { background: rgba(62, 200, 212, 0.1); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[type=file] { display: none; }
+  .file-btn { display: inline-flex; align-items: center; gap: 8px; }
+  .file-btn .name {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+    max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #status { margin-left: auto; color: var(--ink-dim); font-size: 11px; white-space: nowrap; }
+  #warn:not(:empty) {
+    padding: 6px 14px; color: var(--warn); font-size: 12px;
+    background: rgba(224, 129, 60, 0.08); border-bottom: 1px solid rgba(224, 129, 60, 0.25);
+  }
+
+  /* ---- the ribbon: the whole trace, to scale ----
+     A table row is ordinal; this is temporal. A 90-second stop and a 40-minute
+     drive are one row each in the table and wildly different here, which is
+     exactly what you need to see while labelling. Auto segments are dimmed with a
+     hairline base, human-edited ones solid with a thick base: the file records
+     that difference (source="auto" vs "human") and it decides whether a fixture
+     counts as evidence, so it belongs in the picture. */
+  #ribbonWrap { padding: 8px 14px 9px; background: var(--panel); border-bottom: 1px solid var(--rule); }
+  #ribbon {
+    display: flex; align-items: stretch; height: 32px; overflow: hidden;
+    background: var(--void); border: 1px solid var(--rule); border-radius: 3px;
+  }
+  #ribbon .seg { position: relative; min-width: 2px; opacity: 0.5; cursor: pointer; transition: opacity 90ms; }
+  #ribbon .seg.human { opacity: 1; }
+  #ribbon .seg:hover { opacity: 0.85; }
+  #ribbon .seg.sel { opacity: 1; box-shadow: inset 0 0 0 1px var(--ink); }
+  #ribbon .seg::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: currentColor; filter: brightness(1.4);
+  }
+  #ribbon .seg.human::after { height: 4px; }
+  #ribbon .empty {
+    display: flex; align-items: center; justify-content: center; width: 100%;
+    color: var(--ink-faint); font-size: 11px;
+  }
+  .ribbon-axis {
+    display: flex; justify-content: space-between; margin-top: 4px;
+    font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
+  }
+
+  /* ---- body ---- */
+  main { flex: 1; display: flex; min-height: 0; }
+  #map { flex: 1; background: var(--void); }
+  .leaflet-container { background: var(--void); font: inherit; }
+  .leaflet-control-attribution {
+    background: rgba(16, 18, 21, 0.82) !important; color: var(--ink-faint) !important;
+  }
+  .leaflet-control-attribution a { color: var(--ink-dim) !important; }
+  .leaflet-bar a { background: var(--panel-2); color: var(--ink-dim); border-color: var(--rule); }
+  .leaflet-bar a:hover { background: var(--panel); color: var(--ink); }
+
+  aside {
+    width: 430px; display: flex; flex-direction: column; min-height: 0;
+    background: var(--panel); border-left: 1px solid var(--rule);
+  }
+  .pane-head {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    border-bottom: 1px solid var(--rule); font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
+  }
+  .pane-head .count { margin-left: auto; color: var(--ink-dim); }
+  #segments { flex: 1; overflow: auto; }
+
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th, td { padding: 5px 8px; text-align: left; white-space: nowrap; }
+  col.c-n { width: 34px; } col.c-label { width: 128px; } col.c-start { width: 74px; }
+  col.c-dur { width: 58px; } col.c-pts { width: 46px; } col.c-conf { width: 52px; }
+  thead th {
+    position: sticky; top: 0; z-index: 1; background: var(--panel);
+    border-bottom: 1px solid var(--rule-bright); font-family: var(--mono);
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 500;
+  }
+  tbody tr { border-bottom: 1px solid rgba(36, 40, 46, 0.7); cursor: pointer; }
+  tbody tr:hover { background: var(--panel-2); }
+  tbody tr.sel { background: #1d2530; box-shadow: inset 2px 0 0 var(--accent); }
+  td.num { text-align: right; color: var(--ink-dim); }
+  td.label-cell { display: flex; align-items: center; }
+  td select { flex: 1; min-width: 0; padding: 2px 4px; background: transparent; border-color: transparent; }
+  tbody tr:hover td select, tbody tr.sel td select { border-color: var(--rule-bright); }
+  .swatch {
+    display: inline-block; width: 3px; height: 13px; border-radius: 1px;
+    margin-right: 7px; vertical-align: -2px;
+  }
+  .tag {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .ghost {
+    background: none; border: 1px solid transparent; color: var(--ink-faint);
+    padding: 1px 6px; line-height: 1.2;
+  }
+  tbody tr:hover .ghost { border-color: var(--rule-bright); color: var(--ink-dim); }
+
+  /* ---- inspector ---- */
+  #detail {
+    padding: 10px 12px; min-height: 128px; max-height: 42%; overflow: auto;
+    font-size: 12px; border-top: 1px solid var(--rule);
+  }
+  #detail .hdr { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  #detail .hdr .label { font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em; }
+  #detail .hdr .meta { color: var(--ink-faint); font-size: 11px; }
+  #detail dl { display: grid; grid-template-columns: 96px 1fr; gap: 3px 10px; margin: 0; }
+  #detail dt {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--ink-faint); padding-top: 2px;
+  }
+  #detail dd { margin: 0; color: var(--ink-dim); }
+  #detail dd b { color: var(--ink); font-weight: 600; }
+  #detail .hint { color: var(--ink-faint); }
+
+  /* ---- legend, footer ---- */
+  #legend {
+    display: flex; gap: 12px; flex-wrap: wrap; padding: 7px 12px;
+    border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink-dim);
+  }
+  #legend span { display: inline-flex; align-items: center; gap: 5px; }
+  footer {
+    display: flex; align-items: center; gap: 18px; padding: 6px 14px;
+    background: var(--panel); border-top: 1px solid var(--rule);
+    font-size: 11px; color: var(--ink-faint); flex-wrap: wrap;
+  }
+  .stat b { color: var(--ink-dim); font-weight: 500; }
+
+  /* ---- basemap switch, floating on the map ---- */
+  .basemap {
+    display: flex; gap: 2px; padding: 4px; background: rgba(22, 25, 29, 0.94);
+    border: 1px solid var(--rule-bright); border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  }
+  .basemap button {
+    border: none; background: none; color: var(--ink-dim); padding: 3px 9px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+  }
+  .basemap button.on { background: var(--panel-2); color: var(--accent); }
+  .basemap-note {
+    margin-top: 4px; max-width: 46ch; padding: 2px 6px; border-radius: 3px;
+    background: rgba(16, 18, 21, 0.82); font-family: var(--mono); font-size: 10px;
+    color: var(--ink-faint);
+  }
+  .basemap-note:empty { display: none; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (max-width: 900px) {
+    main { flex-direction: column; }
+    aside { width: auto; height: 45%; border-left: none; border-top: 1px solid var(--rule); }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>label-gpx <small>upload a GPX, let the classifier propose segments, correct them, export a labeled fixture</small></h1>
-  <div class="row">
-    <input type="file" id="file" accept=".gpx,application/gpx+xml,text/xml" />
+  <div class="brand"><b>label</b>-gpx</div>
+  <div class="tools">
+    <label class="file-btn">
+      <input type="file" id="file" accept=".gpx,application/gpx+xml,text/xml" />
+      Open GPX<span class="name" id="fileName"></span>
+    </label>
+    <span class="sep"></span>
     <button id="resolve" disabled title="Read the roads layer for every cell this trace touches">Resolve map context</button>
-    <button id="reclassify" disabled title="Re-run the classifier with the resolved road and intersection context">Re-classify with context</button>
+    <button id="reclassify" disabled title="Run the classifier again with the resolved road and intersection context">Re-classify</button>
+    <span class="sep"></span>
     <button id="undo" disabled title="Ctrl+Z">Undo</button>
-    <button id="download" disabled>Download labeled GPX</button>
-    <span id="status">no file loaded</span>
+    <button id="download" class="primary" disabled>Download labeled GPX</button>
   </div>
-  <div class="row"><span id="warn"></span></div>
+  <div id="status">No trace open</div>
 </header>
+<div id="warn"></div>
+
+<div id="ribbonWrap">
+  <div id="ribbon" role="group" aria-label="Trace timeline, by label">
+    <span class="empty">The trace timeline appears here, to scale, once a file is open</span>
+  </div>
+  <div class="ribbon-axis">
+    <span id="tStart"></span><span id="tSpan"></span><span id="tEnd"></span>
+  </div>
+</div>
+
 <main>
   <div id="map"></div>
   <aside>
+    <div class="pane-head">Segments <span class="count" id="segCount"></span></div>
     <div id="segments"></div>
-    <div class="legend" id="legend"></div>
-    <div id="detail">Load a GPX file to begin. Nothing is uploaded anywhere: parsing and
-      classification run in this tab, and map context is read from the public tile host by
-      byte range.</div>
+    <div id="legend"></div>
+    <div id="detail">
+      <div class="hint">Open a GPX file to start. Parsing and classification run in this tab;
+        map context is read from the tile host by byte range, and only when you ask for it.</div>
+    </div>
   </aside>
 </main>
+
+<footer>
+  <span class="stat">points <b id="fPoints">—</b></span>
+  <span class="stat">duration <b id="fDur">—</b></span>
+  <span class="stat">segments <b id="fSegs">—</b></span>
+  <span class="stat">input <b id="fFlavour">—</b></span>
+  <span class="stat">requests <b id="fReq">0</b></span>
+  <span class="stat">transferred <b id="fBytes">0 MB</b></span>
+  <span class="stat" style="margin-left:auto">map snapshot <b id="fSnapshot">—</b></span>
+</footer>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>

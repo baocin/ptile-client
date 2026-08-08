@@ -36,18 +36,43 @@ classifier agrees with itself.** Only edited segments are evidence.
    becomes visible (a footway hit at 1.2 m/s votes walking where speed alone votes stationary) and
    where a stop at a signal stops reading as an arrival. Segments you have edited are preserved.
 5. Fix the rest: relabel from the dropdown, click a vertex of the selected segment to split there,
-   `^` to merge into the previous one, `Ctrl+Z` to undo (20 deep).
+   `↑` to merge into the previous one, `Ctrl+Z` to undo (20 deep).
 6. **Download labeled GPX** writes one `<trk>` per segment named by label.
 
 A rook file's existing `<rook:context>` is kept as-is rather than recomputed. Those traces were
 annotated in the field; this snapshot is `2026-08-07` and the fixture traces are from 2011-2020, so
 re-resolving would silently replace what was true with what is true now.
 
+## Reading the screen
+
+**The ribbon** under the toolbar is the trace's whole timeline, to scale. The table is ordinal — one
+row per segment, whether it lasted 90 seconds or 40 minutes — and the ribbon is temporal, which is
+the view you actually label against. Bands you have edited are drawn solid with a thick base; bands
+still as the classifier proposed them are dimmed with a hairline. That is the `source="auto"` versus
+`source="human"` distinction from `SCHEMA.md`, and it decides whether a segment counts as evidence,
+so it is in the picture rather than buried in a column. Click a band to select it.
+
+**The basemap switch** (bottom-left of the map) chooses between OSM raster tiles and the ptiles
+layers — water, parks, roads, and buildings from zoom 15 — decoded in the page from the same files
+the road context comes from. The raster tiles are always right about the world; the vector ones are
+right about *what the classifier read*. When a label turns on footway-versus-traffic-lane, the second
+is the honest backdrop, and flipping between them is the quickest way to catch the tiles and the
+layer disagreeing.
+
+The vector basemap needs zoom 11 or closer (below that the viewport exceeds the 512-cell bounds cap)
+and draws only the cells you have not already seen, so panning costs only new ground. It reports what
+it spent next to the switch: `5148 features · 15 requests · 3.0 MB` for a trail run in NC.
+
+Colour follows one rule: chrome is achromatic, hue is data. Every saturated colour on the page is a
+movement label, so the basemap is deliberately desaturated and the interactive accent is a cyan that
+is not one of the five label hues.
+
 ## How it is put together
 
 | file | what it is |
 | --- | --- |
 | `index.html` | page + CSS. Leaflet from unpkg, `preferCanvas` (a 2,000-vertex polyline as SVG is sluggish to pan). |
+| `js/basemap.js` | the two backdrops: OSM raster tiles, or the ptiles layers drawn from the same files the classifier reads. |
 | `js/app.js` | wiring: file input, map, table, buttons. Only the browser-specific parts. |
 | `js/gpx.js` | the only XML in the project. `DOMParser` in, `XMLSerializer` out. |
 | `js/segments.js` | classify → coalesce → split/merge/relabel/undo. No DOM, no fetch, so `node --test` drives it. |
