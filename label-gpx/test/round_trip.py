@@ -88,6 +88,13 @@ async (rookXml) => {
      rook.points[0].accel.dominant_frequency === 0.3, JSON.stringify(rook.points[0].accel));
   ok("rook: absent sensors stay absent", rook.points[2].speed === undefined &&
      rook.points[2].accel === null, JSON.stringify(rook.points[2]));
+  // The accel gap: the app sends three of five fields. The missing two must be
+  // absent from the object, not zero -- 0 is AccelStats::EMPTY's value, i.e.
+  // "there was no accelerometer". See ANDROID_INTEGRATION.md.
+  ok("rook: omitted accel fields are absent, not zero",
+     !("mean_magnitude" in rook.points[0].accel) &&
+     !("window_duration_s" in rook.points[0].accel),
+     JSON.stringify(rook.points[0].accel));
   ok("rook: context preserved", !!rook.tracks[0].context);
 
   // --- classify + label + write + re-read
@@ -113,6 +120,9 @@ async (rookXml) => {
     [{ start: 0, end: 2, type: "stationary", edited: false, sourceContext: rook.tracks[0].context }],
     {},
   );
+  ok("rook: export does not invent accel fields",
+     !/accel_mean/.test(rookOut) && !/accel_window_s/.test(rookOut) &&
+     /accel_variance/.test(rookOut), "");
   ok("escaping: ampersand escaped in output", rookOut.includes("Bob &amp; Sons"), "");
   ok("escaping: no raw bare ampersand", !/&(?!amp;|lt;|gt;|quot;|apos;|#)/.test(rookOut));
   const rookBack = gpx.parseGpx(rookOut);

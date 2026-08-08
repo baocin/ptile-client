@@ -178,11 +178,12 @@ function trackBlock(trk, localName) {
  * null when the point carries no accelerometer data at all.
  *
  * `mean_magnitude` and `window_duration_s` are the two fields the rook format
- * does not carry (SCHEMA.md "The accel gap"). They are sent as 0 because the
- * wasm boundary needs all five numbers -- which is *also* `AccelStats::EMPTY`,
- * so a partial reading is indistinguishable from no reading in those two
- * fields. Nothing in the current accel table reads either, so this is latent,
- * not active; it becomes real the day a rule uses mean magnitude.
+ * usually omits (SCHEMA.md "The accel gap", ANDROID_INTEGRATION.md). They are
+ * *left out of the object* rather than sent as 0: they are `Option<f64>` on the
+ * Rust side, so a missing key arrives as `None` and stays distinguishable from a
+ * real zero reading. Filling them with 0 here would hand the classifier
+ * `AccelStats::EMPTY`'s value for those fields, i.e. claim "no accelerometer"
+ * inside a window that did have one.
  */
 function readAccel(ext) {
   if (!ext) return null;
@@ -190,13 +191,18 @@ function readAccel(ext) {
   const freq = num(ext, "accel_freq");
   const steps = num(ext, "accel_steps");
   if (variance === undefined && freq === undefined && steps === undefined) return null;
-  return {
+  const out = {
+    // These three every producer sends, and 0 is a real reading for each: a
+    // still phone, no cadence, no steps.
     variance: variance ?? 0,
     dominant_frequency: freq ?? 0,
     step_count: steps ?? 0,
-    mean_magnitude: num(ext, "accel_mean") ?? 0,
-    window_duration_s: num(ext, "accel_window_s") ?? 0,
   };
+  const mean = num(ext, "accel_mean");
+  const window = num(ext, "accel_window_s");
+  if (mean !== undefined) out.mean_magnitude = mean;
+  if (window !== undefined) out.window_duration_s = window;
+  return out;
 }
 
 /**
@@ -311,8 +317,10 @@ function pointNode(doc, el, p, seg) {
     add("accel_variance", p.accel.variance, false);
     add("accel_freq", p.accel.dominant_frequency, false);
     add("accel_steps", p.accel.step_count, false);
-    if (p.accel.mean_magnitude) add("accel_mean", p.accel.mean_magnitude, false);
-    if (p.accel.window_duration_s) add("accel_window_s", p.accel.window_duration_s, false);
+    // Written only when the input actually reported them -- `add` already skips
+    // undefined, so an omitted field stays omitted rather than becoming 0.
+    add("accel_mean", p.accel.mean_magnitude, false);
+    add("accel_window_s", p.accel.window_duration_s, false);
   }
   if (seg && seg.vote && p.index === seg.start) {
     // The classifier's own read of this point, kept once per segment so a

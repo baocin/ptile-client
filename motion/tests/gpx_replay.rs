@@ -274,7 +274,7 @@ fn replay(points: &[Pt]) -> Replay {
             None => r.speed_gaps += 1,
         }
 
-        let vote = classify(speed.smoothed_speed_mps(), None, None, &AccelStats::EMPTY);
+        let vote = classify(speed.smoothed_speed_mps(), None, None, Some(&AccelStats::EMPTY));
         count(&mut r.vote, vote.movement);
 
         let stable = debouncer.tick(&vote, p.t_ms);
@@ -625,7 +625,7 @@ fn classify_never_returns_unknown() {
     for speed in inputs {
         for acc in inputs {
             for a in &accels {
-                let v = classify(speed, acc, None, a);
+                let v = classify(speed, acc, None, Some(a));
                 assert_ne!(v.movement, MovementType::Unknown, "speed {speed:?} acc {acc:?}");
                 assert!(v.confidence.is_finite() && v.confidence > 0.0);
             }

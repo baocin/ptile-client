@@ -117,29 +117,54 @@ impl TrafficControl {
 }
 
 /// Accelerometer window summary. Feeds the accel-only fallback.
+///
+/// `mean_magnitude` and `window_duration_s` are `Option` because real producers
+/// omit them: the Rookery Android GPX exporter sends variance, cadence and step
+/// count only (see `label-gpx/SCHEMA.md` and `ANDROID_INTEGRATION.md`). Filling
+/// them with `0.0` would make a genuine three-field reading indistinguishable
+/// from [`AccelStats::EMPTY`], i.e. from having no accelerometer at all -- so
+/// the absence is in the type, and any future rule that wants mean magnitude has
+/// to decide what to do when it is missing instead of silently reading a zero.
+///
+/// The other three are plain numbers on purpose: every producer sends them, and
+/// `0` is a meaningful *reading* for each (a still phone, no cadence, no steps).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct AccelStats {
     /// Variance of the magnitude series, (m/s^2)^2.
     pub variance: f64,
-    pub mean_magnitude: f64,
+    /// Mean magnitude, m/s^2. `None` when the producer does not report it.
+    pub mean_magnitude: Option<f64>,
     /// Step cadence, Hz.
     pub dominant_frequency: f64,
     pub step_count: u32,
-    /// Window length, seconds.
-    pub window_duration_s: f64,
+    /// Window length, seconds. `None` when the producer does not report it.
+    pub window_duration_s: Option<f64>,
 }
 
 impl AccelStats {
-    /// All-zero stats: what a caller with no accelerometer passes.
+    /// No accelerometer at all: no variance, no cadence, no steps, and nothing
+    /// reported for the two optional fields either.
     pub const EMPTY: AccelStats = AccelStats {
         variance: 0.0,
-        mean_magnitude: 0.0,
+        mean_magnitude: None,
         dominant_frequency: 0.0,
         step_count: 0,
-        window_duration_s: 0.0,
+        window_duration_s: None,
     };
+
+    /// Whether this window carries any accelerometer signal at all.
+    ///
+    /// `EMPTY` is what a caller with no sensor passes, and it votes `Stationary`
+    /// through the accel table -- which is a claim about the world made from no
+    /// evidence. Callers that care about the difference (a UI that would rather
+    /// say "unknown", a fixture builder deciding whether a field is worth
+    /// writing) ask this instead of comparing against `EMPTY`, which would also
+    /// be false for a phone that is genuinely, exactly still.
+    pub fn has_signal(&self) -> bool {
+        self.variance > 0.0 || self.dominant_frequency > 0.0 || self.step_count > 0
+    }
 
     /// magnitude = sqrt(x^2+y^2+z^2) per sample; mean + variance of that
     /// series; cadence from peak detection. Extra samples in the longer axes
@@ -169,10 +194,11 @@ impl AccelStats {
             detect_steps(&magnitudes, mean, variance, sample_rate_hz);
         AccelStats {
             variance,
-            mean_magnitude: mean,
+            // Computed here, so reported -- unlike a wire format that omits them.
+            mean_magnitude: Some(mean),
             dominant_frequency,
             step_count,
-            window_duration_s: n as f64 / sample_rate_hz as f64,
+            window_duration_s: Some(n as f64 / sample_rate_hz as f64),
         }
     }
 }
@@ -224,14 +250,20 @@ pub const GPS_ACCURACY_GATE_M: f64 = 30.0;
 /// Stateless single-fix classification. Order: GPS-accuracy gate (bad fix =>
 /// accel only) -> road-context priors -> speed-only bands -> accel-only.
 ///
-/// `inst_speed_mps` / `gps_accuracy_m` are `None` when the platform doesn't
-/// report them; `nearest_road` is `None` when no road tile answer is available.
+/// Every input is optional because every one of them is genuinely missing on
+/// some real fix: `inst_speed_mps` and `gps_accuracy_m` when the platform does
+/// not report them, `nearest_road` when no tile answer is available, `accel`
+/// when there is no accelerometer window for this fix. `None` accel and
+/// [`AccelStats::EMPTY`] classify identically today -- both fall to the table's
+/// catch-all -- but they are different facts, and only one of them can be
+/// mistaken for a measurement.
 pub fn classify(
     inst_speed_mps: Option<f64>,
     gps_accuracy_m: Option<f64>,
     nearest_road: Option<&RoadContext>,
-    accel: &AccelStats,
+    accel: Option<&AccelStats>,
 ) -> Vote {
+    let accel = accel.unwrap_or(&AccelStats::EMPTY);
     // Poor GPS: trust the accelerometer only.
     if gps_accuracy_m.is_some_and(|a| !a.is_finite() || a > GPS_ACCURACY_GATE_M) {
         return classify_accel_only(accel);
@@ -533,7 +565,57 @@ mod tests {
         );
         assert!(s.step_count >= 7, "step_count {}", s.step_count);
         assert!(s.variance > 0.5, "variance {}", s.variance);
-        assert!((s.window_duration_s - 4.0).abs() < 1e-9);
+        assert!((s.window_duration_s.unwrap() - 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn missing_accel_fields_stay_missing() {
+        // Robustness against real producers: the Rookery Android exporter sends
+        // variance, cadence and step count and omits the other two. That has to
+        // stay distinguishable from "no accelerometer", or a partial reading is
+        // silently half-interpreted as an absent one.
+        let partial = AccelStats {
+            variance: 0.02,
+            dominant_frequency: 1.8,
+            step_count: 7,
+            ..AccelStats::EMPTY
+        };
+        assert_eq!(partial.mean_magnitude, None);
+        assert_eq!(partial.window_duration_s, None);
+        assert!(partial.has_signal());
+        assert!(!AccelStats::EMPTY.has_signal());
+        // A phone lying perfectly still is a *reading*, not an absence -- which
+        // is why has_signal() is not "is this EMPTY".
+        let still = AccelStats {
+            mean_magnitude: Some(9.81),
+            window_duration_s: Some(4.0),
+            ..AccelStats::EMPTY
+        };
+        assert!(!still.has_signal(), "no variance, no cadence, no steps");
+        assert_ne!(still, AccelStats::EMPTY, "but it did report a mean and a window");
+        // And a reported zero is not the same value as nothing reported.
+        let zeroed = AccelStats { mean_magnitude: Some(0.0), ..AccelStats::EMPTY };
+        assert_ne!(zeroed, AccelStats::EMPTY);
+    }
+
+    #[test]
+    fn no_accel_window_classifies_like_an_empty_one() {
+        // `None` and `EMPTY` agree today: both fall to the table's catch-all.
+        // Pinned so that if a future rule starts reading mean magnitude, this
+        // test fails and forces a deliberate decision about the missing case
+        // rather than letting a 0.0 default answer it.
+        let e = AccelStats::EMPTY;
+        for speed in [None, Some(0.0), Some(1.0), Some(12.0)] {
+            assert_eq!(
+                classify(speed, Some(5.0), None, None),
+                classify(speed, Some(5.0), None, Some(&e)),
+                "speed {speed:?}"
+            );
+        }
+        assert_eq!(
+            classify(None, None, None, None).movement,
+            MovementType::Stationary
+        );
     }
 
     #[test]
@@ -543,9 +625,9 @@ mod tests {
         let long = alloc::vec![1.0f32; 100];
         let short = alloc::vec![1.0f32; 50];
         let s = AccelStats::calculate(&long, &short, &long, 50);
-        assert_eq!(s.window_duration_s, 1.0);
+        assert_eq!(s.window_duration_s, Some(1.0));
         // magnitude = sqrt(1+1+1) for every sample.
-        assert!((s.mean_magnitude - sqrt(3.0)).abs() < 1e-6);
+        assert!((s.mean_magnitude.unwrap() - sqrt(3.0)).abs() < 1e-6);
         assert!(s.variance < 1e-9);
     }
 
@@ -556,7 +638,7 @@ mod tests {
         let s = AccelStats::calculate(&[9.0, 12.0], &[0.0, 0.0], &[0.0, 0.0], 50);
         assert_eq!(s.step_count, 0);
         assert_eq!(s.dominant_frequency, 0.0);
-        assert!(s.mean_magnitude > 10.0);
+        assert!(s.mean_magnitude.unwrap() > 10.0);
         assert!(s.variance > 1.0);
     }
 
@@ -608,22 +690,22 @@ mod tests {
     fn bad_gps_accuracy_falls_back_to_accel() {
         let walking = accel_window(2.0, 1.5, 9.8, 50, 4.0);
         // Speed says Driving, but a 100 m fix is not trusted: accel wins.
-        let v = classify(Some(20.0), Some(100.0), None, &walking);
+        let v = classify(Some(20.0), Some(100.0), None, Some(&walking));
         assert_eq!(v.movement, MovementType::Walking);
         // Non-finite accuracy is equally untrusted.
-        let v = classify(Some(20.0), Some(f64::NAN), None, &walking);
+        let v = classify(Some(20.0), Some(f64::NAN), None, Some(&walking));
         assert_eq!(v.movement, MovementType::Walking);
     }
 
     #[test]
     fn speed_only_bands() {
         let e = AccelStats::EMPTY;
-        assert_eq!(classify(Some(15.0), Some(5.0), None, &e).movement, MovementType::Driving);
-        assert_eq!(classify(Some(3.0), Some(5.0), None, &e).movement, MovementType::Walking);
+        assert_eq!(classify(Some(15.0), Some(5.0), None, Some(&e)).movement, MovementType::Driving);
+        assert_eq!(classify(Some(3.0), Some(5.0), None, Some(&e)).movement, MovementType::Walking);
         // Below the walking ceiling with no accel signal: stationary.
-        assert_eq!(classify(Some(1.0), Some(5.0), None, &e).movement, MovementType::Stationary);
+        assert_eq!(classify(Some(1.0), Some(5.0), None, Some(&e)).movement, MovementType::Stationary);
         // No speed at all: accel-only.
-        assert_eq!(classify(None, Some(5.0), None, &e).movement, MovementType::Stationary);
+        assert_eq!(classify(None, Some(5.0), None, Some(&e)).movement, MovementType::Stationary);
     }
 
     #[test]
@@ -631,16 +713,16 @@ mod tests {
         let e = AccelStats::EMPTY;
         // The accuracy gate is `> 30`: exactly 30 m is still trusted GPS.
         assert_eq!(
-            classify(Some(15.0), Some(GPS_ACCURACY_GATE_M), None, &e).movement,
+            classify(Some(15.0), Some(GPS_ACCURACY_GATE_M), None, Some(&e)).movement,
             MovementType::Driving
         );
         // Speed bands are `>` too: exactly at a threshold stays in the band below.
         assert_eq!(
-            classify(Some(DRIVING_FLOOR_MPS), Some(5.0), None, &e).movement,
+            classify(Some(DRIVING_FLOOR_MPS), Some(5.0), None, Some(&e)).movement,
             MovementType::Walking
         );
         assert_eq!(
-            classify(Some(WALKING_CEILING_MPS), Some(5.0), None, &e).movement,
+            classify(Some(WALKING_CEILING_MPS), Some(5.0), None, Some(&e)).movement,
             MovementType::Stationary
         );
     }
@@ -650,9 +732,9 @@ mod tests {
         // Accuracy `None` means "unreported", not "bad" — the gate only fires
         // on a number worse than the threshold.
         let e = AccelStats::EMPTY;
-        assert_eq!(classify(Some(15.0), None, None, &e).movement, MovementType::Driving);
+        assert_eq!(classify(Some(15.0), None, None, Some(&e)).movement, MovementType::Driving);
         assert_eq!(
-            classify(Some(3.0), None, Some(&road("footway", 2.0)), &e).movement,
+            classify(Some(3.0), None, Some(&road("footway", 2.0)), Some(&e)).movement,
             MovementType::Walking
         );
     }
@@ -662,10 +744,10 @@ mod tests {
         // A negative platform speed is not evidence of anything; neither band
         // may claim it.
         let e = AccelStats::EMPTY;
-        assert_eq!(classify(Some(-5.0), Some(5.0), None, &e).movement, MovementType::Stationary);
+        assert_eq!(classify(Some(-5.0), Some(5.0), None, Some(&e)).movement, MovementType::Stationary);
         // Road priors need a speed, so a road hit with no speed is inert.
         assert_eq!(
-            classify(None, Some(5.0), Some(&road("motorway", 2.0)), &e).movement,
+            classify(None, Some(5.0), Some(&road("motorway", 2.0)), Some(&e)).movement,
             MovementType::Stationary
         );
     }
@@ -674,20 +756,20 @@ mod tests {
     fn road_priors_beat_the_speed_bands() {
         let e = AccelStats::EMPTY;
         // 3 m/s on a motorway is a slow-moving car, not a walk.
-        let v = classify(Some(3.0), Some(5.0), Some(&road("motorway", 4.0)), &e);
+        let v = classify(Some(3.0), Some(5.0), Some(&road("motorway", 4.0)), Some(&e));
         assert_eq!(v.movement, MovementType::Driving);
         assert!(v.confidence > 0.9);
         // Same speed on a footway is a run/walk, not a car.
-        let v = classify(Some(3.0), Some(5.0), Some(&road("footway", 2.0)), &e);
+        let v = classify(Some(3.0), Some(5.0), Some(&road("footway", 2.0)), Some(&e));
         assert_eq!(v.movement, MovementType::Walking);
         // Residential street at 3 m/s: vehicular prior.
         assert_eq!(
-            classify(Some(3.0), Some(5.0), Some(&road("residential", 6.0)), &e).movement,
+            classify(Some(3.0), Some(5.0), Some(&road("residential", 6.0)), Some(&e)).movement,
             MovementType::Driving
         );
         // Far from any road at walking pace: walking, whatever the accel says.
         assert_eq!(
-            classify(Some(1.5), Some(5.0), Some(&road("residential", 120.0)), &e).movement,
+            classify(Some(1.5), Some(5.0), Some(&road("residential", 120.0)), Some(&e)).movement,
             MovementType::Walking
         );
     }
@@ -697,42 +779,42 @@ mod tests {
         let e = AccelStats::EMPTY;
         // Ramps ("*_link") count as highway.
         assert_eq!(
-            classify(Some(3.0), Some(5.0), Some(&road("motorway_link", 4.0)), &e).movement,
+            classify(Some(3.0), Some(5.0), Some(&road("motorway_link", 4.0)), Some(&e)).movement,
             MovementType::Driving
         );
         // Footway priors need speed > 1.1: exactly 1.1 falls through to the
         // speed bands, which at that speed say nothing, so accel decides.
         assert_eq!(
-            classify(Some(1.1), Some(5.0), Some(&road("footway", 2.0)), &e).movement,
+            classify(Some(1.1), Some(5.0), Some(&road("footway", 2.0)), Some(&e)).movement,
             MovementType::Stationary
         );
         // Distance bounds are exclusive: 5 m off a footway is too far, 10 m
         // off a residential street likewise.
         assert_eq!(
-            classify(Some(1.5), Some(5.0), Some(&road("footway", 5.0)), &e).movement,
+            classify(Some(1.5), Some(5.0), Some(&road("footway", 5.0)), Some(&e)).movement,
             MovementType::Stationary
         );
         assert_eq!(
-            classify(Some(3.0), Some(5.0), Some(&road("residential", 10.0)), &e).movement,
+            classify(Some(3.0), Some(5.0), Some(&road("residential", 10.0)), Some(&e)).movement,
             MovementType::Walking,
             "no vehicular prior at 10 m, so the speed band decides"
         );
         // An unmapped-for-us class (track, cycleway) has no prior at all.
         assert_eq!(
-            classify(Some(3.0), Some(5.0), Some(&road("track", 2.0)), &e).movement,
+            classify(Some(3.0), Some(5.0), Some(&road("track", 2.0)), Some(&e)).movement,
             MovementType::Walking
         );
         // Off-road walking window is inclusive at both ends.
         for speed in [0.5, 2.2] {
             assert_eq!(
-                classify(Some(speed), Some(5.0), Some(&road("residential", 120.0)), &e).movement,
+                classify(Some(speed), Some(5.0), Some(&road("residential", 120.0)), Some(&e)).movement,
                 MovementType::Walking,
                 "{speed} m/s far from any road is a walk"
             );
         }
         // Below it, the off-road prior does not fire.
         assert_eq!(
-            classify(Some(0.4), Some(5.0), Some(&road("residential", 120.0)), &e).movement,
+            classify(Some(0.4), Some(5.0), Some(&road("residential", 120.0)), Some(&e)).movement,
             MovementType::Stationary
         );
     }
@@ -743,7 +825,7 @@ mod tests {
         // (too far), so the off-road walking branch gets its turn.
         let e = AccelStats::EMPTY;
         assert_eq!(
-            classify(Some(1.5), Some(5.0), Some(&road("motorway", 120.0)), &e).movement,
+            classify(Some(1.5), Some(5.0), Some(&road("motorway", 120.0)), Some(&e)).movement,
             MovementType::Walking
         );
     }
@@ -753,10 +835,10 @@ mod tests {
         // On the sidewalk beside a highway: 7 m off, real step cadence. The
         // motorway prior must not claim this as Driving.
         let walking = accel_window(2.0, 1.5, 9.8, 50, 4.0);
-        let v = classify(Some(3.0), Some(5.0), Some(&road("motorway", 7.0)), &walking);
+        let v = classify(Some(3.0), Some(5.0), Some(&road("motorway", 7.0)), Some(&walking));
         assert_eq!(v.movement, MovementType::Walking);
         // Inside 5 m the counter-signal does not apply — snap is trusted.
-        let v = classify(Some(3.0), Some(5.0), Some(&road("motorway", 3.0)), &walking);
+        let v = classify(Some(3.0), Some(5.0), Some(&road("motorway", 3.0)), Some(&walking));
         assert_eq!(v.movement, MovementType::Driving);
     }
 
@@ -774,14 +856,14 @@ mod tests {
         // does not fire, so the snap is trusted.
         let weak = AccelStats { dominant_frequency: 2.0, step_count: 4, ..AccelStats::EMPTY };
         assert_eq!(
-            classify(Some(3.0), Some(5.0), Some(&road("motorway", 7.0)), &weak).movement,
+            classify(Some(3.0), Some(5.0), Some(&road("motorway", 7.0)), Some(&weak)).movement,
             MovementType::Driving
         );
         // Plenty of steps but a 4 Hz cadence is outside the 1..=3 Hz stride
         // band, so it is not walking evidence either.
         let too_fast = AccelStats { dominant_frequency: 4.0, step_count: 20, ..AccelStats::EMPTY };
         assert_eq!(
-            classify(Some(3.0), Some(5.0), Some(&road("motorway", 7.0)), &too_fast).movement,
+            classify(Some(3.0), Some(5.0), Some(&road("motorway", 7.0)), Some(&too_fast)).movement,
             MovementType::Driving
         );
     }
@@ -793,7 +875,7 @@ mod tests {
         // Driving at the band's 0.90, which is how you can tell which code
         // path produced it.
         let walking = AccelStats { dominant_frequency: 2.0, step_count: 20, variance: 1.0, ..AccelStats::EMPTY };
-        let v = classify(Some(12.0), Some(5.0), Some(&road("motorway", 7.0)), &walking);
+        let v = classify(Some(12.0), Some(5.0), Some(&road("motorway", 7.0)), Some(&walking));
         assert_eq!(v.movement, MovementType::Driving);
         assert_eq!(v.confidence, 0.90, "band confidence, not the 0.95 road prior");
     }

@@ -42,7 +42,15 @@ fi
 # so anything that should stay off the site has to be excluded here. SCHEMA.md
 # is deliberately NOT excluded: it is the published definition of the format the
 # page emits, and a fixture consumer should be able to read it.
-NOPUB=(--exclude "deploy.sh" --exclude "README.md" --exclude "test/*")
+#
+# lib/ arrives via the symlink to web-demo, so it brings two files this page
+# does not use: h3-js (192 KB -- label-gpx resolves cells through wasm
+# exclusively, and mixing the two implementations is the duplication the client
+# exists to remove) and wasm-pack's own .gitignore.
+NOPUB=(
+  --exclude "deploy.sh" --exclude "README.md" --exclude "test/*"
+  --exclude "lib/h3-js.umd.js" --exclude "*/.gitignore"
+)
 
 if [ "${1:-}" != "--apply" ]; then
   echo "==> dry run (pass --apply to deploy)"

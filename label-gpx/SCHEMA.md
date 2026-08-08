@@ -61,19 +61,17 @@ are dropped on read.
 ### The accel gap
 
 `AccelStats` has five fields. The Android format carries three: `variance`, `dominant_frequency`,
-`step_count`. The two it omits are exactly the two that `AccelStats::EMPTY` also sets to zero, so
-"3-field reading" and "no accelerometer at all" are indistinguishable to anything that fills the
-gaps with `0`.
+`step_count`. See `ANDROID_INTEGRATION.md` for why the other two are worth sending.
 
-Consequences, in order of preference:
+The reader handles their absence rather than papering over it: `mean_magnitude` and
+`window_duration_s` are `Option<f64>` in Rust, so an omitted element arrives as `None`, never `0.0`,
+and a three-field reading stays distinguishable from `AccelStats::EMPTY` — from having had no
+accelerometer at all. Nothing in the accel table reads either field today, so the degradation is
+latent; the `Option` is what makes the day it stops being latent a compile error rather than a
+silently wrong answer.
 
-- **Best**: the Android exporter adds `accel_mean` and `accel_window_s`. They are already computed
-  (`AccelStats::calculate` returns all five), so this is a writer change, not new sensor work.
-- **Until then**: a reader must leave them absent rather than zero, and callers should know that
-  `mean_magnitude` and `window_duration_s` are structurally unavailable on rook input. Nothing in
-  `classify` currently reads either — the accel table uses only `dominant_frequency`, `variance` and
-  `step_count` — so the degradation is latent, not active. It becomes real the moment a rule uses
-  mean magnitude to tell a phone in a pocket from a phone on a car seat.
+The other three stay plain numbers, because every producer sends them and `0` is a real reading for
+each: a still phone, no cadence, no steps.
 
 ## Per-segment label and context
 

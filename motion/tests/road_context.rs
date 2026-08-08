@@ -100,7 +100,7 @@ fn vote_at(
     // Accuracy 5 m: a good fix, so the 30 m gate stays open. No accelerometer,
     // which is the interesting case -- the road context is the only thing that
     // can beat the speed bands.
-    let vote = classify(Some(speed_mps), Some(5.0), ctx.as_ref(), &AccelStats::EMPTY);
+    let vote = classify(Some(speed_mps), Some(5.0), ctx.as_ref(), Some(&AccelStats::EMPTY));
     (vote, ctx)
 }
 
@@ -193,7 +193,7 @@ fn a_stroll_on_a_real_footway_is_seen_as_walking() {
 
     // Control: the identical speeds with no road context see nothing.
     assert_eq!(
-        classify(Some(1.3), Some(5.0), None, &AccelStats::EMPTY).movement,
+        classify(Some(1.3), Some(5.0), None, Some(&AccelStats::EMPTY)).movement,
         MovementType::Stationary,
         "without the road prior this stroll is invisible -- that is the point"
     );
@@ -217,7 +217,7 @@ fn crawling_on_a_real_residential_street_is_seen_as_driving() {
         "a 3 m/s trace along a real residential street must read as driving"
     );
     assert_eq!(
-        classify(Some(3.0), Some(5.0), None, &AccelStats::EMPTY).movement,
+        classify(Some(3.0), Some(5.0), None, Some(&AccelStats::EMPTY)).movement,
         MovementType::Walking,
         "without the road prior the same speed reads as walking"
     );
@@ -267,7 +267,7 @@ fn a_real_traffic_signal_holds_a_stopped_car_in_driving() {
     // Drive up to the light on whatever way it sits on, then stop.
     let (drive_vote, road) = vote_at(&roads, lat, lon, 14.0);
     assert_eq!(drive_vote.movement, MovementType::Driving, "road {road:?}");
-    let stop_vote = classify(Some(0.0), Some(5.0), road.as_ref(), &AccelStats::EMPTY);
+    let stop_vote = classify(Some(0.0), Some(5.0), road.as_ref(), Some(&AccelStats::EMPTY));
     assert_eq!(stop_vote.movement, MovementType::Stationary);
 
     let mut d = VoteDebouncer::new(DebounceConfig::default());

@@ -1147,10 +1147,16 @@ impl MovementTracker {
         road: JsValue,
         intersection: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let accel: AccelStats = if accel.is_null() || accel.is_undefined() {
-            AccelStats::EMPTY
+        // `null` accel means "no accelerometer window for this fix", which is a
+        // different fact from a window that measured nothing -- so it stays
+        // `None` rather than being flattened into `AccelStats::EMPTY` here.
+        // Partial objects are fine too: the two fields the Rookery exporter
+        // omits (`mean_magnitude`, `window_duration_s`) deserialize to `None`,
+        // not 0. See ANDROID_INTEGRATION.md.
+        let accel: Option<AccelStats> = if accel.is_null() || accel.is_undefined() {
+            None
         } else {
-            from_js(accel, "accel stats")?
+            Some(from_js(accel, "accel stats")?)
         };
         let road: Option<RoadContext> = if road.is_null() || road.is_undefined() {
             None
@@ -1178,7 +1184,7 @@ impl MovementTracker {
         // fallback when the fix carries none (browser geolocation often does).
         let effective_speed = speed_mps.or_else(|| self.speed.smoothed_speed_mps());
 
-        self.last_vote = classify(effective_speed, accuracy_m, road.as_ref(), &accel);
+        self.last_vote = classify(effective_speed, accuracy_m, road.as_ref(), accel.as_ref());
         let movement = self.debouncer.tick_at(&self.last_vote, t, control.as_ref());
         to_js(&MovementUpdate {
             movement: movement.as_str(),
@@ -1511,6 +1517,38 @@ mod tests {
         assert!(serde_json::from_value::<RoadContext>(no_class).is_err());
         let no_distance = serde_json::json!({"road_class": "footway"});
         assert!(serde_json::from_value::<RoadContext>(no_distance).is_err());
+    }
+
+    #[test]
+    fn a_three_field_accel_reading_is_not_mistaken_for_no_sensor() {
+        // What the Rookery Android exporter sends: variance, cadence, steps.
+        // The two it omits must arrive as None, not 0 -- 0 is what
+        // AccelStats::EMPTY carries, i.e. "there was no accelerometer".
+        let partial: AccelStats = serde_json::from_value(serde_json::json!({
+            "variance": 0.02,
+            "dominant_frequency": 1.8,
+            "step_count": 7,
+        }))
+        .expect("three-field accel");
+        assert_eq!(partial.variance, 0.02);
+        assert_eq!(partial.step_count, 7);
+        assert_eq!(partial.mean_magnitude, None, "omitted, not zero");
+        assert_eq!(partial.window_duration_s, None, "omitted, not zero");
+        assert!(partial.has_signal(), "a real window with cadence and steps");
+        assert!(!AccelStats::EMPTY.has_signal());
+        // And it still classifies on the fields it does have.
+        assert_eq!(
+            ptiles_motion::classify_accel_only(&partial).movement,
+            MovementType::Walking
+        );
+        // A zero in those fields is preserved as a reading, not swallowed.
+        let zeroed: AccelStats = serde_json::from_value(serde_json::json!({
+            "variance": 0.02, "dominant_frequency": 1.8, "step_count": 7,
+            "mean_magnitude": 0.0, "window_duration_s": 0.0,
+        }))
+        .unwrap();
+        assert_eq!(zeroed.mean_magnitude, Some(0.0));
+        assert_ne!(zeroed, partial, "reported zero differs from not reported");
     }
 
     #[test]
