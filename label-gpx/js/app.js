@@ -332,7 +332,11 @@ function status() {
   el("fDur").textContent = `${mins} min`;
   el("fSegs").textContent = state.segments.length;
   el("fFlavour").textContent = state.parsed.flavour === "rook" ? "rook (with sensors)" : "plain GPX";
-  el("status").textContent = state.resolved ? "Context resolved" : "Context not resolved";
+  // A disabled control has to say what would enable it, next to where the eye
+  // already is. "Context not resolved" described a state; this names the action.
+  el("status").textContent = state.resolved
+    ? "Context resolved — re-classify to apply the road priors"
+    : "Resolve map context to enable re-classify";
 }
 
 function escapeHtml(v) {

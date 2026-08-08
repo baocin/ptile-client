@@ -159,10 +159,23 @@ async (rookXml) => {
 """ % {"plain": PLAIN}
 
 
+class CoepHandler(http.server.SimpleHTTPRequestHandler):
+    """Serve with the headers production serves.
+
+    steele.red sends COEP: require-corp / COOP: same-origin. Without them here,
+    a cross-origin tile <img> loads fine locally and is blocked on the live site
+    -- which is exactly how the OSM basemap shipped broken while this suite was
+    green. The harness has to be as strict as the host.
+    """
+
+    def end_headers(self):
+        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        super().end_headers()
+
+
 def serve(directory, port):
-    handler = lambda *a, **kw: http.server.SimpleHTTPRequestHandler(
-        *a, directory=str(directory), **kw
-    )
+    handler = lambda *a, **kw: CoepHandler(*a, directory=str(directory), **kw)
     # allow_reuse_address, or a re-run inside the TIME_WAIT window of the last
     # one dies on "Address already in use" rather than testing anything.
     socketserver.TCPServer.allow_reuse_address = True
@@ -245,11 +258,17 @@ def main():
             failures.append(f"ui: ribbon click selected {sel}, expected {last}")
 
         # --- basemap switch
-        raster = page.evaluate(
-            "() => document.querySelectorAll('.leaflet-tile-pane img').length > 0"
+        # Painted, not merely present. Under COEP a blocked tile still leaves its
+        # <img> in the DOM, so counting elements says the map works when it is
+        # entirely blank -- which is what the live site was doing.
+        page.wait_for_timeout(2500)
+        tiles = page.evaluate(
+            "() => { const i = [...document.querySelectorAll('.leaflet-tile-pane img')];"
+            " return [i.length, i.filter(t => t.complete && t.naturalWidth > 0).length]; }"
         )
-        if not raster:
-            failures.append("ui: OSM tiles did not load in the default basemap")
+        print(f"ok   ui: OSM tiles {tiles[1]} painted of {tiles[0]} requested")
+        if tiles[1] == 0:
+            failures.append(f"ui: {tiles[0]} OSM tiles in the DOM, none painted (COEP?)")
         page.click('.basemap button[data-mode="ptiles"]')
         page.wait_for_timeout(600)
         on = page.eval_on_selector(".basemap button.on", "e => e.dataset.mode")

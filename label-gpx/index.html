@@ -225,7 +225,7 @@
     </label>
     <span class="sep"></span>
     <button id="resolve" disabled title="Read the roads layer for every cell this trace touches">Resolve map context</button>
-    <button id="reclassify" disabled title="Run the classifier again with the resolved road and intersection context">Re-classify</button>
+    <button id="reclassify" disabled title="Needs map context: resolve it first, then this re-runs the classifier with the road and intersection priors">Re-classify</button>
     <span class="sep"></span>
     <button id="undo" disabled title="Ctrl+Z">Undo</button>
     <button id="download" class="primary" disabled>Download labeled GPX</button>
@@ -266,6 +266,11 @@
   <span class="stat" style="margin-left:auto">map snapshot <b id="fSnapshot">—</b></span>
 </footer>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- steele.red serves COEP: require-corp, which blocks cross-origin tile <img>
+     loads outright: the tiles arrive in the DOM and paint nothing. This shim
+     (shared with web-demo) refetches them through fetch() + blob URLs, which
+     COEP does allow. Must load before app.js so the basemap can find it. -->
+<script src="lib/corp-safe-tiles.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

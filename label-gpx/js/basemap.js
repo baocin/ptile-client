@@ -59,7 +59,15 @@ const ROAD_FALLBACK = { color: "#33373e", weight: 1.2 };
  * state-resolution rules live in exactly one place.
  */
 export function createBasemap(map, P, wasm, ctx, { onStatus = () => {} } = {}) {
-  const raster = L.tileLayer(OSM_URL, {
+  // `corpSafe` fetches each tile with fetch() and hands Leaflet a blob URL.
+  // Required wherever the page is served with COEP: require-corp (steele.red is),
+  // because a plain cross-origin tile <img> is blocked with
+  // ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep --
+  // which looks exactly like "the map is broken": the img elements are all there
+  // and every one of them paints nothing. Falls back to the plain layer if the
+  // shim did not load, which is fine on an origin without COEP.
+  const tileLayer = (L.tileLayer.corpSafe ?? L.tileLayer).bind(L.tileLayer);
+  const raster = tileLayer(OSM_URL, {
     maxZoom: 19,
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
