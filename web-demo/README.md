@@ -99,42 +99,36 @@ file.
 ## Deploying
 
 **Pushing this repo does not deploy anything.** The live site is a static S3
-bucket, `steele.red` serves straight out of it (`server: AmazonS3` on any
-response), and nothing watches git. The `steele.red` repo builds into
-`output/`, which is `.gitignore`d, so a commit there does not deploy either.
-Both pushes are for history; the sync below is what users see.
+bucket, `steele.red` serves straight out of it, and nothing watches git. The
+`steele.red` repo builds into `output/`, which is `.gitignore`d, so a commit
+there does not deploy either. Both pushes are for history; the script below is
+what users see.
 
-    cd ~/kino/projects/steele.red
-    python3 build.py                      # copies web-demo/ -> output/ptiles/
+    ./web-demo/deploy.sh            # dry run: prints what would change
+    ./web-demo/deploy.sh --apply    # build, upload, verify live headers
 
-    export AWS_PROFILE=steele-red-deploy  # in ~/.aws/credentials
-    aws s3 sync output/ptiles/ s3://steele.red/ptiles/ --dryrun --delete
-    aws s3 sync output/ptiles/ s3://steele.red/ptiles/ --exclude "*.wasm"
-    aws s3 cp output/ptiles/lib/client/ptiles_client_bg.wasm \
-      s3://steele.red/ptiles/lib/client/ptiles_client_bg.wasm \
-      --content-type application/wasm
+It exists because three things here are easy to get wrong and silent when they
+are:
 
-Three things that are easy to get wrong:
+- **Content types are set explicitly.** `aws s3 sync` guesses from the local
+  mimetypes database, and a `.wasm` served as `application/octet-stream` makes
+  `WebAssembly.instantiateStreaming` fail — the page loads, the map draws, and
+  every layer stays empty, which reads as a data problem rather than a deploy
+  problem.
+- **`Cache-Control: no-cache`, not `immutable`.** These filenames are not
+  content-hashed: `ptiles_client_bg.wasm` keeps its name across every deploy,
+  so a long `max-age` would pin a stale build in browsers with no way to bust
+  it short of renaming the file. `no-cache` means *store but revalidate*, and
+  S3's ETag turns an unchanged 516 KB wasm into a 304 with no body. Before this,
+  no `Cache-Control` was sent at all and browsers applied heuristic freshness.
+- **Not everything in this directory should be public.** steele.red's build
+  copies `web-demo/` wholesale, so `deploy.sh`, this README and `test/` are
+  excluded by name. All three had been published before that list existed.
 
-- **The wasm needs an explicit content type.** `aws s3 sync` guesses from the
-  local mimetypes database, and a `.wasm` served as `application/octet-stream`
-  makes `WebAssembly.instantiateStreaming` fail — the page loads, the map
-  draws, and every layer stays empty. This machine happens to map `.wasm`
-  correctly; a machine that does not would deploy a broken demo silently. Hence
-  the separate `cp` rather than trusting the guess.
-- **Dry-run first, and scope the sync to `/ptiles/`.** The bucket holds the
-  whole site. `--delete` against the bucket root with only the demo staged
-  would remove every other page.
-- **The build must run before the sync.** `output/ptiles/` is a *copy*, not the
-  symlink — editing `web-demo/index.html` and syncing without `build.py` ships
-  the previous build.
-
-Verify against the live URL, not a local server: the deployed page fetches
-`.ptiles` from the CDN, so a local check cannot catch a bad content type, a
-stale build, or a 403 on the data.
-
-    curl -sI https://steele.red/ptiles/lib/client/ptiles_client_bg.wasm \
-      | grep -i content-type          # must be application/wasm
+The script verifies the live headers after uploading and exits non-zero if a
+content type or cache header is wrong. Verify behaviour against the live URL
+too, not a local server: only the deployed page can catch a bad content type,
+a stale build, or a 403 on the data.
 
 ## Verifying
 
