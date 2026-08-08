@@ -127,7 +127,7 @@ fn unknown_query_exits_nonzero() {
 #[test]
 fn unknown_layer_filename_exits_nonzero() {
     let out = run_raw(&[
-        "--path", "/data/TN.water.ptiles", "--lat", "36.16", "--lon", "-86.78",
+        "--path", "/data/TN.places.ptiles", "--lat", "36.16", "--lon", "-86.78",
     ]);
     assert!(!out.status.success(), "un-inferable layer filename must exit non-zero");
 }

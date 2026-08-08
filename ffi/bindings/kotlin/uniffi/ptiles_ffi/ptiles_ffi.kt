@@ -768,6 +768,30 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -811,15 +835,37 @@ fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at(
 ): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_rail(
+): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at(
 ): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_station(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trail(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trailhead(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_park_at(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_parks(
+): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_rail(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_roads(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_trails(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_water(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptilesstack_locate(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptilesstack_score(
 ): Short
@@ -830,6 +876,8 @@ fun uniffi_ptiles_ffi_checksum_constructor_adminlayer_open(
 fun uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open(
 ): Short
 fun uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new(
+): Short
+fun uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers(
 ): Short
 fun ffi_ptiles_ffi_uniffi_contract_version(
 ): Int
@@ -922,15 +970,35 @@ fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection(`ptr`: Pointer,
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_rail(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_station(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trail(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trailhead(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_park_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_parks(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox(`ptr`: Pointer,`minLat`: Double,`minLon`: Double,`maxLat`: Double,`maxLon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_rail(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_roads(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(`ptr`: Pointer,`query`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_trails(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_water(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_water_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_clone_ptilesstack(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
@@ -938,6 +1006,10 @@ fun uniffi_ptiles_ffi_fn_free_ptilesstack(`ptr`: Pointer,uniffi_out_err: UniffiR
 ): Unit
 fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_new(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
+fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,`trails`: RustBuffer.ByValue,`parks`: RustBuffer.ByValue,`water`: RustBuffer.ByValue,`addresses`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_method_ptilesstack_locate(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_score(`ptr`: Pointer,`fix`: RustBuffer.ByValue,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -1112,19 +1184,52 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at() != 64541.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_rail() != 62426.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road() != 49038.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at() != 15623.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_station() != 23047.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trail() != 11510.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trailhead() != 12821.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_park_at() != 52943.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_parks() != 30052.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox() != 43698.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_rail() != 62946.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads() != 36266.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business() != 23326.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_trails() != 45930.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water() != 13473.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at() != 24453.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403.toShort()) {
@@ -1139,7 +1244,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 23503.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 62815.toShort()) {
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 38860.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 1730.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1305,6 +1413,29 @@ public object FfiConverterUByte: FfiConverter<UByte, Byte> {
 
     override fun write(value: UByte, buf: ByteBuffer) {
         buf.put(value.toByte())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUShort: FfiConverter<UShort, Short> {
+    override fun lift(value: Short): UShort {
+        return value.toUShort()
+    }
+
+    override fun read(buf: ByteBuffer): UShort {
+        return lift(buf.getShort())
+    }
+
+    override fun lower(value: UShort): Short {
+        return value.toShort()
+    }
+
+    override fun allocationSize(value: UShort) = 2UL
+
+    override fun write(value: UShort, buf: ByteBuffer) {
+        buf.putShort(value.toShort())
     }
 }
 
@@ -2224,6 +2355,12 @@ public interface PtilesLayerInterface {
     fun `nearestIntersectionsAt`(`points`: List<LatLon>, `thresholdM`: kotlin.Double): List<NearestIntersection?>
     
     /**
+     * The rail track under `(lat, lon)`. Station points are skipped; use
+     * [`PtilesLayer::nearest_station`] for those. Rail-layer only.
+     */
+    fun `nearestRail`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): WayInfo?
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -2239,6 +2376,35 @@ public interface PtilesLayerInterface {
      * [`PtilesLayer::nearest_road`].
      */
     fun `nearestRoadsAt`(`points`: List<LatLon>, `thresholdM`: kotlin.Double): List<NearestRoad?>
+    
+    /**
+     * The nearest station or halt point. Rail-layer only.
+     */
+    fun `nearestStation`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): PointInfo?
+    
+    /**
+     * The trail under `(lat, lon)` — "which path am I walking on". Trailhead
+     * points are skipped (they have no centreline); use
+     * [`PtilesLayer::nearest_trailhead`] for those. Trails-layer only.
+     */
+    fun `nearestTrail`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): WayInfo?
+    
+    /**
+     * The nearest trailhead — where a trail network is entered, which is what
+     * a caller planning to start a walk wants. Trails-layer only.
+     */
+    fun `nearestTrailhead`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): PointInfo?
+    
+    /**
+     * The park containing `(lat, lon)`, else the nearest park boundary.
+     * Check `inside` before telling a user they are in it. Parks-layer only.
+     */
+    fun `parkAt`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): AreaInfo?
+    
+    /**
+     * Every park in the query cells. Parks-layer only.
+     */
+    fun `parks`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<ParkInfo>
     
     /**
      * Fetch and cache every block covering a bounding box, in one pass.
@@ -2258,6 +2424,11 @@ public interface PtilesLayerInterface {
     fun `prefetchBbox`(`minLat`: kotlin.Double, `minLon`: kotlin.Double, `maxLat`: kotlin.Double, `maxLon`: kotlin.Double): kotlin.UInt
     
     /**
+     * Every rail feature in the query cells. Rail-layer only.
+     */
+    fun `rail`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<RailInfo>
+    
+    /**
      * All decoded road segments in the cell containing `(lat, lon)`, plus
      * ring-1 neighbors when `ring == 1`. `ring` must be 0 or 1 (matches the
      * CLI's `--ring` semantics in `cli/src/main.rs::validate_ring`).
@@ -2275,6 +2446,24 @@ public interface PtilesLayerInterface {
      * returned, score-ranked hit count. `BusinessNameIndex`-layer only.
      */
     fun `searchBusiness`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit>
+    
+    /**
+     * Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
+     * when `ring == 1`. Trails-layer only.
+     */
+    fun `trails`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<TrailInfo>
+    
+    /**
+     * Every water feature in the query cells. Water-layer only.
+     */
+    fun `water`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<WaterInfo>
+    
+    /**
+     * The water body containing `(lat, lon)`, else the nearest water feature.
+     * River centrelines are linestrings and never report `inside`.
+     * Water-layer only.
+     */
+    fun `waterAt`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): AreaInfo?
     
     companion object
 }
@@ -2541,6 +2730,23 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
 
     
     /**
+     * The rail track under `(lat, lon)`. Station points are skipped; use
+     * [`PtilesLayer::nearest_station`] for those. Rail-layer only.
+     */
+    @Throws(PtilesException::class)override fun `nearestRail`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): WayInfo? {
+            return FfiConverterOptionalTypeWayInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_rail(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -2580,6 +2786,90 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
 
     
     /**
+     * The nearest station or halt point. Rail-layer only.
+     */
+    @Throws(PtilesException::class)override fun `nearestStation`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): PointInfo? {
+            return FfiConverterOptionalTypePointInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_station(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The trail under `(lat, lon)` — "which path am I walking on". Trailhead
+     * points are skipped (they have no centreline); use
+     * [`PtilesLayer::nearest_trailhead`] for those. Trails-layer only.
+     */
+    @Throws(PtilesException::class)override fun `nearestTrail`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): WayInfo? {
+            return FfiConverterOptionalTypeWayInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trail(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The nearest trailhead — where a trail network is entered, which is what
+     * a caller planning to start a walk wants. Trails-layer only.
+     */
+    @Throws(PtilesException::class)override fun `nearestTrailhead`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): PointInfo? {
+            return FfiConverterOptionalTypePointInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trailhead(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The park containing `(lat, lon)`, else the nearest park boundary.
+     * Check `inside` before telling a user they are in it. Parks-layer only.
+     */
+    @Throws(PtilesException::class)override fun `parkAt`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): AreaInfo? {
+            return FfiConverterOptionalTypeAreaInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_park_at(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Every park in the query cells. Parks-layer only.
+     */
+    @Throws(PtilesException::class)override fun `parks`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<ParkInfo> {
+            return FfiConverterSequenceTypeParkInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_parks(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Fetch and cache every block covering a bounding box, in one pass.
      *
      * The middle ground between range-reading forever and downloading a whole
@@ -2600,6 +2890,22 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox(
         it, FfiConverterDouble.lower(`minLat`),FfiConverterDouble.lower(`minLon`),FfiConverterDouble.lower(`maxLat`),FfiConverterDouble.lower(`maxLon`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Every rail feature in the query cells. Rail-layer only.
+     */
+    @Throws(PtilesException::class)override fun `rail`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<RailInfo> {
+            return FfiConverterSequenceTypeRailInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_rail(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
 }
     }
     )
@@ -2641,6 +2947,57 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(
         it, FfiConverterString.lower(`query`),FfiConverterUInt.lower(`limit`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
+     * when `ring == 1`. Trails-layer only.
+     */
+    @Throws(PtilesException::class)override fun `trails`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<TrailInfo> {
+            return FfiConverterSequenceTypeTrailInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_trails(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Every water feature in the query cells. Water-layer only.
+     */
+    @Throws(PtilesException::class)override fun `water`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<WaterInfo> {
+            return FfiConverterSequenceTypeWaterInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_water(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The water body containing `(lat, lon)`, else the nearest water feature.
+     * River centrelines are linestrings and never report `inside`.
+     * Water-layer only.
+     */
+    @Throws(PtilesException::class)override fun `waterAt`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): AreaInfo? {
+            return FfiConverterOptionalTypeAreaInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_water_at(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
 }
     }
     )
@@ -2811,6 +3168,20 @@ public object FfiConverterTypePtilesLayer: FfiConverter<PtilesLayer, Pointer> {
 public interface PtilesStackInterface {
     
     /**
+     * Reverse geocode across the stack: the way under the point (road and
+     * trail compete on distance alone — see `core::locate`), the nearest
+     * address, and the park/water the point falls in.
+     *
+     * Layers the stack does not hold simply do not contribute; a stack with
+     * only roads still answers, it just never reports a trail. Rail is
+     * deliberately absent: standing on a track is not a place you navigate
+     * from, and letting it win "what am I on" against the road beside it
+     * would answer confidently and wrongly. Query the rail layer directly
+     * ([`PtilesLayer::nearest_rail`]) when that is the question.
+     */
+    fun `locate`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): LocatedInfo
+    
+    /**
      * Score `fix` against whichever layers this stack holds, at the fix's
      * cell (plus ring-1 neighbors when `ring == 1`). Uses
      * `ptiles_core::scoring::ScoringParams::default()` -- tunable weights
@@ -2848,6 +3219,11 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
         this.pointer = null
         this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
     }
+    /**
+     * The three layers [`PtilesStack::score`] needs. Unchanged signature --
+     * use [`PtilesStack::with_layers`] to add the ones
+     * [`PtilesStack::locate`] reads.
+     */
     constructor(`roads`: PtilesLayer?, `buildings`: PtilesLayer?, `business`: PtilesLayer?) :
         this(
     uniffiRustCall() { _status ->
@@ -2921,6 +3297,31 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
 
     
     /**
+     * Reverse geocode across the stack: the way under the point (road and
+     * trail compete on distance alone — see `core::locate`), the nearest
+     * address, and the park/water the point falls in.
+     *
+     * Layers the stack does not hold simply do not contribute; a stack with
+     * only roads still answers, it just never reports a trail. Rail is
+     * deliberately absent: standing on a track is not a place you navigate
+     * from, and letting it win "what am I on" against the road beside it
+     * would answer confidently and wrongly. Query the rail layer directly
+     * ([`PtilesLayer::nearest_rail`]) when that is the question.
+     */
+    @Throws(PtilesException::class)override fun `locate`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): LocatedInfo {
+            return FfiConverterTypeLocatedInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptilesstack_locate(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Score `fix` against whichever layers this stack holds, at the fix's
      * cell (plus ring-1 neighbors when `ring == 1`). Uses
      * `ptiles_core::scoring::ScoringParams::default()` -- tunable weights
@@ -2941,8 +3342,24 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
     
 
     
+    companion object {
+        
+    /**
+     * Every layer this stack can use. `score` reads roads/buildings/business,
+     * `locate` reads roads/trails/addresses/parks/water; pass whichever files
+     * the region actually has and the rest stay silent.
+     */ fun `withLayers`(`roads`: PtilesLayer?, `buildings`: PtilesLayer?, `business`: PtilesLayer?, `trails`: PtilesLayer?, `parks`: PtilesLayer?, `water`: PtilesLayer?, `addresses`: AddressLayer?): PtilesStack {
+            return FfiConverterTypePtilesStack.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(
+        FfiConverterOptionalTypePtilesLayer.lower(`roads`),FfiConverterOptionalTypePtilesLayer.lower(`buildings`),FfiConverterOptionalTypePtilesLayer.lower(`business`),FfiConverterOptionalTypePtilesLayer.lower(`trails`),FfiConverterOptionalTypePtilesLayer.lower(`parks`),FfiConverterOptionalTypePtilesLayer.lower(`water`),FfiConverterOptionalTypeAddressLayer.lower(`addresses`),_status)
+}
+    )
+    }
     
-    companion object
+
+        
+    }
     
 }
 
@@ -3061,6 +3478,57 @@ public object FfiConverterTypeAdminInfo: FfiConverterRustBuffer<AdminInfo> {
             FfiConverterString.write(value.`zip`, buf)
             FfiConverterString.write(value.`timezone`, buf)
             FfiConverterUByte.write(value.`boundaryFlags`, buf)
+    }
+}
+
+
+
+/**
+ * An area the query point is in or near (`ptiles_core::NearbyArea`).
+ * `distance_m` is 0 when `inside`, else the distance to the boundary.
+ */
+data class AreaInfo (
+    /**
+     * `park` or `water`.
+     */
+    var `kind`: kotlin.String, 
+    var `name`: kotlin.String?, 
+    var `class`: kotlin.String, 
+    var `distanceM`: kotlin.Double, 
+    var `inside`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAreaInfo: FfiConverterRustBuffer<AreaInfo> {
+    override fun read(buf: ByteBuffer): AreaInfo {
+        return AreaInfo(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AreaInfo) = (
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`class`) +
+            FfiConverterDouble.allocationSize(value.`distanceM`) +
+            FfiConverterBoolean.allocationSize(value.`inside`)
+    )
+
+    override fun write(value: AreaInfo, buf: ByteBuffer) {
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterString.write(value.`class`, buf)
+            FfiConverterDouble.write(value.`distanceM`, buf)
+            FfiConverterBoolean.write(value.`inside`, buf)
     }
 }
 
@@ -3475,6 +3943,122 @@ public object FfiConverterTypeLayerMetadata: FfiConverterRustBuffer<LayerMetadat
 
 
 /**
+ * What is at a point, across whichever layers a [`PtilesStack`] holds —
+ * `ptiles_core::Located` plus the area and point answers the trail/park/
+ * water/rail layers contribute.
+ */
+data class LocatedInfo (
+    /**
+     * Nearest road/trail/rail way, whether or not you are on it.
+     */
+    var `nearestWay`: WayInfo?, 
+    /**
+     * The way you are actually on, within 25 m. When set, the same feature
+     * as `nearest_way`.
+     */
+    var `onWay`: WayInfo?, 
+    /**
+     * Nearest address within `ptiles_core::ADDRESS_THRESHOLD_M` (150 m).
+     */
+    var `address`: NearbyAddressInfo?, 
+    /**
+     * The park you are in, else the nearest one.
+     */
+    var `park`: AreaInfo?, 
+    /**
+     * The water body you are in, else the nearest.
+     */
+    var `water`: AreaInfo?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLocatedInfo: FfiConverterRustBuffer<LocatedInfo> {
+    override fun read(buf: ByteBuffer): LocatedInfo {
+        return LocatedInfo(
+            FfiConverterOptionalTypeWayInfo.read(buf),
+            FfiConverterOptionalTypeWayInfo.read(buf),
+            FfiConverterOptionalTypeNearbyAddressInfo.read(buf),
+            FfiConverterOptionalTypeAreaInfo.read(buf),
+            FfiConverterOptionalTypeAreaInfo.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LocatedInfo) = (
+            FfiConverterOptionalTypeWayInfo.allocationSize(value.`nearestWay`) +
+            FfiConverterOptionalTypeWayInfo.allocationSize(value.`onWay`) +
+            FfiConverterOptionalTypeNearbyAddressInfo.allocationSize(value.`address`) +
+            FfiConverterOptionalTypeAreaInfo.allocationSize(value.`park`) +
+            FfiConverterOptionalTypeAreaInfo.allocationSize(value.`water`)
+    )
+
+    override fun write(value: LocatedInfo, buf: ByteBuffer) {
+            FfiConverterOptionalTypeWayInfo.write(value.`nearestWay`, buf)
+            FfiConverterOptionalTypeWayInfo.write(value.`onWay`, buf)
+            FfiConverterOptionalTypeNearbyAddressInfo.write(value.`address`, buf)
+            FfiConverterOptionalTypeAreaInfo.write(value.`park`, buf)
+            FfiConverterOptionalTypeAreaInfo.write(value.`water`, buf)
+    }
+}
+
+
+
+/**
+ * An address near the query point, with where it is and how far.
+ *
+ * Distinct from [`AddressRecord`], which carries no position: v1 address
+ * files store none, and only v2 records can be measured against a point at
+ * all (see `core::locate::nearest_address`).
+ */
+data class NearbyAddressInfo (
+    var `osmId`: kotlin.Long, 
+    var `housenumber`: kotlin.String, 
+    var `street`: kotlin.String, 
+    var `location`: LatLon, 
+    var `distanceM`: kotlin.Double
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeNearbyAddressInfo: FfiConverterRustBuffer<NearbyAddressInfo> {
+    override fun read(buf: ByteBuffer): NearbyAddressInfo {
+        return NearbyAddressInfo(
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeLatLon.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: NearbyAddressInfo) = (
+            FfiConverterLong.allocationSize(value.`osmId`) +
+            FfiConverterString.allocationSize(value.`housenumber`) +
+            FfiConverterString.allocationSize(value.`street`) +
+            FfiConverterTypeLatLon.allocationSize(value.`location`) +
+            FfiConverterDouble.allocationSize(value.`distanceM`)
+    )
+
+    override fun write(value: NearbyAddressInfo, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`osmId`, buf)
+            FfiConverterString.write(value.`housenumber`, buf)
+            FfiConverterString.write(value.`street`, buf)
+            FfiConverterTypeLatLon.write(value.`location`, buf)
+            FfiConverterDouble.write(value.`distanceM`, buf)
+    }
+}
+
+
+
+/**
  * Nearest labeled intersection to a query point (the "am I at an
  * intersection?" answer). `intersection_type`: 1 = traffic_signals,
  * 2 = stop, 3 = give_way, 4 = roundabout (0/other = untyped). Reports a
@@ -3573,6 +4157,145 @@ public object FfiConverterTypeNearestRoad: FfiConverterRustBuffer<NearestRoad> {
 
 
 
+data class ParkInfo (
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `parkType`: kotlin.String, 
+    var `geometry`: List<LatLon>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeParkInfo: FfiConverterRustBuffer<ParkInfo> {
+    override fun read(buf: ByteBuffer): ParkInfo {
+        return ParkInfo(
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeLatLon.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ParkInfo) = (
+            FfiConverterLong.allocationSize(value.`osmId`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`parkType`) +
+            FfiConverterSequenceTypeLatLon.allocationSize(value.`geometry`)
+    )
+
+    override fun write(value: ParkInfo, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`osmId`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterString.write(value.`parkType`, buf)
+            FfiConverterSequenceTypeLatLon.write(value.`geometry`, buf)
+    }
+}
+
+
+
+/**
+ * A point feature near the query point — a trailhead or a station
+ * (`ptiles_core::NearbyPoint`). These are exactly what the linear lookups
+ * skip, since a point has no centreline to be on.
+ */
+data class PointInfo (
+    /**
+     * `trailhead` or `station`.
+     */
+    var `kind`: kotlin.String, 
+    var `name`: kotlin.String?, 
+    var `class`: kotlin.String, 
+    var `location`: LatLon, 
+    var `distanceM`: kotlin.Double
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePointInfo: FfiConverterRustBuffer<PointInfo> {
+    override fun read(buf: ByteBuffer): PointInfo {
+        return PointInfo(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeLatLon.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PointInfo) = (
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`class`) +
+            FfiConverterTypeLatLon.allocationSize(value.`location`) +
+            FfiConverterDouble.allocationSize(value.`distanceM`)
+    )
+
+    override fun write(value: PointInfo, buf: ByteBuffer) {
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterString.write(value.`class`, buf)
+            FfiConverterTypeLatLon.write(value.`location`, buf)
+            FfiConverterDouble.write(value.`distanceM`, buf)
+    }
+}
+
+
+
+/**
+ * One decoded rail feature. `geom_type`: 0 = track, 1 = station/halt point.
+ */
+data class RailInfo (
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `railType`: kotlin.String, 
+    var `geomType`: kotlin.UByte, 
+    var `geometry`: List<LatLon>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRailInfo: FfiConverterRustBuffer<RailInfo> {
+    override fun read(buf: ByteBuffer): RailInfo {
+        return RailInfo(
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterSequenceTypeLatLon.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RailInfo) = (
+            FfiConverterLong.allocationSize(value.`osmId`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`railType`) +
+            FfiConverterUByte.allocationSize(value.`geomType`) +
+            FfiConverterSequenceTypeLatLon.allocationSize(value.`geometry`)
+    )
+
+    override fun write(value: RailInfo, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`osmId`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterString.write(value.`railType`, buf)
+            FfiConverterUByte.write(value.`geomType`, buf)
+            FfiConverterSequenceTypeLatLon.write(value.`geometry`, buf)
+    }
+}
+
+
+
 data class RoadInfo (
     var `osmId`: kotlin.ULong, 
     var `name`: kotlin.String?, 
@@ -3608,6 +4331,180 @@ public object FfiConverterTypeRoadInfo: FfiConverterRustBuffer<RoadInfo> {
             FfiConverterOptionalString.write(value.`name`, buf)
             FfiConverterString.write(value.`roadClass`, buf)
             FfiConverterSequenceTypeLatLon.write(value.`geometry`, buf)
+    }
+}
+
+
+
+/**
+ * One decoded trail. `geom_type`: 0 = linestring (a way you walk), 1 = point
+ * (a trailhead). `sac_scale` is the SAC hiking difficulty when tagged, empty
+ * otherwise.
+ */
+data class TrailInfo (
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `trailType`: kotlin.String, 
+    var `geomType`: kotlin.UByte, 
+    var `surface`: kotlin.String, 
+    var `sacScale`: kotlin.String, 
+    var `geometry`: List<LatLon>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTrailInfo: FfiConverterRustBuffer<TrailInfo> {
+    override fun read(buf: ByteBuffer): TrailInfo {
+        return TrailInfo(
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeLatLon.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TrailInfo) = (
+            FfiConverterLong.allocationSize(value.`osmId`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`trailType`) +
+            FfiConverterUByte.allocationSize(value.`geomType`) +
+            FfiConverterString.allocationSize(value.`surface`) +
+            FfiConverterString.allocationSize(value.`sacScale`) +
+            FfiConverterSequenceTypeLatLon.allocationSize(value.`geometry`)
+    )
+
+    override fun write(value: TrailInfo, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`osmId`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterString.write(value.`trailType`, buf)
+            FfiConverterUByte.write(value.`geomType`, buf)
+            FfiConverterString.write(value.`surface`, buf)
+            FfiConverterString.write(value.`sacScale`, buf)
+            FfiConverterSequenceTypeLatLon.write(value.`geometry`, buf)
+    }
+}
+
+
+
+/**
+ * One decoded water feature. `geom_type`: 0 = polygon, 1 = linestring,
+ * 2 = reference (geometry lives elsewhere in the file, so `geometry` is
+ * empty and `ref_feature_id` is the handle).
+ */
+data class WaterInfo (
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `waterType`: kotlin.String, 
+    var `geomType`: kotlin.UByte, 
+    var `width`: kotlin.UShort?, 
+    var `refFeatureId`: kotlin.UInt?, 
+    var `geometry`: List<LatLon>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeWaterInfo: FfiConverterRustBuffer<WaterInfo> {
+    override fun read(buf: ByteBuffer): WaterInfo {
+        return WaterInfo(
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterOptionalUShort.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterSequenceTypeLatLon.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: WaterInfo) = (
+            FfiConverterLong.allocationSize(value.`osmId`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`waterType`) +
+            FfiConverterUByte.allocationSize(value.`geomType`) +
+            FfiConverterOptionalUShort.allocationSize(value.`width`) +
+            FfiConverterOptionalUInt.allocationSize(value.`refFeatureId`) +
+            FfiConverterSequenceTypeLatLon.allocationSize(value.`geometry`)
+    )
+
+    override fun write(value: WaterInfo, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`osmId`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterString.write(value.`waterType`, buf)
+            FfiConverterUByte.write(value.`geomType`, buf)
+            FfiConverterOptionalUShort.write(value.`width`, buf)
+            FfiConverterOptionalUInt.write(value.`refFeatureId`, buf)
+            FfiConverterSequenceTypeLatLon.write(value.`geometry`, buf)
+    }
+}
+
+
+
+/**
+ * A linear feature the query point is on or near — the shape of
+ * `ptiles_core::NearbyWay`. `on_it` is true within
+ * `ptiles_core::ON_WAY_THRESHOLD_M` (25 m); outside that the answer is
+ * "near", and the caller decides what to do with the distance.
+ */
+data class WayInfo (
+    /**
+     * `road`, `trail`, or `rail`.
+     */
+    var `kind`: kotlin.String, 
+    var `name`: kotlin.String?, 
+    /**
+     * Road class, trail type, or rail type.
+     */
+    var `class`: kotlin.String, 
+    var `distanceM`: kotlin.Double, 
+    var `snapped`: LatLon, 
+    var `onIt`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeWayInfo: FfiConverterRustBuffer<WayInfo> {
+    override fun read(buf: ByteBuffer): WayInfo {
+        return WayInfo(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterTypeLatLon.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: WayInfo) = (
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`class`) +
+            FfiConverterDouble.allocationSize(value.`distanceM`) +
+            FfiConverterTypeLatLon.allocationSize(value.`snapped`) +
+            FfiConverterBoolean.allocationSize(value.`onIt`)
+    )
+
+    override fun write(value: WayInfo, buf: ByteBuffer) {
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterString.write(value.`class`, buf)
+            FfiConverterDouble.write(value.`distanceM`, buf)
+            FfiConverterTypeLatLon.write(value.`snapped`, buf)
+            FfiConverterBoolean.write(value.`onIt`, buf)
     }
 }
 
@@ -3818,6 +4715,70 @@ public object FfiConverterOptionalUByte: FfiConverterRustBuffer<kotlin.UByte?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalUShort: FfiConverterRustBuffer<kotlin.UShort?> {
+    override fun read(buf: ByteBuffer): kotlin.UShort? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterUShort.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.UShort?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterUShort.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.UShort?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterUShort.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalUInt: FfiConverterRustBuffer<kotlin.UInt?> {
+    override fun read(buf: ByteBuffer): kotlin.UInt? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterUInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.UInt?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterUInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.UInt?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterUInt.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
     override fun read(buf: ByteBuffer): kotlin.ULong? {
         if (buf.get().toInt() == 0) {
@@ -3914,6 +4875,38 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeAddressLayer: FfiConverterRustBuffer<AddressLayer?> {
+    override fun read(buf: ByteBuffer): AddressLayer? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeAddressLayer.read(buf)
+    }
+
+    override fun allocationSize(value: AddressLayer?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeAddressLayer.allocationSize(value)
+        }
+    }
+
+    override fun write(value: AddressLayer?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeAddressLayer.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypePtilesLayer: FfiConverterRustBuffer<PtilesLayer?> {
     override fun read(buf: ByteBuffer): PtilesLayer? {
         if (buf.get().toInt() == 0) {
@@ -3978,6 +4971,38 @@ public object FfiConverterOptionalTypeAdminInfo: FfiConverterRustBuffer<AdminInf
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeAreaInfo: FfiConverterRustBuffer<AreaInfo?> {
+    override fun read(buf: ByteBuffer): AreaInfo? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeAreaInfo.read(buf)
+    }
+
+    override fun allocationSize(value: AreaInfo?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeAreaInfo.allocationSize(value)
+        }
+    }
+
+    override fun write(value: AreaInfo?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeAreaInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeBuildingInfo: FfiConverterRustBuffer<BuildingInfo?> {
     override fun read(buf: ByteBuffer): BuildingInfo? {
         if (buf.get().toInt() == 0) {
@@ -4000,6 +5025,38 @@ public object FfiConverterOptionalTypeBuildingInfo: FfiConverterRustBuffer<Build
         } else {
             buf.put(1)
             FfiConverterTypeBuildingInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeNearbyAddressInfo: FfiConverterRustBuffer<NearbyAddressInfo?> {
+    override fun read(buf: ByteBuffer): NearbyAddressInfo? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeNearbyAddressInfo.read(buf)
+    }
+
+    override fun allocationSize(value: NearbyAddressInfo?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeNearbyAddressInfo.allocationSize(value)
+        }
+    }
+
+    override fun write(value: NearbyAddressInfo?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeNearbyAddressInfo.write(value, buf)
         }
     }
 }
@@ -4064,6 +5121,70 @@ public object FfiConverterOptionalTypeNearestRoad: FfiConverterRustBuffer<Neares
         } else {
             buf.put(1)
             FfiConverterTypeNearestRoad.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypePointInfo: FfiConverterRustBuffer<PointInfo?> {
+    override fun read(buf: ByteBuffer): PointInfo? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePointInfo.read(buf)
+    }
+
+    override fun allocationSize(value: PointInfo?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePointInfo.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PointInfo?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePointInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeWayInfo: FfiConverterRustBuffer<WayInfo?> {
+    override fun read(buf: ByteBuffer): WayInfo? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeWayInfo.read(buf)
+    }
+
+    override fun allocationSize(value: WayInfo?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeWayInfo.allocationSize(value)
+        }
+    }
+
+    override fun write(value: WayInfo?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeWayInfo.write(value, buf)
         }
     }
 }
@@ -4214,6 +5335,62 @@ public object FfiConverterSequenceTypeLatLon: FfiConverterRustBuffer<List<LatLon
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeParkInfo: FfiConverterRustBuffer<List<ParkInfo>> {
+    override fun read(buf: ByteBuffer): List<ParkInfo> {
+        val len = buf.getInt()
+        return List<ParkInfo>(len) {
+            FfiConverterTypeParkInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ParkInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeParkInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ParkInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeParkInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeRailInfo: FfiConverterRustBuffer<List<RailInfo>> {
+    override fun read(buf: ByteBuffer): List<RailInfo> {
+        val len = buf.getInt()
+        return List<RailInfo>(len) {
+            FfiConverterTypeRailInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<RailInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeRailInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<RailInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeRailInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeRoadInfo: FfiConverterRustBuffer<List<RoadInfo>> {
     override fun read(buf: ByteBuffer): List<RoadInfo> {
         val len = buf.getInt()
@@ -4232,6 +5409,62 @@ public object FfiConverterSequenceTypeRoadInfo: FfiConverterRustBuffer<List<Road
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeRoadInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeTrailInfo: FfiConverterRustBuffer<List<TrailInfo>> {
+    override fun read(buf: ByteBuffer): List<TrailInfo> {
+        val len = buf.getInt()
+        return List<TrailInfo>(len) {
+            FfiConverterTypeTrailInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TrailInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTrailInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TrailInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTrailInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeWaterInfo: FfiConverterRustBuffer<List<WaterInfo>> {
+    override fun read(buf: ByteBuffer): List<WaterInfo> {
+        val len = buf.getInt()
+        return List<WaterInfo>(len) {
+            FfiConverterTypeWaterInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<WaterInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeWaterInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<WaterInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeWaterInfo.write(it, buf)
         }
     }
 }

@@ -7,7 +7,7 @@
 //! (`~/.hermes/plans/ptiles-client-extraction-plan.md`, Addendum 2 item 1).
 //!
 //! Modes:
-//! - one-shot: `--path <file.ptiles|https://.../file.ptiles> --lat <f64> --lon <f64> [--query road|roads|intersection|buildings|business|all] [--ring 1]`
+//! - one-shot: `--path <file.ptiles|https://.../file.ptiles> --lat <f64> --lon <f64> [--query road|roads|intersection|buildings|business|trail|trails|trailhead|park|parks|water|waters|rail|rails|station|locate|all] [--ring 1]`
 //!   Opens a single `.ptiles` file (local or remote), resolves the H3 res-7
 //!   cell for the point (plus ring-1 neighbors if `--ring 1`), decodes the
 //!   block(s) with the decoder matching the file's layer (inferred from its
@@ -15,15 +15,16 @@
 //! - `--serve --data-dir <dir>`: pre-opens every `*.ptiles` file under `dir`
 //!   (grouped by state + layer parsed from the filename), then reads JSON
 //!   lines from stdin. `--serve --remote-base <https://host/path/> --states
-//!   TN,US`: same, but for each state and each of the three queried layers
-//!   (`roads`, `buildings_v8`, `business`) opens
+//!   TN,US`: same, but for each state and each queried layer (`roads`,
+//!   `buildings_v8`, `business`, `trails`, `parks`, `water`, `rail`) opens
 //!   `<remote_base><state>.<layer>.ptiles` over HTTP instead of scanning a
 //!   local directory -- a state/layer combination that 404s or errors is
 //!   skipped (eprintln), not fatal, since not every state has every layer.
 //!   `--serve` accepts either `--data-dir` or `--remote-base` (not both).
 //!
 //!   `--serve` JSON lines:
-//!   `{"lat":..,"lon":..,"query":"building|road|roads|business|all","state":?,
+//!   `{"lat":..,"lon":..,"query":"building|road|roads|business|trail|park|
+//!   water|rail|locate|all","state":?,
 //!   "ring":0|1,"accuracy_m":?,"speed_mps":?}`.
 //!   `state` is optional; if omitted, the sole state present in the data dir
 //!   is used, or an `{"error":...}` line if more than one state is loaded.
@@ -61,7 +62,7 @@ use ptiles_core::{
     search_business_brute_force, search_business_indexed, Building, Business, BusinessHit,
     Candidate, CandidateKind, FileSource, Fix, HttpSource, PtilesFile, RoadSegment, ScoringParams,
 };
-use ptiles_core::{AddressFile, AdminFile, PtilesSource};
+use ptiles_core::{point_in_polygon, AddressFile, AdminFile, PtilesSource};
 use serde_json::{json, Value};
 
 /// USPS state/territory abbreviations + DC -- the full set `--national`
@@ -76,13 +77,17 @@ const ALL_US_STATES: &[&str] = &[
 ];
 
 /// The layer a `.ptiles` file holds, inferred from its filename
-/// (`<state>.<layer>.ptiles`). Only the three layers this CLI queries are
-/// modeled -- water/parks/rail/places files are ignored.
+/// (`<state>.<layer>.ptiles`). `places` files are still ignored -- nothing
+/// here decodes them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Layer {
     Roads,
     BuildingsV8,
     Business,
+    Trails,
+    Parks,
+    Water,
+    Rail,
 }
 
 impl Layer {
@@ -100,6 +105,10 @@ impl Layer {
             "roads" => Some(Layer::Roads),
             "buildings" => Some(Layer::BuildingsV8),
             "business" => Some(Layer::Business),
+            "trails" => Some(Layer::Trails),
+            "parks" => Some(Layer::Parks),
+            "water" => Some(Layer::Water),
+            "rail" => Some(Layer::Rail),
             _ => None,
         }
     }
@@ -109,6 +118,10 @@ impl Layer {
             Layer::Roads => "roads",
             Layer::BuildingsV8 => "buildings_v8",
             Layer::Business => "business",
+            Layer::Trails => "trails",
+            Layer::Parks => "parks",
+            Layer::Water => "water",
+            Layer::Rail => "rail",
         }
     }
 }
@@ -118,6 +131,10 @@ impl Layer {
 /// `Road` ("road") is the singular nearest-road-to-point lookup. `Roads`
 /// ("roads") is the plan-addendum bulk query: every decoded segment in the
 /// containing cell (plus ring-1 neighbors when requested).
+/// The same singular/plural rule runs through the trail/park/water/rail
+/// kinds: singular is the lookup ("which one am I on/in"), plural is every
+/// feature in the query cells. `locate` is the cross-layer answer and only
+/// means anything under `--serve`, where more than one layer is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QueryKind {
     Road,
@@ -125,6 +142,17 @@ enum QueryKind {
     Intersection,
     Buildings,
     Business,
+    Trail,
+    Trails,
+    Trailhead,
+    Park,
+    Parks,
+    Water,
+    Waters,
+    Rail,
+    Rails,
+    Station,
+    Locate,
     All,
 }
 
@@ -136,6 +164,17 @@ impl QueryKind {
             "intersection" => Some(QueryKind::Intersection),
             "building" | "buildings" => Some(QueryKind::Buildings),
             "business" => Some(QueryKind::Business),
+            "trail" => Some(QueryKind::Trail),
+            "trails" => Some(QueryKind::Trails),
+            "trailhead" => Some(QueryKind::Trailhead),
+            "park" => Some(QueryKind::Park),
+            "parks" => Some(QueryKind::Parks),
+            "water" => Some(QueryKind::Water),
+            "waters" => Some(QueryKind::Waters),
+            "rail" => Some(QueryKind::Rail),
+            "rails" => Some(QueryKind::Rails),
+            "station" => Some(QueryKind::Station),
+            "locate" => Some(QueryKind::Locate),
             "all" => Some(QueryKind::All),
             _ => None,
         }
@@ -147,6 +186,13 @@ impl QueryKind {
             QueryKind::Road | QueryKind::Roads | QueryKind::Intersection => layer == Layer::Roads,
             QueryKind::Buildings => layer == Layer::BuildingsV8,
             QueryKind::Business => layer == Layer::Business,
+            QueryKind::Trail | QueryKind::Trails | QueryKind::Trailhead => layer == Layer::Trails,
+            QueryKind::Park | QueryKind::Parks => layer == Layer::Parks,
+            QueryKind::Water | QueryKind::Waters => layer == Layer::Water,
+            QueryKind::Rail | QueryKind::Rails | QueryKind::Station => layer == Layer::Rail,
+            // Cross-layer: roads and trails together, plus whatever else the
+            // state has open. Never satisfied by a single layer.
+            QueryKind::Locate => matches!(layer, Layer::Roads | Layer::Trails),
         }
     }
 }
@@ -272,7 +318,7 @@ fn main() {
         Some(s) => match QueryKind::parse(s) {
             Some(q) => q,
             None => {
-                eprintln!("ptiles-cli: unknown --query {s:?} (expected road|roads|intersection|buildings|business|all)");
+                eprintln!("ptiles-cli: unknown --query {s:?} (expected road|roads|intersection|buildings|business|trail|trails|trailhead|park|parks|water|waters|rail|rails|station|locate|all)");
                 std::process::exit(2);
             }
         },
@@ -499,6 +545,16 @@ impl AnyFile {
         }
     }
 
+    /// One cell's record bytes -- `read_block` for a v1 layer, the sliced-out
+    /// cell for a v2 (merged-block) one. Errors and misses both read as "no
+    /// records here", same as `OpenedLayer::read_block`.
+    fn read_cell(&self, cell: u64) -> Option<Vec<u8>> {
+        match self {
+            AnyFile::File(f) => f.read_cell(cell).ok().flatten(),
+            AnyFile::Http(f) => f.read_cell(cell).ok().flatten(),
+        }
+    }
+
     /// Header schema version — `decode_road_block` needs it to know whether a
     /// trailing intersection table is present (v2+).
     fn version(&self) -> u8 {
@@ -613,6 +669,11 @@ impl OpenedLayer {
                     }
                 }
             }
+            // `score_candidates` ranks roads, buildings and businesses only --
+            // a trail or a lake is not a thing a GPS fix "is at" in the sense
+            // the scorer means, so these layers contribute nothing here. They
+            // answer through `query` / `locate` instead.
+            Layer::Trails | Layer::Parks | Layer::Water | Layer::Rail => {}
         }
         (roads, buildings, businesses)
     }
@@ -704,18 +765,122 @@ impl OpenedLayer {
                     .collect();
                 json!({"business": nearby, "candidate_count": businesses.len()})
             }
+            Layer::Trails => {
+                let trails = match self.decode_all(&cells, ptiles_core::decode_trails) {
+                    Ok(t) => t,
+                    Err(e) => return json!({"error": format!("decode_trails: {e}")}),
+                };
+                match query_kind {
+                    QueryKind::Trails => {
+                        let all: Vec<Value> = trails.iter().map(trail_json).collect();
+                        json!({"trails": all, "candidate_count": trails.len()})
+                    }
+                    QueryKind::Trailhead => {
+                        let head = ptiles_core::nearest_trailhead(lat, lon, &trails);
+                        json!({
+                            "nearest_trailhead": head.as_ref().map(point_json),
+                            "candidate_count": trails.len(),
+                        })
+                    }
+                    _ => {
+                        let trail = ptiles_core::nearest_trail(lat, lon, &trails);
+                        json!({
+                            "nearest_trail": trail.as_ref().map(way_json),
+                            "candidate_count": trails.len(),
+                        })
+                    }
+                }
+            }
+            Layer::Parks => {
+                let parks = match self.decode_all(&cells, ptiles_core::decode_parks) {
+                    Ok(p) => p,
+                    Err(e) => return json!({"error": format!("decode_parks: {e}")}),
+                };
+                if query_kind == QueryKind::Parks {
+                    let all: Vec<Value> = parks.iter().map(park_json).collect();
+                    return json!({"parks": all, "candidate_count": parks.len()});
+                }
+                let park = ptiles_core::park_at(lat, lon, &parks);
+                json!({
+                    "park": park.as_ref().map(area_json),
+                    "candidate_count": parks.len(),
+                })
+            }
+            Layer::Water => {
+                let water = match self.decode_all(&cells, ptiles_core::decode_water) {
+                    Ok(w) => w,
+                    Err(e) => return json!({"error": format!("decode_water: {e}")}),
+                };
+                if query_kind == QueryKind::Waters {
+                    let all: Vec<Value> = water.iter().map(water_json).collect();
+                    return json!({"water_features": all, "candidate_count": water.len()});
+                }
+                let at = ptiles_core::water_at(lat, lon, &water);
+                json!({
+                    "water": at.as_ref().map(area_json),
+                    "candidate_count": water.len(),
+                })
+            }
+            Layer::Rail => {
+                let rail = match self.decode_all(&cells, ptiles_core::decode_rail) {
+                    Ok(r) => r,
+                    Err(e) => return json!({"error": format!("decode_rail: {e}")}),
+                };
+                match query_kind {
+                    QueryKind::Rails => {
+                        let all: Vec<Value> = rail.iter().map(rail_json).collect();
+                        json!({"rail": all, "candidate_count": rail.len()})
+                    }
+                    QueryKind::Station => {
+                        let station = ptiles_core::nearest_station(lat, lon, &rail);
+                        json!({
+                            "nearest_station": station.as_ref().map(point_json),
+                            "candidate_count": rail.len(),
+                        })
+                    }
+                    _ => {
+                        let track = ptiles_core::nearest_rail(lat, lon, &rail);
+                        json!({
+                            "nearest_rail": track.as_ref().map(way_json),
+                            "candidate_count": rail.len(),
+                        })
+                    }
+                }
+            }
         }
+    }
+
+    /// Decode every block for `cells` with `decode`, concatenated. The
+    /// trails/parks/water/rail decoders need neither the header version nor
+    /// the cell (unlike roads v2 and business v4), so one helper serves all
+    /// four.
+    /// These layers ship with a 38-byte index, so one compressed block holds
+    /// several cells behind a table; `read_cell` slices the requested one out
+    /// (feeding a whole merged block to a record decoder yields garbage
+    /// records, not an error -- see `core::merged`).
+    fn decode_all<T>(
+        &self,
+        cells: &[u64],
+        decode: fn(&[u8]) -> Result<Vec<T>, ptiles_core::DecodeError>,
+    ) -> Result<Vec<T>, ptiles_core::DecodeError> {
+        let mut out = Vec::new();
+        for &cell in cells {
+            let Some(records) = self.file.read_cell(cell) else {
+                continue;
+            };
+            out.append(&mut decode(&records)?);
+        }
+        Ok(out)
     }
 }
 
 /// Find the building whose polygon contains `(lat, lon)`, falling back to
-/// the nearest centroid within 50 m if none contains it. Point-in-polygon
-/// (ray casting over `coords`, which are `[lon, lat]` pairs) and the
-/// fallback distance search are CLI-local -- core has no polygon-containment
-/// helper (out of scope per the plan; buildings.rs only decodes geometry).
+/// the nearest centroid within 50 m if none contains it. Containment comes
+/// from `ptiles_core::point_in_polygon`, which the park/water lookups also
+/// use -- it lived here as a private copy until those needed it too.
 fn find_building(lat: f64, lon: f64, buildings: &[Building]) -> Option<&Building> {
     for b in buildings {
-        if point_in_polygon(lon, lat, &b.coords) {
+        if point_in_polygon(lat, lon, &b.coords) {
             return Some(b);
         }
     }
@@ -725,24 +890,6 @@ fn find_building(lat: f64, lon: f64, buildings: &[Building]) -> Option<&Building
         .filter(|(_, d)| *d <= 50.0)
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(b, _)| b)
-}
-
-fn point_in_polygon(x: f64, y: f64, coords: &[[f64; 2]]) -> bool {
-    if coords.len() < 3 {
-        return false;
-    }
-    let mut inside = false;
-    let n = coords.len();
-    let mut j = n - 1;
-    for i in 0..n {
-        let (xi, yi) = (coords[i][0], coords[i][1]);
-        let (xj, yj) = (coords[j][0], coords[j][1]);
-        if ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
 }
 
 /// `{STATE}.business_name_index.ptiles` sidecar location, local or remote --
@@ -939,6 +1086,88 @@ fn building_json(b: &Building) -> Value {
     })
 }
 
+fn way_json(w: &ptiles_core::NearbyWay) -> Value {
+    json!({
+        "kind": w.kind,
+        "name": w.name,
+        "class": w.class,
+        "distance_m": w.distance_m,
+        "snapped": [w.snapped.0, w.snapped.1],
+        "on_it": w.on_it,
+    })
+}
+
+fn area_json(a: &ptiles_core::NearbyArea) -> Value {
+    json!({
+        "kind": a.kind,
+        "name": a.name,
+        "class": a.class,
+        "distance_m": a.distance_m,
+        "inside": a.inside,
+    })
+}
+
+fn point_json(p: &ptiles_core::NearbyPoint) -> Value {
+    json!({
+        "kind": p.kind,
+        "name": p.name,
+        "class": p.class,
+        "lat": p.lat,
+        "lon": p.lon,
+        "distance_m": p.distance_m,
+    })
+}
+
+/// `[lon, lat]` decoder order flipped to the `[lat, lon]` this CLI emits
+/// everywhere -- same convention as `road_segment_json`'s geometry.
+fn geometry_json(coords: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    coords.iter().map(|c| [c[1], c[0]]).collect()
+}
+
+fn trail_json(t: &ptiles_core::TrailFeature) -> Value {
+    json!({
+        "osm_id": t.osm_id,
+        "name": t.name,
+        "trail_type": t.trail_type,
+        "geom_type": t.geom_type,
+        "surface": t.surface,
+        "sac_scale": t.sac_scale,
+        "developed": ptiles_core::trail_is_developed(&t.trail_type),
+        "geometry": geometry_json(&t.coords),
+    })
+}
+
+fn park_json(p: &ptiles_core::ParkFeature) -> Value {
+    json!({
+        "osm_id": p.osm_id,
+        "name": p.name,
+        "park_type": p.park_type,
+        "geometry": geometry_json(&p.coords),
+    })
+}
+
+fn water_json(w: &ptiles_core::WaterFeature) -> Value {
+    json!({
+        "osm_id": w.osm_id,
+        "name": w.name,
+        "water_type": w.water_type,
+        "geom_type": w.geom_type,
+        "width": w.width,
+        "ref_feature_id": w.ref_feature_id,
+        "geometry": geometry_json(&w.coords),
+    })
+}
+
+fn rail_json(r: &ptiles_core::RailFeature) -> Value {
+    json!({
+        "osm_id": r.osm_id,
+        "name": r.name,
+        "rail_type": r.rail_type,
+        "geom_type": r.geom_type,
+        "geometry": geometry_json(&r.coords),
+    })
+}
+
 fn business_hit_json(h: &BusinessHit) -> Value {
     json!({
         "name": h.name,
@@ -968,15 +1197,52 @@ fn business_json(b: &Business) -> Value {
 // --- --serve mode ---------------------------------------------------------
 
 /// One state's set of opened layer files (only the layers this CLI queries).
+#[derive(Default)]
 struct StateFiles {
     roads: Option<OpenedLayer>,
     buildings: Option<OpenedLayer>,
     business: Option<OpenedLayer>,
+    trails: Option<OpenedLayer>,
+    parks: Option<OpenedLayer>,
+    water: Option<OpenedLayer>,
+    rail: Option<OpenedLayer>,
     /// `business_name_index.ptiles` sidecar, when present. Not an
-    /// `OpenedLayer` -- it's not one of the three `Layer` variants (a
-    /// different index shape, see `core::business_search`), so it's stored
-    /// as a bare `AnyFile` and searched via `AnyFile::search_business`.
+    /// `OpenedLayer` -- it's not one of the `Layer` variants (a different
+    /// index shape, see `core::business_search`), so it's stored as a bare
+    /// `AnyFile` and searched via `AnyFile::search_business`.
     name_index: Option<AnyFile>,
+}
+
+impl StateFiles {
+    fn set(&mut self, layer: Layer, opened: OpenedLayer) {
+        let slot = match layer {
+            Layer::Roads => &mut self.roads,
+            Layer::BuildingsV8 => &mut self.buildings,
+            Layer::Business => &mut self.business,
+            Layer::Trails => &mut self.trails,
+            Layer::Parks => &mut self.parks,
+            Layer::Water => &mut self.water,
+            Layer::Rail => &mut self.rail,
+        };
+        *slot = Some(opened);
+    }
+
+    /// The decoded features `locate` needs from a layer this state may not
+    /// have. A missing file is not an error: it just contributes nothing.
+    fn decode_from<T>(
+        layer: &Option<OpenedLayer>,
+        lat: f64,
+        lon: f64,
+        ring: u32,
+        decode: fn(&[u8]) -> Result<Vec<T>, ptiles_core::DecodeError>,
+    ) -> Vec<T> {
+        match layer {
+            Some(l) => l
+                .decode_all(&l.cells_for(lat, lon, ring), decode)
+                .unwrap_or_default(),
+            None => Vec::new(),
+        }
+    }
 }
 
 fn run_serve(data_dir: &Path) {
@@ -1008,12 +1274,7 @@ fn run_serve(data_dir: &Path) {
                 Ok(file) => {
                     states
                         .entry(state.to_string())
-                        .or_insert_with(|| StateFiles {
-                            roads: None,
-                            buildings: None,
-                            business: None,
-                            name_index: None,
-                        })
+                        .or_default()
                         .name_index = Some(file);
                 }
                 Err(e) => eprintln!("ptiles-cli --serve: skipping {path:?}: {e}"),
@@ -1031,17 +1292,10 @@ fn run_serve(data_dir: &Path) {
                 continue;
             }
         };
-        let entry = states.entry(state.to_string()).or_insert_with(|| StateFiles {
-            roads: None,
-            buildings: None,
-            business: None,
-            name_index: None,
-        });
-        match layer {
-            Layer::Roads => entry.roads = Some(opened),
-            Layer::BuildingsV8 => entry.buildings = Some(opened),
-            Layer::Business => entry.business = Some(opened),
-        }
+        states
+            .entry(state.to_string())
+            .or_default()
+            .set(layer, opened);
     }
 
     eprintln!(
@@ -1068,15 +1322,19 @@ fn run_serve_remote(remote_base: &str, states_csv: &str) {
     let mut states: HashMap<String, StateFiles> = HashMap::new();
 
     for state in states_csv.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        let mut entry = StateFiles { roads: None, buildings: None, business: None, name_index: None };
-        for layer in [Layer::Roads, Layer::BuildingsV8, Layer::Business] {
+        let mut entry = StateFiles::default();
+        for layer in [
+            Layer::Roads,
+            Layer::BuildingsV8,
+            Layer::Business,
+            Layer::Trails,
+            Layer::Parks,
+            Layer::Water,
+            Layer::Rail,
+        ] {
             let url = format!("{base}{state}.{}.ptiles", layer.as_str());
             match OpenedLayer::open(&url, layer) {
-                Ok(opened) => match layer {
-                    Layer::Roads => entry.roads = Some(opened),
-                    Layer::BuildingsV8 => entry.buildings = Some(opened),
-                    Layer::Business => entry.business = Some(opened),
-                },
+                Ok(opened) => entry.set(layer, opened),
                 Err(e) => {
                     eprintln!("ptiles-cli --serve --remote-base: skipping {url}: {e}");
                 }
@@ -1228,6 +1486,50 @@ fn handle_serve_line(line: &str, states: &HashMap<String, StateFiles>) -> Value 
         }
     };
 
+    // Cross-layer reverse geocode: roads and trails compete on distance
+    // alone (see `core::locate`), and the park/water the point falls in are
+    // reported alongside. No address layer is opened by `--serve`, so the
+    // address slot of `core::locate` stays empty here; `--query address`
+    // against an address file answers that.
+    if query_kind == QueryKind::Locate {
+        let roads = StateFiles::decode_from(&state_files.roads, lat, lon, ring, decode_roads);
+        let trails =
+            StateFiles::decode_from(&state_files.trails, lat, lon, ring, ptiles_core::decode_trails);
+        let parks =
+            StateFiles::decode_from(&state_files.parks, lat, lon, ring, ptiles_core::decode_parks);
+        let water =
+            StateFiles::decode_from(&state_files.water, lat, lon, ring, ptiles_core::decode_water);
+        let located = ptiles_core::locate(lat, lon, &roads, &trails, &[]);
+        return json!({
+            "nearest_way": located.nearest_way.as_ref().map(way_json),
+            "on_way": located.on_way.as_ref().map(way_json),
+            "park": ptiles_core::park_at(lat, lon, &parks).as_ref().map(area_json),
+            "water": ptiles_core::water_at(lat, lon, &water).as_ref().map(area_json),
+        });
+    }
+
+    // Single-layer queries against the layers `--serve` opens beyond the
+    // scoring three. Answered by the same `OpenedLayer::query` the one-shot
+    // path uses, so the two cannot drift; a state missing that file says so
+    // rather than silently answering with a different layer's shape.
+    let single = match query_kind {
+        QueryKind::Trail | QueryKind::Trails | QueryKind::Trailhead => {
+            Some((Layer::Trails, &state_files.trails))
+        }
+        QueryKind::Park | QueryKind::Parks => Some((Layer::Parks, &state_files.parks)),
+        QueryKind::Water | QueryKind::Waters => Some((Layer::Water, &state_files.water)),
+        QueryKind::Rail | QueryKind::Rails | QueryKind::Station => {
+            Some((Layer::Rail, &state_files.rail))
+        }
+        _ => None,
+    };
+    if let Some((kind, slot)) = single {
+        return match slot {
+            Some(layer) => layer.query(lat, lon, ring, query_kind),
+            None => json!({"error": format!("no {} layer loaded for this state", kind.as_str())}),
+        };
+    }
+
     let mut building: Value = Value::Null;
     let mut nearest_road: Value = Value::Null;
     let mut roads_list: Value = Value::Null;
@@ -1337,6 +1639,27 @@ mod tests {
         assert!(QueryKind::Buildings.wants(Layer::BuildingsV8));
         assert!(QueryKind::Business.wants(Layer::Business));
         assert!(!QueryKind::Business.wants(Layer::BuildingsV8));
+        // Singular is the lookup, plural is the listing -- both against the
+        // same layer, and never against another one.
+        for (kind, layer) in [
+            (QueryKind::Trail, Layer::Trails),
+            (QueryKind::Trails, Layer::Trails),
+            (QueryKind::Trailhead, Layer::Trails),
+            (QueryKind::Park, Layer::Parks),
+            (QueryKind::Parks, Layer::Parks),
+            (QueryKind::Water, Layer::Water),
+            (QueryKind::Waters, Layer::Water),
+            (QueryKind::Rail, Layer::Rail),
+            (QueryKind::Rails, Layer::Rail),
+            (QueryKind::Station, Layer::Rail),
+        ] {
+            assert!(kind.wants(layer), "{kind:?} should want {layer:?}");
+            assert!(!kind.wants(Layer::Business), "{kind:?} must not want business");
+        }
+        // `locate` is cross-layer: roads and trails feed it, nothing else.
+        assert!(QueryKind::Locate.wants(Layer::Roads));
+        assert!(QueryKind::Locate.wants(Layer::Trails));
+        assert!(!QueryKind::Locate.wants(Layer::Parks));
     }
 
     #[test]
@@ -1344,11 +1667,25 @@ mod tests {
         assert_eq!(Layer::from_filename_token("roads"), Some(Layer::Roads));
         assert_eq!(Layer::from_filename_token("buildings_v8"), Some(Layer::BuildingsV8));
         assert_eq!(Layer::from_filename_token("business"), Some(Layer::Business));
-        assert_eq!(Layer::from_filename_token("water"), None);
+        assert_eq!(Layer::from_filename_token("water"), Some(Layer::Water));
+        assert_eq!(Layer::from_filename_token("trails_v1"), Some(Layer::Trails));
+        assert_eq!(Layer::from_filename_token("places"), None);
         assert_eq!(Layer::from_filename_token("business_name_index"), None);
         assert_eq!(Layer::Roads.as_str(), "roads");
         assert_eq!(Layer::BuildingsV8.as_str(), "buildings_v8");
         assert_eq!(Layer::Business.as_str(), "business");
+        // `as_str` is what `--serve --remote-base` builds URLs from, so each
+        // variant must round-trip back to itself.
+        for layer in [
+            Layer::Roads,
+            Layer::Business,
+            Layer::Trails,
+            Layer::Parks,
+            Layer::Water,
+            Layer::Rail,
+        ] {
+            assert_eq!(Layer::from_filename_token(layer.as_str()), Some(layer));
+        }
     }
 
     #[test]
@@ -1370,8 +1707,9 @@ mod tests {
             layer_from_path("/data/TN.buildings_v9.ptiles"),
             Some(Layer::BuildingsV8)
         );
-        assert_eq!(layer_from_path("/data/TN.water_v1.ptiles"), None);
-        assert_eq!(layer_from_path("/data/TN.water.ptiles"), None);
+        assert_eq!(layer_from_path("/data/TN.water_v1.ptiles"), Some(Layer::Water));
+        assert_eq!(layer_from_path("/data/TN.water.ptiles"), Some(Layer::Water));
+        assert_eq!(layer_from_path("/data/TN.places.ptiles"), None);
         assert_eq!(layer_from_path("/data/noextension"), None);
     }
 

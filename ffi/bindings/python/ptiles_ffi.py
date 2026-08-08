@@ -488,15 +488,37 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at() != 64541:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_rail() != 62426:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road() != 49038:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at() != 15623:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_station() != 23047:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trail() != 11510:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trailhead() != 12821:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_park_at() != 52943:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_parks() != 30052:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox() != 43698:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_rail() != 62946:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads() != 36266:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business() != 23326:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_trails() != 45930:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water() != 13473:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at() != 24453:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -506,7 +528,9 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 23503:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 62815:
+    if lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 38860:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 1730:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
 
 # A ctypes library to expose the extern-C FFI definitions.
@@ -743,6 +767,14 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at.argt
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_rail.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_rail.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road.argtypes = (
     ctypes.c_void_p,
     ctypes.c_double,
@@ -757,6 +789,46 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_station.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_station.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trail.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trail.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trailhead.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trailhead.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_park_at.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_park_at.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_parks.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_parks.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox.argtypes = (
     ctypes.c_void_p,
     ctypes.c_double,
@@ -766,6 +838,14 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox.restype = ctypes.c_uint32
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_rail.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_rail.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_roads.argtypes = (
     ctypes.c_void_p,
     ctypes.c_double,
@@ -781,6 +861,30 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_search_business.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_search_business.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_trails.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_trails.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_water.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_water.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_water_at.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_water_at.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_clone_ptilesstack.argtypes = (
     ctypes.c_void_p,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -798,6 +902,25 @@ _UniffiLib.uniffi_ptiles_ffi_fn_constructor_ptilesstack_new.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_constructor_ptilesstack_new.restype = ctypes.c_void_p
+_UniffiLib.uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers.restype = ctypes.c_void_p
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_locate.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_locate.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_score.argtypes = (
     ctypes.c_void_p,
     _UniffiRustBuffer,
@@ -1125,21 +1248,54 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection.re
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_rail.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_rail.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_station.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_station.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trail.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trail.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trailhead.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trailhead.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_park_at.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_park_at.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_parks.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_parks.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_rail.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_rail.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_trails.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_trails.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score.restype = ctypes.c_uint16
@@ -1155,6 +1311,9 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open.restype = cty
 _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers.restype = ctypes.c_uint16
 _UniffiLib.ffi_ptiles_ffi_uniffi_contract_version.argtypes = (
 )
 _UniffiLib.ffi_ptiles_ffi_uniffi_contract_version.restype = ctypes.c_uint32
@@ -1177,6 +1336,19 @@ class _UniffiConverterUInt8(_UniffiConverterPrimitiveInt):
     @staticmethod
     def write(value, buf):
         buf.write_u8(value)
+
+class _UniffiConverterUInt16(_UniffiConverterPrimitiveInt):
+    CLASS_NAME = "u16"
+    VALUE_MIN = 0
+    VALUE_MAX = 2**16
+
+    @staticmethod
+    def read(buf):
+        return buf.read_u16()
+
+    @staticmethod
+    def write(value, buf):
+        buf.write_u16(value)
 
 class _UniffiConverterUInt32(_UniffiConverterPrimitiveInt):
     CLASS_NAME = "u32"
@@ -1401,6 +1573,72 @@ class _UniffiConverterTypeAdminInfo(_UniffiConverterRustBuffer):
         _UniffiConverterString.write(value.zip, buf)
         _UniffiConverterString.write(value.timezone, buf)
         _UniffiConverterUInt8.write(value.boundary_flags, buf)
+
+
+class AreaInfo:
+    """
+    An area the query point is in or near (`ptiles_core::NearbyArea`).
+    `distance_m` is 0 when `inside`, else the distance to the boundary.
+    """
+
+    kind: "str"
+    """
+    `park` or `water`.
+    """
+
+    name: "typing.Optional[str]"
+    _class: "str"
+    distance_m: "float"
+    inside: "bool"
+    def __init__(self, *, kind: "str", name: "typing.Optional[str]", _class: "str", distance_m: "float", inside: "bool"):
+        self.kind = kind
+        self.name = name
+        self._class = _class
+        self.distance_m = distance_m
+        self.inside = inside
+
+    def __str__(self):
+        return "AreaInfo(kind={}, name={}, _class={}, distance_m={}, inside={})".format(self.kind, self.name, self._class, self.distance_m, self.inside)
+
+    def __eq__(self, other):
+        if self.kind != other.kind:
+            return False
+        if self.name != other.name:
+            return False
+        if self._class != other._class:
+            return False
+        if self.distance_m != other.distance_m:
+            return False
+        if self.inside != other.inside:
+            return False
+        return True
+
+class _UniffiConverterTypeAreaInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return AreaInfo(
+            kind=_UniffiConverterString.read(buf),
+            name=_UniffiConverterOptionalString.read(buf),
+            _class=_UniffiConverterString.read(buf),
+            distance_m=_UniffiConverterDouble.read(buf),
+            inside=_UniffiConverterBool.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterString.check_lower(value.kind)
+        _UniffiConverterOptionalString.check_lower(value.name)
+        _UniffiConverterString.check_lower(value._class)
+        _UniffiConverterDouble.check_lower(value.distance_m)
+        _UniffiConverterBool.check_lower(value.inside)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterString.write(value.kind, buf)
+        _UniffiConverterOptionalString.write(value.name, buf)
+        _UniffiConverterString.write(value._class, buf)
+        _UniffiConverterDouble.write(value.distance_m, buf)
+        _UniffiConverterBool.write(value.inside, buf)
 
 
 class BuildingInfo:
@@ -1939,6 +2177,155 @@ class _UniffiConverterTypeLayerMetadata(_UniffiConverterRustBuffer):
         _UniffiConverterOptionalString.write(value.etag, buf)
 
 
+class LocatedInfo:
+    """
+    What is at a point, across whichever layers a [`PtilesStack`] holds —
+    `ptiles_core::Located` plus the area and point answers the trail/park/
+    water/rail layers contribute.
+    """
+
+    nearest_way: "typing.Optional[WayInfo]"
+    """
+    Nearest road/trail/rail way, whether or not you are on it.
+    """
+
+    on_way: "typing.Optional[WayInfo]"
+    """
+    The way you are actually on, within 25 m. When set, the same feature
+    as `nearest_way`.
+    """
+
+    address: "typing.Optional[NearbyAddressInfo]"
+    """
+    Nearest address within `ptiles_core::ADDRESS_THRESHOLD_M` (150 m).
+    """
+
+    park: "typing.Optional[AreaInfo]"
+    """
+    The park you are in, else the nearest one.
+    """
+
+    water: "typing.Optional[AreaInfo]"
+    """
+    The water body you are in, else the nearest.
+    """
+
+    def __init__(self, *, nearest_way: "typing.Optional[WayInfo]", on_way: "typing.Optional[WayInfo]", address: "typing.Optional[NearbyAddressInfo]", park: "typing.Optional[AreaInfo]", water: "typing.Optional[AreaInfo]"):
+        self.nearest_way = nearest_way
+        self.on_way = on_way
+        self.address = address
+        self.park = park
+        self.water = water
+
+    def __str__(self):
+        return "LocatedInfo(nearest_way={}, on_way={}, address={}, park={}, water={})".format(self.nearest_way, self.on_way, self.address, self.park, self.water)
+
+    def __eq__(self, other):
+        if self.nearest_way != other.nearest_way:
+            return False
+        if self.on_way != other.on_way:
+            return False
+        if self.address != other.address:
+            return False
+        if self.park != other.park:
+            return False
+        if self.water != other.water:
+            return False
+        return True
+
+class _UniffiConverterTypeLocatedInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return LocatedInfo(
+            nearest_way=_UniffiConverterOptionalTypeWayInfo.read(buf),
+            on_way=_UniffiConverterOptionalTypeWayInfo.read(buf),
+            address=_UniffiConverterOptionalTypeNearbyAddressInfo.read(buf),
+            park=_UniffiConverterOptionalTypeAreaInfo.read(buf),
+            water=_UniffiConverterOptionalTypeAreaInfo.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterOptionalTypeWayInfo.check_lower(value.nearest_way)
+        _UniffiConverterOptionalTypeWayInfo.check_lower(value.on_way)
+        _UniffiConverterOptionalTypeNearbyAddressInfo.check_lower(value.address)
+        _UniffiConverterOptionalTypeAreaInfo.check_lower(value.park)
+        _UniffiConverterOptionalTypeAreaInfo.check_lower(value.water)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterOptionalTypeWayInfo.write(value.nearest_way, buf)
+        _UniffiConverterOptionalTypeWayInfo.write(value.on_way, buf)
+        _UniffiConverterOptionalTypeNearbyAddressInfo.write(value.address, buf)
+        _UniffiConverterOptionalTypeAreaInfo.write(value.park, buf)
+        _UniffiConverterOptionalTypeAreaInfo.write(value.water, buf)
+
+
+class NearbyAddressInfo:
+    """
+    An address near the query point, with where it is and how far.
+
+    Distinct from [`AddressRecord`], which carries no position: v1 address
+    files store none, and only v2 records can be measured against a point at
+    all (see `core::locate::nearest_address`).
+    """
+
+    osm_id: "int"
+    housenumber: "str"
+    street: "str"
+    location: "LatLon"
+    distance_m: "float"
+    def __init__(self, *, osm_id: "int", housenumber: "str", street: "str", location: "LatLon", distance_m: "float"):
+        self.osm_id = osm_id
+        self.housenumber = housenumber
+        self.street = street
+        self.location = location
+        self.distance_m = distance_m
+
+    def __str__(self):
+        return "NearbyAddressInfo(osm_id={}, housenumber={}, street={}, location={}, distance_m={})".format(self.osm_id, self.housenumber, self.street, self.location, self.distance_m)
+
+    def __eq__(self, other):
+        if self.osm_id != other.osm_id:
+            return False
+        if self.housenumber != other.housenumber:
+            return False
+        if self.street != other.street:
+            return False
+        if self.location != other.location:
+            return False
+        if self.distance_m != other.distance_m:
+            return False
+        return True
+
+class _UniffiConverterTypeNearbyAddressInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return NearbyAddressInfo(
+            osm_id=_UniffiConverterInt64.read(buf),
+            housenumber=_UniffiConverterString.read(buf),
+            street=_UniffiConverterString.read(buf),
+            location=_UniffiConverterTypeLatLon.read(buf),
+            distance_m=_UniffiConverterDouble.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterInt64.check_lower(value.osm_id)
+        _UniffiConverterString.check_lower(value.housenumber)
+        _UniffiConverterString.check_lower(value.street)
+        _UniffiConverterTypeLatLon.check_lower(value.location)
+        _UniffiConverterDouble.check_lower(value.distance_m)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterInt64.write(value.osm_id, buf)
+        _UniffiConverterString.write(value.housenumber, buf)
+        _UniffiConverterString.write(value.street, buf)
+        _UniffiConverterTypeLatLon.write(value.location, buf)
+        _UniffiConverterDouble.write(value.distance_m, buf)
+
+
 class NearestIntersection:
     """
     Nearest labeled intersection to a query point (the "am I at an
@@ -2068,6 +2455,184 @@ class _UniffiConverterTypeNearestRoad(_UniffiConverterRustBuffer):
         _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
 
 
+class ParkInfo:
+    osm_id: "int"
+    name: "typing.Optional[str]"
+    park_type: "str"
+    geometry: "typing.List[LatLon]"
+    def __init__(self, *, osm_id: "int", name: "typing.Optional[str]", park_type: "str", geometry: "typing.List[LatLon]"):
+        self.osm_id = osm_id
+        self.name = name
+        self.park_type = park_type
+        self.geometry = geometry
+
+    def __str__(self):
+        return "ParkInfo(osm_id={}, name={}, park_type={}, geometry={})".format(self.osm_id, self.name, self.park_type, self.geometry)
+
+    def __eq__(self, other):
+        if self.osm_id != other.osm_id:
+            return False
+        if self.name != other.name:
+            return False
+        if self.park_type != other.park_type:
+            return False
+        if self.geometry != other.geometry:
+            return False
+        return True
+
+class _UniffiConverterTypeParkInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return ParkInfo(
+            osm_id=_UniffiConverterInt64.read(buf),
+            name=_UniffiConverterOptionalString.read(buf),
+            park_type=_UniffiConverterString.read(buf),
+            geometry=_UniffiConverterSequenceTypeLatLon.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterInt64.check_lower(value.osm_id)
+        _UniffiConverterOptionalString.check_lower(value.name)
+        _UniffiConverterString.check_lower(value.park_type)
+        _UniffiConverterSequenceTypeLatLon.check_lower(value.geometry)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterInt64.write(value.osm_id, buf)
+        _UniffiConverterOptionalString.write(value.name, buf)
+        _UniffiConverterString.write(value.park_type, buf)
+        _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
+
+
+class PointInfo:
+    """
+    A point feature near the query point — a trailhead or a station
+    (`ptiles_core::NearbyPoint`). These are exactly what the linear lookups
+    skip, since a point has no centreline to be on.
+    """
+
+    kind: "str"
+    """
+    `trailhead` or `station`.
+    """
+
+    name: "typing.Optional[str]"
+    _class: "str"
+    location: "LatLon"
+    distance_m: "float"
+    def __init__(self, *, kind: "str", name: "typing.Optional[str]", _class: "str", location: "LatLon", distance_m: "float"):
+        self.kind = kind
+        self.name = name
+        self._class = _class
+        self.location = location
+        self.distance_m = distance_m
+
+    def __str__(self):
+        return "PointInfo(kind={}, name={}, _class={}, location={}, distance_m={})".format(self.kind, self.name, self._class, self.location, self.distance_m)
+
+    def __eq__(self, other):
+        if self.kind != other.kind:
+            return False
+        if self.name != other.name:
+            return False
+        if self._class != other._class:
+            return False
+        if self.location != other.location:
+            return False
+        if self.distance_m != other.distance_m:
+            return False
+        return True
+
+class _UniffiConverterTypePointInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return PointInfo(
+            kind=_UniffiConverterString.read(buf),
+            name=_UniffiConverterOptionalString.read(buf),
+            _class=_UniffiConverterString.read(buf),
+            location=_UniffiConverterTypeLatLon.read(buf),
+            distance_m=_UniffiConverterDouble.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterString.check_lower(value.kind)
+        _UniffiConverterOptionalString.check_lower(value.name)
+        _UniffiConverterString.check_lower(value._class)
+        _UniffiConverterTypeLatLon.check_lower(value.location)
+        _UniffiConverterDouble.check_lower(value.distance_m)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterString.write(value.kind, buf)
+        _UniffiConverterOptionalString.write(value.name, buf)
+        _UniffiConverterString.write(value._class, buf)
+        _UniffiConverterTypeLatLon.write(value.location, buf)
+        _UniffiConverterDouble.write(value.distance_m, buf)
+
+
+class RailInfo:
+    """
+    One decoded rail feature. `geom_type`: 0 = track, 1 = station/halt point.
+    """
+
+    osm_id: "int"
+    name: "typing.Optional[str]"
+    rail_type: "str"
+    geom_type: "int"
+    geometry: "typing.List[LatLon]"
+    def __init__(self, *, osm_id: "int", name: "typing.Optional[str]", rail_type: "str", geom_type: "int", geometry: "typing.List[LatLon]"):
+        self.osm_id = osm_id
+        self.name = name
+        self.rail_type = rail_type
+        self.geom_type = geom_type
+        self.geometry = geometry
+
+    def __str__(self):
+        return "RailInfo(osm_id={}, name={}, rail_type={}, geom_type={}, geometry={})".format(self.osm_id, self.name, self.rail_type, self.geom_type, self.geometry)
+
+    def __eq__(self, other):
+        if self.osm_id != other.osm_id:
+            return False
+        if self.name != other.name:
+            return False
+        if self.rail_type != other.rail_type:
+            return False
+        if self.geom_type != other.geom_type:
+            return False
+        if self.geometry != other.geometry:
+            return False
+        return True
+
+class _UniffiConverterTypeRailInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return RailInfo(
+            osm_id=_UniffiConverterInt64.read(buf),
+            name=_UniffiConverterOptionalString.read(buf),
+            rail_type=_UniffiConverterString.read(buf),
+            geom_type=_UniffiConverterUInt8.read(buf),
+            geometry=_UniffiConverterSequenceTypeLatLon.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterInt64.check_lower(value.osm_id)
+        _UniffiConverterOptionalString.check_lower(value.name)
+        _UniffiConverterString.check_lower(value.rail_type)
+        _UniffiConverterUInt8.check_lower(value.geom_type)
+        _UniffiConverterSequenceTypeLatLon.check_lower(value.geometry)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterInt64.write(value.osm_id, buf)
+        _UniffiConverterOptionalString.write(value.name, buf)
+        _UniffiConverterString.write(value.rail_type, buf)
+        _UniffiConverterUInt8.write(value.geom_type, buf)
+        _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
+
+
 class RoadInfo:
     osm_id: "int"
     name: "typing.Optional[str]"
@@ -2116,6 +2681,239 @@ class _UniffiConverterTypeRoadInfo(_UniffiConverterRustBuffer):
         _UniffiConverterOptionalString.write(value.name, buf)
         _UniffiConverterString.write(value.road_class, buf)
         _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
+
+
+class TrailInfo:
+    """
+    One decoded trail. `geom_type`: 0 = linestring (a way you walk), 1 = point
+    (a trailhead). `sac_scale` is the SAC hiking difficulty when tagged, empty
+    otherwise.
+    """
+
+    osm_id: "int"
+    name: "typing.Optional[str]"
+    trail_type: "str"
+    geom_type: "int"
+    surface: "str"
+    sac_scale: "str"
+    geometry: "typing.List[LatLon]"
+    def __init__(self, *, osm_id: "int", name: "typing.Optional[str]", trail_type: "str", geom_type: "int", surface: "str", sac_scale: "str", geometry: "typing.List[LatLon]"):
+        self.osm_id = osm_id
+        self.name = name
+        self.trail_type = trail_type
+        self.geom_type = geom_type
+        self.surface = surface
+        self.sac_scale = sac_scale
+        self.geometry = geometry
+
+    def __str__(self):
+        return "TrailInfo(osm_id={}, name={}, trail_type={}, geom_type={}, surface={}, sac_scale={}, geometry={})".format(self.osm_id, self.name, self.trail_type, self.geom_type, self.surface, self.sac_scale, self.geometry)
+
+    def __eq__(self, other):
+        if self.osm_id != other.osm_id:
+            return False
+        if self.name != other.name:
+            return False
+        if self.trail_type != other.trail_type:
+            return False
+        if self.geom_type != other.geom_type:
+            return False
+        if self.surface != other.surface:
+            return False
+        if self.sac_scale != other.sac_scale:
+            return False
+        if self.geometry != other.geometry:
+            return False
+        return True
+
+class _UniffiConverterTypeTrailInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return TrailInfo(
+            osm_id=_UniffiConverterInt64.read(buf),
+            name=_UniffiConverterOptionalString.read(buf),
+            trail_type=_UniffiConverterString.read(buf),
+            geom_type=_UniffiConverterUInt8.read(buf),
+            surface=_UniffiConverterString.read(buf),
+            sac_scale=_UniffiConverterString.read(buf),
+            geometry=_UniffiConverterSequenceTypeLatLon.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterInt64.check_lower(value.osm_id)
+        _UniffiConverterOptionalString.check_lower(value.name)
+        _UniffiConverterString.check_lower(value.trail_type)
+        _UniffiConverterUInt8.check_lower(value.geom_type)
+        _UniffiConverterString.check_lower(value.surface)
+        _UniffiConverterString.check_lower(value.sac_scale)
+        _UniffiConverterSequenceTypeLatLon.check_lower(value.geometry)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterInt64.write(value.osm_id, buf)
+        _UniffiConverterOptionalString.write(value.name, buf)
+        _UniffiConverterString.write(value.trail_type, buf)
+        _UniffiConverterUInt8.write(value.geom_type, buf)
+        _UniffiConverterString.write(value.surface, buf)
+        _UniffiConverterString.write(value.sac_scale, buf)
+        _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
+
+
+class WaterInfo:
+    """
+    One decoded water feature. `geom_type`: 0 = polygon, 1 = linestring,
+    2 = reference (geometry lives elsewhere in the file, so `geometry` is
+    empty and `ref_feature_id` is the handle).
+    """
+
+    osm_id: "int"
+    name: "typing.Optional[str]"
+    water_type: "str"
+    geom_type: "int"
+    width: "typing.Optional[int]"
+    ref_feature_id: "typing.Optional[int]"
+    geometry: "typing.List[LatLon]"
+    def __init__(self, *, osm_id: "int", name: "typing.Optional[str]", water_type: "str", geom_type: "int", width: "typing.Optional[int]", ref_feature_id: "typing.Optional[int]", geometry: "typing.List[LatLon]"):
+        self.osm_id = osm_id
+        self.name = name
+        self.water_type = water_type
+        self.geom_type = geom_type
+        self.width = width
+        self.ref_feature_id = ref_feature_id
+        self.geometry = geometry
+
+    def __str__(self):
+        return "WaterInfo(osm_id={}, name={}, water_type={}, geom_type={}, width={}, ref_feature_id={}, geometry={})".format(self.osm_id, self.name, self.water_type, self.geom_type, self.width, self.ref_feature_id, self.geometry)
+
+    def __eq__(self, other):
+        if self.osm_id != other.osm_id:
+            return False
+        if self.name != other.name:
+            return False
+        if self.water_type != other.water_type:
+            return False
+        if self.geom_type != other.geom_type:
+            return False
+        if self.width != other.width:
+            return False
+        if self.ref_feature_id != other.ref_feature_id:
+            return False
+        if self.geometry != other.geometry:
+            return False
+        return True
+
+class _UniffiConverterTypeWaterInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return WaterInfo(
+            osm_id=_UniffiConverterInt64.read(buf),
+            name=_UniffiConverterOptionalString.read(buf),
+            water_type=_UniffiConverterString.read(buf),
+            geom_type=_UniffiConverterUInt8.read(buf),
+            width=_UniffiConverterOptionalUInt16.read(buf),
+            ref_feature_id=_UniffiConverterOptionalUInt32.read(buf),
+            geometry=_UniffiConverterSequenceTypeLatLon.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterInt64.check_lower(value.osm_id)
+        _UniffiConverterOptionalString.check_lower(value.name)
+        _UniffiConverterString.check_lower(value.water_type)
+        _UniffiConverterUInt8.check_lower(value.geom_type)
+        _UniffiConverterOptionalUInt16.check_lower(value.width)
+        _UniffiConverterOptionalUInt32.check_lower(value.ref_feature_id)
+        _UniffiConverterSequenceTypeLatLon.check_lower(value.geometry)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterInt64.write(value.osm_id, buf)
+        _UniffiConverterOptionalString.write(value.name, buf)
+        _UniffiConverterString.write(value.water_type, buf)
+        _UniffiConverterUInt8.write(value.geom_type, buf)
+        _UniffiConverterOptionalUInt16.write(value.width, buf)
+        _UniffiConverterOptionalUInt32.write(value.ref_feature_id, buf)
+        _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
+
+
+class WayInfo:
+    """
+    A linear feature the query point is on or near — the shape of
+    `ptiles_core::NearbyWay`. `on_it` is true within
+    `ptiles_core::ON_WAY_THRESHOLD_M` (25 m); outside that the answer is
+    "near", and the caller decides what to do with the distance.
+    """
+
+    kind: "str"
+    """
+    `road`, `trail`, or `rail`.
+    """
+
+    name: "typing.Optional[str]"
+    _class: "str"
+    """
+    Road class, trail type, or rail type.
+    """
+
+    distance_m: "float"
+    snapped: "LatLon"
+    on_it: "bool"
+    def __init__(self, *, kind: "str", name: "typing.Optional[str]", _class: "str", distance_m: "float", snapped: "LatLon", on_it: "bool"):
+        self.kind = kind
+        self.name = name
+        self._class = _class
+        self.distance_m = distance_m
+        self.snapped = snapped
+        self.on_it = on_it
+
+    def __str__(self):
+        return "WayInfo(kind={}, name={}, _class={}, distance_m={}, snapped={}, on_it={})".format(self.kind, self.name, self._class, self.distance_m, self.snapped, self.on_it)
+
+    def __eq__(self, other):
+        if self.kind != other.kind:
+            return False
+        if self.name != other.name:
+            return False
+        if self._class != other._class:
+            return False
+        if self.distance_m != other.distance_m:
+            return False
+        if self.snapped != other.snapped:
+            return False
+        if self.on_it != other.on_it:
+            return False
+        return True
+
+class _UniffiConverterTypeWayInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return WayInfo(
+            kind=_UniffiConverterString.read(buf),
+            name=_UniffiConverterOptionalString.read(buf),
+            _class=_UniffiConverterString.read(buf),
+            distance_m=_UniffiConverterDouble.read(buf),
+            snapped=_UniffiConverterTypeLatLon.read(buf),
+            on_it=_UniffiConverterBool.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterString.check_lower(value.kind)
+        _UniffiConverterOptionalString.check_lower(value.name)
+        _UniffiConverterString.check_lower(value._class)
+        _UniffiConverterDouble.check_lower(value.distance_m)
+        _UniffiConverterTypeLatLon.check_lower(value.snapped)
+        _UniffiConverterBool.check_lower(value.on_it)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterString.write(value.kind, buf)
+        _UniffiConverterOptionalString.write(value.name, buf)
+        _UniffiConverterString.write(value._class, buf)
+        _UniffiConverterDouble.write(value.distance_m, buf)
+        _UniffiConverterTypeLatLon.write(value.snapped, buf)
+        _UniffiConverterBool.write(value.on_it, buf)
 
 
 
@@ -2392,6 +3190,60 @@ class _UniffiConverterOptionalUInt8(_UniffiConverterRustBuffer):
 
 
 
+class _UniffiConverterOptionalUInt16(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterUInt16.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterUInt16.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterUInt16.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
+class _UniffiConverterOptionalUInt32(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterUInt32.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterUInt32.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterUInt32.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
 class _UniffiConverterOptionalUInt64(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -2473,6 +3325,33 @@ class _UniffiConverterOptionalString(_UniffiConverterRustBuffer):
 
 
 
+class _UniffiConverterOptionalTypeAddressLayer(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypeAddressLayer.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypeAddressLayer.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypeAddressLayer.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
 class _UniffiConverterOptionalTypePtilesLayer(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -2527,6 +3406,33 @@ class _UniffiConverterOptionalTypeAdminInfo(_UniffiConverterRustBuffer):
 
 
 
+class _UniffiConverterOptionalTypeAreaInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypeAreaInfo.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypeAreaInfo.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypeAreaInfo.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
 class _UniffiConverterOptionalTypeBuildingInfo(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -2549,6 +3455,33 @@ class _UniffiConverterOptionalTypeBuildingInfo(_UniffiConverterRustBuffer):
             return None
         elif flag == 1:
             return _UniffiConverterTypeBuildingInfo.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
+class _UniffiConverterOptionalTypeNearbyAddressInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypeNearbyAddressInfo.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypeNearbyAddressInfo.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypeNearbyAddressInfo.read(buf)
         else:
             raise InternalError("Unexpected flag byte for optional type")
 
@@ -2603,6 +3536,60 @@ class _UniffiConverterOptionalTypeNearestRoad(_UniffiConverterRustBuffer):
             return None
         elif flag == 1:
             return _UniffiConverterTypeNearestRoad.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
+class _UniffiConverterOptionalTypePointInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypePointInfo.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypePointInfo.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypePointInfo.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
+class _UniffiConverterOptionalTypeWayInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypeWayInfo.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypeWayInfo.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypeWayInfo.read(buf)
         else:
             raise InternalError("Unexpected flag byte for optional type")
 
@@ -2733,6 +3720,56 @@ class _UniffiConverterSequenceTypeLatLon(_UniffiConverterRustBuffer):
 
 
 
+class _UniffiConverterSequenceTypeParkInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterTypeParkInfo.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterTypeParkInfo.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterTypeParkInfo.read(buf) for i in range(count)
+        ]
+
+
+
+class _UniffiConverterSequenceTypeRailInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterTypeRailInfo.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterTypeRailInfo.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterTypeRailInfo.read(buf) for i in range(count)
+        ]
+
+
+
 class _UniffiConverterSequenceTypeRoadInfo(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -2754,6 +3791,56 @@ class _UniffiConverterSequenceTypeRoadInfo(_UniffiConverterRustBuffer):
 
         return [
             _UniffiConverterTypeRoadInfo.read(buf) for i in range(count)
+        ]
+
+
+
+class _UniffiConverterSequenceTypeTrailInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterTypeTrailInfo.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterTypeTrailInfo.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterTypeTrailInfo.read(buf) for i in range(count)
+        ]
+
+
+
+class _UniffiConverterSequenceTypeWaterInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterTypeWaterInfo.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterTypeWaterInfo.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterTypeWaterInfo.read(buf) for i in range(count)
         ]
 
 
@@ -3176,6 +4263,13 @@ class PtilesLayerProtocol(typing.Protocol):
         """
 
         raise NotImplementedError
+    def nearest_rail(self, lat: "float",lon: "float",ring: "int"):
+        """
+        The rail track under `(lat, lon)`. Station points are skipped; use
+        [`PtilesLayer::nearest_station`] for those. Rail-layer only.
+        """
+
+        raise NotImplementedError
     def nearest_road(self, lat: "float",lon: "float"):
         """
         Nearest road segment to `(lat, lon)` within the CLI's default search
@@ -3192,6 +4286,40 @@ class PtilesLayerProtocol(typing.Protocol):
 
         `threshold_m <= 0` uses the same default as the single-point
         [`PtilesLayer::nearest_road`].
+        """
+
+        raise NotImplementedError
+    def nearest_station(self, lat: "float",lon: "float",ring: "int"):
+        """
+        The nearest station or halt point. Rail-layer only.
+        """
+
+        raise NotImplementedError
+    def nearest_trail(self, lat: "float",lon: "float",ring: "int"):
+        """
+        The trail under `(lat, lon)` — "which path am I walking on". Trailhead
+        points are skipped (they have no centreline); use
+        [`PtilesLayer::nearest_trailhead`] for those. Trails-layer only.
+        """
+
+        raise NotImplementedError
+    def nearest_trailhead(self, lat: "float",lon: "float",ring: "int"):
+        """
+        The nearest trailhead — where a trail network is entered, which is what
+        a caller planning to start a walk wants. Trails-layer only.
+        """
+
+        raise NotImplementedError
+    def park_at(self, lat: "float",lon: "float",ring: "int"):
+        """
+        The park containing `(lat, lon)`, else the nearest park boundary.
+        Check `inside` before telling a user they are in it. Parks-layer only.
+        """
+
+        raise NotImplementedError
+    def parks(self, lat: "float",lon: "float",ring: "int"):
+        """
+        Every park in the query cells. Parks-layer only.
         """
 
         raise NotImplementedError
@@ -3213,6 +4341,12 @@ class PtilesLayerProtocol(typing.Protocol):
         """
 
         raise NotImplementedError
+    def rail(self, lat: "float",lon: "float",ring: "int"):
+        """
+        Every rail feature in the query cells. Rail-layer only.
+        """
+
+        raise NotImplementedError
     def roads(self, lat: "float",lon: "float",ring: "int"):
         """
         All decoded road segments in the cell containing `(lat, lon)`, plus
@@ -3231,6 +4365,27 @@ class PtilesLayerProtocol(typing.Protocol):
         hit when the substring starts at the name's first character (see
         `core::business_search`'s module doc for why). `limit` caps the
         returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+        """
+
+        raise NotImplementedError
+    def trails(self, lat: "float",lon: "float",ring: "int"):
+        """
+        Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
+        when `ring == 1`. Trails-layer only.
+        """
+
+        raise NotImplementedError
+    def water(self, lat: "float",lon: "float",ring: "int"):
+        """
+        Every water feature in the query cells. Water-layer only.
+        """
+
+        raise NotImplementedError
+    def water_at(self, lat: "float",lon: "float",ring: "int"):
+        """
+        The water body containing `(lat, lon)`, else the nearest water feature.
+        River centrelines are linestrings and never report `inside`.
+        Water-layer only.
         """
 
         raise NotImplementedError
@@ -3473,6 +4628,29 @@ class PtilesLayer():
 
 
 
+    def nearest_rail(self, lat: "float",lon: "float",ring: "int") -> "typing.Optional[WayInfo]":
+        """
+        The rail track under `(lat, lon)`. Station points are skipped; use
+        [`PtilesLayer::nearest_station`] for those. Rail-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterOptionalTypeWayInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_rail,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
     def nearest_road(self, lat: "float",lon: "float") -> "typing.Optional[NearestRoad]":
         """
         Nearest road segment to `(lat, lon)` within the CLI's default search
@@ -3518,6 +4696,120 @@ class PtilesLayer():
 
 
 
+    def nearest_station(self, lat: "float",lon: "float",ring: "int") -> "typing.Optional[PointInfo]":
+        """
+        The nearest station or halt point. Rail-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterOptionalTypePointInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_station,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
+    def nearest_trail(self, lat: "float",lon: "float",ring: "int") -> "typing.Optional[WayInfo]":
+        """
+        The trail under `(lat, lon)` — "which path am I walking on". Trailhead
+        points are skipped (they have no centreline); use
+        [`PtilesLayer::nearest_trailhead`] for those. Trails-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterOptionalTypeWayInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trail,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
+    def nearest_trailhead(self, lat: "float",lon: "float",ring: "int") -> "typing.Optional[PointInfo]":
+        """
+        The nearest trailhead — where a trail network is entered, which is what
+        a caller planning to start a walk wants. Trails-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterOptionalTypePointInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trailhead,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
+    def park_at(self, lat: "float",lon: "float",ring: "int") -> "typing.Optional[AreaInfo]":
+        """
+        The park containing `(lat, lon)`, else the nearest park boundary.
+        Check `inside` before telling a user they are in it. Parks-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterOptionalTypeAreaInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_park_at,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
+    def parks(self, lat: "float",lon: "float",ring: "int") -> "typing.List[ParkInfo]":
+        """
+        Every park in the query cells. Parks-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterSequenceTypeParkInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_parks,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
     def prefetch_bbox(self, min_lat: "float",min_lon: "float",max_lat: "float",max_lon: "float") -> "int":
         """
         Fetch and cache every block covering a bounding box, in one pass.
@@ -3549,6 +4841,28 @@ class PtilesLayer():
         _UniffiConverterDouble.lower(min_lon),
         _UniffiConverterDouble.lower(max_lat),
         _UniffiConverterDouble.lower(max_lon))
+        )
+
+
+
+
+
+    def rail(self, lat: "float",lon: "float",ring: "int") -> "typing.List[RailInfo]":
+        """
+        Every rail feature in the query cells. Rail-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterSequenceTypeRailInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_rail,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
         )
 
 
@@ -3605,6 +4919,75 @@ class PtilesLayer():
 
 
 
+    def trails(self, lat: "float",lon: "float",ring: "int") -> "typing.List[TrailInfo]":
+        """
+        Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
+        when `ring == 1`. Trails-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterSequenceTypeTrailInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_trails,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
+    def water(self, lat: "float",lon: "float",ring: "int") -> "typing.List[WaterInfo]":
+        """
+        Every water feature in the query cells. Water-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterSequenceTypeWaterInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_water,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
+    def water_at(self, lat: "float",lon: "float",ring: "int") -> "typing.Optional[AreaInfo]":
+        """
+        The water body containing `(lat, lon)`, else the nearest water feature.
+        River centrelines are linestrings and never report `inside`.
+        Water-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterOptionalTypeAreaInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_water_at,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
 
 class _UniffiConverterTypePtilesLayer:
 
@@ -3644,6 +5027,21 @@ class PtilesStackProtocol(typing.Protocol):
     single-file one-shot path.
     """
 
+    def locate(self, lat: "float",lon: "float",ring: "int"):
+        """
+        Reverse geocode across the stack: the way under the point (road and
+        trail compete on distance alone — see `core::locate`), the nearest
+        address, and the park/water the point falls in.
+
+        Layers the stack does not hold simply do not contribute; a stack with
+        only roads still answers, it just never reports a trail. Rail is
+        deliberately absent: standing on a track is not a place you navigate
+        from, and letting it win "what am I on" against the road beside it
+        would answer confidently and wrongly. Query the rail layer directly
+        ([`PtilesLayer::nearest_rail`]) when that is the question.
+        """
+
+        raise NotImplementedError
     def score(self, fix: "Fix",ring: "int"):
         """
         Score `fix` against whichever layers this stack holds, at the fix's
@@ -3667,6 +5065,12 @@ class PtilesStack():
 
     _pointer: ctypes.c_void_p
     def __init__(self, roads: "typing.Optional[PtilesLayer]",buildings: "typing.Optional[PtilesLayer]",business: "typing.Optional[PtilesLayer]"):
+        """
+        The three layers [`PtilesStack::score`] needs. Unchanged signature --
+        use [`PtilesStack::with_layers`] to add the ones
+        [`PtilesStack::locate`] reads.
+        """
+
         _UniffiConverterOptionalTypePtilesLayer.check_lower(roads)
         
         _UniffiConverterOptionalTypePtilesLayer.check_lower(buildings)
@@ -3695,6 +5099,70 @@ class PtilesStack():
         inst = cls.__new__(cls)
         inst._pointer = pointer
         return inst
+    @classmethod
+    def with_layers(cls, roads: "typing.Optional[PtilesLayer]",buildings: "typing.Optional[PtilesLayer]",business: "typing.Optional[PtilesLayer]",trails: "typing.Optional[PtilesLayer]",parks: "typing.Optional[PtilesLayer]",water: "typing.Optional[PtilesLayer]",addresses: "typing.Optional[AddressLayer]"):
+        """
+        Every layer this stack can use. `score` reads roads/buildings/business,
+        `locate` reads roads/trails/addresses/parks/water; pass whichever files
+        the region actually has and the rest stay silent.
+        """
+
+        _UniffiConverterOptionalTypePtilesLayer.check_lower(roads)
+        
+        _UniffiConverterOptionalTypePtilesLayer.check_lower(buildings)
+        
+        _UniffiConverterOptionalTypePtilesLayer.check_lower(business)
+        
+        _UniffiConverterOptionalTypePtilesLayer.check_lower(trails)
+        
+        _UniffiConverterOptionalTypePtilesLayer.check_lower(parks)
+        
+        _UniffiConverterOptionalTypePtilesLayer.check_lower(water)
+        
+        _UniffiConverterOptionalTypeAddressLayer.check_lower(addresses)
+        
+        # Call the (fallible) function before creating any half-baked object instances.
+        pointer = _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers,
+        _UniffiConverterOptionalTypePtilesLayer.lower(roads),
+        _UniffiConverterOptionalTypePtilesLayer.lower(buildings),
+        _UniffiConverterOptionalTypePtilesLayer.lower(business),
+        _UniffiConverterOptionalTypePtilesLayer.lower(trails),
+        _UniffiConverterOptionalTypePtilesLayer.lower(parks),
+        _UniffiConverterOptionalTypePtilesLayer.lower(water),
+        _UniffiConverterOptionalTypeAddressLayer.lower(addresses))
+        return cls._make_instance_(pointer)
+
+
+
+    def locate(self, lat: "float",lon: "float",ring: "int") -> "LocatedInfo":
+        """
+        Reverse geocode across the stack: the way under the point (road and
+        trail compete on distance alone — see `core::locate`), the nearest
+        address, and the park/water the point falls in.
+
+        Layers the stack does not hold simply do not contribute; a stack with
+        only roads still answers, it just never reports a trail. Rail is
+        deliberately absent: standing on a track is not a place you navigate
+        from, and letting it win "what am I on" against the road beside it
+        would answer confidently and wrongly. Query the rail layer directly
+        ([`PtilesLayer::nearest_rail`]) when that is the question.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterTypeLocatedInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_locate,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
 
 
     def score(self, fix: "Fix",ring: "int") -> "typing.List[Candidate]":
@@ -3789,6 +5257,7 @@ __all__ = [
     "PtilesError",
     "AddressRecord",
     "AdminInfo",
+    "AreaInfo",
     "BuildingInfo",
     "BusinessInfo",
     "BusinessSearchHit",
@@ -3796,9 +5265,17 @@ __all__ = [
     "Fix",
     "LatLon",
     "LayerMetadata",
+    "LocatedInfo",
+    "NearbyAddressInfo",
     "NearestIntersection",
     "NearestRoad",
+    "ParkInfo",
+    "PointInfo",
+    "RailInfo",
     "RoadInfo",
+    "TrailInfo",
+    "WaterInfo",
+    "WayInfo",
     "intersection_holds_traffic",
     "intersection_type_name",
     "AddressLayer",

@@ -356,6 +356,11 @@ RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection(void*_No
 RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at(void*_Nonnull ptr, RustBuffer points, double threshold_m, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_RAIL
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_RAIL
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_rail(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_ROAD
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_ROAD
 RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road(void*_Nonnull ptr, double lat, double lon, RustCallStatus *_Nonnull out_status
@@ -366,9 +371,39 @@ RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road(void*_Nonnull pt
 RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at(void*_Nonnull ptr, RustBuffer points, double threshold_m, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_STATION
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_STATION
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_station(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_TRAIL
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_TRAIL
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trail(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_TRAILHEAD
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_NEAREST_TRAILHEAD
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trailhead(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_PARK_AT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_PARK_AT
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_park_at(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_PARKS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_PARKS
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_parks(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_PREFETCH_BBOX
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_PREFETCH_BBOX
 uint32_t uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox(void*_Nonnull ptr, double min_lat, double min_lon, double max_lat, double max_lon, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_RAIL
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_RAIL
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_rail(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_ROADS
@@ -379,6 +414,21 @@ RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_roads(void*_Nonnull ptr, doub
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_SEARCH_BUSINESS
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_SEARCH_BUSINESS
 RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(void*_Nonnull ptr, RustBuffer query, uint32_t limit, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_TRAILS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_TRAILS
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_trails(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_WATER
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_WATER
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_water(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_WATER_AT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_WATER_AT
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_water_at(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CLONE_PTILESSTACK
@@ -394,6 +444,16 @@ void uniffi_ptiles_ffi_fn_free_ptilesstack(void*_Nonnull ptr, RustCallStatus *_N
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_PTILESSTACK_NEW
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_PTILESSTACK_NEW
 void*_Nonnull uniffi_ptiles_ffi_fn_constructor_ptilesstack_new(RustBuffer roads, RustBuffer buildings, RustBuffer business, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_PTILESSTACK_WITH_LAYERS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_PTILESSTACK_WITH_LAYERS
+void*_Nonnull uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(RustBuffer roads, RustBuffer buildings, RustBuffer business, RustBuffer trails, RustBuffer parks, RustBuffer water, RustBuffer addresses, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_LOCATE
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_LOCATE
+RustBuffer uniffi_ptiles_ffi_fn_method_ptilesstack_locate(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_SCORE
@@ -775,6 +835,12 @@ uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at(
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_RAIL
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_RAIL
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_rail(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_ROAD
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_ROAD
 uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road(void
@@ -787,9 +853,45 @@ uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_STATION
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_STATION
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_station(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_TRAIL
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_TRAIL
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trail(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_TRAILHEAD
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_NEAREST_TRAILHEAD
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trailhead(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_PARK_AT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_PARK_AT
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_park_at(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_PARKS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_PARKS
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_parks(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_PREFETCH_BBOX
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_PREFETCH_BBOX
 uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_RAIL
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_RAIL
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_rail(void
     
 );
 #endif
@@ -802,6 +904,30 @@ uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_roads(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_SEARCH_BUSINESS
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_SEARCH_BUSINESS
 uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_TRAILS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_TRAILS
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_trails(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_WATER
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_WATER
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_water(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_WATER_AT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_WATER_AT
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_LOCATE
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_LOCATE
+uint16_t uniffi_ptiles_ffi_checksum_method_ptilesstack_locate(void
     
 );
 #endif
@@ -832,6 +958,12 @@ uint16_t uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_PTILESSTACK_NEW
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_PTILESSTACK_NEW
 uint16_t uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_PTILESSTACK_WITH_LAYERS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_PTILESSTACK_WITH_LAYERS
+uint16_t uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers(void
     
 );
 #endif

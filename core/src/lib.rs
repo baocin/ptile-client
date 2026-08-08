@@ -70,15 +70,16 @@ pub use roads::{
 pub use signals::{Signal, decode_signals};
 pub use trails::{TrailFeature, decode_trails, trail_is_developed};
 pub use locate::{
-    ADDRESS_THRESHOLD_M, Located, NearbyAddress, NearbyWay, ON_WAY_THRESHOLD_M, locate,
-    match_addresses, nearest_address, nearest_road_way, nearest_trail,
+    ADDRESS_THRESHOLD_M, Located, NearbyAddress, NearbyArea, NearbyPoint, NearbyWay,
+    ON_WAY_THRESHOLD_M, locate, match_addresses, nearest_address, nearest_rail, nearest_road_way,
+    nearest_station, nearest_trail, nearest_trailhead, park_at, water_at,
 };
 pub use water::{WaterFeature, decode_water};
 
 pub use proximity::{
     DEFAULT_THRESHOLD_M, NearestIntersection, NearestRoad, SegmentProjection, haversine_distance_m,
-    nearest_intersection, nearest_road, point_to_linestring_distance_m,
-    point_to_segment_distance_m,
+    nearest_intersection, nearest_road, point_in_polygon, point_to_linestring_distance_m,
+    point_to_ring_distance_m, point_to_segment_distance_m,
 };
 pub use query::{
     BoundsError, MAX_BOUNDS_CELLS, cell_center, cell_for_coord, cells_for_bounds, neighbor_cells,

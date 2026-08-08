@@ -159,6 +159,55 @@ pub fn point_to_linestring_distance_m(
     best
 }
 
+/// Whether `(lat, lon)` falls inside a closed ring. `coords` are `[lon, lat]`
+/// pairs, the order every decoder emits; the ring may be explicitly closed
+/// (last vertex equal to the first) or not.
+///
+/// Ray casting in raw degrees, deliberately: containment is a topological
+/// question, and re-projecting to metres changes nothing about which side of
+/// an edge a point lands on at the sub-degree spans a block covers. Lived in
+/// `cli/src/main.rs` and `ffi/src/lib.rs` as two copies before landing here,
+/// which is where the park/water lookups need it.
+pub fn point_in_polygon(lat: f64, lon: f64, coords: &[[f64; 2]]) -> bool {
+    if coords.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let n = coords.len();
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = (coords[i][0], coords[i][1]);
+        let (xj, yj) = (coords[j][0], coords[j][1]);
+        if ((yi > lat) != (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Distance from a point to a ring's boundary, in metres. A ring is a closed
+/// linestring, so the boundary distance is the linestring distance with the
+/// closing edge included — without it, a point just outside the gap between
+/// the last and first vertex measures far too far.
+pub fn point_to_ring_distance_m(lat: f64, lon: f64, coords: &[[f64; 2]]) -> Option<f64> {
+    if coords.len() < 2 {
+        return None;
+    }
+    let open = coords.first() != coords.last();
+    let direct = point_to_linestring_distance_m(lat, lon, coords).map(|(_, p)| p.distance_m);
+    if !open {
+        return direct;
+    }
+    let [flon, flat] = coords[0];
+    let [llon, llat] = coords[coords.len() - 1];
+    let closing = point_to_segment_distance_m(lat, lon, llat, llon, flat, flon).distance_m;
+    match (direct, closing.is_finite().then_some(closing)) {
+        (Some(d), Some(c)) => Some(d.min(c)),
+        (d, c) => d.or(c),
+    }
+}
+
 /// A road segment found by [`nearest_road`], with the snapped point and
 /// distance to the query location.
 #[derive(Clone, Copy, Debug, PartialEq)]

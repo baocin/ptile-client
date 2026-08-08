@@ -32,7 +32,8 @@ use std::sync::Arc;
 use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business_versioned, decode_road_block,
     decode_roads, haversine_distance_m, nearest_intersection as core_nearest_intersection,
-    nearest_road as core_nearest_road, neighbor_cells, score_candidates, search_business_indexed,
+    nearest_road as core_nearest_road, neighbor_cells, point_in_polygon, score_candidates,
+    search_business_indexed,
     Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind, FileSource,
     Fix as CoreFix, HttpSource, Intersection, PtilesFile, RoadSegment, ScoringParams,
 };
@@ -202,6 +203,174 @@ pub struct RoadInfo {
     pub geometry: Vec<LatLon>,
 }
 
+/// One decoded trail. `geom_type`: 0 = linestring (a way you walk), 1 = point
+/// (a trailhead). `sac_scale` is the SAC hiking difficulty when tagged, empty
+/// otherwise.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TrailInfo {
+    pub osm_id: i64,
+    pub name: Option<String>,
+    pub trail_type: String,
+    pub geom_type: u8,
+    pub surface: String,
+    pub sac_scale: String,
+    pub geometry: Vec<LatLon>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ParkInfo {
+    pub osm_id: i64,
+    pub name: Option<String>,
+    pub park_type: String,
+    pub geometry: Vec<LatLon>,
+}
+
+/// One decoded water feature. `geom_type`: 0 = polygon, 1 = linestring,
+/// 2 = reference (geometry lives elsewhere in the file, so `geometry` is
+/// empty and `ref_feature_id` is the handle).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct WaterInfo {
+    pub osm_id: i64,
+    pub name: Option<String>,
+    pub water_type: String,
+    pub geom_type: u8,
+    pub width: Option<u16>,
+    pub ref_feature_id: Option<u32>,
+    pub geometry: Vec<LatLon>,
+}
+
+/// One decoded rail feature. `geom_type`: 0 = track, 1 = station/halt point.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct RailInfo {
+    pub osm_id: i64,
+    pub name: Option<String>,
+    pub rail_type: String,
+    pub geom_type: u8,
+    pub geometry: Vec<LatLon>,
+}
+
+/// A linear feature the query point is on or near — the shape of
+/// `ptiles_core::NearbyWay`. `on_it` is true within
+/// `ptiles_core::ON_WAY_THRESHOLD_M` (25 m); outside that the answer is
+/// "near", and the caller decides what to do with the distance.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct WayInfo {
+    /// `road`, `trail`, or `rail`.
+    pub kind: String,
+    pub name: Option<String>,
+    /// Road class, trail type, or rail type.
+    pub class: String,
+    pub distance_m: f64,
+    pub snapped: LatLon,
+    pub on_it: bool,
+}
+
+impl From<ptiles_core::NearbyWay> for WayInfo {
+    fn from(w: ptiles_core::NearbyWay) -> Self {
+        WayInfo {
+            kind: w.kind,
+            name: w.name,
+            class: w.class,
+            distance_m: w.distance_m,
+            snapped: LatLon { lat: w.snapped.0, lon: w.snapped.1 },
+            on_it: w.on_it,
+        }
+    }
+}
+
+/// An area the query point is in or near (`ptiles_core::NearbyArea`).
+/// `distance_m` is 0 when `inside`, else the distance to the boundary.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AreaInfo {
+    /// `park` or `water`.
+    pub kind: String,
+    pub name: Option<String>,
+    pub class: String,
+    pub distance_m: f64,
+    pub inside: bool,
+}
+
+impl From<ptiles_core::NearbyArea> for AreaInfo {
+    fn from(a: ptiles_core::NearbyArea) -> Self {
+        AreaInfo {
+            kind: a.kind,
+            name: a.name,
+            class: a.class,
+            distance_m: a.distance_m,
+            inside: a.inside,
+        }
+    }
+}
+
+/// A point feature near the query point — a trailhead or a station
+/// (`ptiles_core::NearbyPoint`). These are exactly what the linear lookups
+/// skip, since a point has no centreline to be on.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PointInfo {
+    /// `trailhead` or `station`.
+    pub kind: String,
+    pub name: Option<String>,
+    pub class: String,
+    pub location: LatLon,
+    pub distance_m: f64,
+}
+
+impl From<ptiles_core::NearbyPoint> for PointInfo {
+    fn from(p: ptiles_core::NearbyPoint) -> Self {
+        PointInfo {
+            kind: p.kind,
+            name: p.name,
+            class: p.class,
+            location: LatLon { lat: p.lat, lon: p.lon },
+            distance_m: p.distance_m,
+        }
+    }
+}
+
+/// An address near the query point, with where it is and how far.
+///
+/// Distinct from [`AddressRecord`], which carries no position: v1 address
+/// files store none, and only v2 records can be measured against a point at
+/// all (see `core::locate::nearest_address`).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NearbyAddressInfo {
+    pub osm_id: i64,
+    pub housenumber: String,
+    pub street: String,
+    pub location: LatLon,
+    pub distance_m: f64,
+}
+
+impl From<ptiles_core::NearbyAddress> for NearbyAddressInfo {
+    fn from(a: ptiles_core::NearbyAddress) -> Self {
+        NearbyAddressInfo {
+            osm_id: a.osm_id,
+            housenumber: a.housenumber,
+            street: a.street,
+            location: LatLon { lat: a.lat, lon: a.lon },
+            distance_m: a.distance_m,
+        }
+    }
+}
+
+/// What is at a point, across whichever layers a [`PtilesStack`] holds —
+/// `ptiles_core::Located` plus the area and point answers the trail/park/
+/// water/rail layers contribute.
+#[derive(Debug, Clone, Default, uniffi::Record)]
+pub struct LocatedInfo {
+    /// Nearest road/trail/rail way, whether or not you are on it.
+    pub nearest_way: Option<WayInfo>,
+    /// The way you are actually on, within 25 m. When set, the same feature
+    /// as `nearest_way`.
+    pub on_way: Option<WayInfo>,
+    /// Nearest address within `ptiles_core::ADDRESS_THRESHOLD_M` (150 m).
+    pub address: Option<NearbyAddressInfo>,
+    /// The park you are in, else the nearest one.
+    pub park: Option<AreaInfo>,
+    /// The water body you are in, else the nearest.
+    pub water: Option<AreaInfo>,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct BuildingInfo {
     pub osm_id: i64,
@@ -315,6 +484,10 @@ enum LayerKind {
     /// different file with a different (first-letter-bucket) index shape,
     /// only usable via `PtilesLayer::search_business`.
     BusinessNameIndex,
+    Trails,
+    Parks,
+    Water,
+    Rail,
 }
 
 impl LayerKind {
@@ -322,11 +495,29 @@ impl LayerKind {
         let name = std::path::Path::new(path).file_name()?.to_str()?;
         let mut parts = name.split('.');
         let _state = parts.next()?;
-        match parts.next()? {
+        // Published snapshots version the stem (`TN.trails_v1.ptiles`,
+        // `TN.roads_v2.ptiles`) while the local corpus does not; strip a
+        // trailing `_v<N>` so both resolve, exactly as
+        // `cli/src/main.rs::Layer::from_filename_token` does. The real schema
+        // version always comes from the header, never the filename.
+        let token = parts.next()?;
+        let base = match token.rsplit_once("_v") {
+            Some((stem, digits))
+                if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) =>
+            {
+                stem
+            }
+            _ => token,
+        };
+        match base {
             "roads" => Some(LayerKind::Roads),
-            "buildings_v8" => Some(LayerKind::BuildingsV8),
+            "buildings" => Some(LayerKind::BuildingsV8),
             "business" => Some(LayerKind::Business),
             "business_name_index" => Some(LayerKind::BusinessNameIndex),
+            "trails" => Some(LayerKind::Trails),
+            "parks" => Some(LayerKind::Parks),
+            "water" => Some(LayerKind::Water),
+            "rail" => Some(LayerKind::Rail),
             _ => None,
         }
     }
@@ -337,6 +528,10 @@ impl LayerKind {
             LayerKind::BuildingsV8 => "buildings_v8",
             LayerKind::Business => "business",
             LayerKind::BusinessNameIndex => "business_name_index",
+            LayerKind::Trails => "trails",
+            LayerKind::Parks => "parks",
+            LayerKind::Water => "water",
+            LayerKind::Rail => "rail",
         }
     }
 }
@@ -398,6 +593,16 @@ impl AnyFile {
                     src.last_modified().map(|s| s.to_string()),
                 )
             }
+        }
+    }
+
+    /// True when blocks pack several cells behind a header and must be sliced
+    /// before a record decoder sees them (a 38-byte index; see
+    /// `core::merged`).
+    fn has_merged_blocks(&self) -> bool {
+        match self {
+            AnyFile::File(f) => f.has_merged_blocks(),
+            AnyFile::Http(f) => f.has_merged_blocks(),
         }
     }
 
@@ -633,6 +838,98 @@ impl PtilesLayer {
         Ok(businesses)
     }
 
+    fn decoded_trails(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Vec<ptiles_core::TrailFeature>, PtilesError> {
+        self.decoded_layer(lat, lon, ring, ptiles_core::decode_trails)
+    }
+
+    fn decoded_parks(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Vec<ptiles_core::ParkFeature>, PtilesError> {
+        self.decoded_layer(lat, lon, ring, ptiles_core::decode_parks)
+    }
+
+    fn decoded_water(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Vec<ptiles_core::WaterFeature>, PtilesError> {
+        self.decoded_layer(lat, lon, ring, ptiles_core::decode_water)
+    }
+
+    fn decoded_rail(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Vec<ptiles_core::RailFeature>, PtilesError> {
+        self.decoded_layer(lat, lon, ring, ptiles_core::decode_rail)
+    }
+
+    /// Decode every block covering the query cells with `decode`, concatenated.
+    ///
+    /// The trails/parks/water/rail decoders all take a bare `&[u8]` and need
+    /// neither the header version nor the cell (unlike roads v2's trailing
+    /// intersection table, or business v4's cell-relative coordinates), so one
+    /// helper covers all four instead of four near-identical loops.
+    fn decoded_layer<T>(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+        decode: fn(&[u8]) -> Result<Vec<T>, ptiles_core::DecodeError>,
+    ) -> Result<Vec<T>, PtilesError> {
+        let mut out = Vec::new();
+        for cell in self.cells_for(lat, lon, ring) {
+            let Some(block) = self.block(cell)? else {
+                continue;
+            };
+            // Parks/water/rail/trails ship with a 38-byte index, which means
+            // one compressed block holds several cells behind a table. Handing
+            // the whole thing to a record decoder yields garbage records
+            // rather than an error, so slice the cell out first. The cache
+            // still holds the merged block, so its other cells stay free.
+            let records = if self.file.has_merged_blocks() {
+                match ptiles_core::merged_cell_slice(&block, cell).map_err(|e| {
+                    PtilesError::Decode {
+                        message: e.to_string(),
+                    }
+                })? {
+                    Some(slice) => slice.to_vec(),
+                    None => continue,
+                }
+            } else {
+                block.to_vec()
+            };
+            let mut decoded = decode(&records).map_err(|e| PtilesError::Decode {
+                message: e.to_string(),
+            })?;
+            out.append(&mut decoded);
+        }
+        Ok(out)
+    }
+
+    /// Reject a query aimed at the wrong file. Every layer-specific method
+    /// starts here, so a caller that opened `TN.parks.ptiles` and asked for
+    /// trails gets told which layer it actually has rather than an empty list.
+    fn require(&self, kind: LayerKind) -> Result<(), PtilesError> {
+        if self.kind == kind {
+            Ok(())
+        } else {
+            Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            })
+        }
+    }
+
     /// `core::search_business_indexed` needs a concrete `PtilesFile<S>`, not
     /// `AnyFile` -- dispatch to whichever backend `self.file` holds, same
     /// pattern as `AnyFile::read_block`.
@@ -688,7 +985,7 @@ pub fn intersection_holds_traffic(intersection_type: u8) -> bool {
 fn pick_building(buildings: &[Building], lat: f64, lon: f64) -> Option<BuildingInfo> {
     buildings
         .iter()
-        .find(|b| point_in_polygon(lon, lat, &b.coords))
+        .find(|b| point_in_polygon(lat, lon, &b.coords))
         .or_else(|| {
             buildings
                 .iter()
@@ -1068,6 +1365,153 @@ impl PtilesLayer {
             .collect())
     }
 
+    /// Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
+    /// when `ring == 1`. Trails-layer only.
+    pub fn trails(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<TrailInfo>, PtilesError> {
+        self.require(LayerKind::Trails)?;
+        validate_ring(ring)?;
+        Ok(self
+            .decoded_trails(lat, lon, ring)?
+            .iter()
+            .map(|t| TrailInfo {
+                osm_id: t.osm_id,
+                name: t.name.clone(),
+                trail_type: t.trail_type.clone(),
+                geom_type: t.geom_type,
+                surface: t.surface.clone(),
+                sac_scale: t.sac_scale.clone(),
+                geometry: geometry_of(&t.coords),
+            })
+            .collect())
+    }
+
+    /// The trail under `(lat, lon)` — "which path am I walking on". Trailhead
+    /// points are skipped (they have no centreline); use
+    /// [`PtilesLayer::nearest_trailhead`] for those. Trails-layer only.
+    pub fn nearest_trail(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Option<WayInfo>, PtilesError> {
+        self.require(LayerKind::Trails)?;
+        validate_ring(ring)?;
+        let trails = self.decoded_trails(lat, lon, ring)?;
+        Ok(ptiles_core::nearest_trail(lat, lon, &trails).map(WayInfo::from))
+    }
+
+    /// The nearest trailhead — where a trail network is entered, which is what
+    /// a caller planning to start a walk wants. Trails-layer only.
+    pub fn nearest_trailhead(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Option<PointInfo>, PtilesError> {
+        self.require(LayerKind::Trails)?;
+        validate_ring(ring)?;
+        let trails = self.decoded_trails(lat, lon, ring)?;
+        Ok(ptiles_core::nearest_trailhead(lat, lon, &trails).map(PointInfo::from))
+    }
+
+    /// Every park in the query cells. Parks-layer only.
+    pub fn parks(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<ParkInfo>, PtilesError> {
+        self.require(LayerKind::Parks)?;
+        validate_ring(ring)?;
+        Ok(self
+            .decoded_parks(lat, lon, ring)?
+            .iter()
+            .map(|p| ParkInfo {
+                osm_id: p.osm_id,
+                name: p.name.clone(),
+                park_type: p.park_type.clone(),
+                geometry: geometry_of(&p.coords),
+            })
+            .collect())
+    }
+
+    /// The park containing `(lat, lon)`, else the nearest park boundary.
+    /// Check `inside` before telling a user they are in it. Parks-layer only.
+    pub fn park_at(&self, lat: f64, lon: f64, ring: u8) -> Result<Option<AreaInfo>, PtilesError> {
+        self.require(LayerKind::Parks)?;
+        validate_ring(ring)?;
+        let parks = self.decoded_parks(lat, lon, ring)?;
+        Ok(ptiles_core::park_at(lat, lon, &parks).map(AreaInfo::from))
+    }
+
+    /// Every water feature in the query cells. Water-layer only.
+    pub fn water(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<WaterInfo>, PtilesError> {
+        self.require(LayerKind::Water)?;
+        validate_ring(ring)?;
+        Ok(self
+            .decoded_water(lat, lon, ring)?
+            .iter()
+            .map(|w| WaterInfo {
+                osm_id: w.osm_id,
+                name: w.name.clone(),
+                water_type: w.water_type.clone(),
+                geom_type: w.geom_type,
+                width: w.width,
+                ref_feature_id: w.ref_feature_id,
+                geometry: geometry_of(&w.coords),
+            })
+            .collect())
+    }
+
+    /// The water body containing `(lat, lon)`, else the nearest water feature.
+    /// River centrelines are linestrings and never report `inside`.
+    /// Water-layer only.
+    pub fn water_at(&self, lat: f64, lon: f64, ring: u8) -> Result<Option<AreaInfo>, PtilesError> {
+        self.require(LayerKind::Water)?;
+        validate_ring(ring)?;
+        let water = self.decoded_water(lat, lon, ring)?;
+        Ok(ptiles_core::water_at(lat, lon, &water).map(AreaInfo::from))
+    }
+
+    /// Every rail feature in the query cells. Rail-layer only.
+    pub fn rail(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<RailInfo>, PtilesError> {
+        self.require(LayerKind::Rail)?;
+        validate_ring(ring)?;
+        Ok(self
+            .decoded_rail(lat, lon, ring)?
+            .iter()
+            .map(|r| RailInfo {
+                osm_id: r.osm_id,
+                name: r.name.clone(),
+                rail_type: r.rail_type.clone(),
+                geom_type: r.geom_type,
+                geometry: geometry_of(&r.coords),
+            })
+            .collect())
+    }
+
+    /// The rail track under `(lat, lon)`. Station points are skipped; use
+    /// [`PtilesLayer::nearest_station`] for those. Rail-layer only.
+    pub fn nearest_rail(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Option<WayInfo>, PtilesError> {
+        self.require(LayerKind::Rail)?;
+        validate_ring(ring)?;
+        let rail = self.decoded_rail(lat, lon, ring)?;
+        Ok(ptiles_core::nearest_rail(lat, lon, &rail).map(WayInfo::from))
+    }
+
+    /// The nearest station or halt point. Rail-layer only.
+    pub fn nearest_station(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Option<PointInfo>, PtilesError> {
+        self.require(LayerKind::Rail)?;
+        validate_ring(ring)?;
+        let rail = self.decoded_rail(lat, lon, ring)?;
+        Ok(ptiles_core::nearest_station(lat, lon, &rail).map(PointInfo::from))
+    }
+
     /// Business name search over a `{STATE}.business_name_index.ptiles`
     /// sidecar (open a `PtilesLayer` on that file, not the main
     /// `business.ptiles` file). Index-accelerated: correct for
@@ -1096,27 +1540,6 @@ impl PtilesLayer {
             })
             .collect())
     }
-}
-
-/// Ray-casting point-in-polygon, `(lon, lat)`-ordered ring -- copied from
-/// `cli/src/main.rs::point_in_polygon` (core intentionally has no
-/// polygon-containment helper; see that function's doc comment).
-fn point_in_polygon(x: f64, y: f64, coords: &[[f64; 2]]) -> bool {
-    if coords.len() < 3 {
-        return false;
-    }
-    let mut inside = false;
-    let n = coords.len();
-    let mut j = n - 1;
-    for i in 0..n {
-        let (xi, yi) = (coords[i][0], coords[i][1]);
-        let (xj, yj) = (coords[j][0], coords[j][1]);
-        if ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
 }
 
 // --- AdminLayer: point -> jurisdiction lookup -------------------------------
@@ -1207,12 +1630,11 @@ impl AddressLayer {
     /// Reverse lookup: all addresses in the cell(s) covering `(lat, lon)`
     /// (`ring == 1` adds neighbors).
     pub fn addresses_at(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<AddressRecord>, PtilesError> {
-        let recs = match &self.file {
-            AnyAddress::File(f) => f.addresses_at(lat, lon, ring),
-            AnyAddress::Http(f) => f.addresses_at(lat, lon, ring),
-        }
-        .map_err(|e| PtilesError::Decode { message: e.to_string() })?;
-        Ok(recs.into_iter().map(AddressRecord::from).collect())
+        Ok(self
+            .core_addresses_at(lat, lon, ring)?
+            .into_iter()
+            .map(AddressRecord::from)
+            .collect())
     }
 
     /// Forward lookup: addresses near `(lat, lon)` matching `housenumber` +
@@ -1234,6 +1656,23 @@ impl AddressLayer {
     }
 }
 
+// Private: the core records, positions intact. `AddressRecord` drops lat/lon
+// at the FFI boundary, and `PtilesStack::locate` needs them to measure.
+impl AddressLayer {
+    fn core_addresses_at(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Vec<CoreAddressRecord>, PtilesError> {
+        match &self.file {
+            AnyAddress::File(f) => f.addresses_at(lat, lon, ring),
+            AnyAddress::Http(f) => f.addresses_at(lat, lon, ring),
+        }
+        .map_err(|e| PtilesError::Decode { message: e.to_string() })
+    }
+}
+
 // --- PtilesStack: cross-layer scoring for one state -------------------------
 
 /// Groups up to one roads/buildings/business `PtilesLayer` for a single
@@ -1248,17 +1687,106 @@ pub struct PtilesStack {
     roads: Option<Arc<PtilesLayer>>,
     buildings: Option<Arc<PtilesLayer>>,
     business: Option<Arc<PtilesLayer>>,
+    trails: Option<Arc<PtilesLayer>>,
+    parks: Option<Arc<PtilesLayer>>,
+    water: Option<Arc<PtilesLayer>>,
+    addresses: Option<Arc<AddressLayer>>,
 }
 
 #[uniffi::export]
 impl PtilesStack {
+    /// The three layers [`PtilesStack::score`] needs. Unchanged signature --
+    /// use [`PtilesStack::with_layers`] to add the ones
+    /// [`PtilesStack::locate`] reads.
     #[uniffi::constructor]
     pub fn new(
         roads: Option<Arc<PtilesLayer>>,
         buildings: Option<Arc<PtilesLayer>>,
         business: Option<Arc<PtilesLayer>>,
     ) -> Arc<Self> {
-        Arc::new(PtilesStack { roads, buildings, business })
+        Arc::new(PtilesStack {
+            roads,
+            buildings,
+            business,
+            trails: None,
+            parks: None,
+            water: None,
+            addresses: None,
+        })
+    }
+
+    /// Every layer this stack can use. `score` reads roads/buildings/business,
+    /// `locate` reads roads/trails/addresses/parks/water; pass whichever files
+    /// the region actually has and the rest stay silent.
+    #[uniffi::constructor]
+    pub fn with_layers(
+        roads: Option<Arc<PtilesLayer>>,
+        buildings: Option<Arc<PtilesLayer>>,
+        business: Option<Arc<PtilesLayer>>,
+        trails: Option<Arc<PtilesLayer>>,
+        parks: Option<Arc<PtilesLayer>>,
+        water: Option<Arc<PtilesLayer>>,
+        addresses: Option<Arc<AddressLayer>>,
+    ) -> Arc<Self> {
+        Arc::new(PtilesStack {
+            roads,
+            buildings,
+            business,
+            trails,
+            parks,
+            water,
+            addresses,
+        })
+    }
+
+    /// Reverse geocode across the stack: the way under the point (road and
+    /// trail compete on distance alone — see `core::locate`), the nearest
+    /// address, and the park/water the point falls in.
+    ///
+    /// Layers the stack does not hold simply do not contribute; a stack with
+    /// only roads still answers, it just never reports a trail. Rail is
+    /// deliberately absent: standing on a track is not a place you navigate
+    /// from, and letting it win "what am I on" against the road beside it
+    /// would answer confidently and wrongly. Query the rail layer directly
+    /// ([`PtilesLayer::nearest_rail`]) when that is the question.
+    pub fn locate(&self, lat: f64, lon: f64, ring: u8) -> Result<LocatedInfo, PtilesError> {
+        validate_ring(ring)?;
+        let roads = match &self.roads {
+            Some(layer) => layer.decoded_roads(lat, lon, ring)?,
+            None => Vec::new(),
+        };
+        let trails = match &self.trails {
+            Some(layer) => layer.decoded_trails(lat, lon, ring)?,
+            None => Vec::new(),
+        };
+        let addresses = match &self.addresses {
+            Some(layer) => layer.core_addresses_at(lat, lon, ring)?,
+            None => Vec::new(),
+        };
+        let located = ptiles_core::locate(lat, lon, &roads, &trails, &addresses);
+
+        let park = match &self.parks {
+            Some(layer) => {
+                let parks = layer.decoded_parks(lat, lon, ring)?;
+                ptiles_core::park_at(lat, lon, &parks).map(AreaInfo::from)
+            }
+            None => None,
+        };
+        let water = match &self.water {
+            Some(layer) => {
+                let water = layer.decoded_water(lat, lon, ring)?;
+                ptiles_core::water_at(lat, lon, &water).map(AreaInfo::from)
+            }
+            None => None,
+        };
+
+        Ok(LocatedInfo {
+            nearest_way: located.nearest_way.map(WayInfo::from),
+            on_way: located.on_way.map(WayInfo::from),
+            address: located.address.map(NearbyAddressInfo::from),
+            park,
+            water,
+        })
     }
 
     /// Score `fix` against whichever layers this stack holds, at the fix's

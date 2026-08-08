@@ -28,6 +28,42 @@ fn business_path() -> String {
 fn business_name_index_path() -> String {
     format!("{DATA_DIR}/TN.business_name_index.ptiles")
 }
+fn parks_path() -> String {
+    format!("{DATA_DIR}/TN.parks.ptiles")
+}
+fn water_path() -> String {
+    format!("{DATA_DIR}/TN.water.ptiles")
+}
+fn rail_path() -> String {
+    format!("{DATA_DIR}/TN.rail.ptiles")
+}
+fn trails_path() -> String {
+    format!("{DATA_DIR}/TN.trails_v1.ptiles")
+}
+
+/// A decoded class string must look like the format's own vocabulary
+/// (`park`, `lake`, `station`). Parks and rail ship merged blocks, and
+/// decoding one whole instead of slicing the cell out produces records that
+/// exist but carry binary noise in their string fields -- which "the list is
+/// non-empty" would happily accept.
+fn assert_vocabulary(class: &str, what: &str) {
+    assert!(
+        !class.is_empty()
+            && class
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit()),
+        "{what} class is not vocabulary: {class:?}"
+    );
+}
+
+/// Tennessee is roughly 800 km wide; past that, the coordinates came out of
+/// the wrong bytes.
+fn assert_plausible_distance(d: f64, what: &str) {
+    assert!(
+        (0.0..800_000.0).contains(&d),
+        "{what} distance is not plausible: {d} m"
+    );
+}
 
 macro_rules! skip_if_absent {
     ($path:expr) => {
@@ -380,6 +416,152 @@ fn open_invalid_bytes_errors() {
     let result = PtilesLayer::open(p.to_string_lossy().into_owned());
     let _ = std::fs::remove_file(&p);
     assert!(result.is_err(), "opening garbage bytes as a .ptiles file must error");
+}
+
+#[test]
+fn parks_layer_lists_and_locates() {
+    skip_if_absent!(parks_path());
+    let layer = PtilesLayer::open(parks_path()).expect("open parks layer");
+
+    let parks = layer.parks(NASHVILLE_LAT, NASHVILLE_LON, 1).expect("parks query");
+    assert!(!parks.is_empty(), "downtown Nashville has parks in ring 1");
+    for p in &parks {
+        assert_vocabulary(&p.park_type, "park");
+        assert!(p.geometry.len() >= 3, "a park polygon needs three vertices");
+    }
+
+    let at = layer.park_at(NASHVILLE_LAT, NASHVILLE_LON, 1).expect("park_at query");
+    let at = at.expect("with parks in range there is always a nearest one");
+    assert_eq!(at.kind, "park");
+    assert_vocabulary(&at.class, "nearest park");
+    assert_plausible_distance(at.distance_m, "nearest park");
+    // Inside means zero distance to the boundary; outside means a real one.
+    assert_eq!(at.inside, at.distance_m == 0.0);
+}
+
+#[test]
+fn water_layer_lists_and_locates() {
+    skip_if_absent!(water_path());
+    let layer = PtilesLayer::open(water_path()).expect("open water layer");
+
+    let water = layer.water(NASHVILLE_LAT, NASHVILLE_LON, 1).expect("water query");
+    assert!(!water.is_empty(), "the Cumberland runs through downtown");
+    // Reference geometries (geom_type 2) carry no coordinates; everything
+    // else must.
+    assert!(water
+        .iter()
+        .all(|w| w.geom_type == 2 || !w.geometry.is_empty()));
+
+    let at = layer.water_at(NASHVILLE_LAT, NASHVILLE_LON, 1).expect("water_at query");
+    if let Some(a) = at {
+        assert_eq!(a.kind, "water");
+        assert_vocabulary(&a.class, "nearest water");
+        assert_plausible_distance(a.distance_m, "nearest water");
+    }
+}
+
+#[test]
+fn rail_layer_separates_track_from_station() {
+    skip_if_absent!(rail_path());
+    let layer = PtilesLayer::open(rail_path()).expect("open rail layer");
+
+    let rail = layer.rail(NASHVILLE_LAT, NASHVILLE_LON, 1).expect("rail query");
+    let track = layer
+        .nearest_rail(NASHVILLE_LAT, NASHVILLE_LON, 1)
+        .expect("nearest_rail query");
+    let station = layer
+        .nearest_station(NASHVILLE_LAT, NASHVILLE_LON, 1)
+        .expect("nearest_station query");
+
+    // Whatever the cell holds, a track answer must be a way and a station
+    // answer must be a point -- never the other way round.
+    for r in &rail {
+        assert_vocabulary(&r.rail_type, "rail");
+    }
+    if let Some(t) = &track {
+        assert_eq!(t.kind, "rail");
+        assert!(rail.iter().any(|r| r.geom_type == 0));
+        assert_plausible_distance(t.distance_m, "nearest rail");
+    }
+    if let Some(s) = &station {
+        assert_eq!(s.kind, "station");
+        assert!(rail.iter().any(|r| r.geom_type == 1));
+        assert_plausible_distance(s.distance_m, "nearest station");
+    }
+}
+
+#[test]
+fn trails_layer_lists_and_locates() {
+    skip_if_absent!(trails_path());
+    let layer = PtilesLayer::open(trails_path()).expect("open trails layer");
+
+    let trails = layer.trails(NASHVILLE_LAT, NASHVILLE_LON, 1).expect("trails query");
+    let way = layer
+        .nearest_trail(NASHVILLE_LAT, NASHVILLE_LON, 1)
+        .expect("nearest_trail query");
+    let head = layer
+        .nearest_trailhead(NASHVILLE_LAT, NASHVILLE_LON, 1)
+        .expect("nearest_trailhead query");
+
+    if let Some(w) = &way {
+        assert_eq!(w.kind, "trail");
+        assert!(trails.iter().any(|t| t.geom_type == 0));
+    }
+    if let Some(h) = &head {
+        assert_eq!(h.kind, "trailhead");
+        assert!(trails.iter().any(|t| t.geom_type == 1));
+    }
+}
+
+#[test]
+fn layer_methods_reject_the_wrong_file() {
+    skip_if_absent!(roads_path());
+    let roads = PtilesLayer::open(roads_path()).expect("open roads layer");
+    assert!(matches!(
+        roads.trails(NASHVILLE_LAT, NASHVILLE_LON, 0),
+        Err(PtilesError::UnsupportedForLayer { .. })
+    ));
+    assert!(matches!(
+        roads.park_at(NASHVILLE_LAT, NASHVILLE_LON, 0),
+        Err(PtilesError::UnsupportedForLayer { .. })
+    ));
+    assert!(matches!(
+        roads.nearest_station(NASHVILLE_LAT, NASHVILLE_LON, 0),
+        Err(PtilesError::UnsupportedForLayer { .. })
+    ));
+}
+
+#[test]
+fn stack_locate_answers_from_whichever_layers_it_holds() {
+    skip_if_absent!(roads_path());
+    skip_if_absent!(parks_path());
+    let roads = PtilesLayer::open(roads_path()).expect("open roads layer");
+    let parks = PtilesLayer::open(parks_path()).expect("open parks layer");
+    let stack = PtilesStack::with_layers(
+        Some(roads),
+        None,
+        None,
+        None,
+        Some(parks),
+        None,
+        None,
+    );
+
+    let got = stack.locate(NASHVILLE_LAT, NASHVILLE_LON, 0).expect("locate");
+    let way = got.nearest_way.expect("downtown always has a road");
+    assert_eq!(way.kind, "road", "no trails layer, so no trail can win");
+    assert_eq!(way.on_it, got.on_way.is_some());
+    assert!(got.address.is_none(), "no address layer was supplied");
+    assert!(got.water.is_none(), "no water layer was supplied");
+}
+
+#[test]
+fn empty_stack_locates_nothing_without_erroring() {
+    let stack = PtilesStack::new(None, None, None);
+    let got = stack.locate(NASHVILLE_LAT, NASHVILLE_LON, 0).expect("locate");
+    assert!(got.nearest_way.is_none());
+    assert!(got.on_way.is_none());
+    assert!(got.park.is_none());
 }
 
 #[test]

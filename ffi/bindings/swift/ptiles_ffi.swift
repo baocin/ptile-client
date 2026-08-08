@@ -416,6 +416,22 @@ fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
+    typealias FfiType = UInt16
+    typealias SwiftType = UInt16
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt16 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     typealias FfiType = UInt32
     typealias SwiftType = UInt32
@@ -957,6 +973,12 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
     func nearestIntersectionsAt(points: [LatLon], thresholdM: Double) throws  -> [NearestIntersection?]
     
     /**
+     * The rail track under `(lat, lon)`. Station points are skipped; use
+     * [`PtilesLayer::nearest_station`] for those. Rail-layer only.
+     */
+    func nearestRail(lat: Double, lon: Double, ring: UInt8) throws  -> WayInfo?
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -972,6 +994,35 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
      * [`PtilesLayer::nearest_road`].
      */
     func nearestRoadsAt(points: [LatLon], thresholdM: Double) throws  -> [NearestRoad?]
+    
+    /**
+     * The nearest station or halt point. Rail-layer only.
+     */
+    func nearestStation(lat: Double, lon: Double, ring: UInt8) throws  -> PointInfo?
+    
+    /**
+     * The trail under `(lat, lon)` — "which path am I walking on". Trailhead
+     * points are skipped (they have no centreline); use
+     * [`PtilesLayer::nearest_trailhead`] for those. Trails-layer only.
+     */
+    func nearestTrail(lat: Double, lon: Double, ring: UInt8) throws  -> WayInfo?
+    
+    /**
+     * The nearest trailhead — where a trail network is entered, which is what
+     * a caller planning to start a walk wants. Trails-layer only.
+     */
+    func nearestTrailhead(lat: Double, lon: Double, ring: UInt8) throws  -> PointInfo?
+    
+    /**
+     * The park containing `(lat, lon)`, else the nearest park boundary.
+     * Check `inside` before telling a user they are in it. Parks-layer only.
+     */
+    func parkAt(lat: Double, lon: Double, ring: UInt8) throws  -> AreaInfo?
+    
+    /**
+     * Every park in the query cells. Parks-layer only.
+     */
+    func parks(lat: Double, lon: Double, ring: UInt8) throws  -> [ParkInfo]
     
     /**
      * Fetch and cache every block covering a bounding box, in one pass.
@@ -991,6 +1042,11 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
     func prefetchBbox(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) throws  -> UInt32
     
     /**
+     * Every rail feature in the query cells. Rail-layer only.
+     */
+    func rail(lat: Double, lon: Double, ring: UInt8) throws  -> [RailInfo]
+    
+    /**
      * All decoded road segments in the cell containing `(lat, lon)`, plus
      * ring-1 neighbors when `ring == 1`. `ring` must be 0 or 1 (matches the
      * CLI's `--ring` semantics in `cli/src/main.rs::validate_ring`).
@@ -1008,6 +1064,24 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
      * returned, score-ranked hit count. `BusinessNameIndex`-layer only.
      */
     func searchBusiness(query: String, limit: UInt32) throws  -> [BusinessSearchHit]
+    
+    /**
+     * Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
+     * when `ring == 1`. Trails-layer only.
+     */
+    func trails(lat: Double, lon: Double, ring: UInt8) throws  -> [TrailInfo]
+    
+    /**
+     * Every water feature in the query cells. Water-layer only.
+     */
+    func water(lat: Double, lon: Double, ring: UInt8) throws  -> [WaterInfo]
+    
+    /**
+     * The water body containing `(lat, lon)`, else the nearest water feature.
+     * River centrelines are linestrings and never report `inside`.
+     * Water-layer only.
+     */
+    func waterAt(lat: Double, lon: Double, ring: UInt8) throws  -> AreaInfo?
     
 }
 /**
@@ -1218,6 +1292,20 @@ open func nearestIntersectionsAt(points: [LatLon], thresholdM: Double)throws  ->
 }
     
     /**
+     * The rail track under `(lat, lon)`. Station points are skipped; use
+     * [`PtilesLayer::nearest_station`] for those. Rail-layer only.
+     */
+open func nearestRail(lat: Double, lon: Double, ring: UInt8)throws  -> WayInfo?  {
+    return try  FfiConverterOptionTypeWayInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_rail(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -1249,6 +1337,75 @@ open func nearestRoadsAt(points: [LatLon], thresholdM: Double)throws  -> [Neares
 }
     
     /**
+     * The nearest station or halt point. Rail-layer only.
+     */
+open func nearestStation(lat: Double, lon: Double, ring: UInt8)throws  -> PointInfo?  {
+    return try  FfiConverterOptionTypePointInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_station(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
+     * The trail under `(lat, lon)` — "which path am I walking on". Trailhead
+     * points are skipped (they have no centreline); use
+     * [`PtilesLayer::nearest_trailhead`] for those. Trails-layer only.
+     */
+open func nearestTrail(lat: Double, lon: Double, ring: UInt8)throws  -> WayInfo?  {
+    return try  FfiConverterOptionTypeWayInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trail(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
+     * The nearest trailhead — where a trail network is entered, which is what
+     * a caller planning to start a walk wants. Trails-layer only.
+     */
+open func nearestTrailhead(lat: Double, lon: Double, ring: UInt8)throws  -> PointInfo?  {
+    return try  FfiConverterOptionTypePointInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trailhead(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
+     * The park containing `(lat, lon)`, else the nearest park boundary.
+     * Check `inside` before telling a user they are in it. Parks-layer only.
+     */
+open func parkAt(lat: Double, lon: Double, ring: UInt8)throws  -> AreaInfo?  {
+    return try  FfiConverterOptionTypeAreaInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_park_at(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
+     * Every park in the query cells. Parks-layer only.
+     */
+open func parks(lat: Double, lon: Double, ring: UInt8)throws  -> [ParkInfo]  {
+    return try  FfiConverterSequenceTypeParkInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_parks(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
      * Fetch and cache every block covering a bounding box, in one pass.
      *
      * The middle ground between range-reading forever and downloading a whole
@@ -1270,6 +1427,19 @@ open func prefetchBbox(minLat: Double, minLon: Double, maxLat: Double, maxLon: D
         FfiConverterDouble.lower(minLon),
         FfiConverterDouble.lower(maxLat),
         FfiConverterDouble.lower(maxLon),$0
+    )
+})
+}
+    
+    /**
+     * Every rail feature in the query cells. Rail-layer only.
+     */
+open func rail(lat: Double, lon: Double, ring: UInt8)throws  -> [RailInfo]  {
+    return try  FfiConverterSequenceTypeRailInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_rail(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
     )
 })
 }
@@ -1304,6 +1474,48 @@ open func searchBusiness(query: String, limit: UInt32)throws  -> [BusinessSearch
     uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(self.uniffiClonePointer(),
         FfiConverterString.lower(query),
         FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+    /**
+     * Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
+     * when `ring == 1`. Trails-layer only.
+     */
+open func trails(lat: Double, lon: Double, ring: UInt8)throws  -> [TrailInfo]  {
+    return try  FfiConverterSequenceTypeTrailInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_trails(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
+     * Every water feature in the query cells. Water-layer only.
+     */
+open func water(lat: Double, lon: Double, ring: UInt8)throws  -> [WaterInfo]  {
+    return try  FfiConverterSequenceTypeWaterInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_water(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
+     * The water body containing `(lat, lon)`, else the nearest water feature.
+     * River centrelines are linestrings and never report `inside`.
+     * Water-layer only.
+     */
+open func waterAt(lat: Double, lon: Double, ring: UInt8)throws  -> AreaInfo?  {
+    return try  FfiConverterOptionTypeAreaInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_water_at(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
     )
 })
 }
@@ -1378,6 +1590,20 @@ public func FfiConverterTypePtilesLayer_lower(_ value: PtilesLayer) -> UnsafeMut
 public protocol PtilesStackProtocol: AnyObject, Sendable {
     
     /**
+     * Reverse geocode across the stack: the way under the point (road and
+     * trail compete on distance alone — see `core::locate`), the nearest
+     * address, and the park/water the point falls in.
+     *
+     * Layers the stack does not hold simply do not contribute; a stack with
+     * only roads still answers, it just never reports a trail. Rail is
+     * deliberately absent: standing on a track is not a place you navigate
+     * from, and letting it win "what am I on" against the road beside it
+     * would answer confidently and wrongly. Query the rail layer directly
+     * ([`PtilesLayer::nearest_rail`]) when that is the question.
+     */
+    func locate(lat: Double, lon: Double, ring: UInt8) throws  -> LocatedInfo
+    
+    /**
      * Score `fix` against whichever layers this stack holds, at the fix's
      * cell (plus ring-1 neighbors when `ring == 1`). Uses
      * `ptiles_core::scoring::ScoringParams::default()` -- tunable weights
@@ -1434,6 +1660,11 @@ open class PtilesStack: PtilesStackProtocol, @unchecked Sendable {
     public func uniffiClonePointer() -> UnsafeMutableRawPointer {
         return try! rustCall { uniffi_ptiles_ffi_fn_clone_ptilesstack(self.pointer, $0) }
     }
+    /**
+     * The three layers [`PtilesStack::score`] needs. Unchanged signature --
+     * use [`PtilesStack::with_layers`] to add the ones
+     * [`PtilesStack::locate`] reads.
+     */
 public convenience init(roads: PtilesLayer?, buildings: PtilesLayer?, business: PtilesLayer?) {
     let pointer =
         try! rustCall() {
@@ -1455,7 +1686,48 @@ public convenience init(roads: PtilesLayer?, buildings: PtilesLayer?, business: 
     }
 
     
+    /**
+     * Every layer this stack can use. `score` reads roads/buildings/business,
+     * `locate` reads roads/trails/addresses/parks/water; pass whichever files
+     * the region actually has and the rest stay silent.
+     */
+public static func withLayers(roads: PtilesLayer?, buildings: PtilesLayer?, business: PtilesLayer?, trails: PtilesLayer?, parks: PtilesLayer?, water: PtilesLayer?, addresses: AddressLayer?) -> PtilesStack  {
+    return try!  FfiConverterTypePtilesStack_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(
+        FfiConverterOptionTypePtilesLayer.lower(roads),
+        FfiConverterOptionTypePtilesLayer.lower(buildings),
+        FfiConverterOptionTypePtilesLayer.lower(business),
+        FfiConverterOptionTypePtilesLayer.lower(trails),
+        FfiConverterOptionTypePtilesLayer.lower(parks),
+        FfiConverterOptionTypePtilesLayer.lower(water),
+        FfiConverterOptionTypeAddressLayer.lower(addresses),$0
+    )
+})
+}
+    
 
+    
+    /**
+     * Reverse geocode across the stack: the way under the point (road and
+     * trail compete on distance alone — see `core::locate`), the nearest
+     * address, and the park/water the point falls in.
+     *
+     * Layers the stack does not hold simply do not contribute; a stack with
+     * only roads still answers, it just never reports a trail. Rail is
+     * deliberately absent: standing on a track is not a place you navigate
+     * from, and letting it win "what am I on" against the road beside it
+     * would answer confidently and wrongly. Query the rail layer directly
+     * ([`PtilesLayer::nearest_rail`]) when that is the question.
+     */
+open func locate(lat: Double, lon: Double, ring: UInt8)throws  -> LocatedInfo  {
+    return try  FfiConverterTypeLocatedInfo_lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptilesstack_locate(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
     
     /**
      * Score `fix` against whichever layers this stack holds, at the fix's
@@ -1711,6 +1983,110 @@ public func FfiConverterTypeAdminInfo_lift(_ buf: RustBuffer) throws -> AdminInf
 #endif
 public func FfiConverterTypeAdminInfo_lower(_ value: AdminInfo) -> RustBuffer {
     return FfiConverterTypeAdminInfo.lower(value)
+}
+
+
+/**
+ * An area the query point is in or near (`ptiles_core::NearbyArea`).
+ * `distance_m` is 0 when `inside`, else the distance to the boundary.
+ */
+public struct AreaInfo {
+    /**
+     * `park` or `water`.
+     */
+    public var kind: String
+    public var name: String?
+    public var `class`: String
+    public var distanceM: Double
+    public var inside: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `park` or `water`.
+         */kind: String, name: String?, `class`: String, distanceM: Double, inside: Bool) {
+        self.kind = kind
+        self.name = name
+        self.`class` = `class`
+        self.distanceM = distanceM
+        self.inside = inside
+    }
+}
+
+#if compiler(>=6)
+extension AreaInfo: Sendable {}
+#endif
+
+
+extension AreaInfo: Equatable, Hashable {
+    public static func ==(lhs: AreaInfo, rhs: AreaInfo) -> Bool {
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.`class` != rhs.`class` {
+            return false
+        }
+        if lhs.distanceM != rhs.distanceM {
+            return false
+        }
+        if lhs.inside != rhs.inside {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+        hasher.combine(name)
+        hasher.combine(`class`)
+        hasher.combine(distanceM)
+        hasher.combine(inside)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAreaInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AreaInfo {
+        return
+            try AreaInfo(
+                kind: FfiConverterString.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                class: FfiConverterString.read(from: &buf), 
+                distanceM: FfiConverterDouble.read(from: &buf), 
+                inside: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AreaInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterString.write(value.`class`, into: &buf)
+        FfiConverterDouble.write(value.distanceM, into: &buf)
+        FfiConverterBool.write(value.inside, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAreaInfo_lift(_ buf: RustBuffer) throws -> AreaInfo {
+    return try FfiConverterTypeAreaInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAreaInfo_lower(_ value: AreaInfo) -> RustBuffer {
+    return FfiConverterTypeAreaInfo.lower(value)
 }
 
 
@@ -2550,6 +2926,238 @@ public func FfiConverterTypeLayerMetadata_lower(_ value: LayerMetadata) -> RustB
 
 
 /**
+ * What is at a point, across whichever layers a [`PtilesStack`] holds —
+ * `ptiles_core::Located` plus the area and point answers the trail/park/
+ * water/rail layers contribute.
+ */
+public struct LocatedInfo {
+    /**
+     * Nearest road/trail/rail way, whether or not you are on it.
+     */
+    public var nearestWay: WayInfo?
+    /**
+     * The way you are actually on, within 25 m. When set, the same feature
+     * as `nearest_way`.
+     */
+    public var onWay: WayInfo?
+    /**
+     * Nearest address within `ptiles_core::ADDRESS_THRESHOLD_M` (150 m).
+     */
+    public var address: NearbyAddressInfo?
+    /**
+     * The park you are in, else the nearest one.
+     */
+    public var park: AreaInfo?
+    /**
+     * The water body you are in, else the nearest.
+     */
+    public var water: AreaInfo?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Nearest road/trail/rail way, whether or not you are on it.
+         */nearestWay: WayInfo?, 
+        /**
+         * The way you are actually on, within 25 m. When set, the same feature
+         * as `nearest_way`.
+         */onWay: WayInfo?, 
+        /**
+         * Nearest address within `ptiles_core::ADDRESS_THRESHOLD_M` (150 m).
+         */address: NearbyAddressInfo?, 
+        /**
+         * The park you are in, else the nearest one.
+         */park: AreaInfo?, 
+        /**
+         * The water body you are in, else the nearest.
+         */water: AreaInfo?) {
+        self.nearestWay = nearestWay
+        self.onWay = onWay
+        self.address = address
+        self.park = park
+        self.water = water
+    }
+}
+
+#if compiler(>=6)
+extension LocatedInfo: Sendable {}
+#endif
+
+
+extension LocatedInfo: Equatable, Hashable {
+    public static func ==(lhs: LocatedInfo, rhs: LocatedInfo) -> Bool {
+        if lhs.nearestWay != rhs.nearestWay {
+            return false
+        }
+        if lhs.onWay != rhs.onWay {
+            return false
+        }
+        if lhs.address != rhs.address {
+            return false
+        }
+        if lhs.park != rhs.park {
+            return false
+        }
+        if lhs.water != rhs.water {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(nearestWay)
+        hasher.combine(onWay)
+        hasher.combine(address)
+        hasher.combine(park)
+        hasher.combine(water)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocatedInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocatedInfo {
+        return
+            try LocatedInfo(
+                nearestWay: FfiConverterOptionTypeWayInfo.read(from: &buf), 
+                onWay: FfiConverterOptionTypeWayInfo.read(from: &buf), 
+                address: FfiConverterOptionTypeNearbyAddressInfo.read(from: &buf), 
+                park: FfiConverterOptionTypeAreaInfo.read(from: &buf), 
+                water: FfiConverterOptionTypeAreaInfo.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LocatedInfo, into buf: inout [UInt8]) {
+        FfiConverterOptionTypeWayInfo.write(value.nearestWay, into: &buf)
+        FfiConverterOptionTypeWayInfo.write(value.onWay, into: &buf)
+        FfiConverterOptionTypeNearbyAddressInfo.write(value.address, into: &buf)
+        FfiConverterOptionTypeAreaInfo.write(value.park, into: &buf)
+        FfiConverterOptionTypeAreaInfo.write(value.water, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocatedInfo_lift(_ buf: RustBuffer) throws -> LocatedInfo {
+    return try FfiConverterTypeLocatedInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocatedInfo_lower(_ value: LocatedInfo) -> RustBuffer {
+    return FfiConverterTypeLocatedInfo.lower(value)
+}
+
+
+/**
+ * An address near the query point, with where it is and how far.
+ *
+ * Distinct from [`AddressRecord`], which carries no position: v1 address
+ * files store none, and only v2 records can be measured against a point at
+ * all (see `core::locate::nearest_address`).
+ */
+public struct NearbyAddressInfo {
+    public var osmId: Int64
+    public var housenumber: String
+    public var street: String
+    public var location: LatLon
+    public var distanceM: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(osmId: Int64, housenumber: String, street: String, location: LatLon, distanceM: Double) {
+        self.osmId = osmId
+        self.housenumber = housenumber
+        self.street = street
+        self.location = location
+        self.distanceM = distanceM
+    }
+}
+
+#if compiler(>=6)
+extension NearbyAddressInfo: Sendable {}
+#endif
+
+
+extension NearbyAddressInfo: Equatable, Hashable {
+    public static func ==(lhs: NearbyAddressInfo, rhs: NearbyAddressInfo) -> Bool {
+        if lhs.osmId != rhs.osmId {
+            return false
+        }
+        if lhs.housenumber != rhs.housenumber {
+            return false
+        }
+        if lhs.street != rhs.street {
+            return false
+        }
+        if lhs.location != rhs.location {
+            return false
+        }
+        if lhs.distanceM != rhs.distanceM {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(osmId)
+        hasher.combine(housenumber)
+        hasher.combine(street)
+        hasher.combine(location)
+        hasher.combine(distanceM)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNearbyAddressInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NearbyAddressInfo {
+        return
+            try NearbyAddressInfo(
+                osmId: FfiConverterInt64.read(from: &buf), 
+                housenumber: FfiConverterString.read(from: &buf), 
+                street: FfiConverterString.read(from: &buf), 
+                location: FfiConverterTypeLatLon.read(from: &buf), 
+                distanceM: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: NearbyAddressInfo, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.osmId, into: &buf)
+        FfiConverterString.write(value.housenumber, into: &buf)
+        FfiConverterString.write(value.street, into: &buf)
+        FfiConverterTypeLatLon.write(value.location, into: &buf)
+        FfiConverterDouble.write(value.distanceM, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNearbyAddressInfo_lift(_ buf: RustBuffer) throws -> NearbyAddressInfo {
+    return try FfiConverterTypeNearbyAddressInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNearbyAddressInfo_lower(_ value: NearbyAddressInfo) -> RustBuffer {
+    return FfiConverterTypeNearbyAddressInfo.lower(value)
+}
+
+
+/**
  * Nearest labeled intersection to a query point (the "am I at an
  * intersection?" answer). `intersection_type`: 1 = traffic_signals,
  * 2 = stop, 3 = give_way, 4 = roundabout (0/other = untyped). Reports a
@@ -2752,6 +3360,294 @@ public func FfiConverterTypeNearestRoad_lower(_ value: NearestRoad) -> RustBuffe
 }
 
 
+public struct ParkInfo {
+    public var osmId: Int64
+    public var name: String?
+    public var parkType: String
+    public var geometry: [LatLon]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(osmId: Int64, name: String?, parkType: String, geometry: [LatLon]) {
+        self.osmId = osmId
+        self.name = name
+        self.parkType = parkType
+        self.geometry = geometry
+    }
+}
+
+#if compiler(>=6)
+extension ParkInfo: Sendable {}
+#endif
+
+
+extension ParkInfo: Equatable, Hashable {
+    public static func ==(lhs: ParkInfo, rhs: ParkInfo) -> Bool {
+        if lhs.osmId != rhs.osmId {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.parkType != rhs.parkType {
+            return false
+        }
+        if lhs.geometry != rhs.geometry {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(osmId)
+        hasher.combine(name)
+        hasher.combine(parkType)
+        hasher.combine(geometry)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeParkInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ParkInfo {
+        return
+            try ParkInfo(
+                osmId: FfiConverterInt64.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                parkType: FfiConverterString.read(from: &buf), 
+                geometry: FfiConverterSequenceTypeLatLon.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ParkInfo, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.osmId, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterString.write(value.parkType, into: &buf)
+        FfiConverterSequenceTypeLatLon.write(value.geometry, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeParkInfo_lift(_ buf: RustBuffer) throws -> ParkInfo {
+    return try FfiConverterTypeParkInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeParkInfo_lower(_ value: ParkInfo) -> RustBuffer {
+    return FfiConverterTypeParkInfo.lower(value)
+}
+
+
+/**
+ * A point feature near the query point — a trailhead or a station
+ * (`ptiles_core::NearbyPoint`). These are exactly what the linear lookups
+ * skip, since a point has no centreline to be on.
+ */
+public struct PointInfo {
+    /**
+     * `trailhead` or `station`.
+     */
+    public var kind: String
+    public var name: String?
+    public var `class`: String
+    public var location: LatLon
+    public var distanceM: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `trailhead` or `station`.
+         */kind: String, name: String?, `class`: String, location: LatLon, distanceM: Double) {
+        self.kind = kind
+        self.name = name
+        self.`class` = `class`
+        self.location = location
+        self.distanceM = distanceM
+    }
+}
+
+#if compiler(>=6)
+extension PointInfo: Sendable {}
+#endif
+
+
+extension PointInfo: Equatable, Hashable {
+    public static func ==(lhs: PointInfo, rhs: PointInfo) -> Bool {
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.`class` != rhs.`class` {
+            return false
+        }
+        if lhs.location != rhs.location {
+            return false
+        }
+        if lhs.distanceM != rhs.distanceM {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+        hasher.combine(name)
+        hasher.combine(`class`)
+        hasher.combine(location)
+        hasher.combine(distanceM)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePointInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PointInfo {
+        return
+            try PointInfo(
+                kind: FfiConverterString.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                class: FfiConverterString.read(from: &buf), 
+                location: FfiConverterTypeLatLon.read(from: &buf), 
+                distanceM: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PointInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterString.write(value.`class`, into: &buf)
+        FfiConverterTypeLatLon.write(value.location, into: &buf)
+        FfiConverterDouble.write(value.distanceM, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePointInfo_lift(_ buf: RustBuffer) throws -> PointInfo {
+    return try FfiConverterTypePointInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePointInfo_lower(_ value: PointInfo) -> RustBuffer {
+    return FfiConverterTypePointInfo.lower(value)
+}
+
+
+/**
+ * One decoded rail feature. `geom_type`: 0 = track, 1 = station/halt point.
+ */
+public struct RailInfo {
+    public var osmId: Int64
+    public var name: String?
+    public var railType: String
+    public var geomType: UInt8
+    public var geometry: [LatLon]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(osmId: Int64, name: String?, railType: String, geomType: UInt8, geometry: [LatLon]) {
+        self.osmId = osmId
+        self.name = name
+        self.railType = railType
+        self.geomType = geomType
+        self.geometry = geometry
+    }
+}
+
+#if compiler(>=6)
+extension RailInfo: Sendable {}
+#endif
+
+
+extension RailInfo: Equatable, Hashable {
+    public static func ==(lhs: RailInfo, rhs: RailInfo) -> Bool {
+        if lhs.osmId != rhs.osmId {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.railType != rhs.railType {
+            return false
+        }
+        if lhs.geomType != rhs.geomType {
+            return false
+        }
+        if lhs.geometry != rhs.geometry {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(osmId)
+        hasher.combine(name)
+        hasher.combine(railType)
+        hasher.combine(geomType)
+        hasher.combine(geometry)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRailInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RailInfo {
+        return
+            try RailInfo(
+                osmId: FfiConverterInt64.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                railType: FfiConverterString.read(from: &buf), 
+                geomType: FfiConverterUInt8.read(from: &buf), 
+                geometry: FfiConverterSequenceTypeLatLon.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RailInfo, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.osmId, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterString.write(value.railType, into: &buf)
+        FfiConverterUInt8.write(value.geomType, into: &buf)
+        FfiConverterSequenceTypeLatLon.write(value.geometry, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRailInfo_lift(_ buf: RustBuffer) throws -> RailInfo {
+    return try FfiConverterTypeRailInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRailInfo_lower(_ value: RailInfo) -> RustBuffer {
+    return FfiConverterTypeRailInfo.lower(value)
+}
+
+
 public struct RoadInfo {
     public var osmId: UInt64
     public var name: String?
@@ -2835,6 +3731,356 @@ public func FfiConverterTypeRoadInfo_lift(_ buf: RustBuffer) throws -> RoadInfo 
 #endif
 public func FfiConverterTypeRoadInfo_lower(_ value: RoadInfo) -> RustBuffer {
     return FfiConverterTypeRoadInfo.lower(value)
+}
+
+
+/**
+ * One decoded trail. `geom_type`: 0 = linestring (a way you walk), 1 = point
+ * (a trailhead). `sac_scale` is the SAC hiking difficulty when tagged, empty
+ * otherwise.
+ */
+public struct TrailInfo {
+    public var osmId: Int64
+    public var name: String?
+    public var trailType: String
+    public var geomType: UInt8
+    public var surface: String
+    public var sacScale: String
+    public var geometry: [LatLon]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(osmId: Int64, name: String?, trailType: String, geomType: UInt8, surface: String, sacScale: String, geometry: [LatLon]) {
+        self.osmId = osmId
+        self.name = name
+        self.trailType = trailType
+        self.geomType = geomType
+        self.surface = surface
+        self.sacScale = sacScale
+        self.geometry = geometry
+    }
+}
+
+#if compiler(>=6)
+extension TrailInfo: Sendable {}
+#endif
+
+
+extension TrailInfo: Equatable, Hashable {
+    public static func ==(lhs: TrailInfo, rhs: TrailInfo) -> Bool {
+        if lhs.osmId != rhs.osmId {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.trailType != rhs.trailType {
+            return false
+        }
+        if lhs.geomType != rhs.geomType {
+            return false
+        }
+        if lhs.surface != rhs.surface {
+            return false
+        }
+        if lhs.sacScale != rhs.sacScale {
+            return false
+        }
+        if lhs.geometry != rhs.geometry {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(osmId)
+        hasher.combine(name)
+        hasher.combine(trailType)
+        hasher.combine(geomType)
+        hasher.combine(surface)
+        hasher.combine(sacScale)
+        hasher.combine(geometry)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTrailInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TrailInfo {
+        return
+            try TrailInfo(
+                osmId: FfiConverterInt64.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                trailType: FfiConverterString.read(from: &buf), 
+                geomType: FfiConverterUInt8.read(from: &buf), 
+                surface: FfiConverterString.read(from: &buf), 
+                sacScale: FfiConverterString.read(from: &buf), 
+                geometry: FfiConverterSequenceTypeLatLon.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TrailInfo, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.osmId, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterString.write(value.trailType, into: &buf)
+        FfiConverterUInt8.write(value.geomType, into: &buf)
+        FfiConverterString.write(value.surface, into: &buf)
+        FfiConverterString.write(value.sacScale, into: &buf)
+        FfiConverterSequenceTypeLatLon.write(value.geometry, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTrailInfo_lift(_ buf: RustBuffer) throws -> TrailInfo {
+    return try FfiConverterTypeTrailInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTrailInfo_lower(_ value: TrailInfo) -> RustBuffer {
+    return FfiConverterTypeTrailInfo.lower(value)
+}
+
+
+/**
+ * One decoded water feature. `geom_type`: 0 = polygon, 1 = linestring,
+ * 2 = reference (geometry lives elsewhere in the file, so `geometry` is
+ * empty and `ref_feature_id` is the handle).
+ */
+public struct WaterInfo {
+    public var osmId: Int64
+    public var name: String?
+    public var waterType: String
+    public var geomType: UInt8
+    public var width: UInt16?
+    public var refFeatureId: UInt32?
+    public var geometry: [LatLon]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(osmId: Int64, name: String?, waterType: String, geomType: UInt8, width: UInt16?, refFeatureId: UInt32?, geometry: [LatLon]) {
+        self.osmId = osmId
+        self.name = name
+        self.waterType = waterType
+        self.geomType = geomType
+        self.width = width
+        self.refFeatureId = refFeatureId
+        self.geometry = geometry
+    }
+}
+
+#if compiler(>=6)
+extension WaterInfo: Sendable {}
+#endif
+
+
+extension WaterInfo: Equatable, Hashable {
+    public static func ==(lhs: WaterInfo, rhs: WaterInfo) -> Bool {
+        if lhs.osmId != rhs.osmId {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.waterType != rhs.waterType {
+            return false
+        }
+        if lhs.geomType != rhs.geomType {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.refFeatureId != rhs.refFeatureId {
+            return false
+        }
+        if lhs.geometry != rhs.geometry {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(osmId)
+        hasher.combine(name)
+        hasher.combine(waterType)
+        hasher.combine(geomType)
+        hasher.combine(width)
+        hasher.combine(refFeatureId)
+        hasher.combine(geometry)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWaterInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WaterInfo {
+        return
+            try WaterInfo(
+                osmId: FfiConverterInt64.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                waterType: FfiConverterString.read(from: &buf), 
+                geomType: FfiConverterUInt8.read(from: &buf), 
+                width: FfiConverterOptionUInt16.read(from: &buf), 
+                refFeatureId: FfiConverterOptionUInt32.read(from: &buf), 
+                geometry: FfiConverterSequenceTypeLatLon.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WaterInfo, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.osmId, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterString.write(value.waterType, into: &buf)
+        FfiConverterUInt8.write(value.geomType, into: &buf)
+        FfiConverterOptionUInt16.write(value.width, into: &buf)
+        FfiConverterOptionUInt32.write(value.refFeatureId, into: &buf)
+        FfiConverterSequenceTypeLatLon.write(value.geometry, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWaterInfo_lift(_ buf: RustBuffer) throws -> WaterInfo {
+    return try FfiConverterTypeWaterInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWaterInfo_lower(_ value: WaterInfo) -> RustBuffer {
+    return FfiConverterTypeWaterInfo.lower(value)
+}
+
+
+/**
+ * A linear feature the query point is on or near — the shape of
+ * `ptiles_core::NearbyWay`. `on_it` is true within
+ * `ptiles_core::ON_WAY_THRESHOLD_M` (25 m); outside that the answer is
+ * "near", and the caller decides what to do with the distance.
+ */
+public struct WayInfo {
+    /**
+     * `road`, `trail`, or `rail`.
+     */
+    public var kind: String
+    public var name: String?
+    /**
+     * Road class, trail type, or rail type.
+     */
+    public var `class`: String
+    public var distanceM: Double
+    public var snapped: LatLon
+    public var onIt: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `road`, `trail`, or `rail`.
+         */kind: String, name: String?, 
+        /**
+         * Road class, trail type, or rail type.
+         */`class`: String, distanceM: Double, snapped: LatLon, onIt: Bool) {
+        self.kind = kind
+        self.name = name
+        self.`class` = `class`
+        self.distanceM = distanceM
+        self.snapped = snapped
+        self.onIt = onIt
+    }
+}
+
+#if compiler(>=6)
+extension WayInfo: Sendable {}
+#endif
+
+
+extension WayInfo: Equatable, Hashable {
+    public static func ==(lhs: WayInfo, rhs: WayInfo) -> Bool {
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.`class` != rhs.`class` {
+            return false
+        }
+        if lhs.distanceM != rhs.distanceM {
+            return false
+        }
+        if lhs.snapped != rhs.snapped {
+            return false
+        }
+        if lhs.onIt != rhs.onIt {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+        hasher.combine(name)
+        hasher.combine(`class`)
+        hasher.combine(distanceM)
+        hasher.combine(snapped)
+        hasher.combine(onIt)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWayInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WayInfo {
+        return
+            try WayInfo(
+                kind: FfiConverterString.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                class: FfiConverterString.read(from: &buf), 
+                distanceM: FfiConverterDouble.read(from: &buf), 
+                snapped: FfiConverterTypeLatLon.read(from: &buf), 
+                onIt: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WayInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterString.write(value.`class`, into: &buf)
+        FfiConverterDouble.write(value.distanceM, into: &buf)
+        FfiConverterTypeLatLon.write(value.snapped, into: &buf)
+        FfiConverterBool.write(value.onIt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWayInfo_lift(_ buf: RustBuffer) throws -> WayInfo {
+    return try FfiConverterTypeWayInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWayInfo_lower(_ value: WayInfo) -> RustBuffer {
+    return FfiConverterTypeWayInfo.lower(value)
 }
 
 // Note that we don't yet support `indirect` for enums.
@@ -3121,6 +4367,54 @@ fileprivate struct FfiConverterOptionUInt8: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt16: FfiConverterRustBuffer {
+    typealias SwiftType = UInt16?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt16.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt16.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = UInt32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
     typealias SwiftType = UInt64?
 
@@ -3193,6 +4487,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeAddressLayer: FfiConverterRustBuffer {
+    typealias SwiftType = AddressLayer?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAddressLayer.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAddressLayer.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePtilesLayer: FfiConverterRustBuffer {
     typealias SwiftType = PtilesLayer?
 
@@ -3241,6 +4559,30 @@ fileprivate struct FfiConverterOptionTypeAdminInfo: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeAreaInfo: FfiConverterRustBuffer {
+    typealias SwiftType = AreaInfo?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAreaInfo.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAreaInfo.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeBuildingInfo: FfiConverterRustBuffer {
     typealias SwiftType = BuildingInfo?
 
@@ -3257,6 +4599,30 @@ fileprivate struct FfiConverterOptionTypeBuildingInfo: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeBuildingInfo.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeNearbyAddressInfo: FfiConverterRustBuffer {
+    typealias SwiftType = NearbyAddressInfo?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeNearbyAddressInfo.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeNearbyAddressInfo.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -3305,6 +4671,54 @@ fileprivate struct FfiConverterOptionTypeNearestRoad: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeNearestRoad.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypePointInfo: FfiConverterRustBuffer {
+    typealias SwiftType = PointInfo?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePointInfo.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePointInfo.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeWayInfo: FfiConverterRustBuffer {
+    typealias SwiftType = WayInfo?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeWayInfo.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeWayInfo.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -3438,6 +4852,56 @@ fileprivate struct FfiConverterSequenceTypeLatLon: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeParkInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [ParkInfo]
+
+    public static func write(_ value: [ParkInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeParkInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ParkInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ParkInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeParkInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeRailInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [RailInfo]
+
+    public static func write(_ value: [RailInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRailInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RailInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RailInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRailInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeRoadInfo: FfiConverterRustBuffer {
     typealias SwiftType = [RoadInfo]
 
@@ -3455,6 +4919,56 @@ fileprivate struct FfiConverterSequenceTypeRoadInfo: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeRoadInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeTrailInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [TrailInfo]
+
+    public static func write(_ value: [TrailInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTrailInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TrailInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TrailInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTrailInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWaterInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [WaterInfo]
+
+    public static func write(_ value: [WaterInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWaterInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WaterInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WaterInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWaterInfo.read(from: &buf))
         }
         return seq
     }
@@ -3623,19 +5137,52 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at() != 64541) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_rail() != 62426) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road() != 49038) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at() != 15623) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_station() != 23047) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trail() != 11510) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_trailhead() != 12821) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_park_at() != 52943) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_parks() != 30052) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox() != 43698) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_rail() != 62946) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_roads() != 36266) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business() != 23326) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_trails() != 45930) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_water() != 13473) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at() != 24453) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403) {
@@ -3650,7 +5197,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 23503) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 62815) {
+    if (uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 38860) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 1730) {
         return InitializationResult.apiChecksumMismatch
     }
 

@@ -12,9 +12,15 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::address::AddressRecord;
-use crate::proximity::{haversine_distance_m, point_to_linestring_distance_m};
+use crate::parks::ParkFeature;
+use crate::proximity::{
+    haversine_distance_m, point_in_polygon, point_to_linestring_distance_m,
+    point_to_ring_distance_m,
+};
+use crate::rail::RailFeature;
 use crate::roads::RoadSegment;
 use crate::trails::TrailFeature;
+use crate::water::WaterFeature;
 
 /// How close a linear feature must be before it counts as the one you are on.
 ///
@@ -124,6 +130,209 @@ pub fn nearest_trail(lat: f64, lon: f64, trails: &[TrailFeature]) -> Option<Near
         .enumerate()
         .filter_map(|(i, t)| way_from_trail(i, t, lat, lon))
         .min_by(|a, b| a.distance_m.total_cmp(&b.distance_m))
+}
+
+/// An area feature (a park polygon, a lake, a river) the point is in or near.
+///
+/// Separate from [`NearbyWay`] because "on it" and "in it" are different
+/// questions: a way answers with a snapped point on a centreline, an area
+/// answers with containment, and collapsing the two would make `snapped`
+/// meaningless for a polygon.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct NearbyArea {
+    /// Index into the slice that was searched.
+    pub index: usize,
+    /// `park` or `water` — which slice `index` refers to.
+    pub kind: String,
+    /// Park or water body name, when the feature carries one.
+    pub name: Option<String>,
+    /// Park type (`park`, `nature_reserve`) or water type (`lake`, `river`).
+    pub class: String,
+    /// Distance to the feature's boundary in metres, `0.0` when inside it.
+    pub distance_m: f64,
+    /// True when the point falls inside the polygon.
+    pub inside: bool,
+}
+
+/// A point feature (a trailhead, a station) near the query point.
+///
+/// The linear lookups skip these deliberately — a point has no centreline to
+/// be on — so they need their own answer rather than being dropped.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct NearbyPoint {
+    /// Index into the slice that was searched.
+    pub index: usize,
+    /// `trailhead` or `station`.
+    pub kind: String,
+    pub name: Option<String>,
+    /// Trail type (`trailhead`) or rail type (`station`, `halt`).
+    pub class: String,
+    pub lat: f64,
+    pub lon: f64,
+    pub distance_m: f64,
+}
+
+fn way_from_rail(index: usize, rail: &RailFeature, lat: f64, lon: f64) -> Option<NearbyWay> {
+    // Stations are points, same as trailheads; `nearest_station` answers those.
+    if rail.geom_type != 0 || rail.coords.len() < 2 {
+        return None;
+    }
+    let (_, proj) = point_to_linestring_distance_m(lat, lon, &rail.coords)?;
+    Some(NearbyWay {
+        index,
+        kind: String::from("rail"),
+        name: rail.name.clone(),
+        class: rail.rail_type.clone(),
+        distance_m: proj.distance_m,
+        snapped: proj.snapped,
+        on_it: proj.distance_m <= ON_WAY_THRESHOLD_M,
+    })
+}
+
+/// The nearest rail line to a point. Station points are skipped: this answers
+/// "which track is this", not "which platform".
+pub fn nearest_rail(lat: f64, lon: f64, rail: &[RailFeature]) -> Option<NearbyWay> {
+    rail.iter()
+        .enumerate()
+        .filter_map(|(i, r)| way_from_rail(i, r, lat, lon))
+        .min_by(|a, b| a.distance_m.total_cmp(&b.distance_m))
+}
+
+fn nearest_point_feature<'a, T>(
+    lat: f64,
+    lon: f64,
+    features: &'a [T],
+    kind: &str,
+    is_point: impl Fn(&T) -> bool,
+    parts: impl Fn(&'a T) -> (Option<String>, String, &'a [[f64; 2]]),
+) -> Option<NearbyPoint> {
+    features
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| is_point(f))
+        .filter_map(|(i, f)| {
+            let (name, class, coords) = parts(f);
+            let [flon, flat] = *coords.first()?;
+            Some(NearbyPoint {
+                index: i,
+                kind: String::from(kind),
+                name,
+                class,
+                lat: flat,
+                lon: flon,
+                distance_m: haversine_distance_m(lat, lon, flat, flon),
+            })
+        })
+        .min_by(|a, b| a.distance_m.total_cmp(&b.distance_m))
+}
+
+/// The nearest trailhead — the point feature a trail network is entered at,
+/// which is what a caller planning to *start* a walk wants, as opposed to
+/// [`nearest_trail`]'s "which path am I on".
+pub fn nearest_trailhead(lat: f64, lon: f64, trails: &[TrailFeature]) -> Option<NearbyPoint> {
+    nearest_point_feature(
+        lat,
+        lon,
+        trails,
+        "trailhead",
+        |t| t.geom_type == 1,
+        |t| (t.name.clone(), t.trail_type.clone(), &t.coords),
+    )
+}
+
+/// The nearest rail station/halt point.
+pub fn nearest_station(lat: f64, lon: f64, rail: &[RailFeature]) -> Option<NearbyPoint> {
+    nearest_point_feature(
+        lat,
+        lon,
+        rail,
+        "station",
+        |r| r.geom_type == 1,
+        |r| (r.name.clone(), r.rail_type.clone(), &r.coords),
+    )
+}
+
+/// Rank areas the way a caller reads them: the one you are inside wins, and
+/// among equals the closer boundary wins. Without the `inside` tiebreak a
+/// large park you are standing in the middle of loses to a small one whose
+/// edge is nearer.
+fn best_area(mut areas: Vec<NearbyArea>) -> Option<NearbyArea> {
+    areas.sort_by(|a, b| {
+        b.inside
+            .cmp(&a.inside)
+            .then(a.distance_m.total_cmp(&b.distance_m))
+    });
+    areas.into_iter().next()
+}
+
+fn area_of(
+    index: usize,
+    kind: &str,
+    name: Option<String>,
+    class: String,
+    coords: &[[f64; 2]],
+    lat: f64,
+    lon: f64,
+) -> Option<NearbyArea> {
+    let inside = point_in_polygon(lat, lon, coords);
+    let distance_m = if inside {
+        0.0
+    } else {
+        point_to_ring_distance_m(lat, lon, coords)?
+    };
+    Some(NearbyArea {
+        index,
+        kind: String::from(kind),
+        name,
+        class,
+        distance_m,
+        inside,
+    })
+}
+
+/// The park at a point: the polygon containing it, else the nearest park
+/// boundary. `None` when no park has usable geometry.
+pub fn park_at(lat: f64, lon: f64, parks: &[ParkFeature]) -> Option<NearbyArea> {
+    best_area(
+        parks
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                area_of(i, "park", p.name.clone(), p.park_type.clone(), &p.coords, lat, lon)
+            })
+            .collect(),
+    )
+}
+
+/// The water at a point: the polygon containing it, else the nearest water
+/// feature. Linestring water (a river centreline, `geom_type == 1`) is never
+/// "inside" — it has no area — so it competes on distance alone, and
+/// reference geometries (`geom_type == 2`, coordinates held elsewhere in the
+/// file) are skipped rather than reported at a position they do not carry.
+pub fn water_at(lat: f64, lon: f64, water: &[WaterFeature]) -> Option<NearbyArea> {
+    best_area(
+        water
+            .iter()
+            .enumerate()
+            .filter_map(|(i, w)| match w.geom_type {
+                0 => area_of(i, "water", w.name.clone(), w.water_type.clone(), &w.coords, lat, lon),
+                1 => {
+                    let (_, proj) = point_to_linestring_distance_m(lat, lon, &w.coords)?;
+                    Some(NearbyArea {
+                        index: i,
+                        kind: String::from("water"),
+                        name: w.name.clone(),
+                        class: w.water_type.clone(),
+                        distance_m: proj.distance_m,
+                        inside: false,
+                    })
+                }
+                _ => None,
+            })
+            .collect(),
+    )
 }
 
 /// The nearest address within `threshold_m`.
@@ -330,6 +539,126 @@ mod tests {
         let mut th = trail("Trailhead", "trailhead", vec![[-86.795, 36.0]]);
         th.geom_type = 1;
         assert!(nearest_trail(36.0, -86.795, &[th]).is_none());
+    }
+
+    fn rail_line(name: &str, rtype: &str, coords: Vec<[f64; 2]>) -> RailFeature {
+        RailFeature {
+            osm_id: 3,
+            rail_type: rtype.to_string(),
+            geom_type: if coords.len() < 2 { 1 } else { 0 },
+            coords,
+            name: Some(name.to_string()),
+        }
+    }
+
+    fn square(center_lon: f64, center_lat: f64, half: f64) -> Vec<[f64; 2]> {
+        vec![
+            [center_lon - half, center_lat - half],
+            [center_lon + half, center_lat - half],
+            [center_lon + half, center_lat + half],
+            [center_lon - half, center_lat + half],
+        ]
+    }
+
+    #[test]
+    fn nearest_rail_reports_track_and_skips_stations() {
+        let rail = vec![
+            rail_line("Main Line", "rail", vec![[-86.80, 36.0], [-86.79, 36.0]]),
+            rail_line("Union", "station", vec![[-86.795, 36.0001]]),
+        ];
+        let track = nearest_rail(36.00005, -86.795, &rail).expect("track");
+        assert_eq!(track.kind, "rail");
+        assert_eq!(track.index, 0, "the station point is not a way");
+
+        let station = nearest_station(36.0, -86.795, &rail).expect("station");
+        assert_eq!(station.index, 1);
+        assert!(station.distance_m < 20.0, "distance {}", station.distance_m);
+    }
+
+    #[test]
+    fn nearest_trailhead_answers_the_point_that_nearest_trail_skips() {
+        let mut th = trail("North Gate", "trailhead", vec![[-86.795, 36.0]]);
+        th.geom_type = 1;
+        let trails = vec![
+            trail("Greenway", "path", vec![[-86.80, 36.01], [-86.79, 36.01]]),
+            th,
+        ];
+        assert_eq!(nearest_trail(36.0, -86.795, &trails).unwrap().index, 0);
+        let head = nearest_trailhead(36.0, -86.795, &trails).expect("trailhead");
+        assert_eq!(head.index, 1);
+        assert_eq!(head.class, "trailhead");
+        assert!(head.distance_m < 1.0);
+    }
+
+    #[test]
+    fn park_at_prefers_the_park_you_are_standing_in() {
+        let parks = vec![
+            ParkFeature {
+                osm_id: 1,
+                park_type: "park".to_string(),
+                // A small park a couple of hundred metres east: near, but not
+                // the park the query point is standing in.
+                coords: square(-86.792, 36.0, 0.0005),
+                name: Some("Small".to_string()),
+            },
+            ParkFeature {
+                osm_id: 2,
+                park_type: "nature_reserve".to_string(),
+                coords: square(-86.795, 36.0, 0.01),
+                name: Some("Big".to_string()),
+            },
+        ];
+        let got = park_at(36.0, -86.795, &parks).expect("a park");
+        assert_eq!(got.name.as_deref(), Some("Big"), "containment beats a nearer edge");
+        assert!(got.inside);
+        assert_eq!(got.distance_m, 0.0);
+
+        // Outside both: the nearer boundary wins, and nothing claims containment.
+        let outside = park_at(36.05, -86.795, &parks).expect("still answers");
+        assert!(!outside.inside);
+        assert!(outside.distance_m > 0.0);
+    }
+
+    #[test]
+    fn water_at_never_calls_a_river_centreline_containment() {
+        let water = vec![WaterFeature {
+            osm_id: 1,
+            geom_type: 1,
+            water_type: "river".to_string(),
+            coords: vec![[-86.80, 36.0], [-86.79, 36.0]],
+            ref_feature_id: None,
+            name: Some("Cumberland".to_string()),
+            width: None,
+        }];
+        let got = water_at(36.0, -86.795, &water).expect("the river");
+        assert!(!got.inside, "a linestring has no interior");
+        assert!(got.distance_m < 1.0);
+
+        // Reference geometry carries no coordinates; reporting it would place
+        // it wherever the reader guessed.
+        let reference = vec![WaterFeature {
+            osm_id: 2,
+            geom_type: 2,
+            water_type: "lake".to_string(),
+            coords: Vec::new(),
+            ref_feature_id: Some(7),
+            name: None,
+            width: None,
+        }];
+        assert!(water_at(36.0, -86.795, &reference).is_none());
+    }
+
+    #[test]
+    fn ring_distance_uses_the_closing_edge() {
+        // Just outside the middle of the closing edge (last vertex back to
+        // first). Left open, the nearest thing is a corner ~110 m away.
+        let ring = square(-86.795, 36.0, 0.001);
+        let open = point_to_linestring_distance_m(36.0, -86.7961, &ring)
+            .map(|(_, p)| p.distance_m)
+            .unwrap();
+        let closed = point_to_ring_distance_m(36.0, -86.7961, &ring).unwrap();
+        assert!(closed < open, "closed {closed} should beat open {open}");
+        assert!(closed < 20.0, "closing edge is ~9 m away, got {closed}");
     }
 
     #[test]
