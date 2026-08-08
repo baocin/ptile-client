@@ -60,6 +60,7 @@ real file, not the (apparently stale) doc.
 | places | `PTILESP\x00` | 1 | matches SPEC.md (v1) |
 | parks | `PTILESN\x00` | 1 | matches SPEC.md (v1) |
 | rail | `PTILEST\x00` | 1 | matches SPEC.md (v1) |
+| trails | `PTILESH\x00` | 1 | {STATE}.trails_v1.ptiles as published. Header is byte-for-byte the same shape as rail's PTILEST v1 (7-byte magic + NUL, version, bbox, counts) and the record framing is the one core::trails decodes -- verified against the live TN file, not inferred from SPEC.md, which does not list this magic |
 | admin_or_address | `PTILESA\x00` | 1 | US.admin.ptiles (real sample inspected) AND {STATE}.address.ptiles both land on 7-byte magic PTILESA v1 -- the address encoder's PTILESA2 truncates to PTILESA via write_header's magic[:7]. Disambiguated by structure (admin: block_count 0, aux_length>0) and filename, not magic |
 | business_name_index | `PTILESX\x00` | 1 | sidecar {STATE}.business_name_index.ptiles from scripts/build_business_name_index.py; not in SPEC.md's file table, but matches the real bytes the reference builder produced from TN.business.ptiles during this task (magic PTILESX v1, no dict) |
 | signals | `PTILESS\x00` | 1 | NEW -- {ST}.signals.ptiles, traffic stops/give_ways from OSM highway=* nodes |

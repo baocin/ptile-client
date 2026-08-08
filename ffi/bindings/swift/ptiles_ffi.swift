@@ -480,6 +480,22 @@ fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
+    typealias FfiType = Float
+    typealias SwiftType = Float
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
+        return try lift(readFloat(&buf))
+    }
+
+    public static func write(_ value: Float, into buf: inout [UInt8]) {
+        writeFloat(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
     typealias FfiType = Double
     typealias SwiftType = Double
@@ -1800,6 +1816,351 @@ public func FfiConverterTypePtilesStack_lower(_ value: PtilesStack) -> UnsafeMut
 
 
 
+
+
+/**
+ * Turns a stream of per-fix votes into a stable movement state.
+ *
+ * Opaque and stateful: a majority window, per-transition latency and the
+ * vehicle sticky window all depend on what came before, which is exactly the
+ * part a caller should not be reimplementing.
+ *
+ * Interior-mutable because UniFFI hands out `Arc<Self>` and a caller ticks it
+ * from whichever thread its location callback arrives on.
+ */
+public protocol VoteDebouncerProtocol: AnyObject, Sendable {
+    
+    /**
+     * The tuning this debouncer was built with.
+     */
+    func config()  -> DebounceConfig
+    
+    /**
+     * The committed state, without feeding anything.
+     */
+    func current()  -> MovementType
+    
+    /**
+     * Feed one vote and read back the state after it.
+     *
+     * `now_ms` is caller-supplied and must be monotonic; the library holds no
+     * clock so that replaying a recorded trace produces the same states it
+     * produced live.
+     */
+    func tick(vote: Vote, nowMs: UInt64)  -> MovementType
+    
+    /**
+     * Feed one vote plus the nearest mapped traffic control to the fix.
+     *
+     * The control only extends the vehicle-sticky window; it never suppresses
+     * a transition plain `tick` would have allowed.
+     */
+    func tickAt(vote: Vote, nowMs: UInt64, control: TrafficControl?)  -> MovementType
+    
+}
+/**
+ * Turns a stream of per-fix votes into a stable movement state.
+ *
+ * Opaque and stateful: a majority window, per-transition latency and the
+ * vehicle sticky window all depend on what came before, which is exactly the
+ * part a caller should not be reimplementing.
+ *
+ * Interior-mutable because UniFFI hands out `Arc<Self>` and a caller ticks it
+ * from whichever thread its location callback arrives on.
+ */
+open class VoteDebouncer: VoteDebouncerProtocol, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_ptiles_ffi_fn_clone_votedebouncer(self.pointer, $0) }
+    }
+public convenience init(config: DebounceConfig) {
+    let pointer =
+        try! rustCall() {
+    uniffi_ptiles_ffi_fn_constructor_votedebouncer_new(
+        FfiConverterTypeDebounceConfig_lower(config),$0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_ptiles_ffi_fn_free_votedebouncer(pointer, $0) }
+    }
+
+    
+
+    
+    /**
+     * The tuning this debouncer was built with.
+     */
+open func config() -> DebounceConfig  {
+    return try!  FfiConverterTypeDebounceConfig_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_votedebouncer_config(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * The committed state, without feeding anything.
+     */
+open func current() -> MovementType  {
+    return try!  FfiConverterTypeMovementType_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_votedebouncer_current(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Feed one vote and read back the state after it.
+     *
+     * `now_ms` is caller-supplied and must be monotonic; the library holds no
+     * clock so that replaying a recorded trace produces the same states it
+     * produced live.
+     */
+open func tick(vote: Vote, nowMs: UInt64) -> MovementType  {
+    return try!  FfiConverterTypeMovementType_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_votedebouncer_tick(self.uniffiClonePointer(),
+        FfiConverterTypeVote_lower(vote),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * Feed one vote plus the nearest mapped traffic control to the fix.
+     *
+     * The control only extends the vehicle-sticky window; it never suppresses
+     * a transition plain `tick` would have allowed.
+     */
+open func tickAt(vote: Vote, nowMs: UInt64, control: TrafficControl?) -> MovementType  {
+    return try!  FfiConverterTypeMovementType_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_votedebouncer_tick_at(self.uniffiClonePointer(),
+        FfiConverterTypeVote_lower(vote),
+        FfiConverterUInt64.lower(nowMs),
+        FfiConverterOptionTypeTrafficControl.lower(control),$0
+    )
+})
+}
+    
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVoteDebouncer: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = VoteDebouncer
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> VoteDebouncer {
+        return VoteDebouncer(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: VoteDebouncer) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VoteDebouncer {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: VoteDebouncer, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVoteDebouncer_lift(_ pointer: UnsafeMutableRawPointer) throws -> VoteDebouncer {
+    return try FfiConverterTypeVoteDebouncer.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVoteDebouncer_lower(_ value: VoteDebouncer) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeVoteDebouncer.lower(value)
+}
+
+
+
+
+/**
+ * A window of accelerometer statistics.
+ *
+ * `mean_magnitude` and `window_duration_s` are optional because a producer
+ * that does not measure them must be able to say so: a zero there is a
+ * measurement, and absence is not.
+ */
+public struct AccelStats {
+    /**
+     * Variance of the magnitude series, (m/s^2)^2.
+     */
+    public var variance: Double
+    /**
+     * Mean magnitude, m/s^2.
+     */
+    public var meanMagnitude: Double?
+    /**
+     * Step cadence, Hz.
+     */
+    public var dominantFrequency: Double
+    public var stepCount: UInt32
+    /**
+     * Window length, seconds.
+     */
+    public var windowDurationS: Double?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Variance of the magnitude series, (m/s^2)^2.
+         */variance: Double, 
+        /**
+         * Mean magnitude, m/s^2.
+         */meanMagnitude: Double?, 
+        /**
+         * Step cadence, Hz.
+         */dominantFrequency: Double, stepCount: UInt32, 
+        /**
+         * Window length, seconds.
+         */windowDurationS: Double?) {
+        self.variance = variance
+        self.meanMagnitude = meanMagnitude
+        self.dominantFrequency = dominantFrequency
+        self.stepCount = stepCount
+        self.windowDurationS = windowDurationS
+    }
+}
+
+#if compiler(>=6)
+extension AccelStats: Sendable {}
+#endif
+
+
+extension AccelStats: Equatable, Hashable {
+    public static func ==(lhs: AccelStats, rhs: AccelStats) -> Bool {
+        if lhs.variance != rhs.variance {
+            return false
+        }
+        if lhs.meanMagnitude != rhs.meanMagnitude {
+            return false
+        }
+        if lhs.dominantFrequency != rhs.dominantFrequency {
+            return false
+        }
+        if lhs.stepCount != rhs.stepCount {
+            return false
+        }
+        if lhs.windowDurationS != rhs.windowDurationS {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(variance)
+        hasher.combine(meanMagnitude)
+        hasher.combine(dominantFrequency)
+        hasher.combine(stepCount)
+        hasher.combine(windowDurationS)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAccelStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AccelStats {
+        return
+            try AccelStats(
+                variance: FfiConverterDouble.read(from: &buf), 
+                meanMagnitude: FfiConverterOptionDouble.read(from: &buf), 
+                dominantFrequency: FfiConverterDouble.read(from: &buf), 
+                stepCount: FfiConverterUInt32.read(from: &buf), 
+                windowDurationS: FfiConverterOptionDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AccelStats, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.variance, into: &buf)
+        FfiConverterOptionDouble.write(value.meanMagnitude, into: &buf)
+        FfiConverterDouble.write(value.dominantFrequency, into: &buf)
+        FfiConverterUInt32.write(value.stepCount, into: &buf)
+        FfiConverterOptionDouble.write(value.windowDurationS, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAccelStats_lift(_ buf: RustBuffer) throws -> AccelStats {
+    return try FfiConverterTypeAccelStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAccelStats_lower(_ value: AccelStats) -> RustBuffer {
+    return FfiConverterTypeAccelStats.lower(value)
+}
+
+
 /**
  * One decoded address (`{osm_id, housenumber, street}`; location is the cell).
  */
@@ -2535,6 +2896,165 @@ public func FfiConverterTypeCandidate_lower(_ value: Candidate) -> RustBuffer {
 
 
 /**
+ * Tuning for [`VoteDebouncer`].
+ */
+public struct DebounceConfig {
+    /**
+     * Votes kept in the majority window.
+     */
+    public var majorityWindow: UInt32
+    /**
+     * Latency into `Driving`, ms.
+     */
+    public var rapidLatencyMs: UInt64
+    /**
+     * Latency for every other transition, ms.
+     */
+    public var defaultLatencyMs: UInt64
+    /**
+     * After a `Driving` vote, how long (ms) a flip to `Stationary` is
+     * suppressed -- a red light is not an arrival.
+     */
+    public var vehicleStickyMs: UInt64
+    /**
+     * Sticky window (ms) used instead of `vehicle_sticky_ms` at a mapped
+     * traffic control, where a queue can hold a car far longer.
+     */
+    public var signalStickyMs: UInt64
+    /**
+     * How close (m) a traffic control counts as "waiting at it".
+     */
+    public var signalRadiusM: Double
+    /**
+     * Consecutive agreeing majorities required before a transition commits.
+     */
+    public var minContinuous: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Votes kept in the majority window.
+         */majorityWindow: UInt32, 
+        /**
+         * Latency into `Driving`, ms.
+         */rapidLatencyMs: UInt64, 
+        /**
+         * Latency for every other transition, ms.
+         */defaultLatencyMs: UInt64, 
+        /**
+         * After a `Driving` vote, how long (ms) a flip to `Stationary` is
+         * suppressed -- a red light is not an arrival.
+         */vehicleStickyMs: UInt64, 
+        /**
+         * Sticky window (ms) used instead of `vehicle_sticky_ms` at a mapped
+         * traffic control, where a queue can hold a car far longer.
+         */signalStickyMs: UInt64, 
+        /**
+         * How close (m) a traffic control counts as "waiting at it".
+         */signalRadiusM: Double, 
+        /**
+         * Consecutive agreeing majorities required before a transition commits.
+         */minContinuous: UInt32) {
+        self.majorityWindow = majorityWindow
+        self.rapidLatencyMs = rapidLatencyMs
+        self.defaultLatencyMs = defaultLatencyMs
+        self.vehicleStickyMs = vehicleStickyMs
+        self.signalStickyMs = signalStickyMs
+        self.signalRadiusM = signalRadiusM
+        self.minContinuous = minContinuous
+    }
+}
+
+#if compiler(>=6)
+extension DebounceConfig: Sendable {}
+#endif
+
+
+extension DebounceConfig: Equatable, Hashable {
+    public static func ==(lhs: DebounceConfig, rhs: DebounceConfig) -> Bool {
+        if lhs.majorityWindow != rhs.majorityWindow {
+            return false
+        }
+        if lhs.rapidLatencyMs != rhs.rapidLatencyMs {
+            return false
+        }
+        if lhs.defaultLatencyMs != rhs.defaultLatencyMs {
+            return false
+        }
+        if lhs.vehicleStickyMs != rhs.vehicleStickyMs {
+            return false
+        }
+        if lhs.signalStickyMs != rhs.signalStickyMs {
+            return false
+        }
+        if lhs.signalRadiusM != rhs.signalRadiusM {
+            return false
+        }
+        if lhs.minContinuous != rhs.minContinuous {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(majorityWindow)
+        hasher.combine(rapidLatencyMs)
+        hasher.combine(defaultLatencyMs)
+        hasher.combine(vehicleStickyMs)
+        hasher.combine(signalStickyMs)
+        hasher.combine(signalRadiusM)
+        hasher.combine(minContinuous)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDebounceConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DebounceConfig {
+        return
+            try DebounceConfig(
+                majorityWindow: FfiConverterUInt32.read(from: &buf), 
+                rapidLatencyMs: FfiConverterUInt64.read(from: &buf), 
+                defaultLatencyMs: FfiConverterUInt64.read(from: &buf), 
+                vehicleStickyMs: FfiConverterUInt64.read(from: &buf), 
+                signalStickyMs: FfiConverterUInt64.read(from: &buf), 
+                signalRadiusM: FfiConverterDouble.read(from: &buf), 
+                minContinuous: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DebounceConfig, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.majorityWindow, into: &buf)
+        FfiConverterUInt64.write(value.rapidLatencyMs, into: &buf)
+        FfiConverterUInt64.write(value.defaultLatencyMs, into: &buf)
+        FfiConverterUInt64.write(value.vehicleStickyMs, into: &buf)
+        FfiConverterUInt64.write(value.signalStickyMs, into: &buf)
+        FfiConverterDouble.write(value.signalRadiusM, into: &buf)
+        FfiConverterUInt32.write(value.minContinuous, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDebounceConfig_lift(_ buf: RustBuffer) throws -> DebounceConfig {
+    return try FfiConverterTypeDebounceConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDebounceConfig_lower(_ value: DebounceConfig) -> RustBuffer {
+    return FfiConverterTypeDebounceConfig.lower(value)
+}
+
+
+/**
  * A GPS fix to score candidates against. Field names/units mirror
  * `CoreLocation`: `horizontal_accuracy_m` is `CLLocation.horizontalAccuracy`,
  * `speed_mps` is `CLLocation.speed` (pass `nil`/`None` when unavailable, not
@@ -3053,6 +3573,125 @@ public func FfiConverterTypeLocatedInfo_lift(_ buf: RustBuffer) throws -> Locate
 #endif
 public func FfiConverterTypeLocatedInfo_lower(_ value: LocatedInfo) -> RustBuffer {
     return FfiConverterTypeLocatedInfo.lower(value)
+}
+
+
+/**
+ * Thresholds the library classifies against.
+ *
+ * Exposed as data rather than left as Rust constants so a caller stops keeping
+ * its own copy. Every one of these was duplicated in at least one integration,
+ * which is how a threshold and its meaning drift apart.
+ */
+public struct MovementThresholds {
+    /**
+     * Above this speed (m/s) nothing is walking.
+     */
+    public var walkingCeilingMps: Double
+    /**
+     * At or above this speed (m/s) a fix reads as driving.
+     */
+    public var drivingFloorMps: Double
+    /**
+     * Above this horizontal accuracy (m) GPS position is not trusted.
+     */
+    public var gpsAccuracyGateM: Double
+    /**
+     * Where a person would draw the walking/running line on a speed chart.
+     * A labelling aid for UIs, never a classifier threshold.
+     */
+    public var runningSpeedHintMps: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Above this speed (m/s) nothing is walking.
+         */walkingCeilingMps: Double, 
+        /**
+         * At or above this speed (m/s) a fix reads as driving.
+         */drivingFloorMps: Double, 
+        /**
+         * Above this horizontal accuracy (m) GPS position is not trusted.
+         */gpsAccuracyGateM: Double, 
+        /**
+         * Where a person would draw the walking/running line on a speed chart.
+         * A labelling aid for UIs, never a classifier threshold.
+         */runningSpeedHintMps: Double) {
+        self.walkingCeilingMps = walkingCeilingMps
+        self.drivingFloorMps = drivingFloorMps
+        self.gpsAccuracyGateM = gpsAccuracyGateM
+        self.runningSpeedHintMps = runningSpeedHintMps
+    }
+}
+
+#if compiler(>=6)
+extension MovementThresholds: Sendable {}
+#endif
+
+
+extension MovementThresholds: Equatable, Hashable {
+    public static func ==(lhs: MovementThresholds, rhs: MovementThresholds) -> Bool {
+        if lhs.walkingCeilingMps != rhs.walkingCeilingMps {
+            return false
+        }
+        if lhs.drivingFloorMps != rhs.drivingFloorMps {
+            return false
+        }
+        if lhs.gpsAccuracyGateM != rhs.gpsAccuracyGateM {
+            return false
+        }
+        if lhs.runningSpeedHintMps != rhs.runningSpeedHintMps {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(walkingCeilingMps)
+        hasher.combine(drivingFloorMps)
+        hasher.combine(gpsAccuracyGateM)
+        hasher.combine(runningSpeedHintMps)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMovementThresholds: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MovementThresholds {
+        return
+            try MovementThresholds(
+                walkingCeilingMps: FfiConverterDouble.read(from: &buf), 
+                drivingFloorMps: FfiConverterDouble.read(from: &buf), 
+                gpsAccuracyGateM: FfiConverterDouble.read(from: &buf), 
+                runningSpeedHintMps: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MovementThresholds, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.walkingCeilingMps, into: &buf)
+        FfiConverterDouble.write(value.drivingFloorMps, into: &buf)
+        FfiConverterDouble.write(value.gpsAccuracyGateM, into: &buf)
+        FfiConverterDouble.write(value.runningSpeedHintMps, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMovementThresholds_lift(_ buf: RustBuffer) throws -> MovementThresholds {
+    return try FfiConverterTypeMovementThresholds.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMovementThresholds_lower(_ value: MovementThresholds) -> RustBuffer {
+    return FfiConverterTypeMovementThresholds.lower(value)
 }
 
 
@@ -3648,6 +4287,91 @@ public func FfiConverterTypeRailInfo_lower(_ value: RailInfo) -> RustBuffer {
 }
 
 
+/**
+ * Nearest-road prior for a fix.
+ */
+public struct RoadContext {
+    /**
+     * OSM `highway` tag: "motorway", "footway", "residential", ...
+     */
+    public var roadClass: String
+    /**
+     * Fix to nearest road, meters.
+     */
+    public var distanceM: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * OSM `highway` tag: "motorway", "footway", "residential", ...
+         */roadClass: String, 
+        /**
+         * Fix to nearest road, meters.
+         */distanceM: Double) {
+        self.roadClass = roadClass
+        self.distanceM = distanceM
+    }
+}
+
+#if compiler(>=6)
+extension RoadContext: Sendable {}
+#endif
+
+
+extension RoadContext: Equatable, Hashable {
+    public static func ==(lhs: RoadContext, rhs: RoadContext) -> Bool {
+        if lhs.roadClass != rhs.roadClass {
+            return false
+        }
+        if lhs.distanceM != rhs.distanceM {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(roadClass)
+        hasher.combine(distanceM)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRoadContext: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RoadContext {
+        return
+            try RoadContext(
+                roadClass: FfiConverterString.read(from: &buf), 
+                distanceM: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RoadContext, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.roadClass, into: &buf)
+        FfiConverterDouble.write(value.distanceM, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRoadContext_lift(_ buf: RustBuffer) throws -> RoadContext {
+    return try FfiConverterTypeRoadContext.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRoadContext_lower(_ value: RoadContext) -> RustBuffer {
+    return FfiConverterTypeRoadContext.lower(value)
+}
+
+
 public struct RoadInfo {
     public var osmId: UInt64
     public var name: String?
@@ -3735,28 +4459,138 @@ public func FfiConverterTypeRoadInfo_lower(_ value: RoadInfo) -> RustBuffer {
 
 
 /**
- * One decoded trail. `geom_type`: 0 = linestring (a way you walk), 1 = point
- * (a trailhead). `sac_scale` is the SAC hiking difficulty when tagged, empty
- * otherwise.
+ * The nearest mapped node a vehicle might be waiting at.
+ *
+ * Only ever EXTENDS the vehicle-sticky window, and only while the fix is still
+ * at it. That is the whole reason it exists: a car idling at a signal looks
+ * identical to a parked car, and only the map can tell them apart.
+ */
+public struct TrafficControl {
+    /**
+     * Fix to the intersection node, meters.
+     */
+    public var distanceM: Double
+    /**
+     * 1 = traffic_signals, 2 = stop, 3 = give_way, 4 = roundabout;
+     * 0 or anything else is an untyped junction, which does not hold traffic.
+     */
+    public var intersectionType: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Fix to the intersection node, meters.
+         */distanceM: Double, 
+        /**
+         * 1 = traffic_signals, 2 = stop, 3 = give_way, 4 = roundabout;
+         * 0 or anything else is an untyped junction, which does not hold traffic.
+         */intersectionType: UInt8) {
+        self.distanceM = distanceM
+        self.intersectionType = intersectionType
+    }
+}
+
+#if compiler(>=6)
+extension TrafficControl: Sendable {}
+#endif
+
+
+extension TrafficControl: Equatable, Hashable {
+    public static func ==(lhs: TrafficControl, rhs: TrafficControl) -> Bool {
+        if lhs.distanceM != rhs.distanceM {
+            return false
+        }
+        if lhs.intersectionType != rhs.intersectionType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(distanceM)
+        hasher.combine(intersectionType)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTrafficControl: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TrafficControl {
+        return
+            try TrafficControl(
+                distanceM: FfiConverterDouble.read(from: &buf), 
+                intersectionType: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TrafficControl, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.distanceM, into: &buf)
+        FfiConverterUInt8.write(value.intersectionType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTrafficControl_lift(_ buf: RustBuffer) throws -> TrafficControl {
+    return try FfiConverterTypeTrafficControl.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTrafficControl_lower(_ value: TrafficControl) -> RustBuffer {
+    return FfiConverterTypeTrafficControl.lower(value)
+}
+
+
+/**
+ * One trail feature, as stored. Unlike the `nearest_trail` answer this
+ * includes trailhead points, which carry a single coordinate.
  */
 public struct TrailInfo {
     public var osmId: Int64
     public var name: String?
     public var trailType: String
-    public var geomType: UInt8
     public var surface: String
     public var sacScale: String
+    public var developed: Bool
+    /**
+     * True for a trailhead marker rather than a length of trail. The same
+     * fact as `geom_type == 1`, named for callers that read rather than
+     * decode.
+     */
+    public var isTrailhead: Bool
+    /**
+     * 0 = linestring (a way you walk), 1 = point (a trailhead).
+     */
+    public var geomType: UInt8
     public var geometry: [LatLon]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(osmId: Int64, name: String?, trailType: String, geomType: UInt8, surface: String, sacScale: String, geometry: [LatLon]) {
+    public init(osmId: Int64, name: String?, trailType: String, surface: String, sacScale: String, developed: Bool, 
+        /**
+         * True for a trailhead marker rather than a length of trail. The same
+         * fact as `geom_type == 1`, named for callers that read rather than
+         * decode.
+         */isTrailhead: Bool, 
+        /**
+         * 0 = linestring (a way you walk), 1 = point (a trailhead).
+         */geomType: UInt8, geometry: [LatLon]) {
         self.osmId = osmId
         self.name = name
         self.trailType = trailType
-        self.geomType = geomType
         self.surface = surface
         self.sacScale = sacScale
+        self.developed = developed
+        self.isTrailhead = isTrailhead
+        self.geomType = geomType
         self.geometry = geometry
     }
 }
@@ -3777,13 +4611,19 @@ extension TrailInfo: Equatable, Hashable {
         if lhs.trailType != rhs.trailType {
             return false
         }
-        if lhs.geomType != rhs.geomType {
-            return false
-        }
         if lhs.surface != rhs.surface {
             return false
         }
         if lhs.sacScale != rhs.sacScale {
+            return false
+        }
+        if lhs.developed != rhs.developed {
+            return false
+        }
+        if lhs.isTrailhead != rhs.isTrailhead {
+            return false
+        }
+        if lhs.geomType != rhs.geomType {
             return false
         }
         if lhs.geometry != rhs.geometry {
@@ -3796,9 +4636,11 @@ extension TrailInfo: Equatable, Hashable {
         hasher.combine(osmId)
         hasher.combine(name)
         hasher.combine(trailType)
-        hasher.combine(geomType)
         hasher.combine(surface)
         hasher.combine(sacScale)
+        hasher.combine(developed)
+        hasher.combine(isTrailhead)
+        hasher.combine(geomType)
         hasher.combine(geometry)
     }
 }
@@ -3815,9 +4657,11 @@ public struct FfiConverterTypeTrailInfo: FfiConverterRustBuffer {
                 osmId: FfiConverterInt64.read(from: &buf), 
                 name: FfiConverterOptionString.read(from: &buf), 
                 trailType: FfiConverterString.read(from: &buf), 
-                geomType: FfiConverterUInt8.read(from: &buf), 
                 surface: FfiConverterString.read(from: &buf), 
                 sacScale: FfiConverterString.read(from: &buf), 
+                developed: FfiConverterBool.read(from: &buf), 
+                isTrailhead: FfiConverterBool.read(from: &buf), 
+                geomType: FfiConverterUInt8.read(from: &buf), 
                 geometry: FfiConverterSequenceTypeLatLon.read(from: &buf)
         )
     }
@@ -3826,9 +4670,11 @@ public struct FfiConverterTypeTrailInfo: FfiConverterRustBuffer {
         FfiConverterInt64.write(value.osmId, into: &buf)
         FfiConverterOptionString.write(value.name, into: &buf)
         FfiConverterString.write(value.trailType, into: &buf)
-        FfiConverterUInt8.write(value.geomType, into: &buf)
         FfiConverterString.write(value.surface, into: &buf)
         FfiConverterString.write(value.sacScale, into: &buf)
+        FfiConverterBool.write(value.developed, into: &buf)
+        FfiConverterBool.write(value.isTrailhead, into: &buf)
+        FfiConverterUInt8.write(value.geomType, into: &buf)
         FfiConverterSequenceTypeLatLon.write(value.geometry, into: &buf)
     }
 }
@@ -3846,6 +4692,79 @@ public func FfiConverterTypeTrailInfo_lift(_ buf: RustBuffer) throws -> TrailInf
 #endif
 public func FfiConverterTypeTrailInfo_lower(_ value: TrailInfo) -> RustBuffer {
     return FfiConverterTypeTrailInfo.lower(value)
+}
+
+
+/**
+ * One classifier output: a type plus how much the evidence is worth.
+ */
+public struct Vote {
+    public var movement: MovementType
+    public var confidence: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(movement: MovementType, confidence: Double) {
+        self.movement = movement
+        self.confidence = confidence
+    }
+}
+
+#if compiler(>=6)
+extension Vote: Sendable {}
+#endif
+
+
+extension Vote: Equatable, Hashable {
+    public static func ==(lhs: Vote, rhs: Vote) -> Bool {
+        if lhs.movement != rhs.movement {
+            return false
+        }
+        if lhs.confidence != rhs.confidence {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(movement)
+        hasher.combine(confidence)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVote: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Vote {
+        return
+            try Vote(
+                movement: FfiConverterTypeMovementType.read(from: &buf), 
+                confidence: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Vote, into buf: inout [UInt8]) {
+        FfiConverterTypeMovementType.write(value.movement, into: &buf)
+        FfiConverterDouble.write(value.confidence, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVote_lift(_ buf: RustBuffer) throws -> Vote {
+    return try FfiConverterTypeVote.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVote_lower(_ value: Vote) -> RustBuffer {
+    return FfiConverterTypeVote.lower(value)
 }
 
 
@@ -3975,9 +4894,20 @@ public struct WayInfo {
      * `road`, `trail`, or `rail`.
      */
     public var kind: String
+    /**
+     * OSM id of the feature, or `None` when the caller did not supply the
+     * slice `core` indexed into (as in `PtilesStack::locate`, which merges
+     * several layers and keeps no single index).
+     *
+     * Signed, not unsigned like `NearestRoad::osm_id`: the trails and rail
+     * decoders carry the id as a signed delta and OSM ids for derived ways
+     * can be negative, so widening it would corrupt exactly those records.
+     */
+    public var osmId: Int64?
     public var name: String?
     /**
-     * Road class, trail type, or rail type.
+     * Road class, trail type, or rail type. Pass it to
+     * [`trail_is_developed`] for the made-trail-vs-desire-path split.
      */
     public var `class`: String
     public var distanceM: Double
@@ -3989,11 +4919,22 @@ public struct WayInfo {
     public init(
         /**
          * `road`, `trail`, or `rail`.
-         */kind: String, name: String?, 
+         */kind: String, 
         /**
-         * Road class, trail type, or rail type.
+         * OSM id of the feature, or `None` when the caller did not supply the
+         * slice `core` indexed into (as in `PtilesStack::locate`, which merges
+         * several layers and keeps no single index).
+         *
+         * Signed, not unsigned like `NearestRoad::osm_id`: the trails and rail
+         * decoders carry the id as a signed delta and OSM ids for derived ways
+         * can be negative, so widening it would corrupt exactly those records.
+         */osmId: Int64?, name: String?, 
+        /**
+         * Road class, trail type, or rail type. Pass it to
+         * [`trail_is_developed`] for the made-trail-vs-desire-path split.
          */`class`: String, distanceM: Double, snapped: LatLon, onIt: Bool) {
         self.kind = kind
+        self.osmId = osmId
         self.name = name
         self.`class` = `class`
         self.distanceM = distanceM
@@ -4010,6 +4951,9 @@ extension WayInfo: Sendable {}
 extension WayInfo: Equatable, Hashable {
     public static func ==(lhs: WayInfo, rhs: WayInfo) -> Bool {
         if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.osmId != rhs.osmId {
             return false
         }
         if lhs.name != rhs.name {
@@ -4032,6 +4976,7 @@ extension WayInfo: Equatable, Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(kind)
+        hasher.combine(osmId)
         hasher.combine(name)
         hasher.combine(`class`)
         hasher.combine(distanceM)
@@ -4050,6 +4995,7 @@ public struct FfiConverterTypeWayInfo: FfiConverterRustBuffer {
         return
             try WayInfo(
                 kind: FfiConverterString.read(from: &buf), 
+                osmId: FfiConverterOptionInt64.read(from: &buf), 
                 name: FfiConverterOptionString.read(from: &buf), 
                 class: FfiConverterString.read(from: &buf), 
                 distanceM: FfiConverterDouble.read(from: &buf), 
@@ -4060,6 +5006,7 @@ public struct FfiConverterTypeWayInfo: FfiConverterRustBuffer {
 
     public static func write(_ value: WayInfo, into buf: inout [UInt8]) {
         FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterOptionInt64.write(value.osmId, into: &buf)
         FfiConverterOptionString.write(value.name, into: &buf)
         FfiConverterString.write(value.`class`, into: &buf)
         FfiConverterDouble.write(value.distanceM, into: &buf)
@@ -4154,6 +5101,100 @@ public func FfiConverterTypeCandidateKind_lower(_ value: CandidateKind) -> RustB
 
 
 extension CandidateKind: Equatable, Hashable {}
+
+
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What the classifier thinks is happening.
+ */
+
+public enum MovementType {
+    
+    case unknown
+    case stationary
+    case walking
+    case running
+    case driving
+}
+
+
+#if compiler(>=6)
+extension MovementType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMovementType: FfiConverterRustBuffer {
+    typealias SwiftType = MovementType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MovementType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .unknown
+        
+        case 2: return .stationary
+        
+        case 3: return .walking
+        
+        case 4: return .running
+        
+        case 5: return .driving
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MovementType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .stationary:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .walking:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .running:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .driving:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMovementType_lift(_ buf: RustBuffer) throws -> MovementType {
+    return try FfiConverterTypeMovementType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMovementType_lower(_ value: MovementType) -> RustBuffer {
+    return FfiConverterTypeMovementType.lower(value)
+}
+
+
+extension MovementType: Equatable, Hashable {}
 
 
 
@@ -4439,6 +5480,30 @@ fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
+    typealias SwiftType = Int64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionDouble: FfiConverterRustBuffer {
     typealias SwiftType = Double?
 
@@ -4527,6 +5592,30 @@ fileprivate struct FfiConverterOptionTypePtilesLayer: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypePtilesLayer.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeAccelStats: FfiConverterRustBuffer {
+    typealias SwiftType = AccelStats?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAccelStats.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAccelStats.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -4703,6 +5792,54 @@ fileprivate struct FfiConverterOptionTypePointInfo: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeRoadContext: FfiConverterRustBuffer {
+    typealias SwiftType = RoadContext?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeRoadContext.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeRoadContext.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeTrafficControl: FfiConverterRustBuffer {
+    typealias SwiftType = TrafficControl?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeTrafficControl.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeTrafficControl.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeWayInfo: FfiConverterRustBuffer {
     typealias SwiftType = WayInfo?
 
@@ -4721,6 +5858,31 @@ fileprivate struct FfiConverterOptionTypeWayInfo: FfiConverterRustBuffer {
         case 1: return try FfiConverterTypeWayInfo.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceFloat: FfiConverterRustBuffer {
+    typealias SwiftType = [Float]
+
+    public static func write(_ value: [Float], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterFloat.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Float] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Float]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterFloat.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -5049,13 +6211,60 @@ fileprivate struct FfiConverterSequenceOptionTypeNearestRoad: FfiConverterRustBu
     }
 }
 /**
- * Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
- * give-way) rather than one it flows through (roundabout, untyped junction).
+ * Accelerometer statistics for one window of raw samples.
  *
- * This is the distinction the motion classifier uses to tell "stopped at a
- * light" from "arrived somewhere", and it is a fact about the vocabulary, so it
- * lives here rather than in every caller that needs it.
+ * Takes the three axes a platform actually reports rather than a pre-computed
+ * magnitude series, so the windowing rule stays in one place. Returns the
+ * empty window when the axes are empty or disagree in length, or when the
+ * sample rate is zero -- all of which mean "no measurement", not "zero".
  */
+public func accelStatsFromSamples(x: [Float], y: [Float], z: [Float], sampleRateHz: UInt32) -> AccelStats  {
+    return try!  FfiConverterTypeAccelStats_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_accel_stats_from_samples(
+        FfiConverterSequenceFloat.lower(x),
+        FfiConverterSequenceFloat.lower(y),
+        FfiConverterSequenceFloat.lower(z),
+        FfiConverterUInt32.lower(sampleRateHz),$0
+    )
+})
+}
+/**
+ * Stateless single-fix classification.
+ *
+ * Every input is optional because every one is genuinely missing on some real
+ * fix. Note that a poor `gps_accuracy_m` suppresses the road and speed priors
+ * but does NOT discard a speed clearing the driving floor: an uncertain
+ * position is not evidence that 20 m/s was walked.
+ */
+public func classifyMovement(instSpeedMps: Double?, gpsAccuracyM: Double?, nearestRoad: RoadContext?, accel: AccelStats?) -> Vote  {
+    return try!  FfiConverterTypeVote_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_classify_movement(
+        FfiConverterOptionDouble.lower(instSpeedMps),
+        FfiConverterOptionDouble.lower(gpsAccuracyM),
+        FfiConverterOptionTypeRoadContext.lower(nearestRoad),
+        FfiConverterOptionTypeAccelStats.lower(accel),$0
+    )
+})
+}
+/**
+ * Classification from the accelerometer alone, ignoring GPS entirely.
+ */
+public func classifyMovementAccelOnly(accel: AccelStats) -> Vote  {
+    return try!  FfiConverterTypeVote_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(
+        FfiConverterTypeAccelStats_lower(accel),$0
+    )
+})
+}
+/**
+ * The library's default debounce tuning.
+ */
+public func defaultDebounceConfig() -> DebounceConfig  {
+    return try!  FfiConverterTypeDebounceConfig_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_default_debounce_config($0
+    )
+})
+}
 public func intersectionHoldsTraffic(intersectionType: UInt8) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(
@@ -5079,6 +6288,37 @@ public func intersectionTypeName(intersectionType: UInt8) -> String  {
     )
 })
 }
+/**
+ * The thresholds this build classifies against.
+ */
+public func movementThresholds() -> MovementThresholds  {
+    return try!  FfiConverterTypeMovementThresholds_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_movement_thresholds($0
+    )
+})
+}
+/**
+ * Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
+ * give-way) rather than one it flows through (roundabout, untyped junction).
+ *
+ * This is the distinction the motion classifier uses to tell "stopped at a
+ * light" from "arrived somewhere", and it is a fact about the vocabulary, so it
+ * lives here rather than in every caller that needs it.
+ * Whether a trail type is built infrastructure (`cycleway`, `footway`)
+ * rather than a walked way (`path`, `track`, `bridleway`, `steps`).
+ *
+ * [`TrailInfo`] carries this already; the free function is for a caller
+ * holding only a [`WayInfo`], whose `class` is the trail type. The split is a
+ * property of the layer's vocabulary, so it comes from
+ * `ptiles_core::trail_is_developed` rather than being re-listed per caller.
+ */
+public func trailIsDeveloped(trailType: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_trail_is_developed(
+        FfiConverterString.lower(trailType),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -5095,10 +6335,28 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 45962) {
+    if (uniffi_ptiles_ffi_checksum_func_accel_stats_from_samples() != 19378) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_func_classify_movement() != 31178) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only() != 6610) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_func_default_debounce_config() != 57572) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 37639) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_func_intersection_type_name() != 51266) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_func_movement_thresholds() != 54984) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_func_trail_is_developed() != 44475) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172) {
@@ -5188,6 +6446,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_votedebouncer_config() != 59168) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_votedebouncer_current() != 30403) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_votedebouncer_tick() != 7861) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at() != 21118) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_constructor_addresslayer_open() != 49623) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5201,6 +6471,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 1730) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new() != 6510) {
         return InitializationResult.apiChecksumMismatch
     }
 

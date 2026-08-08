@@ -461,6 +461,62 @@ RustBuffer uniffi_ptiles_ffi_fn_method_ptilesstack_locate(void*_Nonnull ptr, dou
 RustBuffer uniffi_ptiles_ffi_fn_method_ptilesstack_score(void*_Nonnull ptr, RustBuffer fix, uint8_t ring, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CLONE_VOTEDEBOUNCER
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CLONE_VOTEDEBOUNCER
+void*_Nonnull uniffi_ptiles_ffi_fn_clone_votedebouncer(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FREE_VOTEDEBOUNCER
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FREE_VOTEDEBOUNCER
+void uniffi_ptiles_ffi_fn_free_votedebouncer(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_VOTEDEBOUNCER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_VOTEDEBOUNCER_NEW
+void*_Nonnull uniffi_ptiles_ffi_fn_constructor_votedebouncer_new(RustBuffer config, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_CONFIG
+RustBuffer uniffi_ptiles_ffi_fn_method_votedebouncer_config(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_CURRENT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_CURRENT
+RustBuffer uniffi_ptiles_ffi_fn_method_votedebouncer_current(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_TICK
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_TICK
+RustBuffer uniffi_ptiles_ffi_fn_method_votedebouncer_tick(void*_Nonnull ptr, RustBuffer vote, uint64_t now_ms, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_TICK_AT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_TICK_AT
+RustBuffer uniffi_ptiles_ffi_fn_method_votedebouncer_tick_at(void*_Nonnull ptr, RustBuffer vote, uint64_t now_ms, RustBuffer control, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_ACCEL_STATS_FROM_SAMPLES
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_ACCEL_STATS_FROM_SAMPLES
+RustBuffer uniffi_ptiles_ffi_fn_func_accel_stats_from_samples(RustBuffer x, RustBuffer y, RustBuffer z, uint32_t sample_rate_hz, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_CLASSIFY_MOVEMENT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_CLASSIFY_MOVEMENT
+RustBuffer uniffi_ptiles_ffi_fn_func_classify_movement(RustBuffer inst_speed_mps, RustBuffer gps_accuracy_m, RustBuffer nearest_road, RustBuffer accel, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_CLASSIFY_MOVEMENT_ACCEL_ONLY
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_CLASSIFY_MOVEMENT_ACCEL_ONLY
+RustBuffer uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(RustBuffer accel, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_DEFAULT_DEBOUNCE_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_DEFAULT_DEBOUNCE_CONFIG
+RustBuffer uniffi_ptiles_ffi_fn_func_default_debounce_config(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_INTERSECTION_HOLDS_TRAFFIC
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_INTERSECTION_HOLDS_TRAFFIC
 int8_t uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(uint8_t intersection_type, RustCallStatus *_Nonnull out_status
@@ -469,6 +525,17 @@ int8_t uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(uint8_t intersection
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_INTERSECTION_TYPE_NAME
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_INTERSECTION_TYPE_NAME
 RustBuffer uniffi_ptiles_ffi_fn_func_intersection_type_name(uint8_t intersection_type, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_MOVEMENT_THRESHOLDS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_MOVEMENT_THRESHOLDS
+RustBuffer uniffi_ptiles_ffi_fn_func_movement_thresholds(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_TRAIL_IS_DEVELOPED
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_TRAIL_IS_DEVELOPED
+int8_t uniffi_ptiles_ffi_fn_func_trail_is_developed(RustBuffer trail_type, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_PTILES_FFI_RUSTBUFFER_ALLOC
@@ -751,6 +818,30 @@ void ffi_ptiles_ffi_rust_future_free_void(uint64_t handle
 void ffi_ptiles_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_ACCEL_STATS_FROM_SAMPLES
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_ACCEL_STATS_FROM_SAMPLES
+uint16_t uniffi_ptiles_ffi_checksum_func_accel_stats_from_samples(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_CLASSIFY_MOVEMENT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_CLASSIFY_MOVEMENT
+uint16_t uniffi_ptiles_ffi_checksum_func_classify_movement(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_CLASSIFY_MOVEMENT_ACCEL_ONLY
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_CLASSIFY_MOVEMENT_ACCEL_ONLY
+uint16_t uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_DEBOUNCE_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_DEBOUNCE_CONFIG
+uint16_t uniffi_ptiles_ffi_checksum_func_default_debounce_config(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_INTERSECTION_HOLDS_TRAFFIC
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_INTERSECTION_HOLDS_TRAFFIC
 uint16_t uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic(void
@@ -760,6 +851,18 @@ uint16_t uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_INTERSECTION_TYPE_NAME
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_INTERSECTION_TYPE_NAME
 uint16_t uniffi_ptiles_ffi_checksum_func_intersection_type_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_MOVEMENT_THRESHOLDS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_MOVEMENT_THRESHOLDS
+uint16_t uniffi_ptiles_ffi_checksum_func_movement_thresholds(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_TRAIL_IS_DEVELOPED
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_TRAIL_IS_DEVELOPED
+uint16_t uniffi_ptiles_ffi_checksum_func_trail_is_developed(void
     
 );
 #endif
@@ -937,6 +1040,30 @@ uint16_t uniffi_ptiles_ffi_checksum_method_ptilesstack_score(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_CONFIG
+uint16_t uniffi_ptiles_ffi_checksum_method_votedebouncer_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_CURRENT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_CURRENT
+uint16_t uniffi_ptiles_ffi_checksum_method_votedebouncer_current(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_TICK
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_TICK
+uint16_t uniffi_ptiles_ffi_checksum_method_votedebouncer_tick(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_TICK_AT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_TICK_AT
+uint16_t uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_ADDRESSLAYER_OPEN
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_ADDRESSLAYER_OPEN
 uint16_t uniffi_ptiles_ffi_checksum_constructor_addresslayer_open(void
@@ -964,6 +1091,12 @@ uint16_t uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_PTILESSTACK_WITH_LAYERS
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_PTILESSTACK_WITH_LAYERS
 uint16_t uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_VOTEDEBOUNCER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_VOTEDEBOUNCER_NEW
+uint16_t uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new(void
     
 );
 #endif

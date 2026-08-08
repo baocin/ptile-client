@@ -277,8 +277,25 @@ pub fn classify(
     accel: Option<&AccelStats>,
 ) -> Vote {
     let accel = accel.unwrap_or(&AccelStats::EMPTY);
-    // Poor GPS: trust the accelerometer only.
+    // Poor GPS: the POSITION is uncertain. That is not a reason to throw away a
+    // speed that no pedestrian can produce.
+    //
+    // Falling straight to the accelerometer here misreads vehicles badly. In a
+    // tunnel or an urban canyon accuracy degrades while the vehicle keeps
+    // moving, and the accelerometer hears engine and road vibration as a 1-3 Hz
+    // cadence with a plausible step count -- which is exactly the walking row of
+    // `classify_accel_only`. One recording produced 81 such rows, reporting
+    // Walking at up to 56 mph with accuracy drifting from 31 m to 314 m.
+    //
+    // So an uncertain fix still gets to veto everything EXCEPT a speed clearing
+    // the driving floor. The bar is deliberately the floor rather than mere
+    // existence: a bad fix can manufacture a small bogus speed, and this is not
+    // a licence to trust it generally. Confidence is lower than the same call on
+    // a good fix (0.90) because the reading it rests on is less certain.
     if gps_accuracy_m.is_some_and(|a| !a.is_finite() || a > GPS_ACCURACY_GATE_M) {
+        if inst_speed_mps.is_some_and(|s| s.is_finite() && s > DRIVING_FLOOR_MPS) {
+            return Vote { movement: MovementType::Driving, confidence: 0.85 };
+        }
         return classify_accel_only(accel);
     }
 
@@ -700,13 +717,41 @@ mod tests {
     }
 
     #[test]
-    fn bad_gps_accuracy_falls_back_to_accel() {
+    fn bad_gps_accuracy_falls_back_to_accel_when_speed_is_not_decisive() {
         let walking = accel_window(2.0, 1.5, 9.8, 50, 4.0);
-        // Speed says Driving, but a 100 m fix is not trusted: accel wins.
-        let v = classify(Some(20.0), Some(100.0), None, Some(&walking));
+        // A 100 m fix cannot settle a contest the accelerometer can: at 5 m/s the
+        // reading is consistent with a fast walk, so the cadence wins.
+        let v = classify(Some(5.0), Some(100.0), None, Some(&walking));
         assert_eq!(v.movement, MovementType::Walking);
-        // Non-finite accuracy is equally untrusted.
+        // No speed at all is the same situation with less information.
+        let v = classify(None, Some(100.0), None, Some(&walking));
+        assert_eq!(v.movement, MovementType::Walking);
+    }
+
+    #[test]
+    fn bad_gps_accuracy_does_not_discard_a_decisive_speed() {
+        // The failure this guard exists for. In a tunnel or an urban canyon
+        // accuracy degrades while the vehicle keeps moving, and the accelerometer
+        // hears engine and road vibration as a walking cadence. One recording
+        // produced 81 rows of Walking at up to 56 mph, accuracy drifting 31 m to
+        // 314 m. An uncertain POSITION is not evidence that 20 m/s was walked.
+        let walking = accel_window(2.0, 1.5, 9.8, 50, 4.0);
+        let v = classify(Some(20.0), Some(100.0), None, Some(&walking));
+        assert_eq!(v.movement, MovementType::Driving);
+        // Lower than the same call on a good fix (0.90): the reading it rests on
+        // is less certain, and the vote is weighted accordingly.
+        assert!(v.confidence < 0.90);
+
+        // Unknown accuracy is untrusted the same way, and for the same reason.
         let v = classify(Some(20.0), Some(f64::NAN), None, Some(&walking));
+        assert_eq!(v.movement, MovementType::Driving);
+
+        // The bar is the driving floor, not merely having a speed -- a bad fix can
+        // manufacture a small bogus one, and that is still not trusted.
+        let v = classify(Some(DRIVING_FLOOR_MPS - 0.1), Some(100.0), None, Some(&walking));
+        assert_eq!(v.movement, MovementType::Walking);
+        // A non-finite speed is not a speed.
+        let v = classify(Some(f64::INFINITY), Some(100.0), None, Some(&walking));
         assert_eq!(v.movement, MovementType::Walking);
     }
 

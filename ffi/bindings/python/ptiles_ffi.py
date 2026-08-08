@@ -460,9 +460,21 @@ def _uniffi_check_contract_api_version(lib):
         raise InternalError("UniFFI contract version mismatch: try cleaning and rebuilding your project")
 
 def _uniffi_check_api_checksums(lib):
-    if lib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 45962:
+    if lib.uniffi_ptiles_ffi_checksum_func_accel_stats_from_samples() != 19378:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_classify_movement() != 31178:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only() != 6610:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_default_debounce_config() != 57572:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 37639:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_func_intersection_type_name() != 51266:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_movement_thresholds() != 54984:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_trail_is_developed() != 44475:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -522,6 +534,14 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_config() != 59168:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_current() != 30403:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick() != 7861:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at() != 21118:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_constructor_addresslayer_open() != 49623:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_constructor_adminlayer_open() != 36006:
@@ -531,6 +551,8 @@ def _uniffi_check_api_checksums(lib):
     if lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 38860:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 1730:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new() != 6510:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
 
 # A ctypes library to expose the extern-C FFI definitions.
@@ -928,6 +950,71 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_score.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_score.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_clone_votedebouncer.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_clone_votedebouncer.restype = ctypes.c_void_p
+_UniffiLib.uniffi_ptiles_ffi_fn_free_votedebouncer.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_free_votedebouncer.restype = None
+_UniffiLib.uniffi_ptiles_ffi_fn_constructor_votedebouncer_new.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_constructor_votedebouncer_new.restype = ctypes.c_void_p
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_config.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_config.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_current.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_current.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_tick.argtypes = (
+    ctypes.c_void_p,
+    _UniffiRustBuffer,
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_tick.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_tick_at.argtypes = (
+    ctypes.c_void_p,
+    _UniffiRustBuffer,
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_tick_at.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_accel_stats_from_samples.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.c_uint32,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_accel_stats_from_samples.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_accel_only.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_accel_only.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_default_debounce_config.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_default_debounce_config.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_holds_traffic.argtypes = (
     ctypes.c_uint8,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -938,6 +1025,15 @@ _UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_type_name.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_type_name.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_movement_thresholds.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_movement_thresholds.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_trail_is_developed.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_trail_is_developed.restype = ctypes.c_int8
 _UniffiLib.ffi_ptiles_ffi_rustbuffer_alloc.argtypes = (
     ctypes.c_uint64,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -1206,12 +1302,30 @@ _UniffiLib.ffi_ptiles_ffi_rust_future_complete_void.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.ffi_ptiles_ffi_rust_future_complete_void.restype = None
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_accel_stats_from_samples.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_accel_stats_from_samples.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_default_debounce_config.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_default_debounce_config.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_type_name.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_type_name.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_movement_thresholds.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_movement_thresholds.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_trail_is_developed.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_trail_is_developed.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at.restype = ctypes.c_uint16
@@ -1299,6 +1413,18 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate.restype = ctypes
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_config.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_config.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_current.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_current.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_addresslayer_open.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_addresslayer_open.restype = ctypes.c_uint16
@@ -1314,6 +1440,9 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new.restype = ctyp
 _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new.restype = ctypes.c_uint16
 _UniffiLib.ffi_ptiles_ffi_uniffi_contract_version.argtypes = (
 )
 _UniffiLib.ffi_ptiles_ffi_uniffi_contract_version.restype = ctypes.c_uint32
@@ -1389,6 +1518,15 @@ class _UniffiConverterInt64(_UniffiConverterPrimitiveInt):
     def write(value, buf):
         buf.write_i64(value)
 
+class _UniffiConverterFloat(_UniffiConverterPrimitiveFloat):
+    @staticmethod
+    def read(buf):
+        return buf.read_float()
+
+    @staticmethod
+    def write(value, buf):
+        buf.write_float(value)
+
 class _UniffiConverterDouble(_UniffiConverterPrimitiveFloat):
     @staticmethod
     def read(buf):
@@ -1458,6 +1596,89 @@ class _UniffiConverterString:
 
 
 
+
+
+
+
+class AccelStats:
+    """
+    A window of accelerometer statistics.
+
+    `mean_magnitude` and `window_duration_s` are optional because a producer
+    that does not measure them must be able to say so: a zero there is a
+    measurement, and absence is not.
+    """
+
+    variance: "float"
+    """
+    Variance of the magnitude series, (m/s^2)^2.
+    """
+
+    mean_magnitude: "typing.Optional[float]"
+    """
+    Mean magnitude, m/s^2.
+    """
+
+    dominant_frequency: "float"
+    """
+    Step cadence, Hz.
+    """
+
+    step_count: "int"
+    window_duration_s: "typing.Optional[float]"
+    """
+    Window length, seconds.
+    """
+
+    def __init__(self, *, variance: "float", mean_magnitude: "typing.Optional[float]", dominant_frequency: "float", step_count: "int", window_duration_s: "typing.Optional[float]"):
+        self.variance = variance
+        self.mean_magnitude = mean_magnitude
+        self.dominant_frequency = dominant_frequency
+        self.step_count = step_count
+        self.window_duration_s = window_duration_s
+
+    def __str__(self):
+        return "AccelStats(variance={}, mean_magnitude={}, dominant_frequency={}, step_count={}, window_duration_s={})".format(self.variance, self.mean_magnitude, self.dominant_frequency, self.step_count, self.window_duration_s)
+
+    def __eq__(self, other):
+        if self.variance != other.variance:
+            return False
+        if self.mean_magnitude != other.mean_magnitude:
+            return False
+        if self.dominant_frequency != other.dominant_frequency:
+            return False
+        if self.step_count != other.step_count:
+            return False
+        if self.window_duration_s != other.window_duration_s:
+            return False
+        return True
+
+class _UniffiConverterTypeAccelStats(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return AccelStats(
+            variance=_UniffiConverterDouble.read(buf),
+            mean_magnitude=_UniffiConverterOptionalDouble.read(buf),
+            dominant_frequency=_UniffiConverterDouble.read(buf),
+            step_count=_UniffiConverterUInt32.read(buf),
+            window_duration_s=_UniffiConverterOptionalDouble.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterDouble.check_lower(value.variance)
+        _UniffiConverterOptionalDouble.check_lower(value.mean_magnitude)
+        _UniffiConverterDouble.check_lower(value.dominant_frequency)
+        _UniffiConverterUInt32.check_lower(value.step_count)
+        _UniffiConverterOptionalDouble.check_lower(value.window_duration_s)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterDouble.write(value.variance, buf)
+        _UniffiConverterOptionalDouble.write(value.mean_magnitude, buf)
+        _UniffiConverterDouble.write(value.dominant_frequency, buf)
+        _UniffiConverterUInt32.write(value.step_count, buf)
+        _UniffiConverterOptionalDouble.write(value.window_duration_s, buf)
 
 
 class AddressRecord:
@@ -1924,6 +2145,111 @@ class _UniffiConverterTypeCandidate(_UniffiConverterRustBuffer):
         _UniffiConverterDouble.write(value.score, buf)
 
 
+class DebounceConfig:
+    """
+    Tuning for [`VoteDebouncer`].
+    """
+
+    majority_window: "int"
+    """
+    Votes kept in the majority window.
+    """
+
+    rapid_latency_ms: "int"
+    """
+    Latency into `Driving`, ms.
+    """
+
+    default_latency_ms: "int"
+    """
+    Latency for every other transition, ms.
+    """
+
+    vehicle_sticky_ms: "int"
+    """
+    After a `Driving` vote, how long (ms) a flip to `Stationary` is
+    suppressed -- a red light is not an arrival.
+    """
+
+    signal_sticky_ms: "int"
+    """
+    Sticky window (ms) used instead of `vehicle_sticky_ms` at a mapped
+    traffic control, where a queue can hold a car far longer.
+    """
+
+    signal_radius_m: "float"
+    """
+    How close (m) a traffic control counts as "waiting at it".
+    """
+
+    min_continuous: "int"
+    """
+    Consecutive agreeing majorities required before a transition commits.
+    """
+
+    def __init__(self, *, majority_window: "int", rapid_latency_ms: "int", default_latency_ms: "int", vehicle_sticky_ms: "int", signal_sticky_ms: "int", signal_radius_m: "float", min_continuous: "int"):
+        self.majority_window = majority_window
+        self.rapid_latency_ms = rapid_latency_ms
+        self.default_latency_ms = default_latency_ms
+        self.vehicle_sticky_ms = vehicle_sticky_ms
+        self.signal_sticky_ms = signal_sticky_ms
+        self.signal_radius_m = signal_radius_m
+        self.min_continuous = min_continuous
+
+    def __str__(self):
+        return "DebounceConfig(majority_window={}, rapid_latency_ms={}, default_latency_ms={}, vehicle_sticky_ms={}, signal_sticky_ms={}, signal_radius_m={}, min_continuous={})".format(self.majority_window, self.rapid_latency_ms, self.default_latency_ms, self.vehicle_sticky_ms, self.signal_sticky_ms, self.signal_radius_m, self.min_continuous)
+
+    def __eq__(self, other):
+        if self.majority_window != other.majority_window:
+            return False
+        if self.rapid_latency_ms != other.rapid_latency_ms:
+            return False
+        if self.default_latency_ms != other.default_latency_ms:
+            return False
+        if self.vehicle_sticky_ms != other.vehicle_sticky_ms:
+            return False
+        if self.signal_sticky_ms != other.signal_sticky_ms:
+            return False
+        if self.signal_radius_m != other.signal_radius_m:
+            return False
+        if self.min_continuous != other.min_continuous:
+            return False
+        return True
+
+class _UniffiConverterTypeDebounceConfig(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return DebounceConfig(
+            majority_window=_UniffiConverterUInt32.read(buf),
+            rapid_latency_ms=_UniffiConverterUInt64.read(buf),
+            default_latency_ms=_UniffiConverterUInt64.read(buf),
+            vehicle_sticky_ms=_UniffiConverterUInt64.read(buf),
+            signal_sticky_ms=_UniffiConverterUInt64.read(buf),
+            signal_radius_m=_UniffiConverterDouble.read(buf),
+            min_continuous=_UniffiConverterUInt32.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterUInt32.check_lower(value.majority_window)
+        _UniffiConverterUInt64.check_lower(value.rapid_latency_ms)
+        _UniffiConverterUInt64.check_lower(value.default_latency_ms)
+        _UniffiConverterUInt64.check_lower(value.vehicle_sticky_ms)
+        _UniffiConverterUInt64.check_lower(value.signal_sticky_ms)
+        _UniffiConverterDouble.check_lower(value.signal_radius_m)
+        _UniffiConverterUInt32.check_lower(value.min_continuous)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterUInt32.write(value.majority_window, buf)
+        _UniffiConverterUInt64.write(value.rapid_latency_ms, buf)
+        _UniffiConverterUInt64.write(value.default_latency_ms, buf)
+        _UniffiConverterUInt64.write(value.vehicle_sticky_ms, buf)
+        _UniffiConverterUInt64.write(value.signal_sticky_ms, buf)
+        _UniffiConverterDouble.write(value.signal_radius_m, buf)
+        _UniffiConverterUInt32.write(value.min_continuous, buf)
+
+
 class Fix:
     """
     A GPS fix to score candidates against. Field names/units mirror
@@ -2259,6 +2585,81 @@ class _UniffiConverterTypeLocatedInfo(_UniffiConverterRustBuffer):
         _UniffiConverterOptionalTypeNearbyAddressInfo.write(value.address, buf)
         _UniffiConverterOptionalTypeAreaInfo.write(value.park, buf)
         _UniffiConverterOptionalTypeAreaInfo.write(value.water, buf)
+
+
+class MovementThresholds:
+    """
+    Thresholds the library classifies against.
+
+    Exposed as data rather than left as Rust constants so a caller stops keeping
+    its own copy. Every one of these was duplicated in at least one integration,
+    which is how a threshold and its meaning drift apart.
+    """
+
+    walking_ceiling_mps: "float"
+    """
+    Above this speed (m/s) nothing is walking.
+    """
+
+    driving_floor_mps: "float"
+    """
+    At or above this speed (m/s) a fix reads as driving.
+    """
+
+    gps_accuracy_gate_m: "float"
+    """
+    Above this horizontal accuracy (m) GPS position is not trusted.
+    """
+
+    running_speed_hint_mps: "float"
+    """
+    Where a person would draw the walking/running line on a speed chart.
+    A labelling aid for UIs, never a classifier threshold.
+    """
+
+    def __init__(self, *, walking_ceiling_mps: "float", driving_floor_mps: "float", gps_accuracy_gate_m: "float", running_speed_hint_mps: "float"):
+        self.walking_ceiling_mps = walking_ceiling_mps
+        self.driving_floor_mps = driving_floor_mps
+        self.gps_accuracy_gate_m = gps_accuracy_gate_m
+        self.running_speed_hint_mps = running_speed_hint_mps
+
+    def __str__(self):
+        return "MovementThresholds(walking_ceiling_mps={}, driving_floor_mps={}, gps_accuracy_gate_m={}, running_speed_hint_mps={})".format(self.walking_ceiling_mps, self.driving_floor_mps, self.gps_accuracy_gate_m, self.running_speed_hint_mps)
+
+    def __eq__(self, other):
+        if self.walking_ceiling_mps != other.walking_ceiling_mps:
+            return False
+        if self.driving_floor_mps != other.driving_floor_mps:
+            return False
+        if self.gps_accuracy_gate_m != other.gps_accuracy_gate_m:
+            return False
+        if self.running_speed_hint_mps != other.running_speed_hint_mps:
+            return False
+        return True
+
+class _UniffiConverterTypeMovementThresholds(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return MovementThresholds(
+            walking_ceiling_mps=_UniffiConverterDouble.read(buf),
+            driving_floor_mps=_UniffiConverterDouble.read(buf),
+            gps_accuracy_gate_m=_UniffiConverterDouble.read(buf),
+            running_speed_hint_mps=_UniffiConverterDouble.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterDouble.check_lower(value.walking_ceiling_mps)
+        _UniffiConverterDouble.check_lower(value.driving_floor_mps)
+        _UniffiConverterDouble.check_lower(value.gps_accuracy_gate_m)
+        _UniffiConverterDouble.check_lower(value.running_speed_hint_mps)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterDouble.write(value.walking_ceiling_mps, buf)
+        _UniffiConverterDouble.write(value.driving_floor_mps, buf)
+        _UniffiConverterDouble.write(value.gps_accuracy_gate_m, buf)
+        _UniffiConverterDouble.write(value.running_speed_hint_mps, buf)
 
 
 class NearbyAddressInfo:
@@ -2633,6 +3034,54 @@ class _UniffiConverterTypeRailInfo(_UniffiConverterRustBuffer):
         _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
 
 
+class RoadContext:
+    """
+    Nearest-road prior for a fix.
+    """
+
+    road_class: "str"
+    """
+    OSM `highway` tag: "motorway", "footway", "residential", ...
+    """
+
+    distance_m: "float"
+    """
+    Fix to nearest road, meters.
+    """
+
+    def __init__(self, *, road_class: "str", distance_m: "float"):
+        self.road_class = road_class
+        self.distance_m = distance_m
+
+    def __str__(self):
+        return "RoadContext(road_class={}, distance_m={})".format(self.road_class, self.distance_m)
+
+    def __eq__(self, other):
+        if self.road_class != other.road_class:
+            return False
+        if self.distance_m != other.distance_m:
+            return False
+        return True
+
+class _UniffiConverterTypeRoadContext(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return RoadContext(
+            road_class=_UniffiConverterString.read(buf),
+            distance_m=_UniffiConverterDouble.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterString.check_lower(value.road_class)
+        _UniffiConverterDouble.check_lower(value.distance_m)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterString.write(value.road_class, buf)
+        _UniffiConverterDouble.write(value.distance_m, buf)
+
+
 class RoadInfo:
     osm_id: "int"
     name: "typing.Optional[str]"
@@ -2683,31 +3132,97 @@ class _UniffiConverterTypeRoadInfo(_UniffiConverterRustBuffer):
         _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
 
 
+class TrafficControl:
+    """
+    The nearest mapped node a vehicle might be waiting at.
+
+    Only ever EXTENDS the vehicle-sticky window, and only while the fix is still
+    at it. That is the whole reason it exists: a car idling at a signal looks
+    identical to a parked car, and only the map can tell them apart.
+    """
+
+    distance_m: "float"
+    """
+    Fix to the intersection node, meters.
+    """
+
+    intersection_type: "int"
+    """
+    1 = traffic_signals, 2 = stop, 3 = give_way, 4 = roundabout;
+    0 or anything else is an untyped junction, which does not hold traffic.
+    """
+
+    def __init__(self, *, distance_m: "float", intersection_type: "int"):
+        self.distance_m = distance_m
+        self.intersection_type = intersection_type
+
+    def __str__(self):
+        return "TrafficControl(distance_m={}, intersection_type={})".format(self.distance_m, self.intersection_type)
+
+    def __eq__(self, other):
+        if self.distance_m != other.distance_m:
+            return False
+        if self.intersection_type != other.intersection_type:
+            return False
+        return True
+
+class _UniffiConverterTypeTrafficControl(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return TrafficControl(
+            distance_m=_UniffiConverterDouble.read(buf),
+            intersection_type=_UniffiConverterUInt8.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterDouble.check_lower(value.distance_m)
+        _UniffiConverterUInt8.check_lower(value.intersection_type)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterDouble.write(value.distance_m, buf)
+        _UniffiConverterUInt8.write(value.intersection_type, buf)
+
+
 class TrailInfo:
     """
-    One decoded trail. `geom_type`: 0 = linestring (a way you walk), 1 = point
-    (a trailhead). `sac_scale` is the SAC hiking difficulty when tagged, empty
-    otherwise.
+    One trail feature, as stored. Unlike the `nearest_trail` answer this
+    includes trailhead points, which carry a single coordinate.
     """
 
     osm_id: "int"
     name: "typing.Optional[str]"
     trail_type: "str"
-    geom_type: "int"
     surface: "str"
     sac_scale: "str"
+    developed: "bool"
+    is_trailhead: "bool"
+    """
+    True for a trailhead marker rather than a length of trail. The same
+    fact as `geom_type == 1`, named for callers that read rather than
+    decode.
+    """
+
+    geom_type: "int"
+    """
+    0 = linestring (a way you walk), 1 = point (a trailhead).
+    """
+
     geometry: "typing.List[LatLon]"
-    def __init__(self, *, osm_id: "int", name: "typing.Optional[str]", trail_type: "str", geom_type: "int", surface: "str", sac_scale: "str", geometry: "typing.List[LatLon]"):
+    def __init__(self, *, osm_id: "int", name: "typing.Optional[str]", trail_type: "str", surface: "str", sac_scale: "str", developed: "bool", is_trailhead: "bool", geom_type: "int", geometry: "typing.List[LatLon]"):
         self.osm_id = osm_id
         self.name = name
         self.trail_type = trail_type
-        self.geom_type = geom_type
         self.surface = surface
         self.sac_scale = sac_scale
+        self.developed = developed
+        self.is_trailhead = is_trailhead
+        self.geom_type = geom_type
         self.geometry = geometry
 
     def __str__(self):
-        return "TrailInfo(osm_id={}, name={}, trail_type={}, geom_type={}, surface={}, sac_scale={}, geometry={})".format(self.osm_id, self.name, self.trail_type, self.geom_type, self.surface, self.sac_scale, self.geometry)
+        return "TrailInfo(osm_id={}, name={}, trail_type={}, surface={}, sac_scale={}, developed={}, is_trailhead={}, geom_type={}, geometry={})".format(self.osm_id, self.name, self.trail_type, self.surface, self.sac_scale, self.developed, self.is_trailhead, self.geom_type, self.geometry)
 
     def __eq__(self, other):
         if self.osm_id != other.osm_id:
@@ -2716,11 +3231,15 @@ class TrailInfo:
             return False
         if self.trail_type != other.trail_type:
             return False
-        if self.geom_type != other.geom_type:
-            return False
         if self.surface != other.surface:
             return False
         if self.sac_scale != other.sac_scale:
+            return False
+        if self.developed != other.developed:
+            return False
+        if self.is_trailhead != other.is_trailhead:
+            return False
+        if self.geom_type != other.geom_type:
             return False
         if self.geometry != other.geometry:
             return False
@@ -2733,9 +3252,11 @@ class _UniffiConverterTypeTrailInfo(_UniffiConverterRustBuffer):
             osm_id=_UniffiConverterInt64.read(buf),
             name=_UniffiConverterOptionalString.read(buf),
             trail_type=_UniffiConverterString.read(buf),
-            geom_type=_UniffiConverterUInt8.read(buf),
             surface=_UniffiConverterString.read(buf),
             sac_scale=_UniffiConverterString.read(buf),
+            developed=_UniffiConverterBool.read(buf),
+            is_trailhead=_UniffiConverterBool.read(buf),
+            geom_type=_UniffiConverterUInt8.read(buf),
             geometry=_UniffiConverterSequenceTypeLatLon.read(buf),
         )
 
@@ -2744,9 +3265,11 @@ class _UniffiConverterTypeTrailInfo(_UniffiConverterRustBuffer):
         _UniffiConverterInt64.check_lower(value.osm_id)
         _UniffiConverterOptionalString.check_lower(value.name)
         _UniffiConverterString.check_lower(value.trail_type)
-        _UniffiConverterUInt8.check_lower(value.geom_type)
         _UniffiConverterString.check_lower(value.surface)
         _UniffiConverterString.check_lower(value.sac_scale)
+        _UniffiConverterBool.check_lower(value.developed)
+        _UniffiConverterBool.check_lower(value.is_trailhead)
+        _UniffiConverterUInt8.check_lower(value.geom_type)
         _UniffiConverterSequenceTypeLatLon.check_lower(value.geometry)
 
     @staticmethod
@@ -2754,10 +3277,52 @@ class _UniffiConverterTypeTrailInfo(_UniffiConverterRustBuffer):
         _UniffiConverterInt64.write(value.osm_id, buf)
         _UniffiConverterOptionalString.write(value.name, buf)
         _UniffiConverterString.write(value.trail_type, buf)
-        _UniffiConverterUInt8.write(value.geom_type, buf)
         _UniffiConverterString.write(value.surface, buf)
         _UniffiConverterString.write(value.sac_scale, buf)
+        _UniffiConverterBool.write(value.developed, buf)
+        _UniffiConverterBool.write(value.is_trailhead, buf)
+        _UniffiConverterUInt8.write(value.geom_type, buf)
         _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
+
+
+class Vote:
+    """
+    One classifier output: a type plus how much the evidence is worth.
+    """
+
+    movement: "MovementType"
+    confidence: "float"
+    def __init__(self, *, movement: "MovementType", confidence: "float"):
+        self.movement = movement
+        self.confidence = confidence
+
+    def __str__(self):
+        return "Vote(movement={}, confidence={})".format(self.movement, self.confidence)
+
+    def __eq__(self, other):
+        if self.movement != other.movement:
+            return False
+        if self.confidence != other.confidence:
+            return False
+        return True
+
+class _UniffiConverterTypeVote(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return Vote(
+            movement=_UniffiConverterTypeMovementType.read(buf),
+            confidence=_UniffiConverterDouble.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterTypeMovementType.check_lower(value.movement)
+        _UniffiConverterDouble.check_lower(value.confidence)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterTypeMovementType.write(value.movement, buf)
+        _UniffiConverterDouble.write(value.confidence, buf)
 
 
 class WaterInfo:
@@ -2850,17 +3415,30 @@ class WayInfo:
     `road`, `trail`, or `rail`.
     """
 
+    osm_id: "typing.Optional[int]"
+    """
+    OSM id of the feature, or `None` when the caller did not supply the
+    slice `core` indexed into (as in `PtilesStack::locate`, which merges
+    several layers and keeps no single index).
+
+    Signed, not unsigned like `NearestRoad::osm_id`: the trails and rail
+    decoders carry the id as a signed delta and OSM ids for derived ways
+    can be negative, so widening it would corrupt exactly those records.
+    """
+
     name: "typing.Optional[str]"
     _class: "str"
     """
-    Road class, trail type, or rail type.
+    Road class, trail type, or rail type. Pass it to
+    [`trail_is_developed`] for the made-trail-vs-desire-path split.
     """
 
     distance_m: "float"
     snapped: "LatLon"
     on_it: "bool"
-    def __init__(self, *, kind: "str", name: "typing.Optional[str]", _class: "str", distance_m: "float", snapped: "LatLon", on_it: "bool"):
+    def __init__(self, *, kind: "str", osm_id: "typing.Optional[int]", name: "typing.Optional[str]", _class: "str", distance_m: "float", snapped: "LatLon", on_it: "bool"):
         self.kind = kind
+        self.osm_id = osm_id
         self.name = name
         self._class = _class
         self.distance_m = distance_m
@@ -2868,10 +3446,12 @@ class WayInfo:
         self.on_it = on_it
 
     def __str__(self):
-        return "WayInfo(kind={}, name={}, _class={}, distance_m={}, snapped={}, on_it={})".format(self.kind, self.name, self._class, self.distance_m, self.snapped, self.on_it)
+        return "WayInfo(kind={}, osm_id={}, name={}, _class={}, distance_m={}, snapped={}, on_it={})".format(self.kind, self.osm_id, self.name, self._class, self.distance_m, self.snapped, self.on_it)
 
     def __eq__(self, other):
         if self.kind != other.kind:
+            return False
+        if self.osm_id != other.osm_id:
             return False
         if self.name != other.name:
             return False
@@ -2890,6 +3470,7 @@ class _UniffiConverterTypeWayInfo(_UniffiConverterRustBuffer):
     def read(buf):
         return WayInfo(
             kind=_UniffiConverterString.read(buf),
+            osm_id=_UniffiConverterOptionalInt64.read(buf),
             name=_UniffiConverterOptionalString.read(buf),
             _class=_UniffiConverterString.read(buf),
             distance_m=_UniffiConverterDouble.read(buf),
@@ -2900,6 +3481,7 @@ class _UniffiConverterTypeWayInfo(_UniffiConverterRustBuffer):
     @staticmethod
     def check_lower(value):
         _UniffiConverterString.check_lower(value.kind)
+        _UniffiConverterOptionalInt64.check_lower(value.osm_id)
         _UniffiConverterOptionalString.check_lower(value.name)
         _UniffiConverterString.check_lower(value._class)
         _UniffiConverterDouble.check_lower(value.distance_m)
@@ -2909,6 +3491,7 @@ class _UniffiConverterTypeWayInfo(_UniffiConverterRustBuffer):
     @staticmethod
     def write(value, buf):
         _UniffiConverterString.write(value.kind, buf)
+        _UniffiConverterOptionalInt64.write(value.osm_id, buf)
         _UniffiConverterOptionalString.write(value.name, buf)
         _UniffiConverterString.write(value._class, buf)
         _UniffiConverterDouble.write(value.distance_m, buf)
@@ -2958,6 +3541,72 @@ class _UniffiConverterTypeCandidateKind(_UniffiConverterRustBuffer):
             buf.write_i32(2)
         if value == CandidateKind.BUSINESS:
             buf.write_i32(3)
+
+
+
+
+
+
+
+class MovementType(enum.Enum):
+    """
+    What the classifier thinks is happening.
+    """
+
+    UNKNOWN = 0
+    
+    STATIONARY = 1
+    
+    WALKING = 2
+    
+    RUNNING = 3
+    
+    DRIVING = 4
+    
+
+
+class _UniffiConverterTypeMovementType(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return MovementType.UNKNOWN
+        if variant == 2:
+            return MovementType.STATIONARY
+        if variant == 3:
+            return MovementType.WALKING
+        if variant == 4:
+            return MovementType.RUNNING
+        if variant == 5:
+            return MovementType.DRIVING
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if value == MovementType.UNKNOWN:
+            return
+        if value == MovementType.STATIONARY:
+            return
+        if value == MovementType.WALKING:
+            return
+        if value == MovementType.RUNNING:
+            return
+        if value == MovementType.DRIVING:
+            return
+        raise ValueError(value)
+
+    @staticmethod
+    def write(value, buf):
+        if value == MovementType.UNKNOWN:
+            buf.write_i32(1)
+        if value == MovementType.STATIONARY:
+            buf.write_i32(2)
+        if value == MovementType.WALKING:
+            buf.write_i32(3)
+        if value == MovementType.RUNNING:
+            buf.write_i32(4)
+        if value == MovementType.DRIVING:
+            buf.write_i32(5)
 
 
 
@@ -3271,6 +3920,33 @@ class _UniffiConverterOptionalUInt64(_UniffiConverterRustBuffer):
 
 
 
+class _UniffiConverterOptionalInt64(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterInt64.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterInt64.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterInt64.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
 class _UniffiConverterOptionalDouble(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -3374,6 +4050,33 @@ class _UniffiConverterOptionalTypePtilesLayer(_UniffiConverterRustBuffer):
             return None
         elif flag == 1:
             return _UniffiConverterTypePtilesLayer.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
+class _UniffiConverterOptionalTypeAccelStats(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypeAccelStats.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypeAccelStats.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypeAccelStats.read(buf)
         else:
             raise InternalError("Unexpected flag byte for optional type")
 
@@ -3568,6 +4271,60 @@ class _UniffiConverterOptionalTypePointInfo(_UniffiConverterRustBuffer):
 
 
 
+class _UniffiConverterOptionalTypeRoadContext(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypeRoadContext.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypeRoadContext.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypeRoadContext.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
+class _UniffiConverterOptionalTypeTrafficControl(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypeTrafficControl.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypeTrafficControl.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypeTrafficControl.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
 class _UniffiConverterOptionalTypeWayInfo(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -3592,6 +4349,31 @@ class _UniffiConverterOptionalTypeWayInfo(_UniffiConverterRustBuffer):
             return _UniffiConverterTypeWayInfo.read(buf)
         else:
             raise InternalError("Unexpected flag byte for optional type")
+
+
+
+class _UniffiConverterSequenceFloat(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterFloat.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterFloat.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterFloat.read(buf) for i in range(count)
+        ]
 
 
 
@@ -5215,19 +5997,263 @@ class _UniffiConverterTypePtilesStack:
     @classmethod
     def write(cls, value: PtilesStackProtocol, buf: _UniffiRustBuffer):
         buf.write_u64(cls.lower(value))
+class VoteDebouncerProtocol(typing.Protocol):
+    """
+    Turns a stream of per-fix votes into a stable movement state.
+
+    Opaque and stateful: a majority window, per-transition latency and the
+    vehicle sticky window all depend on what came before, which is exactly the
+    part a caller should not be reimplementing.
+
+    Interior-mutable because UniFFI hands out `Arc<Self>` and a caller ticks it
+    from whichever thread its location callback arrives on.
+    """
+
+    def config(self, ):
+        """
+        The tuning this debouncer was built with.
+        """
+
+        raise NotImplementedError
+    def current(self, ):
+        """
+        The committed state, without feeding anything.
+        """
+
+        raise NotImplementedError
+    def tick(self, vote: "Vote",now_ms: "int"):
+        """
+        Feed one vote and read back the state after it.
+
+        `now_ms` is caller-supplied and must be monotonic; the library holds no
+        clock so that replaying a recorded trace produces the same states it
+        produced live.
+        """
+
+        raise NotImplementedError
+    def tick_at(self, vote: "Vote",now_ms: "int",control: "typing.Optional[TrafficControl]"):
+        """
+        Feed one vote plus the nearest mapped traffic control to the fix.
+
+        The control only extends the vehicle-sticky window; it never suppresses
+        a transition plain `tick` would have allowed.
+        """
+
+        raise NotImplementedError
+# VoteDebouncer is a Rust-only trait - it's a wrapper around a Rust implementation.
+class VoteDebouncer():
+    """
+    Turns a stream of per-fix votes into a stable movement state.
+
+    Opaque and stateful: a majority window, per-transition latency and the
+    vehicle sticky window all depend on what came before, which is exactly the
+    part a caller should not be reimplementing.
+
+    Interior-mutable because UniFFI hands out `Arc<Self>` and a caller ticks it
+    from whichever thread its location callback arrives on.
+    """
+
+    _pointer: ctypes.c_void_p
+    def __init__(self, config: "DebounceConfig"):
+        _UniffiConverterTypeDebounceConfig.check_lower(config)
+        
+        self._pointer = _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_constructor_votedebouncer_new,
+        _UniffiConverterTypeDebounceConfig.lower(config))
+
+    def __del__(self):
+        # In case of partial initialization of instances.
+        pointer = getattr(self, "_pointer", None)
+        if pointer is not None:
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_free_votedebouncer, pointer)
+
+    def _uniffi_clone_pointer(self):
+        return _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_clone_votedebouncer, self._pointer)
+
+    # Used by alternative constructors or any methods which return this type.
+    @classmethod
+    def _make_instance_(cls, pointer):
+        # Lightly yucky way to bypass the usual __init__ logic
+        # and just create a new instance with the required pointer.
+        inst = cls.__new__(cls)
+        inst._pointer = pointer
+        return inst
+
+
+    def config(self, ) -> "DebounceConfig":
+        """
+        The tuning this debouncer was built with.
+        """
+
+        return _UniffiConverterTypeDebounceConfig.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_config,self._uniffi_clone_pointer(),)
+        )
+
+
+
+
+
+    def current(self, ) -> "MovementType":
+        """
+        The committed state, without feeding anything.
+        """
+
+        return _UniffiConverterTypeMovementType.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_current,self._uniffi_clone_pointer(),)
+        )
+
+
+
+
+
+    def tick(self, vote: "Vote",now_ms: "int") -> "MovementType":
+        """
+        Feed one vote and read back the state after it.
+
+        `now_ms` is caller-supplied and must be monotonic; the library holds no
+        clock so that replaying a recorded trace produces the same states it
+        produced live.
+        """
+
+        _UniffiConverterTypeVote.check_lower(vote)
+        
+        _UniffiConverterUInt64.check_lower(now_ms)
+        
+        return _UniffiConverterTypeMovementType.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_tick,self._uniffi_clone_pointer(),
+        _UniffiConverterTypeVote.lower(vote),
+        _UniffiConverterUInt64.lower(now_ms))
+        )
+
+
+
+
+
+    def tick_at(self, vote: "Vote",now_ms: "int",control: "typing.Optional[TrafficControl]") -> "MovementType":
+        """
+        Feed one vote plus the nearest mapped traffic control to the fix.
+
+        The control only extends the vehicle-sticky window; it never suppresses
+        a transition plain `tick` would have allowed.
+        """
+
+        _UniffiConverterTypeVote.check_lower(vote)
+        
+        _UniffiConverterUInt64.check_lower(now_ms)
+        
+        _UniffiConverterOptionalTypeTrafficControl.check_lower(control)
+        
+        return _UniffiConverterTypeMovementType.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_tick_at,self._uniffi_clone_pointer(),
+        _UniffiConverterTypeVote.lower(vote),
+        _UniffiConverterUInt64.lower(now_ms),
+        _UniffiConverterOptionalTypeTrafficControl.lower(control))
+        )
+
+
+
+
+
+
+class _UniffiConverterTypeVoteDebouncer:
+
+    @staticmethod
+    def lift(value: int):
+        return VoteDebouncer._make_instance_(value)
+
+    @staticmethod
+    def check_lower(value: VoteDebouncer):
+        if not isinstance(value, VoteDebouncer):
+            raise TypeError("Expected VoteDebouncer instance, {} found".format(type(value).__name__))
+
+    @staticmethod
+    def lower(value: VoteDebouncerProtocol):
+        if not isinstance(value, VoteDebouncer):
+            raise TypeError("Expected VoteDebouncer instance, {} found".format(type(value).__name__))
+        return value._uniffi_clone_pointer()
+
+    @classmethod
+    def read(cls, buf: _UniffiRustBuffer):
+        ptr = buf.read_u64()
+        if ptr == 0:
+            raise InternalError("Raw pointer value was null")
+        return cls.lift(ptr)
+
+    @classmethod
+    def write(cls, value: VoteDebouncerProtocol, buf: _UniffiRustBuffer):
+        buf.write_u64(cls.lower(value))
 
 # Async support
 
+def accel_stats_from_samples(x: "typing.List[float]",y: "typing.List[float]",z: "typing.List[float]",sample_rate_hz: "int") -> "AccelStats":
+    """
+    Accelerometer statistics for one window of raw samples.
+
+    Takes the three axes a platform actually reports rather than a pre-computed
+    magnitude series, so the windowing rule stays in one place. Returns the
+    empty window when the axes are empty or disagree in length, or when the
+    sample rate is zero -- all of which mean "no measurement", not "zero".
+    """
+
+    _UniffiConverterSequenceFloat.check_lower(x)
+    
+    _UniffiConverterSequenceFloat.check_lower(y)
+    
+    _UniffiConverterSequenceFloat.check_lower(z)
+    
+    _UniffiConverterUInt32.check_lower(sample_rate_hz)
+    
+    return _UniffiConverterTypeAccelStats.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_accel_stats_from_samples,
+        _UniffiConverterSequenceFloat.lower(x),
+        _UniffiConverterSequenceFloat.lower(y),
+        _UniffiConverterSequenceFloat.lower(z),
+        _UniffiConverterUInt32.lower(sample_rate_hz)))
+
+
+def classify_movement(inst_speed_mps: "typing.Optional[float]",gps_accuracy_m: "typing.Optional[float]",nearest_road: "typing.Optional[RoadContext]",accel: "typing.Optional[AccelStats]") -> "Vote":
+    """
+    Stateless single-fix classification.
+
+    Every input is optional because every one is genuinely missing on some real
+    fix. Note that a poor `gps_accuracy_m` suppresses the road and speed priors
+    but does NOT discard a speed clearing the driving floor: an uncertain
+    position is not evidence that 20 m/s was walked.
+    """
+
+    _UniffiConverterOptionalDouble.check_lower(inst_speed_mps)
+    
+    _UniffiConverterOptionalDouble.check_lower(gps_accuracy_m)
+    
+    _UniffiConverterOptionalTypeRoadContext.check_lower(nearest_road)
+    
+    _UniffiConverterOptionalTypeAccelStats.check_lower(accel)
+    
+    return _UniffiConverterTypeVote.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement,
+        _UniffiConverterOptionalDouble.lower(inst_speed_mps),
+        _UniffiConverterOptionalDouble.lower(gps_accuracy_m),
+        _UniffiConverterOptionalTypeRoadContext.lower(nearest_road),
+        _UniffiConverterOptionalTypeAccelStats.lower(accel)))
+
+
+def classify_movement_accel_only(accel: "AccelStats") -> "Vote":
+    """
+    Classification from the accelerometer alone, ignoring GPS entirely.
+    """
+
+    _UniffiConverterTypeAccelStats.check_lower(accel)
+    
+    return _UniffiConverterTypeVote.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_accel_only,
+        _UniffiConverterTypeAccelStats.lower(accel)))
+
+
+def default_debounce_config() -> "DebounceConfig":
+    """
+    The library's default debounce tuning.
+    """
+
+    return _UniffiConverterTypeDebounceConfig.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_default_debounce_config,))
+
+
 def intersection_holds_traffic(intersection_type: "int") -> "bool":
-    """
-    Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
-    give-way) rather than one it flows through (roundabout, untyped junction).
-
-    This is the distinction the motion classifier uses to tell "stopped at a
-    light" from "arrived somewhere", and it is a fact about the vocabulary, so it
-    lives here rather than in every caller that needs it.
-    """
-
     _UniffiConverterUInt8.check_lower(intersection_type)
     
     return _UniffiConverterBool.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_holds_traffic,
@@ -5251,10 +6277,43 @@ def intersection_type_name(intersection_type: "int") -> "str":
         _UniffiConverterUInt8.lower(intersection_type)))
 
 
+def movement_thresholds() -> "MovementThresholds":
+    """
+    The thresholds this build classifies against.
+    """
+
+    return _UniffiConverterTypeMovementThresholds.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_movement_thresholds,))
+
+
+def trail_is_developed(trail_type: "str") -> "bool":
+    """
+    Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
+    give-way) rather than one it flows through (roundabout, untyped junction).
+
+    This is the distinction the motion classifier uses to tell "stopped at a
+    light" from "arrived somewhere", and it is a fact about the vocabulary, so it
+    lives here rather than in every caller that needs it.
+    Whether a trail type is built infrastructure (`cycleway`, `footway`)
+    rather than a walked way (`path`, `track`, `bridleway`, `steps`).
+
+    [`TrailInfo`] carries this already; the free function is for a caller
+    holding only a [`WayInfo`], whose `class` is the trail type. The split is a
+    property of the layer's vocabulary, so it comes from
+    `ptiles_core::trail_is_developed` rather than being re-listed per caller.
+    """
+
+    _UniffiConverterString.check_lower(trail_type)
+    
+    return _UniffiConverterBool.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_trail_is_developed,
+        _UniffiConverterString.lower(trail_type)))
+
+
 __all__ = [
     "InternalError",
     "CandidateKind",
+    "MovementType",
     "PtilesError",
+    "AccelStats",
     "AddressRecord",
     "AdminInfo",
     "AreaInfo",
@@ -5262,25 +6321,37 @@ __all__ = [
     "BusinessInfo",
     "BusinessSearchHit",
     "Candidate",
+    "DebounceConfig",
     "Fix",
     "LatLon",
     "LayerMetadata",
     "LocatedInfo",
+    "MovementThresholds",
     "NearbyAddressInfo",
     "NearestIntersection",
     "NearestRoad",
     "ParkInfo",
     "PointInfo",
     "RailInfo",
+    "RoadContext",
     "RoadInfo",
+    "TrafficControl",
     "TrailInfo",
+    "Vote",
     "WaterInfo",
     "WayInfo",
+    "accel_stats_from_samples",
+    "classify_movement",
+    "classify_movement_accel_only",
+    "default_debounce_config",
     "intersection_holds_traffic",
     "intersection_type_name",
+    "movement_thresholds",
+    "trail_is_developed",
     "AddressLayer",
     "AdminLayer",
     "PtilesLayer",
     "PtilesStack",
+    "VoteDebouncer",
 ]
 

@@ -532,6 +532,7 @@ name = "ptiles-ffi"
 version = "0.1.0"
 dependencies = [
  "ptiles-core",
+ "ptiles-motion",
  "thiserror",
  "uniffi",
 ]

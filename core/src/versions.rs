@@ -81,6 +81,12 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
         notes: "matches SPEC.md (v1)",
     },
     FormatEntry {
+        magic: b"PTILESH",
+        file_kind: "trails",
+        versions: &[1],
+        notes: "{STATE}.trails_v1.ptiles as published. Header is byte-for-byte the same shape as rail's PTILEST v1 (7-byte magic + NUL, version, bbox, counts) and the record framing is the one core::trails decodes -- verified against the live TN file, not inferred from SPEC.md, which does not list this magic",
+    },
+    FormatEntry {
         magic: b"PTILESA",
         file_kind: "admin_or_address",
         versions: &[1],

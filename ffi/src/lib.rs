@@ -33,7 +33,7 @@ use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business_versioned, decode_road_block,
     decode_roads, haversine_distance_m, nearest_intersection as core_nearest_intersection,
     nearest_road as core_nearest_road, neighbor_cells, point_in_polygon, score_candidates,
-    search_business_indexed,
+    search_business_indexed, trail_is_developed as core_trail_is_developed,
     Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind, FileSource,
     Fix as CoreFix, HttpSource, Intersection, PtilesFile, RoadSegment, ScoringParams,
 };
@@ -41,6 +41,8 @@ use ptiles_core::file::FileError;
 use ptiles_core::source::SourceError;
 use ptiles_core::{AdminFile as CoreAdminFile, AdminInfo as CoreAdminInfo};
 use ptiles_core::{AddressFile as CoreAddressFile, AddressRecord as CoreAddressRecord};
+
+pub mod motion;
 
 uniffi::setup_scaffolding!();
 
@@ -158,6 +160,25 @@ pub struct NearestRoad {
     pub geometry: Vec<LatLon>,
 }
 
+/// One trail feature, as stored. Unlike the `nearest_trail` answer this
+/// includes trailhead points, which carry a single coordinate.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TrailInfo {
+    pub osm_id: i64,
+    pub name: Option<String>,
+    pub trail_type: String,
+    pub surface: String,
+    pub sac_scale: String,
+    pub developed: bool,
+    /// True for a trailhead marker rather than a length of trail. The same
+    /// fact as `geom_type == 1`, named for callers that read rather than
+    /// decode.
+    pub is_trailhead: bool,
+    /// 0 = linestring (a way you walk), 1 = point (a trailhead).
+    pub geom_type: u8,
+    pub geometry: Vec<LatLon>,
+}
+
 /// Nearest labeled intersection to a query point (the "am I at an
 /// intersection?" answer). `intersection_type`: 1 = traffic_signals,
 /// 2 = stop, 3 = give_way, 4 = roundabout (0/other = untyped). Reports a
@@ -203,20 +224,6 @@ pub struct RoadInfo {
     pub geometry: Vec<LatLon>,
 }
 
-/// One decoded trail. `geom_type`: 0 = linestring (a way you walk), 1 = point
-/// (a trailhead). `sac_scale` is the SAC hiking difficulty when tagged, empty
-/// otherwise.
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct TrailInfo {
-    pub osm_id: i64,
-    pub name: Option<String>,
-    pub trail_type: String,
-    pub geom_type: u8,
-    pub surface: String,
-    pub sac_scale: String,
-    pub geometry: Vec<LatLon>,
-}
-
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ParkInfo {
     pub osm_id: i64,
@@ -257,8 +264,17 @@ pub struct RailInfo {
 pub struct WayInfo {
     /// `road`, `trail`, or `rail`.
     pub kind: String,
+    /// OSM id of the feature, or `None` when the caller did not supply the
+    /// slice `core` indexed into (as in `PtilesStack::locate`, which merges
+    /// several layers and keeps no single index).
+    ///
+    /// Signed, not unsigned like `NearestRoad::osm_id`: the trails and rail
+    /// decoders carry the id as a signed delta and OSM ids for derived ways
+    /// can be negative, so widening it would corrupt exactly those records.
+    pub osm_id: Option<i64>,
     pub name: Option<String>,
-    /// Road class, trail type, or rail type.
+    /// Road class, trail type, or rail type. Pass it to
+    /// [`trail_is_developed`] for the made-trail-vs-desire-path split.
     pub class: String,
     pub distance_m: f64,
     pub snapped: LatLon,
@@ -269,6 +285,7 @@ impl From<ptiles_core::NearbyWay> for WayInfo {
     fn from(w: ptiles_core::NearbyWay) -> Self {
         WayInfo {
             kind: w.kind,
+            osm_id: None,
             name: w.name,
             class: w.class,
             distance_m: w.distance_m,
@@ -511,6 +528,8 @@ impl LayerKind {
         };
         match base {
             "roads" => Some(LayerKind::Roads),
+            // `trails_v1` and `buildings_v8` need no arm of their own: the
+            // `_v<N>` strip above already reduces them to `trails`/`buildings`.
             "buildings" => Some(LayerKind::BuildingsV8),
             "business" => Some(LayerKind::Business),
             "business_name_index" => Some(LayerKind::BusinessNameIndex),
@@ -556,10 +575,23 @@ enum AnyFile {
 }
 
 impl AnyFile {
+    /// One cell's decompressed bytes, ready to hand to a decoder.
+    ///
+    /// `read_cell`, not `read_block`. In a merged-block layer several cells
+    /// share one compressed block behind a small `(h3_cell, offset)` directory,
+    /// and `read_block` returns that whole thing -- directory included. A
+    /// decoder handed those bytes reads the directory as its first record and
+    /// gets nothing.
+    ///
+    /// This was silent rather than loud: `decode_trails` breaks out of its loop
+    /// on the first bad record and returns `Ok(vec![])`, so a real block holding
+    /// 581 features decoded as zero, with no error, for every point in the
+    /// state. `read_cell` slices the cell out first and returns the whole block
+    /// unchanged when the layer is not merged, so this is correct for both.
     fn read_block(&self, cell: u64) -> Result<Option<Vec<u8>>, PtilesError> {
         let result = match self {
-            AnyFile::File(f) => f.read_block(cell).map_err(|e| e.to_string()),
-            AnyFile::Http(f) => f.read_block(cell).map_err(|e| e.to_string()),
+            AnyFile::File(f) => f.read_cell(cell).map_err(|e| e.to_string()),
+            AnyFile::Http(f) => f.read_cell(cell).map_err(|e| e.to_string()),
         };
         result.map_err(|message| PtilesError::Decode { message })
     }
@@ -593,16 +625,6 @@ impl AnyFile {
                     src.last_modified().map(|s| s.to_string()),
                 )
             }
-        }
-    }
-
-    /// True when blocks pack several cells behind a header and must be sliced
-    /// before a record decoder sees them (a 38-byte index; see
-    /// `core::merged`).
-    fn has_merged_blocks(&self) -> bool {
-        match self {
-            AnyFile::File(f) => f.has_merged_blocks(),
-            AnyFile::Http(f) => f.has_merged_blocks(),
         }
     }
 
@@ -892,24 +914,12 @@ impl PtilesLayer {
             let Some(block) = self.block(cell)? else {
                 continue;
             };
-            // Parks/water/rail/trails ship with a 38-byte index, which means
-            // one compressed block holds several cells behind a table. Handing
-            // the whole thing to a record decoder yields garbage records
-            // rather than an error, so slice the cell out first. The cache
-            // still holds the merged block, so its other cells stay free.
-            let records = if self.file.has_merged_blocks() {
-                match ptiles_core::merged_cell_slice(&block, cell).map_err(|e| {
-                    PtilesError::Decode {
-                        message: e.to_string(),
-                    }
-                })? {
-                    Some(slice) => slice.to_vec(),
-                    None => continue,
-                }
-            } else {
-                block.to_vec()
-            };
-            let mut decoded = decode(&records).map_err(|e| PtilesError::Decode {
+            // No slicing here: `AnyFile::read_block` reads through
+            // `PtilesFile::read_cell`, which already cuts the cell out of a
+            // merged block (parks/rail/trails carry a 38-byte index and pack
+            // several cells per block). Slicing again would treat records as
+            // a cell table and fail on the first read.
+            let mut decoded = decode(&block).map_err(|e| PtilesError::Decode {
                 message: e.to_string(),
             })?;
             out.append(&mut decoded);
@@ -964,6 +974,18 @@ pub fn intersection_type_name(intersection_type: u8) -> String {
 /// This is the distinction the motion classifier uses to tell "stopped at a
 /// light" from "arrived somewhere", and it is a fact about the vocabulary, so it
 /// lives here rather than in every caller that needs it.
+/// Whether a trail type is built infrastructure (`cycleway`, `footway`)
+/// rather than a walked way (`path`, `track`, `bridleway`, `steps`).
+///
+/// [`TrailInfo`] carries this already; the free function is for a caller
+/// holding only a [`WayInfo`], whose `class` is the trail type. The split is a
+/// property of the layer's vocabulary, so it comes from
+/// `ptiles_core::trail_is_developed` rather than being re-listed per caller.
+#[uniffi::export]
+pub fn trail_is_developed(trail_type: String) -> bool {
+    ptiles_core::trail_is_developed(&trail_type)
+}
+
 #[uniffi::export]
 pub fn intersection_holds_traffic(intersection_type: u8) -> bool {
     matches!(intersection_type, 1 | 2 | 3)
@@ -1377,9 +1399,11 @@ impl PtilesLayer {
                 osm_id: t.osm_id,
                 name: t.name.clone(),
                 trail_type: t.trail_type.clone(),
-                geom_type: t.geom_type,
                 surface: t.surface.clone(),
                 sac_scale: t.sac_scale.clone(),
+                developed: core_trail_is_developed(&t.trail_type),
+                is_trailhead: t.geom_type == 1,
+                geom_type: t.geom_type,
                 geometry: geometry_of(&t.coords),
             })
             .collect())
@@ -1397,7 +1421,10 @@ impl PtilesLayer {
         self.require(LayerKind::Trails)?;
         validate_ring(ring)?;
         let trails = self.decoded_trails(lat, lon, ring)?;
-        Ok(ptiles_core::nearest_trail(lat, lon, &trails).map(WayInfo::from))
+        Ok(ptiles_core::nearest_trail(lat, lon, &trails).map(|w| WayInfo {
+            osm_id: trails.get(w.index).map(|t| t.osm_id),
+            ..WayInfo::from(w)
+        }))
     }
 
     /// The nearest trailhead — where a trail network is entered, which is what
@@ -1496,7 +1523,10 @@ impl PtilesLayer {
         self.require(LayerKind::Rail)?;
         validate_ring(ring)?;
         let rail = self.decoded_rail(lat, lon, ring)?;
-        Ok(ptiles_core::nearest_rail(lat, lon, &rail).map(WayInfo::from))
+        Ok(ptiles_core::nearest_rail(lat, lon, &rail).map(|w| WayInfo {
+            osm_id: rail.get(w.index).map(|r| r.osm_id),
+            ..WayInfo::from(w)
+        }))
     }
 
     /// The nearest station or halt point. Rail-layer only.

@@ -792,6 +792,30 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -807,9 +831,21 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 // when the library is loaded.
 internal interface IntegrityCheckingUniffiLib : Library {
     // Integrity check functions only
-    fun uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic(
+    fun uniffi_ptiles_ffi_checksum_func_accel_stats_from_samples(
+): Short
+fun uniffi_ptiles_ffi_checksum_func_classify_movement(
+): Short
+fun uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only(
+): Short
+fun uniffi_ptiles_ffi_checksum_func_default_debounce_config(
+): Short
+fun uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic(
 ): Short
 fun uniffi_ptiles_ffi_checksum_func_intersection_type_name(
+): Short
+fun uniffi_ptiles_ffi_checksum_func_movement_thresholds(
+): Short
+fun uniffi_ptiles_ffi_checksum_func_trail_is_developed(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at(
 ): Short
@@ -869,6 +905,14 @@ fun uniffi_ptiles_ffi_checksum_method_ptilesstack_locate(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptilesstack_score(
 ): Short
+fun uniffi_ptiles_ffi_checksum_method_votedebouncer_config(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_votedebouncer_current(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_votedebouncer_tick(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at(
+): Short
 fun uniffi_ptiles_ffi_checksum_constructor_addresslayer_open(
 ): Short
 fun uniffi_ptiles_ffi_checksum_constructor_adminlayer_open(
@@ -878,6 +922,8 @@ fun uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open(
 fun uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new(
 ): Short
 fun uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers(
+): Short
+fun uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new(
 ): Short
 fun ffi_ptiles_ffi_uniffi_contract_version(
 ): Int
@@ -1012,10 +1058,36 @@ fun uniffi_ptiles_ffi_fn_method_ptilesstack_locate(`ptr`: Pointer,`lat`: Double,
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_score(`ptr`: Pointer,`fix`: RustBuffer.ByValue,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_clone_votedebouncer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_free_votedebouncer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_ptiles_ffi_fn_constructor_votedebouncer_new(`config`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_config(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_current(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_tick(`ptr`: Pointer,`vote`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_tick_at(`ptr`: Pointer,`vote`: RustBuffer.ByValue,`nowMs`: Long,`control`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_accel_stats_from_samples(`x`: RustBuffer.ByValue,`y`: RustBuffer.ByValue,`z`: RustBuffer.ByValue,`sampleRateHz`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_classify_movement(`instSpeedMps`: RustBuffer.ByValue,`gpsAccuracyM`: RustBuffer.ByValue,`nearestRoad`: RustBuffer.ByValue,`accel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(`accel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_default_debounce_config(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 fun uniffi_ptiles_ffi_fn_func_intersection_type_name(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_movement_thresholds(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_trail_is_developed(`trailType`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 fun ffi_ptiles_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun ffi_ptiles_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1142,10 +1214,28 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
-    if (lib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 45962.toShort()) {
+    if (lib.uniffi_ptiles_ffi_checksum_func_accel_stats_from_samples() != 19378.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_func_classify_movement() != 31178.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only() != 6610.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_func_default_debounce_config() != 57572.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 37639.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_func_intersection_type_name() != 51266.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_func_movement_thresholds() != 54984.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_func_trail_is_developed() != 44475.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172.toShort()) {
@@ -1235,6 +1325,18 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_config() != 59168.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_current() != 30403.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick() != 7861.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at() != 21118.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_constructor_addresslayer_open() != 49623.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1248,6 +1350,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 1730.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new() != 6510.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1505,6 +1610,29 @@ public object FfiConverterLong: FfiConverter<Long, Long> {
 
     override fun write(value: Long, buf: ByteBuffer) {
         buf.putLong(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterFloat: FfiConverter<Float, Float> {
+    override fun lift(value: Float): Float {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Float {
+        return buf.getFloat()
+    }
+
+    override fun lower(value: Float): Float {
+        return value
+    }
+
+    override fun allocationSize(value: Float) = 4UL
+
+    override fun write(value: Float, buf: ByteBuffer) {
+        buf.putFloat(value)
     }
 }
 
@@ -3392,6 +3520,412 @@ public object FfiConverterTypePtilesStack: FfiConverter<PtilesStack, Pointer> {
 }
 
 
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Turns a stream of per-fix votes into a stable movement state.
+ *
+ * Opaque and stateful: a majority window, per-transition latency and the
+ * vehicle sticky window all depend on what came before, which is exactly the
+ * part a caller should not be reimplementing.
+ *
+ * Interior-mutable because UniFFI hands out `Arc<Self>` and a caller ticks it
+ * from whichever thread its location callback arrives on.
+ */
+public interface VoteDebouncerInterface {
+    
+    /**
+     * The tuning this debouncer was built with.
+     */
+    fun `config`(): DebounceConfig
+    
+    /**
+     * The committed state, without feeding anything.
+     */
+    fun `current`(): MovementType
+    
+    /**
+     * Feed one vote and read back the state after it.
+     *
+     * `now_ms` is caller-supplied and must be monotonic; the library holds no
+     * clock so that replaying a recorded trace produces the same states it
+     * produced live.
+     */
+    fun `tick`(`vote`: Vote, `nowMs`: kotlin.ULong): MovementType
+    
+    /**
+     * Feed one vote plus the nearest mapped traffic control to the fix.
+     *
+     * The control only extends the vehicle-sticky window; it never suppresses
+     * a transition plain `tick` would have allowed.
+     */
+    fun `tickAt`(`vote`: Vote, `nowMs`: kotlin.ULong, `control`: TrafficControl?): MovementType
+    
+    companion object
+}
+
+/**
+ * Turns a stream of per-fix votes into a stable movement state.
+ *
+ * Opaque and stateful: a majority window, per-transition latency and the
+ * vehicle sticky window all depend on what came before, which is exactly the
+ * part a caller should not be reimplementing.
+ *
+ * Interior-mutable because UniFFI hands out `Arc<Self>` and a caller ticks it
+ * from whichever thread its location callback arrives on.
+ */
+open class VoteDebouncer: Disposable, AutoCloseable, VoteDebouncerInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+    constructor(`config`: DebounceConfig) :
+        this(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_constructor_votedebouncer_new(
+        FfiConverterTypeDebounceConfig.lower(`config`),_status)
+}
+    )
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_free_votedebouncer(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_clone_votedebouncer(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * The tuning this debouncer was built with.
+     */override fun `config`(): DebounceConfig {
+            return FfiConverterTypeDebounceConfig.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_votedebouncer_config(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The committed state, without feeding anything.
+     */override fun `current`(): MovementType {
+            return FfiConverterTypeMovementType.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_votedebouncer_current(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Feed one vote and read back the state after it.
+     *
+     * `now_ms` is caller-supplied and must be monotonic; the library holds no
+     * clock so that replaying a recorded trace produces the same states it
+     * produced live.
+     */override fun `tick`(`vote`: Vote, `nowMs`: kotlin.ULong): MovementType {
+            return FfiConverterTypeMovementType.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_votedebouncer_tick(
+        it, FfiConverterTypeVote.lower(`vote`),FfiConverterULong.lower(`nowMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Feed one vote plus the nearest mapped traffic control to the fix.
+     *
+     * The control only extends the vehicle-sticky window; it never suppresses
+     * a transition plain `tick` would have allowed.
+     */override fun `tickAt`(`vote`: Vote, `nowMs`: kotlin.ULong, `control`: TrafficControl?): MovementType {
+            return FfiConverterTypeMovementType.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_votedebouncer_tick_at(
+        it, FfiConverterTypeVote.lower(`vote`),FfiConverterULong.lower(`nowMs`),FfiConverterOptionalTypeTrafficControl.lower(`control`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeVoteDebouncer: FfiConverter<VoteDebouncer, Pointer> {
+
+    override fun lower(value: VoteDebouncer): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): VoteDebouncer {
+        return VoteDebouncer(value)
+    }
+
+    override fun read(buf: ByteBuffer): VoteDebouncer {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: VoteDebouncer) = 8UL
+
+    override fun write(value: VoteDebouncer, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+
+/**
+ * A window of accelerometer statistics.
+ *
+ * `mean_magnitude` and `window_duration_s` are optional because a producer
+ * that does not measure them must be able to say so: a zero there is a
+ * measurement, and absence is not.
+ */
+data class AccelStats (
+    /**
+     * Variance of the magnitude series, (m/s^2)^2.
+     */
+    var `variance`: kotlin.Double, 
+    /**
+     * Mean magnitude, m/s^2.
+     */
+    var `meanMagnitude`: kotlin.Double?, 
+    /**
+     * Step cadence, Hz.
+     */
+    var `dominantFrequency`: kotlin.Double, 
+    var `stepCount`: kotlin.UInt, 
+    /**
+     * Window length, seconds.
+     */
+    var `windowDurationS`: kotlin.Double?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAccelStats: FfiConverterRustBuffer<AccelStats> {
+    override fun read(buf: ByteBuffer): AccelStats {
+        return AccelStats(
+            FfiConverterDouble.read(buf),
+            FfiConverterOptionalDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterOptionalDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AccelStats) = (
+            FfiConverterDouble.allocationSize(value.`variance`) +
+            FfiConverterOptionalDouble.allocationSize(value.`meanMagnitude`) +
+            FfiConverterDouble.allocationSize(value.`dominantFrequency`) +
+            FfiConverterUInt.allocationSize(value.`stepCount`) +
+            FfiConverterOptionalDouble.allocationSize(value.`windowDurationS`)
+    )
+
+    override fun write(value: AccelStats, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`variance`, buf)
+            FfiConverterOptionalDouble.write(value.`meanMagnitude`, buf)
+            FfiConverterDouble.write(value.`dominantFrequency`, buf)
+            FfiConverterUInt.write(value.`stepCount`, buf)
+            FfiConverterOptionalDouble.write(value.`windowDurationS`, buf)
+    }
+}
+
+
 
 /**
  * One decoded address (`{osm_id, housenumber, street}`; location is the cell).
@@ -3749,6 +4283,84 @@ public object FfiConverterTypeCandidate: FfiConverterRustBuffer<Candidate> {
 
 
 /**
+ * Tuning for [`VoteDebouncer`].
+ */
+data class DebounceConfig (
+    /**
+     * Votes kept in the majority window.
+     */
+    var `majorityWindow`: kotlin.UInt, 
+    /**
+     * Latency into `Driving`, ms.
+     */
+    var `rapidLatencyMs`: kotlin.ULong, 
+    /**
+     * Latency for every other transition, ms.
+     */
+    var `defaultLatencyMs`: kotlin.ULong, 
+    /**
+     * After a `Driving` vote, how long (ms) a flip to `Stationary` is
+     * suppressed -- a red light is not an arrival.
+     */
+    var `vehicleStickyMs`: kotlin.ULong, 
+    /**
+     * Sticky window (ms) used instead of `vehicle_sticky_ms` at a mapped
+     * traffic control, where a queue can hold a car far longer.
+     */
+    var `signalStickyMs`: kotlin.ULong, 
+    /**
+     * How close (m) a traffic control counts as "waiting at it".
+     */
+    var `signalRadiusM`: kotlin.Double, 
+    /**
+     * Consecutive agreeing majorities required before a transition commits.
+     */
+    var `minContinuous`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDebounceConfig: FfiConverterRustBuffer<DebounceConfig> {
+    override fun read(buf: ByteBuffer): DebounceConfig {
+        return DebounceConfig(
+            FfiConverterUInt.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DebounceConfig) = (
+            FfiConverterUInt.allocationSize(value.`majorityWindow`) +
+            FfiConverterULong.allocationSize(value.`rapidLatencyMs`) +
+            FfiConverterULong.allocationSize(value.`defaultLatencyMs`) +
+            FfiConverterULong.allocationSize(value.`vehicleStickyMs`) +
+            FfiConverterULong.allocationSize(value.`signalStickyMs`) +
+            FfiConverterDouble.allocationSize(value.`signalRadiusM`) +
+            FfiConverterUInt.allocationSize(value.`minContinuous`)
+    )
+
+    override fun write(value: DebounceConfig, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`majorityWindow`, buf)
+            FfiConverterULong.write(value.`rapidLatencyMs`, buf)
+            FfiConverterULong.write(value.`defaultLatencyMs`, buf)
+            FfiConverterULong.write(value.`vehicleStickyMs`, buf)
+            FfiConverterULong.write(value.`signalStickyMs`, buf)
+            FfiConverterDouble.write(value.`signalRadiusM`, buf)
+            FfiConverterUInt.write(value.`minContinuous`, buf)
+    }
+}
+
+
+
+/**
  * A GPS fix to score candidates against. Field names/units mirror
  * `CoreLocation`: `horizontal_accuracy_m` is `CLLocation.horizontalAccuracy`,
  * `speed_mps` is `CLLocation.speed` (pass `nil`/`None` when unavailable, not
@@ -4002,6 +4614,66 @@ public object FfiConverterTypeLocatedInfo: FfiConverterRustBuffer<LocatedInfo> {
             FfiConverterOptionalTypeNearbyAddressInfo.write(value.`address`, buf)
             FfiConverterOptionalTypeAreaInfo.write(value.`park`, buf)
             FfiConverterOptionalTypeAreaInfo.write(value.`water`, buf)
+    }
+}
+
+
+
+/**
+ * Thresholds the library classifies against.
+ *
+ * Exposed as data rather than left as Rust constants so a caller stops keeping
+ * its own copy. Every one of these was duplicated in at least one integration,
+ * which is how a threshold and its meaning drift apart.
+ */
+data class MovementThresholds (
+    /**
+     * Above this speed (m/s) nothing is walking.
+     */
+    var `walkingCeilingMps`: kotlin.Double, 
+    /**
+     * At or above this speed (m/s) a fix reads as driving.
+     */
+    var `drivingFloorMps`: kotlin.Double, 
+    /**
+     * Above this horizontal accuracy (m) GPS position is not trusted.
+     */
+    var `gpsAccuracyGateM`: kotlin.Double, 
+    /**
+     * Where a person would draw the walking/running line on a speed chart.
+     * A labelling aid for UIs, never a classifier threshold.
+     */
+    var `runningSpeedHintMps`: kotlin.Double
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMovementThresholds: FfiConverterRustBuffer<MovementThresholds> {
+    override fun read(buf: ByteBuffer): MovementThresholds {
+        return MovementThresholds(
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MovementThresholds) = (
+            FfiConverterDouble.allocationSize(value.`walkingCeilingMps`) +
+            FfiConverterDouble.allocationSize(value.`drivingFloorMps`) +
+            FfiConverterDouble.allocationSize(value.`gpsAccuracyGateM`) +
+            FfiConverterDouble.allocationSize(value.`runningSpeedHintMps`)
+    )
+
+    override fun write(value: MovementThresholds, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`walkingCeilingMps`, buf)
+            FfiConverterDouble.write(value.`drivingFloorMps`, buf)
+            FfiConverterDouble.write(value.`gpsAccuracyGateM`, buf)
+            FfiConverterDouble.write(value.`runningSpeedHintMps`, buf)
     }
 }
 
@@ -4296,6 +4968,47 @@ public object FfiConverterTypeRailInfo: FfiConverterRustBuffer<RailInfo> {
 
 
 
+/**
+ * Nearest-road prior for a fix.
+ */
+data class RoadContext (
+    /**
+     * OSM `highway` tag: "motorway", "footway", "residential", ...
+     */
+    var `roadClass`: kotlin.String, 
+    /**
+     * Fix to nearest road, meters.
+     */
+    var `distanceM`: kotlin.Double
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRoadContext: FfiConverterRustBuffer<RoadContext> {
+    override fun read(buf: ByteBuffer): RoadContext {
+        return RoadContext(
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RoadContext) = (
+            FfiConverterString.allocationSize(value.`roadClass`) +
+            FfiConverterDouble.allocationSize(value.`distanceM`)
+    )
+
+    override fun write(value: RoadContext, buf: ByteBuffer) {
+            FfiConverterString.write(value.`roadClass`, buf)
+            FfiConverterDouble.write(value.`distanceM`, buf)
+    }
+}
+
+
+
 data class RoadInfo (
     var `osmId`: kotlin.ULong, 
     var `name`: kotlin.String?, 
@@ -4337,17 +5050,72 @@ public object FfiConverterTypeRoadInfo: FfiConverterRustBuffer<RoadInfo> {
 
 
 /**
- * One decoded trail. `geom_type`: 0 = linestring (a way you walk), 1 = point
- * (a trailhead). `sac_scale` is the SAC hiking difficulty when tagged, empty
- * otherwise.
+ * The nearest mapped node a vehicle might be waiting at.
+ *
+ * Only ever EXTENDS the vehicle-sticky window, and only while the fix is still
+ * at it. That is the whole reason it exists: a car idling at a signal looks
+ * identical to a parked car, and only the map can tell them apart.
+ */
+data class TrafficControl (
+    /**
+     * Fix to the intersection node, meters.
+     */
+    var `distanceM`: kotlin.Double, 
+    /**
+     * 1 = traffic_signals, 2 = stop, 3 = give_way, 4 = roundabout;
+     * 0 or anything else is an untyped junction, which does not hold traffic.
+     */
+    var `intersectionType`: kotlin.UByte
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTrafficControl: FfiConverterRustBuffer<TrafficControl> {
+    override fun read(buf: ByteBuffer): TrafficControl {
+        return TrafficControl(
+            FfiConverterDouble.read(buf),
+            FfiConverterUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TrafficControl) = (
+            FfiConverterDouble.allocationSize(value.`distanceM`) +
+            FfiConverterUByte.allocationSize(value.`intersectionType`)
+    )
+
+    override fun write(value: TrafficControl, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`distanceM`, buf)
+            FfiConverterUByte.write(value.`intersectionType`, buf)
+    }
+}
+
+
+
+/**
+ * One trail feature, as stored. Unlike the `nearest_trail` answer this
+ * includes trailhead points, which carry a single coordinate.
  */
 data class TrailInfo (
     var `osmId`: kotlin.Long, 
     var `name`: kotlin.String?, 
     var `trailType`: kotlin.String, 
-    var `geomType`: kotlin.UByte, 
     var `surface`: kotlin.String, 
     var `sacScale`: kotlin.String, 
+    var `developed`: kotlin.Boolean, 
+    /**
+     * True for a trailhead marker rather than a length of trail. The same
+     * fact as `geom_type == 1`, named for callers that read rather than
+     * decode.
+     */
+    var `isTrailhead`: kotlin.Boolean, 
+    /**
+     * 0 = linestring (a way you walk), 1 = point (a trailhead).
+     */
+    var `geomType`: kotlin.UByte, 
     var `geometry`: List<LatLon>
 ) {
     
@@ -4363,9 +5131,11 @@ public object FfiConverterTypeTrailInfo: FfiConverterRustBuffer<TrailInfo> {
             FfiConverterLong.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterUByte.read(buf),
-            FfiConverterString.read(buf),
-            FfiConverterString.read(buf),
             FfiConverterSequenceTypeLatLon.read(buf),
         )
     }
@@ -4374,9 +5144,11 @@ public object FfiConverterTypeTrailInfo: FfiConverterRustBuffer<TrailInfo> {
             FfiConverterLong.allocationSize(value.`osmId`) +
             FfiConverterOptionalString.allocationSize(value.`name`) +
             FfiConverterString.allocationSize(value.`trailType`) +
-            FfiConverterUByte.allocationSize(value.`geomType`) +
             FfiConverterString.allocationSize(value.`surface`) +
             FfiConverterString.allocationSize(value.`sacScale`) +
+            FfiConverterBoolean.allocationSize(value.`developed`) +
+            FfiConverterBoolean.allocationSize(value.`isTrailhead`) +
+            FfiConverterUByte.allocationSize(value.`geomType`) +
             FfiConverterSequenceTypeLatLon.allocationSize(value.`geometry`)
     )
 
@@ -4384,10 +5156,47 @@ public object FfiConverterTypeTrailInfo: FfiConverterRustBuffer<TrailInfo> {
             FfiConverterLong.write(value.`osmId`, buf)
             FfiConverterOptionalString.write(value.`name`, buf)
             FfiConverterString.write(value.`trailType`, buf)
-            FfiConverterUByte.write(value.`geomType`, buf)
             FfiConverterString.write(value.`surface`, buf)
             FfiConverterString.write(value.`sacScale`, buf)
+            FfiConverterBoolean.write(value.`developed`, buf)
+            FfiConverterBoolean.write(value.`isTrailhead`, buf)
+            FfiConverterUByte.write(value.`geomType`, buf)
             FfiConverterSequenceTypeLatLon.write(value.`geometry`, buf)
+    }
+}
+
+
+
+/**
+ * One classifier output: a type plus how much the evidence is worth.
+ */
+data class Vote (
+    var `movement`: MovementType, 
+    var `confidence`: kotlin.Double
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeVote: FfiConverterRustBuffer<Vote> {
+    override fun read(buf: ByteBuffer): Vote {
+        return Vote(
+            FfiConverterTypeMovementType.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Vote) = (
+            FfiConverterTypeMovementType.allocationSize(value.`movement`) +
+            FfiConverterDouble.allocationSize(value.`confidence`)
+    )
+
+    override fun write(value: Vote, buf: ByteBuffer) {
+            FfiConverterTypeMovementType.write(value.`movement`, buf)
+            FfiConverterDouble.write(value.`confidence`, buf)
     }
 }
 
@@ -4461,9 +5270,20 @@ data class WayInfo (
      * `road`, `trail`, or `rail`.
      */
     var `kind`: kotlin.String, 
+    /**
+     * OSM id of the feature, or `None` when the caller did not supply the
+     * slice `core` indexed into (as in `PtilesStack::locate`, which merges
+     * several layers and keeps no single index).
+     *
+     * Signed, not unsigned like `NearestRoad::osm_id`: the trails and rail
+     * decoders carry the id as a signed delta and OSM ids for derived ways
+     * can be negative, so widening it would corrupt exactly those records.
+     */
+    var `osmId`: kotlin.Long?, 
     var `name`: kotlin.String?, 
     /**
-     * Road class, trail type, or rail type.
+     * Road class, trail type, or rail type. Pass it to
+     * [`trail_is_developed`] for the made-trail-vs-desire-path split.
      */
     var `class`: kotlin.String, 
     var `distanceM`: kotlin.Double, 
@@ -4481,6 +5301,7 @@ public object FfiConverterTypeWayInfo: FfiConverterRustBuffer<WayInfo> {
     override fun read(buf: ByteBuffer): WayInfo {
         return WayInfo(
             FfiConverterString.read(buf),
+            FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterDouble.read(buf),
@@ -4491,6 +5312,7 @@ public object FfiConverterTypeWayInfo: FfiConverterRustBuffer<WayInfo> {
 
     override fun allocationSize(value: WayInfo) = (
             FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterOptionalLong.allocationSize(value.`osmId`) +
             FfiConverterOptionalString.allocationSize(value.`name`) +
             FfiConverterString.allocationSize(value.`class`) +
             FfiConverterDouble.allocationSize(value.`distanceM`) +
@@ -4500,6 +5322,7 @@ public object FfiConverterTypeWayInfo: FfiConverterRustBuffer<WayInfo> {
 
     override fun write(value: WayInfo, buf: ByteBuffer) {
             FfiConverterString.write(value.`kind`, buf)
+            FfiConverterOptionalLong.write(value.`osmId`, buf)
             FfiConverterOptionalString.write(value.`name`, buf)
             FfiConverterString.write(value.`class`, buf)
             FfiConverterDouble.write(value.`distanceM`, buf)
@@ -4533,6 +5356,42 @@ public object FfiConverterTypeCandidateKind: FfiConverterRustBuffer<CandidateKin
     override fun allocationSize(value: CandidateKind) = 4UL
 
     override fun write(value: CandidateKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * What the classifier thinks is happening.
+ */
+
+enum class MovementType {
+    
+    UNKNOWN,
+    STATIONARY,
+    WALKING,
+    RUNNING,
+    DRIVING;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMovementType: FfiConverterRustBuffer<MovementType> {
+    override fun read(buf: ByteBuffer) = try {
+        MovementType.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: MovementType) = 4UL
+
+    override fun write(value: MovementType, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }
@@ -4811,6 +5670,38 @@ public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalLong: FfiConverterRustBuffer<kotlin.Long?> {
+    override fun read(buf: ByteBuffer): kotlin.Long? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterLong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Long?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterLong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Long?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterLong.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalDouble: FfiConverterRustBuffer<kotlin.Double?> {
     override fun read(buf: ByteBuffer): kotlin.Double? {
         if (buf.get().toInt() == 0) {
@@ -4929,6 +5820,38 @@ public object FfiConverterOptionalTypePtilesLayer: FfiConverterRustBuffer<Ptiles
         } else {
             buf.put(1)
             FfiConverterTypePtilesLayer.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeAccelStats: FfiConverterRustBuffer<AccelStats?> {
+    override fun read(buf: ByteBuffer): AccelStats? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeAccelStats.read(buf)
+    }
+
+    override fun allocationSize(value: AccelStats?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeAccelStats.allocationSize(value)
+        }
+    }
+
+    override fun write(value: AccelStats?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeAccelStats.write(value, buf)
         }
     }
 }
@@ -5163,6 +6086,70 @@ public object FfiConverterOptionalTypePointInfo: FfiConverterRustBuffer<PointInf
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeRoadContext: FfiConverterRustBuffer<RoadContext?> {
+    override fun read(buf: ByteBuffer): RoadContext? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeRoadContext.read(buf)
+    }
+
+    override fun allocationSize(value: RoadContext?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeRoadContext.allocationSize(value)
+        }
+    }
+
+    override fun write(value: RoadContext?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeRoadContext.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeTrafficControl: FfiConverterRustBuffer<TrafficControl?> {
+    override fun read(buf: ByteBuffer): TrafficControl? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeTrafficControl.read(buf)
+    }
+
+    override fun allocationSize(value: TrafficControl?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeTrafficControl.allocationSize(value)
+        }
+    }
+
+    override fun write(value: TrafficControl?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeTrafficControl.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeWayInfo: FfiConverterRustBuffer<WayInfo?> {
     override fun read(buf: ByteBuffer): WayInfo? {
         if (buf.get().toInt() == 0) {
@@ -5185,6 +6172,34 @@ public object FfiConverterOptionalTypeWayInfo: FfiConverterRustBuffer<WayInfo?> 
         } else {
             buf.put(1)
             FfiConverterTypeWayInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceFloat: FfiConverterRustBuffer<List<kotlin.Float>> {
+    override fun read(buf: ByteBuffer): List<kotlin.Float> {
+        val len = buf.getInt()
+        return List<kotlin.Float>(len) {
+            FfiConverterFloat.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.Float>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterFloat.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.Float>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterFloat.write(it, buf)
         }
     }
 }
@@ -5553,13 +6568,63 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
     }
 }
         /**
-         * Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
-         * give-way) rather than one it flows through (roundabout, untyped junction).
+         * Accelerometer statistics for one window of raw samples.
          *
-         * This is the distinction the motion classifier uses to tell "stopped at a
-         * light" from "arrived somewhere", and it is a fact about the vocabulary, so it
-         * lives here rather than in every caller that needs it.
-         */ fun `intersectionHoldsTraffic`(`intersectionType`: kotlin.UByte): kotlin.Boolean {
+         * Takes the three axes a platform actually reports rather than a pre-computed
+         * magnitude series, so the windowing rule stays in one place. Returns the
+         * empty window when the axes are empty or disagree in length, or when the
+         * sample rate is zero -- all of which mean "no measurement", not "zero".
+         */ fun `accelStatsFromSamples`(`x`: List<kotlin.Float>, `y`: List<kotlin.Float>, `z`: List<kotlin.Float>, `sampleRateHz`: kotlin.UInt): AccelStats {
+            return FfiConverterTypeAccelStats.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_accel_stats_from_samples(
+        FfiConverterSequenceFloat.lower(`x`),FfiConverterSequenceFloat.lower(`y`),FfiConverterSequenceFloat.lower(`z`),FfiConverterUInt.lower(`sampleRateHz`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Stateless single-fix classification.
+         *
+         * Every input is optional because every one is genuinely missing on some real
+         * fix. Note that a poor `gps_accuracy_m` suppresses the road and speed priors
+         * but does NOT discard a speed clearing the driving floor: an uncertain
+         * position is not evidence that 20 m/s was walked.
+         */ fun `classifyMovement`(`instSpeedMps`: kotlin.Double?, `gpsAccuracyM`: kotlin.Double?, `nearestRoad`: RoadContext?, `accel`: AccelStats?): Vote {
+            return FfiConverterTypeVote.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_classify_movement(
+        FfiConverterOptionalDouble.lower(`instSpeedMps`),FfiConverterOptionalDouble.lower(`gpsAccuracyM`),FfiConverterOptionalTypeRoadContext.lower(`nearestRoad`),FfiConverterOptionalTypeAccelStats.lower(`accel`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Classification from the accelerometer alone, ignoring GPS entirely.
+         */ fun `classifyMovementAccelOnly`(`accel`: AccelStats): Vote {
+            return FfiConverterTypeVote.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(
+        FfiConverterTypeAccelStats.lower(`accel`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The library's default debounce tuning.
+         */ fun `defaultDebounceConfig`(): DebounceConfig {
+            return FfiConverterTypeDebounceConfig.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_default_debounce_config(
+        _status)
+}
+    )
+    }
+    
+ fun `intersectionHoldsTraffic`(`intersectionType`: kotlin.UByte): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(
@@ -5582,6 +6647,42 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_intersection_type_name(
         FfiConverterUByte.lower(`intersectionType`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The thresholds this build classifies against.
+         */ fun `movementThresholds`(): MovementThresholds {
+            return FfiConverterTypeMovementThresholds.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_movement_thresholds(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
+         * give-way) rather than one it flows through (roundabout, untyped junction).
+         *
+         * This is the distinction the motion classifier uses to tell "stopped at a
+         * light" from "arrived somewhere", and it is a fact about the vocabulary, so it
+         * lives here rather than in every caller that needs it.
+         * Whether a trail type is built infrastructure (`cycleway`, `footway`)
+         * rather than a walked way (`path`, `track`, `bridleway`, `steps`).
+         *
+         * [`TrailInfo`] carries this already; the free function is for a caller
+         * holding only a [`WayInfo`], whose `class` is the trail type. The split is a
+         * property of the layer's vocabulary, so it comes from
+         * `ptiles_core::trail_is_developed` rather than being re-listed per caller.
+         */ fun `trailIsDeveloped`(`trailType`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_trail_is_developed(
+        FfiConverterString.lower(`trailType`),_status)
 }
     )
     }
