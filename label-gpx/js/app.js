@@ -90,6 +90,66 @@ function drawVertices() {
   }
 }
 
+// ---------------------------------------------------------------- progress
+
+/**
+ * A named-phase progress sheet.
+ *
+ * Resolving context is a dozen-odd range reads against a public host: quick, but
+ * not instant. It used to sit behind its own button which then greyed itself out
+ * with no explanation, so the two-step order was discoverable only by trying it.
+ * One action, one sheet, each phase named as it happens.
+ */
+function sheet(steps) {
+  const list = el("modalSteps");
+  list.innerHTML = steps
+    .map((s, i) => `<li data-step="${i}"><span class="mark">·</span><span>${s}</span>
+      <span class="detail"></span></li>`)
+    .join("");
+  el("modalNote").textContent = "";
+  el("modalClose").hidden = true;
+  el("modal").hidden = false;
+  const at = (i) => list.querySelector(`li[data-step="${i}"]`);
+  return {
+    doing(i, detail = "") {
+      const li = at(i);
+      if (!li) return;
+      li.className = "doing";
+      li.querySelector(".mark").textContent = "›";
+      li.querySelector(".detail").textContent = detail;
+    },
+    done(i, detail = "") {
+      const li = at(i);
+      if (!li) return;
+      li.className = "done";
+      li.querySelector(".mark").textContent = "✓";
+      if (detail) li.querySelector(".detail").textContent = detail;
+    },
+    failed(i, detail = "") {
+      const li = at(i);
+      if (!li) return;
+      li.className = "failed";
+      li.querySelector(".mark").textContent = "!";
+      li.querySelector(".detail").textContent = detail;
+    },
+    note(msg) {
+      el("modalNote").textContent = msg;
+    },
+    close() {
+      el("modal").hidden = true;
+    },
+    hold(msg) {
+      el("modalNote").textContent = msg;
+      el("modalClose").hidden = false;
+    },
+  };
+}
+
+el("modalClose").addEventListener("click", () => el("modal").hidden = true);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !el("modal").hidden) el("modal").hidden = true;
+});
+
 // ---------------------------------------------------------------- basemap
 
 // Two backdrops, one switch. The raster tiles are always right about the world;
@@ -133,6 +193,168 @@ map.on("moveend zoomend", () => {
   clearTimeout(moveTimer);
   moveTimer = setTimeout(() => basemap && basemap.refresh(), 250);
 });
+
+// ---------------------------------------------------------------- place lookup
+
+// Where the last lookup happened, and what it found.
+let place = null;
+const placeMarker = L.layerGroup().addTo(map);
+
+/**
+ * Ask the map what is at a point, and offer to write the answer into the trace.
+ *
+ * This is the question labelling actually runs into: a 12-minute stop is
+ * "stationary" either way, but *whether it happened at the hardware store* is
+ * what makes the fixture worth keeping. The lookup goes to the same layers the
+ * classifier reads, and attaching it writes a rook:building / rook:addresses /
+ * rook:businesses block into the exported segment (SCHEMA.md).
+ */
+map.on("click", async (e) => {
+  if (!P) return;
+  const { lat, lng: lon } = e.latlng;
+  place = { lat, lon, loading: true };
+  renderPlace();
+  placeMarker.clearLayers();
+  L.circleMarker([lat, lon], {
+    radius: 6, color: "var(--accent)", weight: 2, fillColor: "#3ec8d4", fillOpacity: 0.25,
+  }).addTo(placeMarker);
+  // Three lookups in parallel (different layers, so serialising them would only
+  // add round trips), and settled rather than all-or-nothing: one layer that
+  // fails to decode must not take the answers from the other two with it. Each
+  // failure is reported on the card instead of vanishing into a catch.
+  const [b, a, biz] = await Promise.allSettled([
+    resolver.buildingAt(lat, lon),
+    resolver.addressesAt(lat, lon),
+    resolver.businessesNear(lat, lon),
+  ]);
+  place = {
+    lat,
+    lon,
+    building: b.status === "fulfilled" ? b.value : null,
+    addresses: a.status === "fulfilled" ? a.value : [],
+    businesses: biz.status === "fulfilled" ? biz.value : [],
+    // A decoder can reject with a bare string from wasm rather than an Error, so
+    // reading `.message` blindly rendered the word "undefined" as the problem.
+    errors: [b, a, biz]
+      .filter((r) => r.status === "rejected")
+      .map((r) => String(r.reason?.message ?? r.reason)),
+  };
+  renderPlace();
+  status();
+});
+
+/** Which segment an attach would land on: the selection, else the nearest fix. */
+function nearestSegment(lat, lon) {
+  if (state.selected >= 0) return state.selected;
+  if (!state.parsed) return -1;
+  let best = -1;
+  let bestD = Infinity;
+  state.segments.forEach((s, i) => {
+    for (let k = s.start; k <= s.end; k++) {
+      const p = state.parsed.points[k];
+      const d = wasm.distance_m(lat, lon, p.lat, p.lon);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+  });
+  return best;
+}
+
+function renderPlace() {
+  const host = el("place");
+  if (!place) {
+    host.innerHTML = "";
+    return;
+  }
+  const coords = `${place.lat.toFixed(5)}, ${place.lon.toFixed(5)}`;
+  if (place.loading) {
+    host.innerHTML = `<div class="row"><span class="sub data">${coords}</span>
+      <span class="sub">reading the layers…</span></div>`;
+    return;
+  }
+
+  const b = place.building;
+  // `building=yes` is OSM's "this is a building and nothing more is claimed",
+  // which is the most common tag there is. Printing it as a title reads as a
+  // bug; printing "Building" reads as the truth.
+  const kind = b && b.building_type && b.building_type !== "yes" ? b.building_type : null;
+  const title = b ? escapeHtml(b.name || kind || "Building") : "No building here";
+  const sub = b
+    ? [
+        kind && b.name ? escapeHtml(kind) : null,
+        b.category ? escapeHtml(b.category) : null,
+        b.inside ? "you are inside it" : `${b.distance_m.toFixed(0)} m away`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "nothing within 50 m";
+  const problems = (place.errors ?? [])
+    .map((e) => `<div class="sub">${escapeHtml(e)}</div>`)
+    .join("");
+  const addrs = (place.addresses ?? [])
+    .map((a) => `<li>${escapeHtml(a.housenumber)} ${escapeHtml(a.street)}
+      <span class="sub data">${a.distance_m.toFixed(0)} m</span></li>`)
+    .join("");
+  const biz = (place.businesses ?? [])
+    .map((x) => `<li>${escapeHtml(x.name)}
+      <span class="sub data">${x.distance_m.toFixed(0)} m</span></li>`)
+    .join("");
+  const target = nearestSegment(place.lat, place.lon);
+  const opts = state.segments
+    .map((s, i) => `<option value="${i}"${i === target ? " selected" : ""}>${i + 1}. ${s.type}</option>`)
+    .join("");
+  host.innerHTML = `
+    <div class="row"><span class="title">${title}</span><span class="sub data">${coords}</span></div>
+    <div class="sub">${sub}</div>
+    ${problems}
+    ${addrs ? `<div class="sub">Addresses</div><ul>${addrs}</ul>` : ""}
+    ${biz ? `<div class="sub">Businesses nearby</div><ul>${biz}</ul>` : ""}
+    ${state.segments.length ? `<div class="acts">
+      <select id="placeSeg" aria-label="Segment to attach this place to">${opts}</select>
+      <button id="placeAttach">Attach to segment</button>
+      <button id="placeClear" class="ghost">Dismiss</button>
+    </div>` : ""}`;
+
+  const attach = el("placeAttach");
+  if (attach) attach.addEventListener("click", attachPlace);
+  const clear = el("placeClear");
+  if (clear) {
+    clear.addEventListener("click", () => {
+      place = null;
+      placeMarker.clearLayers();
+      renderPlace();
+    });
+  }
+}
+
+/**
+ * Write the looked-up place onto a segment's context, and mark the segment
+ * human-edited: a person decided this place belongs to this stretch, and that is
+ * exactly what `source="human"` means in the exported file.
+ */
+function attachPlace() {
+  const i = Number(el("placeSeg").value);
+  const seg = state.segments[i];
+  if (!seg || !place) return;
+  state.history.snapshot(state.segments);
+  const ctx = { ...(seg.context ?? {}) };
+  ctx.lat = place.lat;
+  ctx.lon = place.lon;
+  ctx.snapshot = SNAPSHOT;
+  ctx.resolved = Date.now();
+  if (place.building) ctx.building = place.building;
+  if (place.addresses && place.addresses.length) ctx.addresses = place.addresses;
+  if (place.businesses && place.businesses.length) ctx.businesses = place.businesses;
+  state.segments[i] = { ...seg, context: ctx, edited: true };
+  // An attached place is the user's own annotation, so a rook file's captured
+  // context no longer speaks for this segment.
+  delete state.segments[i].sourceContext;
+  state.selected = i;
+  render();
+  warn(`attached ${place.building?.name ?? "this place"} to segment ${i + 1}`);
+}
 
 // ---------------------------------------------------------------- ribbon
 
@@ -290,6 +512,13 @@ function renderDetail() {
       <dt>road</dt><dd>${road}</dd>
       <dt>intersection</dt><dd>${ix}</dd>
       <dt>admin</dt><dd>${adm}</dd>
+      ${s.context && s.context.building ? `<dt>building</dt><dd><b>${escapeHtml(
+        s.context.building.name || s.context.building.building_type || "unnamed",
+      )}</b>${s.context.building.inside ? " · inside" : ` · ${s.context.building.distance_m.toFixed(0)} m`}</dd>` : ""}
+      ${s.context && s.context.businesses && s.context.businesses.length ? `<dt>businesses</dt><dd>${
+        s.context.businesses.map((b) => escapeHtml(b.name)).join(", ")}</dd>` : ""}
+      ${s.context && s.context.addresses && s.context.addresses.length ? `<dt>address</dt><dd>${
+        escapeHtml(s.context.addresses[0].housenumber)} ${escapeHtml(s.context.addresses[0].street)}</dd>` : ""}
       <dt>vintage</dt><dd>trace recorded ${new Date(s.t0).getFullYear()}, map snapshot
         ${SNAPSHOT} — context is what the map says <em>now</em></dd>
     </dl>`;
@@ -307,6 +536,7 @@ function renderLegend() {
 function render() {
   drawSegments();
   renderRibbon();
+  renderPlace();
   renderTable();
   renderDetail();
   renderLegend();
@@ -335,8 +565,10 @@ function status() {
   // A disabled control has to say what would enable it, next to where the eye
   // already is. "Context not resolved" described a state; this names the action.
   el("status").textContent = state.resolved
-    ? "Context resolved — re-classify to apply the road priors"
-    : "Resolve map context to enable re-classify";
+    ? "Map context applied"
+    : state.parsed
+      ? "Classify with map context to apply the road priors"
+      : "No trace open";
 }
 
 function escapeHtml(v) {
@@ -380,69 +612,99 @@ el("file").addEventListener("change", async (e) => {
     const s = state.segments.find((x) => x.start >= t.firstPoint);
     if (s) s.sourceContext = t.context;
   });
-  el("resolve").disabled = false;
+  el("reclassify").disabled = false;
   el("download").disabled = false;
+  // Only the cells the trace occupies are worth drawing or fetching -- see
+  // basemap.setTrace. A 90 km drive is ~50 cells; the viewport at a working zoom
+  // asks for hundreds, nearly all of them nowhere near the trace.
+  const cells = basemap ? basemap.setTrace(parsed.points) : 0;
+  if (cells) basemapNote(`${cells} cells cover this trace`);
   if (parsed.dropped) warn(`${parsed.dropped} point(s) dropped for having no usable time`);
   map.fitBounds(parsed.points.map((p) => [p.lat, p.lon]), { padding: [20, 20] });
   render();
 });
 
-el("resolve").addEventListener("click", async () => {
-  el("resolve").disabled = true;
-  const btn = el("resolve");
-  btn.textContent = "Resolving…";
+/**
+ * Resolve map context for every segment, then classify again with it.
+ *
+ * One action, because the two halves are never useful apart: the priors exist to
+ * change the classification, and a resolve with no re-run just leaves numbers in
+ * a panel. Segments a human has labelled are preserved across the re-run -- a
+ * classifier pass must never overwrite a human decision.
+ */
+async function classifyWithContext() {
+  const steps = sheet([
+    "Read the map layers for the cells this trace touches",
+    "Resolve a road and intersection per segment",
+    "Classify again, with the priors",
+  ]);
+  el("reclassify").disabled = true;
   try {
+    steps.doing(0);
     const cells = await resolver.prefetch(state.parsed.points);
-    const cellCount = [...cells.values()].reduce((n, s) => n + s.size, 0);
-    for (const s of state.segments) {
-      if (s.sourceContext) continue; // keep field-captured context
-      s.context = await resolver.forSegment(state.parsed.points, sampleIndices(s, 5));
+    const cellCount = [...cells.values()].reduce((n, set) => n + set.size, 0);
+    const failed = [...resolver.failures.keys()];
+    if (failed.length) {
+      steps.failed(0, `${failed.join(", ")} unavailable`);
+    } else {
+      steps.done(0, `${cellCount} cells across ${cells.size} state(s)`);
+    }
+
+    steps.doing(1, `0 / ${state.segments.length}`);
+    let done = 0;
+    for (const seg of state.segments) {
+      // A rook file's own context was captured in the field; this snapshot is
+      // years newer, so it is kept rather than overwritten.
+      if (!seg.sourceContext) {
+        seg.context = await resolver.forSegment(state.parsed.points, sampleIndices(seg, 5));
+      }
+      steps.doing(1, `${++done} / ${state.segments.length}`);
       status();
     }
     state.resolved = true;
-    const failed = [...resolver.failures.entries()];
-    warn(
-      failed.length
-        ? `no roads layer for ${failed.map(([st]) => st).join(", ")} in snapshot ${SNAPSHOT} — those segments have no road context`
-        : `resolved ${cellCount} cells across ${cells.size} state(s)`,
-    );
-    el("reclassify").disabled = false;
-  } catch (err) {
-    warn(`context resolution failed: ${err.message}`);
-  } finally {
-    btn.textContent = "Resolve map context";
-    btn.disabled = false;
-    render();
-  }
-});
+    const withRoad = state.segments.filter((s) => s.context && s.context.road).length;
+    steps.done(1, `${withRoad} of ${state.segments.length} got a road`);
 
-// The payoff pass: with road and intersection context per segment, the priors
-// can see a walk that speed alone cannot, and a stop at a signal stops reading
-// as an arrival. Segments a human edited are left alone.
-el("reclassify").addEventListener("click", () => {
-  state.history.snapshot(state.segments);
-  const ctxAt = (i) => {
-    const s = state.segments.find((x) => i >= x.start && i <= x.end);
-    return s && s.context ? { road: s.context.road, intersection: s.context.intersection } : {};
-  };
-  const edited = state.segments.filter((s) => s.edited);
-  state.results = classifyTrace(wasm, state.parsed.points, { contextFor: ctxAt });
-  const fresh = coalesce(state.parsed.points, state.results);
-  // Re-apply human labels: a re-run must never overwrite a human decision.
-  for (const h of edited) {
-    for (const s of fresh) {
-      if (s.start >= h.start && s.end <= h.end) {
-        s.type = h.type;
-        s.edited = true;
+    steps.doing(2);
+    state.history.snapshot(state.segments);
+    const edited = state.segments.filter((s) => s.edited);
+    const ctxAt = (i) => {
+      const s = state.segments.find((x) => i >= x.start && i <= x.end);
+      return s && s.context ? { road: s.context.road, intersection: s.context.intersection } : {};
+    };
+    state.results = classifyTrace(wasm, state.parsed.points, { contextFor: ctxAt });
+    const fresh = coalesce(state.parsed.points, state.results);
+    for (const h of edited) {
+      for (const seg of fresh) {
+        if (seg.start >= h.start && seg.end <= h.end) {
+          seg.type = h.type;
+          seg.edited = true;
+          seg.context = h.context;
+          seg.sourceContext = h.sourceContext;
+        }
       }
     }
+    state.segments = fresh;
+    state.selected = -1;
+    steps.done(2, `${fresh.length} segments`);
+    render();
+    if (failed.length) {
+      steps.hold(`Some layers were unavailable: ${failed.join(", ")}. Those segments have no road context.`);
+      warn(`no layer for ${failed.join(", ")} in snapshot ${SNAPSHOT}`);
+    } else {
+      steps.close();
+    }
+  } catch (err) {
+    steps.failed(0, err.message);
+    steps.hold(`Could not finish: ${err.message}`);
+    warn(`context resolution failed: ${err.message}`);
+  } finally {
+    el("reclassify").disabled = false;
+    render();
   }
-  state.segments = fresh;
-  // Context is per-segment and the boundaries just moved, so re-attach by span.
-  state.selected = -1;
-  render();
-  warn(`re-classified with road context: ${state.segments.length} segments`);
-});
+}
+
+el("reclassify").addEventListener("click", classifyWithContext);
 
 el("undo").addEventListener("click", () => {
   const prev = state.history.undo();
@@ -479,5 +741,7 @@ el("download").addEventListener("click", () => {
 });
 
 // Exposed for the browser check (a headless run cannot read "18 segments" off a
-// polyline's colour), same idea as web-demo/test/render_check.py's hooks.
+// polyline's colour), same idea as web-demo/test/render_check.py's hooks. The map
+// too, so a test can fire a click at a real coordinate rather than guess a pixel.
 window.__labelGpx = state;
+window.__leafletMap = map;

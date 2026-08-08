@@ -190,6 +190,60 @@
   }
   .stat b { color: var(--ink-dim); font-weight: 500; }
 
+  /* ---- progress sheet ----
+     Resolving context is 10-20 range reads over a public host: fast, but not
+     instant, and it used to happen behind a button that then greyed itself out
+     with no explanation. A sheet that names each phase as it happens is the
+     difference between "waiting" and "wondering". */
+  #modal[hidden] { display: none; }
+  #modal {
+    position: fixed; inset: 0; z-index: 1000; display: flex;
+    align-items: center; justify-content: center;
+    background: rgba(8, 9, 11, 0.72);
+  }
+  .sheet {
+    width: min(520px, 92vw); background: var(--panel);
+    border: 1px solid var(--rule-bright); border-radius: 6px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  }
+  .sheet-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-dim);
+  }
+  #modalSteps { margin: 0; padding: 12px 16px; list-style: none; }
+  #modalSteps li {
+    display: flex; gap: 10px; align-items: baseline; padding: 3px 0;
+    color: var(--ink-faint); font-size: 12px;
+  }
+  #modalSteps li .mark {
+    font-family: var(--mono); width: 1.4em; flex: none; color: var(--ink-faint);
+  }
+  #modalSteps li.doing { color: var(--ink); }
+  #modalSteps li.doing .mark { color: var(--accent); }
+  #modalSteps li.done { color: var(--ink-dim); }
+  #modalSteps li.done .mark { color: var(--walking); }
+  #modalSteps li.failed { color: var(--warn); }
+  #modalSteps li.failed .mark { color: var(--warn); }
+  #modalSteps li .detail { color: var(--ink-faint); font-family: var(--mono); font-size: 11px; }
+  .sheet-foot {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    border-top: 1px solid var(--rule); font-family: var(--mono);
+    font-size: 11px; color: var(--ink-faint);
+  }
+  .sheet-foot button { margin-left: auto; }
+
+  /* ---- place card: what the map says under the pointer ---- */
+  #place { border-top: 1px solid var(--rule); padding: 10px 12px; font-size: 12px; }
+  #place:empty { display: none; }
+  #place .row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  #place .title { font-weight: 600; color: var(--ink); }
+  #place .sub { color: var(--ink-faint); font-size: 11px; }
+  #place ul { margin: 2px 0 8px; padding-left: 14px; color: var(--ink-dim); }
+  #place li { padding: 1px 0; }
+  #place .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  #place .acts select { padding: 3px 6px; }
+
   /* ---- basemap switch, floating on the map ---- */
   .basemap {
     display: flex; gap: 2px; padding: 4px; background: rgba(22, 25, 29, 0.94);
@@ -224,8 +278,7 @@
       Open GPX<span class="name" id="fileName"></span>
     </label>
     <span class="sep"></span>
-    <button id="resolve" disabled title="Read the roads layer for every cell this trace touches">Resolve map context</button>
-    <button id="reclassify" disabled title="Needs map context: resolve it first, then this re-runs the classifier with the road and intersection priors">Re-classify</button>
+    <button id="reclassify" disabled title="Read the map layers for the cells this trace touches, then classify again with the road and intersection priors">Classify with map context</button>
     <span class="sep"></span>
     <button id="undo" disabled title="Ctrl+Z">Undo</button>
     <button id="download" class="primary" disabled>Download labeled GPX</button>
@@ -248,6 +301,7 @@
   <aside>
     <div class="pane-head">Segments <span class="count" id="segCount"></span></div>
     <div id="segments"></div>
+    <div id="place"></div>
     <div id="legend"></div>
     <div id="detail">
       <div class="hint">Open a GPX file to start. Parsing and classification run in this tab;
@@ -255,6 +309,17 @@
     </div>
   </aside>
 </main>
+
+<div id="modal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="sheet-head" id="modalTitle">Classifying with map context</div>
+    <ol id="modalSteps"></ol>
+    <div class="sheet-foot">
+      <span id="modalNote"></span>
+      <button id="modalClose" hidden>Close</button>
+    </div>
+  </div>
+</div>
 
 <footer>
   <span class="stat">points <b id="fPoints">—</b></span>

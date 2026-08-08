@@ -113,18 +113,30 @@ export function createResolver(P, wasm) {
     return BigInt(cell) & CELL_MASK;
   }
 
-  function roadsFor(state) {
-    if (!layers.has(state)) {
+  /**
+   * Any layer for any state, opened once and reused.
+   *
+   * Keyed by state *and* layer: a trace needs roads to classify, and buildings /
+   * addresses / businesses the moment you click somewhere and ask what is there.
+   * A failure is recorded once rather than retried per point, and the caller
+   * reports it -- quietly returning no context is the failure mode this whole
+   * client exists to eliminate.
+   */
+  function layerFor(state, name) {
+    const key = `${state}/${name}`;
+    if (!layers.has(key)) {
       layers.set(
-        state,
-        P.open(P.httpSource(stateUrl(state, "roads"))).catch((e) => {
-          failures.set(state, e.message || String(e));
+        key,
+        P.open(P.httpSource(stateUrl(state, name))).catch((e) => {
+          failures.set(key, e.message || String(e));
           return null;
         }),
       );
     }
-    return layers.get(state);
+    return layers.get(key);
   }
+
+  const roadsFor = (state) => layerFor(state, "roads");
 
   /** `{cells, states}` a trace touches. Pure wasm, no I/O. */
   function survey(points) {
@@ -238,6 +250,124 @@ export function createResolver(P, wasm) {
   }
 
   /**
+   * The cell records covering a point in some layer.
+   *
+   * Returns the index `entry` as well, because the entry's **stored** cell id is
+   * the one to hand to a decoder -- not the masked lookup key. Masking clears the
+   * res-7 filler bits, which produces an id that is not a real cell, and
+   * `cell_center` of it lands somewhere else entirely: v9 buildings decoded
+   * against that centre came out ~9,700 km from Nashville, which reads as "no
+   * building here" rather than as an error.
+   *
+   * `{ error }` rather than null when a read or decode fails: a lookup that
+   * quietly finds nothing is indistinguishable from a lookup that broke.
+   */
+  async function recordsAt(name, lat, lon) {
+    const st = stateAt(lat, lon);
+    if (!st) return { error: "outside the covered states" };
+    const layer = await layerFor(st, name);
+    if (!layer) return { error: `${st}.${name} unavailable` };
+    const cell = norm(BigInt("0x" + wasm.cell_for_coord(lat, lon)));
+    const entry = layer.entryFor(cell);
+    if (!entry || !entry.block_length) return { bytes: null, entry: null, layer };
+    try {
+      return { bytes: await layer.cellRecords(cell), entry, layer };
+    } catch (e) {
+      return { error: e.message || String(e) };
+    }
+  }
+
+  /**
+   * The building at a point: the polygon containing it, else the nearest
+   * centroid within 50 m -- the same rule the FFI's `building()` uses, so the
+   * browser and the phone answer this question identically.
+   */
+  async function buildingAt(lat, lon) {
+    const got = await recordsAt("buildings", lat, lon);
+    if (got.error) throw new Error(`buildings: ${got.error}`);
+    if (!got.bytes) return null;
+    // v9 buildings are deltas from the cell centre, and the centre must come from
+    // the id the builder stored.
+    const [clat, clon] = wasm.cell_center(got.entry.h3_cell.toString(16));
+    let best = null;
+    for (const b of wasm.decode_buildings(got.bytes, clat, clon)) {
+      const coords = b.coords || b.coordinates || [];
+      const inside = coords.length >= 3 && pointInPolygon(lat, lon, coords);
+      const d = wasm.distance_m(lat, lon, b.centroid_lat, b.centroid_lon);
+      if (inside) return { ...b, distance_m: d, inside: true };
+      if (d <= 50 && (!best || d < best.distance_m)) best = { ...b, distance_m: d, inside: false };
+    }
+    return best;
+  }
+
+  /** Ray casting on `[lon, lat]` rings, which is the order the format stores. */
+  function pointInPolygon(lat, lon, coords) {
+    let hit = false;
+    for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+      const [xi, yi] = coords[i];
+      const [xj, yj] = coords[j];
+      if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) hit = !hit;
+    }
+    return hit;
+  }
+
+  /**
+   * Addresses near a point, nearest first.
+   *
+   * Bounded by `radius_m`, not by the cell: a res-7 cell is ~1.2 km across, so
+   * "the addresses in this cell" includes ones the better part of a mile away,
+   * and listing those under a pin claims something false about where you clicked.
+   */
+  async function addressesAt(lat, lon, radius_m = 250, limit = 4) {
+    const st = stateAt(lat, lon);
+    if (!st) return [];
+    const layer = await layerFor(st, "address");
+    if (!layer) return [];
+    const cell = norm(BigInt("0x" + wasm.cell_for_coord(lat, lon)));
+    const entry = layer.entryFor(cell);
+    if (!entry) return [];
+    let recs;
+    try {
+      // The address layer is merged, so the block holds several cells and must be
+      // sliced by the entry's *stored* id -- the masked lookup key silently
+      // returns nothing. `address_cell` also needs the *whole block*, not the
+      // per-cell slice `cellRecords` gives: v2 positions are offsets from the
+      // block centre, and feeding it a slice reads a length field out of
+      // coordinate bytes ("needed 4294967295 more bytes").
+      const block = await layer.block(entry);
+      recs = wasm.address_cell(block, entry.h3_cell.toString(16), layer.header.version);
+    } catch (e) {
+      throw new Error(`addresses: ${e?.message ?? e}`);
+    }
+    return (recs ?? [])
+      .filter((r) => r.lat != null && r.lon != null)
+      .map((r) => ({ ...r, distance_m: wasm.distance_m(lat, lon, r.lat, r.lon) }))
+      .filter((r) => r.distance_m <= radius_m)
+      .sort((a, b) => a.distance_m - b.distance_m)
+      .slice(0, limit);
+  }
+
+  /** Businesses within `radius_m` of a point, nearest first. */
+  async function businessesNear(lat, lon, radius_m = 150, limit = 5) {
+    const got = await recordsAt("business", lat, lon);
+    if (got.error) throw new Error(`businesses: ${got.error}`);
+    if (!got.bytes) return [];
+    let records;
+    try {
+      records = wasm.decode_business(got.bytes);
+    } catch (e) {
+      // wasm rejects with a bare string, so wrap it: "businesses: ..." is what a
+      // reader needs, where the raw text alone says nothing about which layer.
+      throw new Error(`businesses: ${e?.message ?? e}`);
+    }
+    return records
+      .map((b) => ({ ...b, distance_m: wasm.distance_m(lat, lon, b.lat, b.lon) }))
+      .filter((b) => b.distance_m <= radius_m)
+      .sort((a, b) => a.distance_m - b.distance_m)
+      .slice(0, limit);
+  }
+
+  /**
    * Jurisdiction for a point. Opt-in: `AdminReader` needs the whole 28 MB H3
    * grid, so nothing calls this until the user asks for admin fields.
    *
@@ -269,5 +399,8 @@ export function createResolver(P, wasm) {
     return adminPromise;
   }
 
-  return { survey, prefetch, at, forSegment, admin, failures, stateAt };
+  return {
+    survey, prefetch, at, forSegment, admin, failures, stateAt,
+    layerFor, buildingAt, addressesAt, businessesNear,
+  };
 }

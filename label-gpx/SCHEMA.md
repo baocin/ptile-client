@@ -159,13 +159,18 @@ Child blocks, all optional, all "absent means nothing mapped there":
 | `rook:admin` | `country`, `state`, `county`, `zip`, `timezone` | `AdminReader.admin_at` |
 | `rook:road` | `osm_id`, `name`, `class`, `distance_m` | `nearest_road`. `class` is the OSM `highway` tag and feeds the classifier's road priors — the two fields it reads are `class` and `distance_m`. |
 | `rook:intersection` | `lat`, `lon`, `distance_m`, `type` | `nearest_intersection`. `type` is `signals` \| `stop` \| `give_way` \| `roundabout` \| `junction`, from the numeric `intersection_type` 1-4/0. The first three extend the "still driving" window; the others do not. |
-| `rook:building` | `osm_id`, `name`, `type`, `category` | `decode_buildings` |
+| `rook:building` | `osm_id`, `name`, `type`, `category`, `distance_m`, `inside` | `decode_buildings`. `inside` is `true` when the point fell inside the footprint and `false` when it merely landed within 50 m — the difference between "in this shop" and "on the pavement outside it", recorded rather than re-inferred from the distance. Note `type` is frequently OSM's `yes`, which means "a building, nothing further claimed". |
 | `rook:addresses` | `rook:address` × n with `housenumber`, `street` | `address_cell` |
 | `rook:businesses` | `rook:business` × n with `osm_id`, `name`, `category_idx`, `phone`, `website`, `status`, `distance_m` | `decode_business`. **`osm_id` can exceed 2^53** — keep it a string/BigInt, never a JS `Number`. |
 | `rook:device` | `battery_percent`, `charging`, `screen_on`, `automotive` | Device state at capture. Only the app can supply this; the labeler never synthesizes it. |
 
-`label-gpx` v1 writes `rook:admin`, `rook:road` and `rook:intersection`. The rest are read and
-preserved but not generated — see `README.md`.
+`label-gpx` writes `rook:admin`, `rook:road` and `rook:intersection` from the automatic pass, and
+`rook:building`, `rook:addresses` and `rook:businesses` when a person clicks the map and attaches
+what is there. An attached place always marks its segment `source="human"`: a person decided that
+place belongs to that stretch, which is precisely what the attribute means.
+
+`rook:device` is only ever read. Nothing but the capturing app can know the battery level or whether
+the screen was on, so the labeller never invents it.
 
 ## Absent vs zero, and synthetic vs measured
 

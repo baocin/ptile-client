@@ -397,6 +397,47 @@ function contextNode(doc, rook, s, intersectionTypeName) {
     }
     ctx.appendChild(i);
   }
+  if (c.building) {
+    const b = rook("building");
+    leaf(b, "osm_id", c.building.osm_id);
+    leaf(b, "name", c.building.name);
+    leaf(b, "type", c.building.building_type);
+    leaf(b, "category", c.building.category);
+    leaf(b, "distance_m", round1(c.building.distance_m));
+    // Inside the footprint or merely near it is the difference between "in this
+    // shop" and "on the pavement outside it", so it is recorded rather than
+    // re-inferred later from the distance.
+    if (c.building.inside !== undefined) leaf(b, "inside", String(!!c.building.inside));
+    ctx.appendChild(b);
+  }
+  if (c.addresses && c.addresses.length) {
+    const list = rook("addresses");
+    for (const a of c.addresses) {
+      const one = rook("address");
+      leaf(one, "housenumber", a.housenumber);
+      leaf(one, "street", a.street);
+      leaf(one, "distance_m", round1(a.distance_m));
+      list.appendChild(one);
+    }
+    ctx.appendChild(list);
+  }
+  if (c.businesses && c.businesses.length) {
+    const list = rook("businesses");
+    for (const biz of c.businesses) {
+      const one = rook("business");
+      // osm_id can exceed 2^53 on this layer and arrives as a BigInt; String()
+      // keeps it exact where Number() would quietly round it.
+      leaf(one, "osm_id", biz.osm_id === undefined ? undefined : String(biz.osm_id));
+      leaf(one, "name", biz.name);
+      leaf(one, "category_idx", biz.category_idx);
+      leaf(one, "phone", biz.phone);
+      leaf(one, "website", biz.website);
+      leaf(one, "status", biz.operating_status ?? biz.status);
+      leaf(one, "distance_m", round1(biz.distance_m));
+      list.appendChild(one);
+    }
+    ctx.appendChild(list);
+  }
   return ctx.children.length ? ctx : null;
 }
 

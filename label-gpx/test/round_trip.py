@@ -277,21 +277,106 @@ def main():
         # The vector draw needs the public tile host. Report what happened either
         # way rather than failing a UI test on somebody else's uptime.
         try:
+            # Wait for a note that reports an *outcome*. Waiting for "not empty"
+            # returned instantly on the note setTrace had already written ("3
+            # cells cover this trace") and reported a draw that had not started.
             page.wait_for_function(
-                "() => (document.getElementById('basemapNote').textContent || '').length > 0",
-                timeout=25000,
+                "() => /features|unavailable|zoom|too large|basemap:/.test("
+                "document.getElementById('basemapNote').textContent || '')",
+                timeout=30000,
             )
             note = page.eval_on_selector("#basemapNote", "e => e.textContent")
+            # Count what is inside the ptiles panes: with preferCanvas the
+            # geometry is one canvas per pane, so querying for `path` finds
+            # nothing even when thousands of features are drawn.
             drew = page.evaluate(
-                "() => document.querySelectorAll('.leaflet-pane[class*=ptiles] path,"
-                " .leaflet-pane[class*=ptiles] canvas').length"
+                "() => [...document.querySelectorAll('.leaflet-pane')]"
+                ".filter(p => p.className.includes('ptiles'))"
+                ".reduce((n, p) => n + p.children.length, 0)"
             )
-            print(f"ok   ui: ptiles basemap — {note} ({drew} layer nodes)")
-            if "unavailable" in note or "zoom" in note:
+            print(f"ok   ui: ptiles basemap — {note} ({drew} pane layers)")
+            if "features" in note:
+                drawn = int(note.split()[0])
+                if drawn <= 0 or drew == 0:
+                    failures.append(f"ui: ptiles basemap reported '{note}' but painted nothing")
+            else:
                 print("     (nothing drawn: see the note above)")
         except Exception:
             print("skip ui: ptiles basemap drew nothing — tile host unreachable?")
+        # The space argument: the vector basemap must fetch the trace's own cells,
+        # not the viewport's. This fixture is ~1 km of trail, so a handful.
+        cells = page.evaluate(
+            "() => (document.getElementById('basemapNote').textContent.match"
+            "(/(\\d+) cells/) || [])[1]"
+        )
         page.click('.basemap button[data-mode="osm"]')
+
+        # --- place lookup, and attaching it into the trace
+        # Click on the trace itself, so the lookup lands somewhere the layers
+        # actually cover. The building/address/business layers are all remote, so
+        # this is reported rather than asserted when the host is unreachable.
+        page.evaluate(
+            "() => { const p = window.__labelGpx.parsed.points;"
+            " const m = window.__leafletMap; m.setView([p[0].lat, p[0].lon], 17);"
+            " m.fire('click', { latlng: L.latLng(p[0].lat, p[0].lon) }); }"
+        )
+        try:
+            page.wait_for_selector("#placeAttach", timeout=30000)
+            title = page.eval_on_selector("#place .title", "e => e.textContent").strip()
+            page.click("#placeAttach")
+            attached = page.evaluate(
+                "() => { const s = window.__labelGpx.segments.find(x => x.edited && x.context);"
+                " return s ? [s.type, !!s.context.building,"
+                " (s.context.addresses||[]).length, (s.context.businesses||[]).length] : null; }"
+            )
+            if not attached:
+                failures.append("ui: attach did not write context onto a segment")
+            else:
+                print(f"ok   ui: looked up '{title}' and attached it "
+                      f"(building={attached[1]}, {attached[2]} addresses, {attached[3]} businesses)")
+                # And it must survive export: an annotation that does not reach
+                # the file is not a fixture.
+                xml = page.evaluate(
+                    "async () => { const gpx = await import('./js/gpx.js');"
+                    " const wasm = await import('./lib/client/ptiles_client.js');"
+                    " return gpx.writeGpx(window.__labelGpx.parsed, window.__labelGpx.segments,"
+                    " { snapshot: '2026-08-07' }, wasm.intersection_type_name); }"
+                )
+                wrote = [t for t in ("rook:building", "rook:addresses", "rook:businesses")
+                         if t in xml]
+                if 'source="human"' not in xml:
+                    failures.append("ui: attached segment did not export as human")
+                print(f"ok   ui: export carries {', '.join(wrote) or 'no place blocks'}"
+                      + ("" if wrote else " (this trail has none nearby)"))
+        except Exception as e:
+            print(f"skip ui: place lookup unavailable ({str(e)[:60]})")
+
+        # The export half, deterministically: the live lookup above lands on a
+        # rural trail with no buildings, addresses or businesses within range, so
+        # asserting on its output would pass whether or not the writers work.
+        # A synthetic context of the exact shape `attachPlace` produces does not
+        # depend on what happens to be mapped in North Carolina.
+        blocks = page.evaluate(
+            "async () => { const gpx = await import('./js/gpx.js');"
+            " const wasm = await import('./lib/client/ptiles_client.js');"
+            " const st = window.__labelGpx;"
+            " const seg = { ...st.segments[0], edited: true, context: {"
+            "   lat: 35.96, lon: -83.92, snapshot: '2026-08-07', resolved: Date.now(),"
+            "   building: { osm_id: 1314765907, name: 'Bob & Sons', building_type: 'retail',"
+            "               category: 'shop', distance_m: 3.2, inside: true },"
+            "   addresses: [{ housenumber: '36', street: 'Market Sq', distance_m: 8 }],"
+            "   businesses: [{ osm_id: '9007199254740993', name: 'Taco Bell',"
+            "                  category_idx: 7, operating_status: 'open', distance_m: 34 }] } };"
+            " const xml = gpx.writeGpx(st.parsed, [seg], { snapshot: '2026-08-07' },"
+            "   wasm.intersection_type_name);"
+            " return xml; }"
+        )
+        for want in ("rook:building", "Bob &amp; Sons", "<inside>true</inside>",
+                     "rook:addresses", "Market Sq", "rook:businesses", "Taco Bell",
+                     "9007199254740993"):
+            if want not in blocks:
+                failures.append(f"ui: exported context is missing {want!r}")
+        print("ok   ui: an attached place exports as rook:building / addresses / businesses")
 
         # A page that throws while still drawing looks fine in a screenshot.
         real = [e for e in errors if "favicon" not in e]

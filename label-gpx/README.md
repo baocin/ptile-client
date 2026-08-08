@@ -30,11 +30,17 @@ classifier agrees with itself.** Only edited segments are evidence.
    a resolved context.
 2. The trace is classified immediately, road-blind, and the proposed segments appear in the table.
    This costs no network at all.
-3. **Resolve map context** reads the roads layer for every H3 cell the trace touches and attaches a
-   road + intersection to each segment.
-4. **Re-classify with context** re-runs the classifier with those priors. This is where a stroll
-   becomes visible (a footway hit at 1.2 m/s votes walking where speed alone votes stationary) and
-   where a stop at a signal stops reading as an arrival. Segments you have edited are preserved.
+3. **Classify with map context** does the rest in one action, behind a sheet that names each phase:
+   read the layers for the cells this trace touches, resolve a road and intersection per segment,
+   then classify again with those priors. This is where a stroll becomes visible (a footway hit at
+   1.2 m/s votes walking where speed alone votes stationary) and where a stop at a signal stops
+   reading as an arrival. Segments you have already labelled are preserved — a classifier pass never
+   overwrites a human decision.
+4. **Click the map** to ask what is there: the building under the pointer, the addresses within
+   250 m, the businesses within 150 m. Pick a segment and **Attach to segment** writes it into that
+   segment's context, which exports as `rook:building` / `rook:addresses` / `rook:businesses`.
+   A 12-minute stop is "stationary" either way; whether it happened at the hardware store is what
+   makes the fixture worth keeping.
 5. Fix the rest: relabel from the dropdown, click a vertex of the selected segment to split there,
    `↑` to merge into the previous one, `Ctrl+Z` to undo (20 deep).
 6. **Download labeled GPX** writes one `<trk>` per segment named by label.
@@ -53,15 +59,20 @@ still as the classifier proposed them are dimmed with a hairline. That is the `s
 so it is in the picture rather than buried in a column. Click a band to select it.
 
 **The basemap switch** (bottom-left of the map) chooses between OSM raster tiles and the ptiles
-layers — water, parks, roads, and buildings from zoom 15 — decoded in the page from the same files
-the road context comes from. The raster tiles are always right about the world; the vector ones are
+layers — water, parks, rail, trails, roads, and buildings from zoom 15 — decoded in the page from the
+same files the road context comes from. The raster tiles are always right about the world; the vector ones are
 right about *what the classifier read*. When a label turns on footway-versus-traffic-lane, the second
 is the honest backdrop, and flipping between them is the quickest way to catch the tiles and the
 layer disagreeing.
 
-The vector basemap needs zoom 11 or closer (below that the viewport exceeds the 512-cell bounds cap)
-and draws only the cells you have not already seen, so panning costs only new ground. It reports what
-it spent next to the switch: `5148 features · 15 requests · 3.0 MB` for a trail run in NC.
+With a trace open, the vector basemap draws **only the cells the trace occupies** — the ones its
+points land in, plus the neighbours it clips within 180 m of a boundary, probed with four offsets per
+point (all local `cell_for_coord` calls, no I/O). That is the space argument: a 90 km drive crosses
+about 60 cells, where the viewport at a working zoom asks for several hundred, nearly all of them
+nowhere near anything you can label. Panning away from the trace fetches nothing and says so.
+With no trace open it falls back to the viewport, which needs zoom 11 or closer to stay under the
+512-cell bounds cap. It reports what it spent next to the switch: `2561 features · 20 requests ·
+3.5 MB` for a trail run in NC.
 
 Colour follows one rule: chrome is achromatic, hue is data. Every saturated colour on the page is a
 movement label, so the basemap is deliberately desaturated and the interactive accent is a cyan that
@@ -166,8 +177,10 @@ ln -s ~/kino/projects/ptile-client/label-gpx ~/kino/projects/steele.red/ptile-la
 
 ## Not in v1
 
-- `rook:context` covers admin, road and intersection. Buildings, addresses and businesses are read
-  and preserved from input files but not generated.
+- Businesses often fail to decode on the published `business_v4` layer, and the card says so instead
+  of showing an empty list. Reproducible outside the browser: the downtown-Nashville cell of
+  `TN.business_v4.ptiles` is a 966,179-byte block and `decode_business_v4` stops at offset 929,329
+  asking for 57,875 more bytes. Buildings and addresses are unaffected.
 - No sensor synthesis. A plain OSM trace exports derived speed (flagged `derived="true"`) and leaves
   accuracy and accel absent rather than inventing plausible-looking values to match the label —
   those would be numbers generated from the answer, and `SCHEMA.md`'s `synthetic` attribute exists to

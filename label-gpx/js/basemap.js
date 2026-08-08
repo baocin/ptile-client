@@ -19,6 +19,16 @@ const OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const MIN_VECTOR_ZOOM = 11;
 /** Buildings are only legible (and only affordable) close in. */
 const BUILDING_ZOOM = 15;
+/**
+ * How far off a trace still counts as "the trace is in that cell".
+ *
+ * A res-7 cell is ~1.2 km across, so a trace running along a boundary belongs to
+ * both cells it hugs -- and drawing only the cells its *points* land in leaves
+ * the road it is walking on unpainted on one side. Probing four offsets per
+ * point at this distance picks up exactly the clipped neighbours, where taking
+ * every point's whole ring-1 would triple the download to catch the same few.
+ */
+const CLIP_BUFFER_M = 180;
 
 // Desaturated so the trace and its labels stay the only saturated things.
 const WATER = "#243b4a";
@@ -27,6 +37,8 @@ const PARK = "#25352a";
 const PARK_EDGE = "#31462f";
 const BUILDING = "#20242a";
 const BUILDING_EDGE = "#2b3037";
+const RAIL = "#3d3a44";
+const TRAIL = "#3f4a3c";
 
 /**
  * Road weight/colour by OSM class. Motorways read heaviest, service roads
@@ -84,6 +96,16 @@ export function createBasemap(map, P, wasm, ctx, { onStatus = () => {} } = {}) {
   let mode = "osm";
   let pending = null;
   let generation = 0;
+  /**
+   * The cells the loaded trace occupies, or null for "whatever is on screen".
+   *
+   * This is the whole space argument. A 90 km drive crosses ~50 cells; the
+   * viewport at a working zoom asks for a few hundred, nearly all of them
+   * nowhere near the trace. Restricting to the trace's own cells (plus the ones
+   * it clips) is a 5-10x cut in blocks fetched and decompressed, for a backdrop
+   * that covers everything you can actually label against.
+   */
+  let traceCells = null;
 
   function layerFor(state, name) {
     const key = `${state}/${name}`;
@@ -97,6 +119,36 @@ export function createBasemap(map, P, wasm, ctx, { onStatus = () => {} } = {}) {
   }
 
   raster.addTo(map);
+
+  /**
+   * Restrict drawing to the cells a trace occupies. Pure wasm, no I/O: it is
+   * `cell_for_coord` per point plus four offset probes, all local.
+   *
+   * Pass `null` to go back to drawing whatever the viewport covers (which is
+   * what happens before a file is open).
+   */
+  function setTrace(points) {
+    traceCells = null;
+    drawn.clear();
+    fill.clearLayers();
+    line.clearLayers();
+    if (!points || !points.length) return 0;
+    const cells = new Set();
+    // Metres per degree at this latitude; good enough for a boundary probe.
+    const midLat = points[Math.floor(points.length / 2)].lat;
+    const dLat = CLIP_BUFFER_M / 111_320;
+    const dLon = CLIP_BUFFER_M / (111_320 * Math.cos((midLat * Math.PI) / 180) || 1);
+    for (const p of points) {
+      cells.add(wasm.cell_for_coord(p.lat, p.lon));
+      cells.add(wasm.cell_for_coord(p.lat + dLat, p.lon));
+      cells.add(wasm.cell_for_coord(p.lat - dLat, p.lon));
+      cells.add(wasm.cell_for_coord(p.lat, p.lon + dLon));
+      cells.add(wasm.cell_for_coord(p.lat, p.lon - dLon));
+    }
+    traceCells = cells;
+    if (mode === "ptiles") refresh();
+    return cells.size;
+  }
 
   /** OSM raster or ptiles vector. Returns the mode actually in effect. */
   function setMode(next) {
@@ -129,19 +181,44 @@ export function createBasemap(map, P, wasm, ctx, { onStatus = () => {} } = {}) {
    */
   function refresh() {
     if (mode !== "ptiles") return;
-    if (map.getZoom() < MIN_VECTOR_ZOOM) {
-      onStatus(`zoom in to ${MIN_VECTOR_ZOOM}+ to draw ptiles layers`);
-      return;
-    }
-    const b = map.getBounds();
     let cells;
-    try {
-      cells = wasm.cells_for_bounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast());
-    } catch (e) {
-      // The 512-cell cap. Not an error to report loudly: it means "you are
-      // looking at more than a metro area", which zooming fixes.
-      onStatus("viewport too large for the cell cap — zoom in");
-      return;
+    if (traceCells) {
+      // Only what the trace touches, and only what is near the current view out
+      // of that -- panning away from the trace should fetch nothing, because
+      // there is nothing there to label.
+      //
+      // Tested against the cell *centre* but with the bounds grown by a cell
+      // radius: a res-7 cell is ~1.2 km across, so a cell can cover most of the
+      // screen while its centre sits outside it. Filtering on plain containment
+      // drew nothing at all for a 1 km trace, which is the common case here.
+      const CELL_RADIUS_DEG = 0.01;
+      const v = map.getBounds().pad(0.15);
+      const b = L.latLngBounds(
+        [v.getSouth() - CELL_RADIUS_DEG, v.getWest() - CELL_RADIUS_DEG],
+        [v.getNorth() + CELL_RADIUS_DEG, v.getEast() + CELL_RADIUS_DEG],
+      );
+      cells = [...traceCells].filter((hex) => {
+        const [lat, lon] = wasm.cell_center(hex);
+        return b.contains([lat, lon]);
+      });
+      if (!cells.length) {
+        onStatus(`drawing the trace's ${traceCells.size} cells — pan back to the trace`);
+        return;
+      }
+    } else {
+      if (map.getZoom() < MIN_VECTOR_ZOOM) {
+        onStatus(`zoom to ${MIN_VECTOR_ZOOM}+ to draw ptiles layers, or open a trace`);
+        return;
+      }
+      const b = map.getBounds();
+      try {
+        cells = wasm.cells_for_bounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast());
+      } catch {
+        // The 512-cell cap: "you are looking at more than a metro area", which
+        // zooming fixes. Not worth an error banner.
+        onStatus("viewport too large for the cell cap — zoom in");
+        return;
+      }
     }
     const gen = ++generation;
     pending = draw(cells, gen).catch((e) => onStatus(`basemap: ${e.message}`));
@@ -150,9 +227,15 @@ export function createBasemap(map, P, wasm, ctx, { onStatus = () => {} } = {}) {
 
   async function draw(cells, gen) {
     const zoom = map.getZoom();
+    // Everything the client can decode for a backdrop, drawn bottom-up. Water and
+    // parks are fills, rail and roads are lines, buildings are the close-in
+    // detail -- ptile-client ships decoders for all of them, so there is no
+    // reason for the basemap to know about only some.
     const wanted = [
       ["water", drawWater],
       ["parks", drawParks],
+      ["rail", drawRail],
+      ["trails", drawTrails],
       ["roads", drawRoads],
       ...(zoom >= BUILDING_ZOOM ? [["buildings", drawBuildings]] : []),
     ];
@@ -251,6 +334,35 @@ export function createBasemap(map, P, wasm, ctx, { onStatus = () => {} } = {}) {
     return n;
   }
 
+  function drawRail(bytes) {
+    let n = 0;
+    for (const f of wasm.decode_rail(bytes)) {
+      if (!f.coords || f.coords.length < 2) continue;
+      L.polyline(toLatLngs(f.coords), {
+        pane: "ptilesLine", color: RAIL, weight: 1.4, dashArray: "5 4",
+        opacity: 0.85, interactive: false,
+      }).addTo(line);
+      n++;
+    }
+    return n;
+  }
+
+  function drawTrails(bytes) {
+    let n = 0;
+    for (const f of wasm.decode_trails(bytes)) {
+      if (!f.coords || f.coords.length < 2) continue;
+      // Trails matter more than anything else here: five of the six committed
+      // fixtures are foot routes, and a walk that follows a trail is the label
+      // you most often need to confirm by eye.
+      L.polyline(toLatLngs(f.coords), {
+        pane: "ptilesLine", color: TRAIL, weight: 1.1, dashArray: "3 3",
+        opacity: 0.9, interactive: false,
+      }).addTo(line);
+      n++;
+    }
+    return n;
+  }
+
   function drawBuildings(bytes, cellId) {
     // v9 building coordinates are deltas from the cell centre, so the decoder
     // needs the centre -- getting this wrong yields plausible geometry in the
@@ -277,5 +389,5 @@ export function createBasemap(map, P, wasm, ctx, { onStatus = () => {} } = {}) {
     generation++;
   }
 
-  return { setMode, mode: currentMode, refresh, clear, MIN_VECTOR_ZOOM };
+  return { setMode, mode: currentMode, refresh, clear, setTrace, MIN_VECTOR_ZOOM };
 }
