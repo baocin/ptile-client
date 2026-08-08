@@ -81,8 +81,13 @@ fn every_prefix_of_address_fixture_sections_never_panics() {
         sweep(&b, |d| {
             let _ = ptiles_core::Header::parse(d);
             let _ = ptiles_core::parse_v2_index(d);
-            let _ = ptiles_core::decode_address_cell(d);
-            let _ = ptiles_core::address::merged_block_cell_slice(d, 0);
+            // Both record framings: v1 (no per-record position) and v2+
+            // (i16 lon/lat offsets from a block centre). A truncation that
+            // only trips one arm still has to not panic in the other.
+            let _ = ptiles_core::decode_address_cell(d, None);
+            let _ = ptiles_core::decode_address_cell(d, Some((-8_679_367, 3_616_248)));
+            let _ = ptiles_core::address::merged_block_cell_slice(d, 0, false);
+            let _ = ptiles_core::address::merged_block_cell_slice(d, 0, true);
         });
     }
 }

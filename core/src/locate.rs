@@ -8,7 +8,7 @@
 //! Like the router, this takes already-decoded features. I/O and cell selection
 //! stay with the caller; this module only measures.
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::address::AddressRecord;

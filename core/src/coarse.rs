@@ -242,7 +242,6 @@ impl CoarseIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec;
 
     /// H3-shaped ids. The first version of these tests used 100/200/300, which
     /// all sit below the 21 filler bits and therefore normalise to the same
