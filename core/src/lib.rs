@@ -33,6 +33,7 @@ pub mod parks;
 pub mod rail;
 pub mod roads;
 pub mod signals;
+pub mod trails;
 pub mod water;
 
 pub mod proximity;
@@ -61,6 +62,7 @@ pub use parks::{ParkFeature, decode_parks};
 pub use rail::{RailFeature, decode_rail};
 pub use roads::{Intersection, RoadSegment, decode_road_block, decode_roads};
 pub use signals::{Signal, decode_signals};
+pub use trails::{TrailFeature, decode_trails};
 pub use water::{WaterFeature, decode_water};
 
 pub use proximity::{
@@ -71,9 +73,12 @@ pub use proximity::{
 pub use query::{
     BoundsError, MAX_BOUNDS_CELLS, cell_center, cell_for_coord, cells_for_bounds, neighbor_cells,
 };
-pub use route_graph::{RouteResult, keep_road_class, profile_allows_driving, route_roads};
+pub use route_graph::{
+    RoutePrefs, RouteResult, keep_road_class, profile_allows_driving, route_roads,
+    route_roads_with,
+};
 pub use scoring::{Candidate, CandidateKind, Fix, ScoringParams, score_candidates};
-pub use viewshed::{ViewBuilding, Visibility, estimate_height, viewshed};
+pub use viewshed::{ViewBuilding, Visibility, estimate_height, height_or_estimate, viewshed};
 
 pub use coarse::{CoarseBracket, CoarseIndex, CoarseSample, parse as parse_coarse_index};
 pub use file::{BlockOffsetBase, FileError, IndexLayout, PtilesFile, index_layout};

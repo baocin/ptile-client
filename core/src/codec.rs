@@ -327,6 +327,46 @@ pub mod tables {
         "estuary",
     ];
 
+    pub const TRAIL_TYPE_REVERSE: &[(u8, &str)] = &[
+        (0, "path"),
+        (1, "track"),
+        (2, "bridleway"),
+        (3, "cycleway"),
+        (4, "footway"),
+        (5, "steps"),
+        (6, "trailhead"),
+    ];
+
+    /// Trails carry their own surface table, not `SURFACE_REVERSE`: the trail
+    /// builder reserves index 0 for "unset" and lists surfaces that matter
+    /// off-road (compacted, boardwalk, ground). Decoding trails against the
+    /// road table would shift every value by one and rename the rest.
+    pub const TRAIL_SURFACE_REVERSE: &[(u8, &str)] = &[
+        (0, ""),
+        (1, "paved"),
+        (2, "asphalt"),
+        (3, "concrete"),
+        (4, "gravel"),
+        (5, "compacted"),
+        (6, "fine_gravel"),
+        (7, "dirt"),
+        (8, "ground"),
+        (9, "grass"),
+        (10, "sand"),
+        (11, "wood"),
+        (12, "boardwalk"),
+    ];
+
+    pub const SAC_SCALE_REVERSE: &[(u8, &str)] = &[
+        (0, ""),
+        (1, "hiking"),
+        (2, "mountain_hiking"),
+        (3, "demanding_mountain_hiking"),
+        (4, "alpine_hiking"),
+        (5, "demanding_alpine_hiking"),
+        (6, "difficult_alpine_hiking"),
+    ];
+
     pub const RAIL_TYPE_REVERSE: &[(u8, &str)] = &[
         (0, "rail"),
         (1, "subway"),
