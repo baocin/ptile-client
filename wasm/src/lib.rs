@@ -24,6 +24,11 @@ use ptiles_core::{
     Fix, RoadSegment, RoutePrefs,
     ScoringParams, DEFAULT_THRESHOLD_M,
 };
+use ptiles_motion::{
+    classify, AccelStats, DebounceConfig, MotionClassifier, MotionConfig, MovementType,
+    RoadContext, TimedFix, TrafficControl, Vote, VoteDebouncer,
+};
+
 use ptiles_core::address::merged_block_cell_slice;
 use ptiles_core::admin::{decode_grid, decode_string_tables, AdminLookup};
 use ptiles_core::cells_for_bounds as core_cells_for_bounds;
@@ -227,6 +232,12 @@ fn from_js_or_empty<T: serde::de::DeserializeOwned>(
     if v.is_null() || v.is_undefined() {
         return Ok(Vec::new());
     }
+    serde_wasm_bindgen::from_value(v).map_err(|e| JsValue::from_str(&format!("{what}: {e}")))
+}
+
+/// Single-value flavor of [`from_js_or_empty`] (no null-to-empty default —
+/// callers check for null themselves where it's meaningful).
+fn from_js<T: serde::de::DeserializeOwned>(v: JsValue, what: &str) -> Result<T, JsValue> {
     serde_wasm_bindgen::from_value(v).map_err(|e| JsValue::from_str(&format!("{what}: {e}")))
 }
 
@@ -1070,6 +1081,138 @@ pub fn address_cell(block_bytes: &[u8], cell_hex: &str, version: u8) -> Result<J
     to_js(&records)
 }
 
+/// Accelerometer window summary from three same-length `Float32Array`s (raw
+/// m/s^2 per axis, no gravity removal needed — magnitude is used). Returns
+/// `{variance, mean_magnitude, dominant_frequency, step_count,
+/// window_duration_s}`, the shape [`MovementTracker::push`] takes.
+#[wasm_bindgen]
+pub fn accel_stats(x: &[f32], y: &[f32], z: &[f32], sample_rate_hz: u32) -> Result<JsValue, JsValue> {
+    to_js(&AccelStats::calculate(x, y, z, sample_rate_hz))
+}
+
+/// Stateful motion classifier: per-fix vote (speed + road tiles + accel) fed
+/// through the CHRE-style debouncer, so `movement` only changes when the
+/// evidence actually persists.
+///
+/// The road half is what disambiguates the awkward cases: stopped in a traffic
+/// lane vs standing on the sidewalk. Pass the output of [`nearest_road`]
+/// straight through as `road` — its `road_class`/`distance_m` are the two
+/// fields read, extras are ignored.
+#[wasm_bindgen]
+pub struct MovementTracker {
+    debouncer: VoteDebouncer,
+    /// Speed smoother, used only to fill in a missing platform speed.
+    speed: MotionClassifier,
+    last_vote: Vote,
+}
+
+#[wasm_bindgen]
+impl MovementTracker {
+    /// `config` is optional (`null`/`undefined` = CHRE defaults): any subset of
+    /// `{majority_window, rapid_latency_ms, default_latency_ms,
+    /// vehicle_sticky_ms, min_continuous}`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(config: JsValue) -> Result<MovementTracker, JsValue> {
+        let cfg: DebounceConfig = if config.is_null() || config.is_undefined() {
+            DebounceConfig::default()
+        } else {
+            from_js(config, "debounce config")?
+        };
+        Ok(MovementTracker {
+            debouncer: VoteDebouncer::new(cfg),
+            speed: MotionClassifier::new(MotionConfig::default()),
+            last_vote: Vote { movement: MovementType::Unknown, confidence: 0.0 },
+        })
+    }
+
+    /// Ingest one fix. `t_ms` is a monotonic timestamp; `speed_mps` and
+    /// `accuracy_m` are optional (pass `undefined` when the platform omits
+    /// them — speed is then derived from consecutive positions); `accel` is an
+    /// [`accel_stats`] result or `null`; `road` is a [`nearest_road`] result or
+    /// `null`; `intersection` is a [`nearest_intersection`] result or `null` —
+    /// at a signal/stop/give-way the "still driving" grace period stretches
+    /// from 150 s to 5 min, so a long light stops reading as an arrival.
+    ///
+    /// Returns `{movement, vote: {movement, confidence}, smoothed_speed_mps,
+    /// at_traffic_control}` where `movement` is the debounced state and `vote`
+    /// is this fix alone.
+    pub fn push(
+        &mut self,
+        t_ms: f64,
+        lat: f64,
+        lon: f64,
+        speed_mps: Option<f64>,
+        accuracy_m: Option<f64>,
+        accel: JsValue,
+        road: JsValue,
+        intersection: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let accel: AccelStats = if accel.is_null() || accel.is_undefined() {
+            AccelStats::EMPTY
+        } else {
+            from_js(accel, "accel stats")?
+        };
+        let road: Option<RoadContext> = if road.is_null() || road.is_undefined() {
+            None
+        } else {
+            Some(from_js(road, "road context")?)
+        };
+        let control: Option<TrafficControl> = if intersection.is_null() || intersection.is_undefined()
+        {
+            None
+        } else {
+            Some(from_js(intersection, "intersection")?)
+        };
+
+        let t = t_ms.max(0.0) as u64;
+        self.speed.push(TimedFix::new(
+            Fix {
+                lat,
+                lon,
+                horizontal_accuracy_m: accuracy_m.unwrap_or(0.0),
+                speed_mps,
+            },
+            t,
+        ));
+        // Platform speed wins; the position-derived smoothed speed is the
+        // fallback when the fix carries none (browser geolocation often does).
+        let effective_speed = speed_mps.or_else(|| self.speed.smoothed_speed_mps());
+
+        self.last_vote = classify(effective_speed, accuracy_m, road.as_ref(), &accel);
+        let movement = self.debouncer.tick_at(&self.last_vote, t, control.as_ref());
+        to_js(&MovementUpdate {
+            movement: movement.as_str(),
+            vote: self.last_vote,
+            smoothed_speed_mps: self.speed.smoothed_speed_mps(),
+            at_traffic_control: control
+                .is_some_and(|c| c.holds_traffic(self.debouncer.config().signal_radius_m)),
+        })
+    }
+
+    /// Current debounced movement type as a lowercase string.
+    #[wasm_bindgen(getter)]
+    pub fn movement(&self) -> String {
+        self.debouncer.current().as_str().to_string()
+    }
+
+    /// Smoothed position-derived speed (m/s), or `undefined` before enough fixes.
+    #[wasm_bindgen(getter, js_name = smoothedSpeedMps)]
+    pub fn smoothed_speed_mps(&self) -> Option<f64> {
+        self.speed.smoothed_speed_mps()
+    }
+}
+
+#[derive(serde::Serialize)]
+struct MovementUpdate {
+    movement: &'static str,
+    vote: Vote,
+    smoothed_speed_mps: Option<f64>,
+    /// Whether the fix counted as waiting at a mapped traffic control (and so
+    /// got the longer sticky window) — the one bit of the decision JS can't
+    /// re-derive from the inputs it passed.
+    at_traffic_control: bool,
+}
+
 fn try_decode_all(decoder: &mut FrameDecoder, compressed: &[u8]) -> Option<Vec<u8>> {
     let mut input: &[u8] = compressed;
     decoder.reset(&mut input).ok()?;
@@ -1322,5 +1465,79 @@ mod tests {
             assert_eq!(a.height_m, b.height_m);
             assert_eq!(a.estimated, b.estimated);
         }
+    }
+
+    // The `MovementTracker` inputs are whole objects handed back from other
+    // exports, so the risk in this wrapper isn't the classifier (host-tested in
+    // ptiles-motion) but *field-name drift*: rename `distance_m` in one of the
+    // road exports and the tracker silently stops seeing road context. These
+    // deserialize the exact shapes those exports emit. serde_json stands in for
+    // serde_wasm_bindgen — same field names, same derive.
+
+    #[test]
+    fn road_context_accepts_a_whole_nearest_road_response() {
+        let response = serde_json::json!({
+            "osm_id": 12345_u64,
+            "name": "Broadway",
+            "road_class": "residential",
+            "snapped": [36.16, -86.79],
+            "distance_m": 4.25,
+            "geometry": [[36.16, -86.79], [36.161, -86.789]],
+        });
+        let ctx: RoadContext = serde_json::from_value(response).expect("nearest_road shape");
+        assert_eq!(ctx.road_class, "residential");
+        assert_eq!(ctx.distance_m, 4.25);
+    }
+
+    #[test]
+    fn traffic_control_accepts_a_whole_nearest_intersection_response() {
+        let response = serde_json::json!({
+            "lat": 36.16,
+            "lon": -86.79,
+            "distance_m": 11.0,
+            "intersection_type": 1,
+        });
+        let c: TrafficControl =
+            serde_json::from_value(response).expect("nearest_intersection shape");
+        assert_eq!(c.intersection_type, 1);
+        assert!(c.holds_traffic(DebounceConfig::default().signal_radius_m));
+    }
+
+    #[test]
+    fn missing_road_fields_are_an_error_not_a_default() {
+        // A road context with no class would silently disable every road prior;
+        // fail loudly instead.
+        let no_class = serde_json::json!({"distance_m": 4.0});
+        assert!(serde_json::from_value::<RoadContext>(no_class).is_err());
+        let no_distance = serde_json::json!({"road_class": "footway"});
+        assert!(serde_json::from_value::<RoadContext>(no_distance).is_err());
+    }
+
+    #[test]
+    fn partial_debounce_config_keeps_the_other_defaults() {
+        let cfg: DebounceConfig =
+            serde_json::from_value(serde_json::json!({"vehicle_sticky_ms": 90_000_u64}))
+                .expect("partial config");
+        let d = DebounceConfig::default();
+        assert_eq!(cfg.vehicle_sticky_ms, 90_000);
+        assert_eq!(cfg.majority_window, d.majority_window);
+        assert_eq!(cfg.signal_sticky_ms, d.signal_sticky_ms);
+        assert_eq!(cfg.min_continuous, d.min_continuous);
+    }
+
+    #[test]
+    fn movement_update_serializes_lowercase_names() {
+        let json = serde_json::to_value(MovementUpdate {
+            movement: MovementType::Driving.as_str(),
+            vote: Vote { movement: MovementType::Stationary, confidence: 0.7 },
+            smoothed_speed_mps: Some(1.5),
+            at_traffic_control: true,
+        })
+        .expect("serialize");
+        assert_eq!(json["movement"], "driving");
+        assert_eq!(json["vote"]["movement"], "stationary");
+        assert_eq!(json["vote"]["confidence"], 0.7);
+        assert_eq!(json["at_traffic_control"], true);
+        assert_eq!(json["smoothed_speed_mps"], 1.5);
     }
 }

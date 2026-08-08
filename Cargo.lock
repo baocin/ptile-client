@@ -541,6 +541,7 @@ name = "ptiles-motion"
 version = "0.1.0"
 dependencies = [
  "ptiles-core",
+ "serde",
 ]
 
 [[package]]
@@ -548,6 +549,7 @@ name = "ptiles-wasm"
 version = "0.1.0"
 dependencies = [
  "ptiles-core",
+ "ptiles-motion",
  "ruzstd",
  "serde",
  "serde-wasm-bindgen",

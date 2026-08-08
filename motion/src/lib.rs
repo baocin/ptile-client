@@ -24,6 +24,12 @@ use alloc::collections::VecDeque;
 
 use ptiles_core::{haversine_distance_m, Fix};
 
+pub mod movement;
+pub use movement::{
+    AccelStats, DebounceConfig, MovementType, RoadContext, TrafficControl, Vote, VoteDebouncer,
+    classify, classify_accel_only, DRIVING_FLOOR_MPS, GPS_ACCURACY_GATE_M, WALKING_CEILING_MPS,
+};
+
 /// A [`Fix`] stamped with a monotonic millisecond timestamp. Core's `Fix` has
 /// no time field (it's stateless); motion needs one to derive speed and gate
 /// stale samples, so the timestamp is attached here rather than in core.
@@ -40,15 +46,6 @@ impl TimedFix {
     pub fn new(fix: Fix, t_ms: u64) -> Self {
         TimedFix { fix, t_ms }
     }
-}
-
-/// Coarse motion state. `Unknown` until enough evidence accumulates.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MotionState {
-    Unknown,
-    Stationary,
-    Walking,
-    Driving,
 }
 
 /// Tunable thresholds for [`MotionClassifier`].
@@ -88,7 +85,7 @@ impl Default for MotionConfig {
 }
 
 /// Stateful classifier: feed it timestamped fixes with [`push`] and read back
-/// the current [`MotionState`].
+/// the current [`MovementType`].
 ///
 /// [`push`]: MotionClassifier::push
 #[derive(Clone, Debug)]
@@ -99,9 +96,9 @@ pub struct MotionClassifier {
     speeds: VecDeque<f64>,
     /// Last accepted fix, for position-derived speed on the next sample.
     last: Option<TimedFix>,
-    state: MotionState,
+    state: MovementType,
     /// Candidate band and how many consecutive samples have agreed on it.
-    pending: Option<(MotionState, u32)>,
+    pending: Option<(MovementType, u32)>,
 }
 
 impl MotionClassifier {
@@ -110,13 +107,13 @@ impl MotionClassifier {
             cfg,
             speeds: VecDeque::new(),
             last: None,
-            state: MotionState::Unknown,
+            state: MovementType::Unknown,
             pending: None,
         }
     }
 
     /// Current classification.
-    pub fn state(&self) -> MotionState {
+    pub fn state(&self) -> MovementType {
         self.state
     }
 
@@ -137,11 +134,11 @@ impl MotionClassifier {
         self.speeds.clear();
         self.last = None;
         self.pending = None;
-        self.state = MotionState::Unknown;
+        self.state = MovementType::Unknown;
     }
 
     /// Ingest one fix and return the (possibly updated) state.
-    pub fn push(&mut self, f: TimedFix) -> MotionState {
+    pub fn push(&mut self, f: TimedFix) -> MovementType {
         // 1. Accuracy gate: an imprecise fix tells us little and would inject
         //    a spurious large position delta — ignore it entirely.
         let acc = f.fix.horizontal_accuracy_m;
@@ -211,19 +208,19 @@ impl MotionClassifier {
     }
 
     /// Raw band for a smoothed speed, before debouncing.
-    fn band(&self, v: f64) -> MotionState {
+    fn band(&self, v: f64) -> MovementType {
         if v <= self.cfg.stationary_max_mps {
-            MotionState::Stationary
+            MovementType::Stationary
         } else if v >= self.cfg.driving_min_mps {
-            MotionState::Driving
+            MovementType::Driving
         } else {
-            MotionState::Walking
+            MovementType::Walking
         }
     }
 
     /// Dwell-based state machine: a new band must persist for
     /// `min_dwell_samples` consecutive samples before it becomes the state.
-    fn apply_transition(&mut self, target: MotionState) {
+    fn apply_transition(&mut self, target: MovementType) {
         if target == self.state {
             self.pending = None;
             return;
@@ -252,7 +249,7 @@ mod tests {
 
     /// Feed `n` fixes at the same spot with an explicit platform speed, 1 s
     /// apart, starting at `t0`. Returns the final state.
-    fn feed_speed(c: &mut MotionClassifier, speed: f64, n: usize, t0: u64) -> MotionState {
+    fn feed_speed(c: &mut MotionClassifier, speed: f64, n: usize, t0: u64) -> MovementType {
         let mut last = c.state();
         for i in 0..n {
             last = c.push(TimedFix::new(fix(36.16, -86.79, Some(speed)), t0 + i as u64 * 1000));
@@ -260,26 +257,158 @@ mod tests {
         last
     }
 
+    /// A fix `n` metres-ish east of the base point: at lat 36.16 one degree of
+    /// longitude is ~899 m, so 1e-5 deg is ~9 cm.
+    fn moved_fix(lon_steps: i64, speed_mps: Option<f64>) -> Fix {
+        fix(36.16, -86.79 + lon_steps as f64 * 0.00001, speed_mps)
+    }
+
+    #[test]
+    fn smoothing_window_is_bounded_to_the_configured_size() {
+        // 15 slow samples then 5 fast ones: with a window of 5 the slow half
+        // must be fully evicted, not averaged in forever.
+        let mut c = MotionClassifier::new(MotionConfig::default());
+        feed_speed(&mut c, 1.0, 15, 0);
+        feed_speed(&mut c, 11.0, 5, 15_000);
+        assert_eq!(c.smoothed_speed_mps(), Some(11.0));
+        assert_eq!(c.state(), MovementType::Driving);
+    }
+
+    #[test]
+    fn accuracy_gate_boundary_is_inclusive() {
+        // The gate rejects `> accuracy_gate_m`; exactly at it is accepted.
+        let mut c = MotionClassifier::new(MotionConfig::default());
+        let at_gate = Fix {
+            lat: 36.16,
+            lon: -86.79,
+            horizontal_accuracy_m: MotionConfig::default().accuracy_gate_m,
+            speed_mps: Some(12.0),
+        };
+        for i in 0..3 {
+            c.push(TimedFix::new(at_gate, i * 1000));
+        }
+        assert_eq!(c.state(), MovementType::Driving);
+    }
+
+    #[test]
+    fn invalid_platform_speed_falls_back_to_positions() {
+        // Negative and NaN platform speeds are ignored, not banded. Both of
+        // these would read as Stationary if the value were trusted; the real
+        // motion is ~9 m/s of displacement.
+        for bogus in [Some(-5.0), Some(f64::NAN), Some(f64::INFINITY)] {
+            let mut c = MotionClassifier::new(MotionConfig::default());
+            for i in 0..6 {
+                c.push(TimedFix::new(moved_fix(i as i64 * 10, bogus), i * 1000));
+            }
+            let smoothed = c.smoothed_speed_mps().expect("derived speed");
+            assert!(smoothed > 5.0, "smoothed {smoothed} for platform speed {bogus:?}");
+            assert_eq!(c.state(), MovementType::Driving);
+        }
+    }
+
+    #[test]
+    fn gap_exactly_at_the_limit_still_derives_speed() {
+        // `max_gap_ms` resets only on a *larger* gap; a fix landing exactly on
+        // the limit is still usable.
+        let cfg = MotionConfig::default();
+        let mut c = MotionClassifier::new(cfg);
+        c.push(TimedFix::new(moved_fix(0, None), 0));
+        c.push(TimedFix::new(moved_fix(300, None), cfg.max_gap_ms));
+        // 300 steps of 1e-5 deg lon at lat 36.16 is ~270 m, over 30 s: ~9 m/s.
+        let smoothed = c.smoothed_speed_mps().expect("speed at the gap limit");
+        assert!((8.0..10.0).contains(&smoothed), "~9 m/s expected, got {smoothed}");
+    }
+
+    #[test]
+    fn zero_smoothing_window_is_clamped_to_one() {
+        // A window of 0 would divide by zero on the mean; it clamps to 1, i.e.
+        // no smoothing at all.
+        let cfg = MotionConfig { smoothing_window: 0, ..MotionConfig::default() };
+        let mut c = MotionClassifier::new(cfg);
+        feed_speed(&mut c, 12.0, 3, 0);
+        assert_eq!(c.smoothed_speed_mps(), Some(12.0));
+        assert_eq!(c.state(), MovementType::Driving);
+    }
+
+    #[test]
+    fn dwell_of_one_commits_immediately() {
+        let cfg = MotionConfig { min_dwell_samples: 1, smoothing_window: 1, ..MotionConfig::default() };
+        let mut c = MotionClassifier::new(cfg);
+        assert_eq!(feed_speed(&mut c, 12.0, 1, 0), MovementType::Driving);
+    }
+
+    #[test]
+    fn band_boundaries_are_inclusive_at_both_ends() {
+        // `<= stationary_max` and `>= driving_min` — the thresholds themselves
+        // belong to the outer bands, unlike the stateless classifier's `>`.
+        let cfg = MotionConfig { min_dwell_samples: 1, smoothing_window: 1, ..MotionConfig::default() };
+        let mut c = MotionClassifier::new(cfg);
+        assert_eq!(feed_speed(&mut c, cfg.stationary_max_mps, 1, 0), MovementType::Stationary);
+        let mut c = MotionClassifier::new(cfg);
+        assert_eq!(feed_speed(&mut c, cfg.driving_min_mps, 1, 0), MovementType::Driving);
+        // Just inside either threshold is the walking band.
+        let mut c = MotionClassifier::new(cfg);
+        assert_eq!(feed_speed(&mut c, cfg.stationary_max_mps + 0.01, 1, 0), MovementType::Walking);
+    }
+
+    #[test]
+    fn state_survives_a_reset_and_reuse() {
+        // After a reset the classifier must behave like a fresh one, including
+        // needing a second fix before any derived speed exists.
+        let mut c = MotionClassifier::new(MotionConfig::default());
+        feed_speed(&mut c, 12.0, 5, 0);
+        c.reset();
+        c.push(TimedFix::new(moved_fix(0, None), 100_000));
+        assert_eq!(c.smoothed_speed_mps(), None, "no previous fix to measure against");
+        for i in 1..6 {
+            c.push(TimedFix::new(moved_fix(i as i64 * 10, None), 100_000 + i * 1000));
+        }
+        assert_eq!(c.state(), MovementType::Driving);
+    }
+
+    #[test]
+    fn repeated_timestamps_are_ignored() {
+        // Two fixes at the same millisecond would divide by zero.
+        let mut c = MotionClassifier::new(MotionConfig::default());
+        c.push(TimedFix::new(moved_fix(0, None), 5000));
+        let s = c.push(TimedFix::new(moved_fix(100, None), 5000));
+        assert_eq!(s, MovementType::Unknown);
+        assert_eq!(c.smoothed_speed_mps(), None);
+    }
+
+    #[test]
+    fn stale_gap_clears_the_window_but_keeps_the_state() {
+        // A long gap discards the buffered speeds (they describe an older
+        // trip) yet leaves the last known state — the caller has no better
+        // answer until fresh fixes arrive.
+        let mut c = MotionClassifier::new(MotionConfig::default());
+        feed_speed(&mut c, 12.0, 5, 0);
+        assert_eq!(c.state(), MovementType::Driving);
+        c.push(TimedFix::new(moved_fix(0, None), 5_000 + 90_000));
+        assert_eq!(c.smoothed_speed_mps(), None);
+        assert_eq!(c.state(), MovementType::Driving, "state persists across a gap");
+    }
+
     #[test]
     fn empty_and_single_fix_are_unknown() {
         let mut c = MotionClassifier::new(MotionConfig::default());
-        assert_eq!(c.state(), MotionState::Unknown);
+        assert_eq!(c.state(), MovementType::Unknown);
         // A single fix with no platform speed can't derive one: stays Unknown.
         c.push(TimedFix::new(fix(36.16, -86.79, None), 1000));
-        assert_eq!(c.state(), MotionState::Unknown);
+        assert_eq!(c.state(), MovementType::Unknown);
         assert_eq!(c.smoothed_speed_mps(), None);
     }
 
     #[test]
     fn platform_speed_classifies_each_band() {
         let mut c = MotionClassifier::new(MotionConfig::default());
-        assert_eq!(feed_speed(&mut c, 0.0, 3, 0), MotionState::Stationary);
+        assert_eq!(feed_speed(&mut c, 0.0, 3, 0), MovementType::Stationary);
 
         let mut c = MotionClassifier::new(MotionConfig::default());
-        assert_eq!(feed_speed(&mut c, 1.4, 3, 0), MotionState::Walking);
+        assert_eq!(feed_speed(&mut c, 1.4, 3, 0), MovementType::Walking);
 
         let mut c = MotionClassifier::new(MotionConfig::default());
-        assert_eq!(feed_speed(&mut c, 15.0, 3, 0), MotionState::Driving);
+        assert_eq!(feed_speed(&mut c, 15.0, 3, 0), MovementType::Driving);
     }
 
     #[test]
@@ -291,25 +420,25 @@ mod tests {
             c.push(TimedFix::new(fix(36.16, -86.79, Some(0.0)), t));
             t += 1000;
         }
-        assert_eq!(c.state(), MotionState::Stationary);
+        assert_eq!(c.state(), MovementType::Stationary);
         // Start walking.
         for _ in 0..4 {
             c.push(TimedFix::new(fix(36.16, -86.79, Some(1.5)), t));
             t += 1000;
         }
-        assert_eq!(c.state(), MotionState::Walking);
+        assert_eq!(c.state(), MovementType::Walking);
         // Get in a car.
         for _ in 0..6 {
             c.push(TimedFix::new(fix(36.16, -86.79, Some(13.0)), t));
             t += 1000;
         }
-        assert_eq!(c.state(), MotionState::Driving);
+        assert_eq!(c.state(), MovementType::Driving);
         // Park and stop.
         for _ in 0..6 {
             c.push(TimedFix::new(fix(36.16, -86.79, Some(0.0)), t));
             t += 1000;
         }
-        assert_eq!(c.state(), MotionState::Stationary);
+        assert_eq!(c.state(), MovementType::Stationary);
     }
 
     #[test]
@@ -318,9 +447,9 @@ mod tests {
         // the smoothing window both prevent a flip to Driving.
         let mut c = MotionClassifier::new(MotionConfig::default());
         feed_speed(&mut c, 0.0, 5, 0);
-        assert_eq!(c.state(), MotionState::Stationary);
+        assert_eq!(c.state(), MovementType::Stationary);
         c.push(TimedFix::new(fix(36.16, -86.79, Some(40.0)), 5000));
-        assert_eq!(c.state(), MotionState::Stationary, "one outlier must not flip state");
+        assert_eq!(c.state(), MovementType::Stationary, "one outlier must not flip state");
     }
 
     #[test]
@@ -331,13 +460,13 @@ mod tests {
         let mut c = MotionClassifier::new(cfg);
         let mut lon = -86.79;
         let mut t = 0u64;
-        let mut state = MotionState::Unknown;
+        let mut state = MovementType::Unknown;
         for _ in 0..6 {
             state = c.push(TimedFix::new(fix(36.16, lon, None), t));
             lon += 0.00015;
             t += 1000;
         }
-        assert_eq!(state, MotionState::Driving);
+        assert_eq!(state, MovementType::Driving);
         assert!(c.smoothed_speed_mps().unwrap() > 5.0);
     }
 
@@ -345,7 +474,7 @@ mod tests {
     fn low_accuracy_fixes_are_ignored() {
         let mut c = MotionClassifier::new(MotionConfig::default());
         feed_speed(&mut c, 0.0, 3, 0);
-        assert_eq!(c.state(), MotionState::Stationary);
+        assert_eq!(c.state(), MovementType::Stationary);
         // A wildly inaccurate fix (200 m > 50 m gate) must not update state,
         // even though its platform speed says Driving.
         let before = c.state();
@@ -369,7 +498,7 @@ mod tests {
             lon += 0.00015;
             t += 1000;
         }
-        assert_eq!(c.state(), MotionState::Driving);
+        assert_eq!(c.state(), MovementType::Driving);
         // A 60 s gap (> max_gap_ms) then a nearby fix: the derived speed is
         // discarded and the window reset, so smoothed speed drops to empty.
         c.push(TimedFix::new(fix(36.16, lon, None), t + 60_000));
@@ -382,7 +511,7 @@ mod tests {
         c.push(TimedFix::new(fix(36.16, -86.79, None), 5000));
         // Time goes backwards: cannot derive speed, state stays Unknown.
         let s = c.push(TimedFix::new(fix(36.161, -86.79, None), 4000));
-        assert_eq!(s, MotionState::Unknown);
+        assert_eq!(s, MovementType::Unknown);
         assert_eq!(c.smoothed_speed_mps(), None);
     }
 
@@ -390,9 +519,9 @@ mod tests {
     fn reset_clears_state() {
         let mut c = MotionClassifier::new(MotionConfig::default());
         feed_speed(&mut c, 12.0, 5, 0);
-        assert_eq!(c.state(), MotionState::Driving);
+        assert_eq!(c.state(), MovementType::Driving);
         c.reset();
-        assert_eq!(c.state(), MotionState::Unknown);
+        assert_eq!(c.state(), MovementType::Unknown);
         assert_eq!(c.smoothed_speed_mps(), None);
     }
 }

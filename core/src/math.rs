@@ -65,7 +65,7 @@ mod imp {
     }
 }
 
-pub(crate) use imp::{atan2, ceil, cos, round, sin, sqrt};
+pub use imp::{atan2, ceil, cos, round, sin, sqrt};
 
 #[cfg(test)]
 mod tests {
