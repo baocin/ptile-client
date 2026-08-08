@@ -540,6 +540,7 @@ export function createPtiles(wasm) {
     water: (b) => wasm.decode_water(b),
     parks: (b) => wasm.decode_parks(b),
     rail: (b) => wasm.decode_rail(b),
+    trails: (b) => wasm.decode_trails(b),
     buildings: (b, lat, lon) => wasm.decode_buildings(b, lat, lon),
     business: (b) => wasm.decode_business(b),
     signals: (b) => wasm.decode_signals(b),

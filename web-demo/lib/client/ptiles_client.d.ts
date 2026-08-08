@@ -95,6 +95,8 @@ export function decode_roads(data: Uint8Array): any;
  */
 export function decode_signals(data: Uint8Array): any;
 
+export function decode_trails(data: Uint8Array): any;
+
 export function decode_water(data: Uint8Array): any;
 
 /**
@@ -294,6 +296,18 @@ export function parse_index_entries(data: Uint8Array): any;
 export function parse_index_layout(header_bytes: Uint8Array, index_bytes: Uint8Array): any;
 
 /**
+ * The height to draw a building at: the published one, or this crate's guess
+ * when none was published.
+ *
+ * Returns a bare `f64`, not a struct. serde-wasm-bindgen hands objects to the
+ * browser as a `Map` in some engines, where `r.height_m` reads `undefined` --
+ * which would silently extrude every guessed building to `NaN`. The caller
+ * already knows whether it passed a height, so the flag adds nothing here;
+ * `height_or_estimate` in core still returns it for Rust callers.
+ */
+export function resolved_height(height_m: number | null | undefined, building_type: string): number;
+
+/**
  * Decode a roads block into its full segment list (geometry + name +
  * every other `RoadSegment` field), identical shape to `decode_roads`.
  * Exists as its own export (plan addendum item 1's "roads" query) so
@@ -311,7 +325,7 @@ export function roads_in_block(block_bytes: Uint8Array): any;
  * `zone_middle`: bool[] same length (true = arterial-only middle); empty/null = all end-cap.
  * Returns `{distance_m, duration_s, path:[[lat,lon],...]}` or null.
  */
-export function route_from_segments(segments_js: any, zone_middle: any, lat1: number, lon1: number, lat2: number, lon2: number, snap_m?: number | null): any;
+export function route_from_segments(segments_js: any, zone_middle: any, lat1: number, lon1: number, lat2: number, lon2: number, snap_m?: number | null, avoid_highways?: boolean | null, avoid_intersections?: boolean | null): any;
 
 /**
  * Rank road/building/business candidates for a GPS fix (plan addendum
@@ -380,6 +394,7 @@ export interface InitOutput {
     readonly decode_rail: (a: number, b: number) => [number, number, number];
     readonly decode_roads: (a: number, b: number) => [number, number, number];
     readonly decode_signals: (a: number, b: number) => [number, number, number];
+    readonly decode_trails: (a: number, b: number) => [number, number, number];
     readonly decode_water: (a: number, b: number) => [number, number, number];
     readonly decompress_block: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly estimated_height_for: (a: number, b: number) => number;
@@ -396,7 +411,8 @@ export interface InitOutput {
     readonly parse_header: (a: number, b: number) => [number, number, number];
     readonly parse_index_entries: (a: number, b: number) => [number, number, number];
     readonly parse_index_layout: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
+    readonly resolved_height: (a: number, b: number, c: number, d: number) => number;
+    readonly route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly score_candidates: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly viewshed: (a: any, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly viewshed_multi: (a: any, b: any, c: number, d: number) => [number, number, number];

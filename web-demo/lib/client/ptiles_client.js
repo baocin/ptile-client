@@ -1,4 +1,4 @@
-/* @ts-self-types="./ptiles_client.d.ts" */
+/* @ts-self-types="./ptiles_wasm.d.ts" */
 
 export class AdminReader {
     __destroy_into_raw() {
@@ -269,6 +269,20 @@ export function decode_signals(data) {
     const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.decode_signals(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_trails(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_trails(ptr0, len0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -665,6 +679,26 @@ export function parse_index_layout(header_bytes, index_bytes) {
 }
 
 /**
+ * The height to draw a building at: the published one, or this crate's guess
+ * when none was published.
+ *
+ * Returns a bare `f64`, not a struct. serde-wasm-bindgen hands objects to the
+ * browser as a `Map` in some engines, where `r.height_m` reads `undefined` --
+ * which would silently extrude every guessed building to `NaN`. The caller
+ * already knows whether it passed a height, so the flag adds nothing here;
+ * `height_or_estimate` in core still returns it for Rust callers.
+ * @param {number | null | undefined} height_m
+ * @param {string} building_type
+ * @returns {number}
+ */
+export function resolved_height(height_m, building_type) {
+    const ptr0 = passStringToWasm0(building_type, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.resolved_height(!isLikeNone(height_m), isLikeNone(height_m) ? 0 : height_m, ptr0, len0);
+    return ret;
+}
+
+/**
  * Decode a roads block into its full segment list (geometry + name +
  * every other `RoadSegment` field), identical shape to `decode_roads`.
  * Exists as its own export (plan addendum item 1's "roads" query) so
@@ -698,10 +732,12 @@ export function roads_in_block(block_bytes) {
  * @param {number} lat2
  * @param {number} lon2
  * @param {number | null} [snap_m]
+ * @param {boolean | null} [avoid_highways]
+ * @param {boolean | null} [avoid_intersections]
  * @returns {any}
  */
-export function route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, snap_m) {
-    const ret = wasm.route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, !isLikeNone(snap_m), isLikeNone(snap_m) ? 0 : snap_m);
+export function route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, snap_m, avoid_highways, avoid_intersections) {
+    const ret = wasm.route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, !isLikeNone(snap_m), isLikeNone(snap_m) ? 0 : snap_m, isLikeNone(avoid_highways) ? 0xFFFFFF : avoid_highways ? 1 : 0, isLikeNone(avoid_intersections) ? 0xFFFFFF : avoid_intersections ? 1 : 0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -996,7 +1032,7 @@ function __wbg_get_imports() {
     };
     return {
         __proto__: null,
-        "./ptiles_client_bg.js": import0,
+        "./ptiles_wasm_bg.js": import0,
     };
 }
 

@@ -130,6 +130,10 @@
     <button id="btnQuery">Lookup</button>
     <button id="btnShowAll">Show tile</button>
     <button id="btnRoute" class="toggle-off">Route</button>
+    <span id="routeOpts" style="display:none">
+      <label title="Penalise motorway and trunk roads; still used when nothing else connects"><input type="checkbox" id="chkAvoidHwy"> avoid highways</label>
+      <label title="Charge time for each junction passed through, favouring fewer turns"><input type="checkbox" id="chkAvoidInt"> avoid intersections</label>
+    </span>
     <button id="btnLos" class="toggle-off" title="Click the map to see what is in line of sight from there">Line of sight</button>
     <button id="btnView" class="toggle-off" title="Find buildings with a view of a river, a park or a named business">View finder</button>
     <button id="btnPtiles" class="toggle-off">PTILES Mode</button>
@@ -140,10 +144,11 @@
     <label><input type="checkbox" id="chkWater" checked> Water</label>
     <label><input type="checkbox" id="chkParks"> Parks</label>
     <label><input type="checkbox" id="chkRail"> Rail</label>
+    <label><input type="checkbox" id="chkTrails"> Trails</label>
     <label><input type="checkbox" id="chkBldgs"> Buildings</label>
     <label><input type="checkbox" id="chkCamera"> Cameras</label>
     <label><input type="checkbox" id="chkSignal"> Signals</label>
-    <label id="chk3DWrap" style="display:none" title="Extrude buildings by their published height"><input type="checkbox" id="chk3D"> 3D</label>
+    <label id="chk3DWrap" style="display:none" title="Extrude buildings; heights not published are estimated from building type and drawn faded"><input type="checkbox" id="chk3D"> 3D</label>
     <label id="exagWrap" style="display:none;gap:6px" title="Vertical exaggeration">
       <span style="color:#8b949e">x<span id="exagVal">1.0</span></span>
       <input type="range" id="exagSlider" min="0.5" max="6" step="0.5" value="1" style="width:90px">
@@ -360,6 +365,7 @@ var wasm_decode_roads = timedDecode(function(b) { return wasm.decode_roads(b); }
 var wasm_decode_water = timedDecode(function(b) { return wasm.decode_water(b); });
 var wasm_decode_parks = timedDecode(function(b) { return wasm.decode_parks(b); });
 var wasm_decode_rail = timedDecode(function(b) { return wasm.decode_rail(b); });
+var wasm_decode_trails = timedDecode(function(b) { return wasm.decode_trails(b); });
 var wasm_decode_buildings = timedDecode(function(b, la, lo) { return wasm.decode_buildings(b, la, lo); });
 var wasm_decode_cameras = timedDecode(function(b) { return wasm.decode_cameras(b); });
 var wasm_decode_signals = timedDecode(function(b) { return wasm.decode_signals(b); });
@@ -855,6 +861,7 @@ var ptilesLayers = {
   water: { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   parks: { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   rail:  { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
+  trails:{ reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   bldgs: { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   camera:{ reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   signal:{ reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
@@ -866,7 +873,7 @@ var bldgs3dActive = false;
 // for anywhere between 0.2% and 92% of buildings depending where you are
 // looking, so "how much of this is real" has to be on screen rather than
 // inferred from whether anything looks tall.
-var bldgTotalInView = 0, bldgWithHeightInView = 0;
+var bldgTotalInView = 0, bldgWithHeightInView = 0, bldgEstimatedInView = 0;
 
 var ROAD_STYLES = [
   {color:"#f0883e",weight:4},{color:"#f0883e",weight:3},{color:"#e3b341",weight:3},
@@ -980,6 +987,8 @@ function drawExtrudedBuilding(rec, group, offsetCache) {
   var v = bldgOffset(h, ring[0][0], ring[0][1], offsetCache);
   var roof = ring.map(function(p) { return [p[0] + v[0], p[1] + v[1]]; });
   var col = bldgHeightColor(h);
+  // A guessed height is drawn at half strength: same shape, visibly less certain.
+  var alpha = rec.heightEstimated ? 0.45 : 1.0;
 
   // Outward normal of edge i->i+1 is (dy, -dx) on a counter-clockwise ring and
   // (-dy, dx) on a clockwise one. Keep the walls facing the shift; the far side
@@ -998,8 +1007,8 @@ function drawExtrudedBuilding(rec, group, offsetCache) {
   }
   if (walls.length) {
     L.polygon(walls, {
-      color: col, weight: 0.5, opacity: 0.5,
-      fillColor: col, fillOpacity: 0.3,
+      color: col, weight: 0.5, opacity: 0.5 * alpha,
+      fillColor: col, fillOpacity: 0.3 * alpha,
       fillRule: "nonzero",
       // Walls sit over neighbouring footprints; interactive walls would eat
       // map clicks and make `doLookup` return the wrong building, or nothing.
@@ -1007,7 +1016,9 @@ function drawExtrudedBuilding(rec, group, offsetCache) {
     }).addTo(group);
   }
   L.polygon(roof, {
-    color: col, weight: 1, fillColor: col, fillOpacity: 0.55, interactive: false
+    color: col, weight: 1, opacity: alpha,
+    fillColor: col, fillOpacity: 0.55 * alpha,
+    dashArray: rec.heightEstimated ? "3,2" : null, interactive: false
   }).addTo(group);
 }
 
@@ -1116,6 +1127,7 @@ async function renderPtilesForCells(cells) {
   var chkWater = document.getElementById("chkWater").checked;
   var chkParks = document.getElementById("chkParks").checked;
   var chkRail  = document.getElementById("chkRail").checked;
+  var chkTrails = document.getElementById("chkTrails").checked;
   var chkBldgs = document.getElementById("chkBldgs").checked;
   var chkCamera = document.getElementById("chkCamera").checked;
   var chkSignal = document.getElementById("chkSignal").checked;
@@ -1123,7 +1135,7 @@ async function renderPtilesForCells(cells) {
 
   prefetchCells(cells, [
     chkRoads && "roads", chkWater && "water", chkParks && "parks",
-    chkRail && "rail", chkBldgs && "bldgs", chkCamera && "camera",
+    chkRail && "rail", chkTrails && "trails", chkBldgs && "bldgs", chkCamera && "camera",
     chkSignal && "signal",
   ].filter(Boolean));
 
@@ -1179,6 +1191,25 @@ async function renderPtilesForCells(cells) {
         }); count += feats.length; }
       } catch(e) {}
     }
+    if (chkTrails && ptilesLayers.trails.reader && !ptilesLayers.trails.rendered.has(cellInt)) {
+      ptilesLayers.trails.rendered.add(cellInt);
+      try {
+        var raw = await ptilesLayers.trails.reader.decompressCell(cellInt);
+        if (raw) { var feats = wasm_decode_trails(raw); feats.forEach(function(feat) {
+          var gt = feat.geom_type != null ? feat.geom_type : feat.geomType;
+          // Dashed for anything unpaved enough to need boots; solid otherwise.
+          var tt = feat.trail_type || "";
+          var hard = (tt === "cycleway" || tt === "footway");
+          if (gt === 0 && feat.coords && feat.coords.length >= 2)
+            L.polyline(feat.coords.map(function(c){return [c[1],c[0]];}),
+              {color:"#d29922",weight:hard?2:1.5,opacity:0.85,
+               dashArray:hard?null:"4,3",interactive:false}).addTo(ptilesLayers.trails.group);
+          else if (gt === 1 && feat.coords && feat.coords.length === 1)
+            L.circleMarker([feat.coords[0][1],feat.coords[0][0]],
+              {radius:4,color:"#d29922",fillColor:"#d29922",fillOpacity:0.9,weight:1,interactive:false}).addTo(ptilesLayers.trails.group);
+        }); count += feats.length; }
+      } catch(e) {}
+    }
     if (chkCamera && ptilesLayers.camera.reader && !ptilesLayers.camera.rendered.has(cellInt)) {
       ptilesLayers.camera.rendered.add(cellInt);
       try {
@@ -1206,7 +1237,8 @@ async function renderPtilesForCells(cells) {
         var group = ptilesLayers.bldgs.group;
         var batch = [];
         await bldgRdr.renderAllInCell(cellCenter[0], cellCenter[1], function(latlngs, osmId, b) {
-          batch.push({ latlngs: latlngs, osmId: osmId, heightM: b.heightM, centroidLat: b.centroidLat, centroidLon: b.centroidLon });
+          batch.push({ latlngs: latlngs, osmId: osmId, heightM: b.heightM, buildingType: b.buildingType,
+                       centroidLat: b.centroidLat, centroidLon: b.centroidLon });
         });
         bldgTotalInView += batch.length;
         if (!bldgs3dActive) {
@@ -1227,15 +1259,21 @@ async function renderPtilesForCells(cells) {
           });
           var offsetCache = {};
           batch.forEach(function(rec) {
+            // Unmeasured buildings used to be drawn flat here, on the argument
+            // that an invented storey count beside a measured one is worse than
+            // a gap. They are extruded now, because height coverage is exactly
+            // zero in TX, GA, WA, OH, MI, IL and TN -- so "no guessing" meant 3D
+            // showed a blank map across those states. The guess comes from
+            // ptiles-core's measured percentile table, the same one the
+            // line-of-sight panel reports, and is drawn faded so it still reads
+            // as an estimate rather than a measurement.
             if (rec.heightM == null) {
-              // No published height. Draw the footprint dimmed rather than
-              // guessing a height -- an invented storey count next to measured
-              // ones is worse than an obvious gap.
-              L.polygon(rec.latlngs, {color:"#484f58", weight:0.5, fillColor:"#484f58",
-                fillOpacity:0.08, interactive:false}).addTo(group);
-              return;
+              rec.heightM = wasm.resolved_height(undefined, rec.buildingType || "yes");
+              rec.heightEstimated = true;
+              bldgEstimatedInView++;
+            } else {
+              bldgWithHeightInView++;
             }
-            bldgWithHeightInView++;
             drawExtrudedBuilding(rec, group, offsetCache);
           });
         }
@@ -1314,11 +1352,12 @@ async function renderViewport() {
 
   bldgTotalInView = 0;
   bldgWithHeightInView = 0;
+  bldgEstimatedInView = 0;
   setLayerStatus("rendering " + cells.length + " cells...");
   await renderPtilesForCells(cells);
   if (bldgs3dActive && bldgTotalInView > 0) {
     setLayerStatus("3D: " + bldgWithHeightInView + "/" + bldgTotalInView
-      + " buildings have heights");
+      + " measured" + (bldgEstimatedInView ? ", " + bldgEstimatedInView + " estimated" : ""));
   }
 }
 
@@ -1409,7 +1448,7 @@ async function loadPtilesLayerUS(key, filename) {
 // Track active PTILES layer loads per key so we can cancel on state change
 var ptilesLayerRevision = 0;
 
-var LAYER_CHK_MAP = {roads:"chkRoads",water:"chkWater",parks:"chkParks",rail:"chkRail",bldgs:"chkBldgs",camera:"chkCamera",signal:"chkSignal"};
+var LAYER_CHK_MAP = {roads:"chkRoads",water:"chkWater",parks:"chkParks",rail:"chkRail",trails:"chkTrails",bldgs:"chkBldgs",camera:"chkCamera",signal:"chkSignal"};
 
 async function activatePtilesMode() {
   ptilesLayerRevision++;
@@ -1457,7 +1496,7 @@ async function loadCheckedLayers(myRev) {
 
 // Roads and water first so the map gets its basemap-substitute quickly; the
 // national point layers last because they are the largest fetch.
-var PTILES_LAYER_ORDER = ["roads", "water", "parks", "rail", "bldgs", "camera", "signal"];
+var PTILES_LAYER_ORDER = ["roads", "water", "parks", "rail", "trails", "bldgs", "camera", "signal"];
 
 // How each layer's reader is built. Buildings is the odd one out:
 // renderPtilesForCells calls `reader.renderAllInCell`, which only
@@ -1468,6 +1507,8 @@ var PTILES_LOADERS = {
   water: function() { return loadPtilesLayer("water", "water"); },
   parks: function() { return loadPtilesLayer("parks", "parks"); },
   rail: function() { return loadPtilesLayer("rail", "rail"); },
+  // trails ships versioned in its filename; the older layers do not.
+  trails: function() { return loadPtilesLayer("trails", "trails_v1"); },
   bldgs: function() { return loadPtilesLayerBldgs(); },
   camera: function() { return loadPtilesLayerUS("camera", US_LAYER_FILES.camera); },
   signal: function() { return loadPtilesLayerUS("signal", US_LAYER_FILES.signal); }
@@ -3224,11 +3265,18 @@ async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle) 
   };
 }
 
+function routePrefs() {
+  var h = document.getElementById("chkAvoidHwy");
+  var i = document.getElementById("chkAvoidInt");
+  return [!!(h && h.checked), !!(i && i.checked)];
+}
+
 function tryRouteWasm(pack, a, b, snapM) {
   if (!pack.segments.length) return null;
   try {
+    var pr = routePrefs();
     return wasm_route_from_segments(
-      pack.segments, pack.zoneMiddle, a.lat, a.lon, b.lat, b.lon, snapM
+      pack.segments, pack.zoneMiddle, a.lat, a.lon, b.lat, b.lon, snapM, pr[0], pr[1]
     );
   } catch (e) {
     console.error("route_from_segments", e);
@@ -3408,7 +3456,16 @@ document.getElementById("btnRoute").addEventListener("click", function() {
   clearRouteLayer();
   // Both modes claim the map click; only one can have it.
   if (routeMode && losMode) document.getElementById("btnLos").click();
+  document.getElementById("routeOpts").style.display = routeMode ? "inline" : "none";
   setStatus(routeMode ? "Route mode: click A, then B" : "");
+});
+
+// Changing a preference re-runs the leg already on screen, so the effect of the
+// toggle is visible without re-picking both endpoints.
+["chkAvoidHwy", "chkAvoidInt"].forEach(function(id) {
+  document.getElementById(id).addEventListener("change", function() {
+    if (routeMode && routeA && routeB && !routeBusy) runRoute(routeA, routeB);
+  });
 });
 
 // --- Line of sight ---
@@ -4035,7 +4092,8 @@ window.__ptiles = {
   // Coverage of the last render. The harness needs this to tell "3D drew
   // nothing because the data has no heights" apart from "3D is broken".
   bldgHeightCoverage: function() {
-    return { withHeight: bldgWithHeightInView, total: bldgTotalInView, on: bldgs3dActive };
+    return { withHeight: bldgWithHeightInView, estimated: bldgEstimatedInView,
+             total: bldgTotalInView, on: bldgs3dActive };
   },
   // Drives the line-of-sight mode the way a click does, and reports what it
   // concluded -- the harness cannot read colours off polygons.
