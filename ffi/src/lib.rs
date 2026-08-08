@@ -32,7 +32,8 @@ use std::sync::Arc;
 use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business_versioned, decode_road_block,
     decode_roads, haversine_distance_m, nearest_intersection as core_nearest_intersection,
-    nearest_road as core_nearest_road, neighbor_cells, score_candidates, search_business_indexed,
+    decode_trails, nearest_road as core_nearest_road, nearest_trail as core_nearest_trail,
+    neighbor_cells, score_candidates, search_business_indexed, trail_is_developed, TrailFeature,
     Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind, FileSource,
     Fix as CoreFix, HttpSource, Intersection, PtilesFile, RoadSegment, ScoringParams,
 };
@@ -156,6 +157,49 @@ pub struct NearestRoad {
     pub snapped_lat: f64,
     pub snapped_lon: f64,
     pub distance_m: f64,
+    pub geometry: Vec<LatLon>,
+}
+
+/// The trail a point is on or nearest to.
+///
+/// `osm_id` is i64 here, not u64 like `NearestRoad`: the trails decoder carries
+/// the id as a signed delta and OSM ids for derived ways can be negative, so
+/// widening it to unsigned would corrupt exactly those records.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NearestTrail {
+    pub osm_id: i64,
+    pub name: Option<String>,
+    /// OSM `highway` value for the trail: `path`, `track`, `footway`, ...
+    pub trail_type: String,
+    /// Tread surface: `dirt`, `gravel`, `paved`, ... Empty when untagged.
+    pub surface: String,
+    /// SAC hiking difficulty when tagged (`hiking`, `mountain_hiking`, ...).
+    pub sac_scale: String,
+    /// True for a made trail rather than a desire path -- what
+    /// `core::trail_is_developed` decides, kept here so callers do not
+    /// re-implement the classification from `trail_type`.
+    pub developed: bool,
+    pub snapped_lat: f64,
+    pub snapped_lon: f64,
+    pub distance_m: f64,
+    /// True when the point is close enough to be ON the trail rather than
+    /// merely near it, using core's own threshold.
+    pub on_it: bool,
+    pub geometry: Vec<LatLon>,
+}
+
+/// One trail feature, as stored. Unlike [`NearestTrail`] this includes
+/// trailhead points, which carry a single coordinate.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TrailInfo {
+    pub osm_id: i64,
+    pub name: Option<String>,
+    pub trail_type: String,
+    pub surface: String,
+    pub sac_scale: String,
+    pub developed: bool,
+    /// True for a trailhead marker rather than a length of trail.
+    pub is_trailhead: bool,
     pub geometry: Vec<LatLon>,
 }
 
@@ -310,6 +354,10 @@ fn validate_ring(ring: u8) -> Result<(), PtilesError> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LayerKind {
     Roads,
+    /// `{STATE}.trails_v1.ptiles` -- paths, tracks and trailheads. A separate
+    /// kind from Roads because the record framing differs (see `core::trails`),
+    /// even though both answer "which way am I on".
+    TrailsV1,
     BuildingsV8,
     Business,
     /// `{STATE}.business_name_index.ptiles` -- the name-search sidecar, see
@@ -326,6 +374,7 @@ impl LayerKind {
         let _state = parts.next()?;
         match parts.next()? {
             "roads" => Some(LayerKind::Roads),
+            "trails_v1" => Some(LayerKind::TrailsV1),
             "buildings_v8" => Some(LayerKind::BuildingsV8),
             "business" => Some(LayerKind::Business),
             "business_name_index" => Some(LayerKind::BusinessNameIndex),
@@ -336,6 +385,7 @@ impl LayerKind {
     fn as_str(self) -> &'static str {
         match self {
             LayerKind::Roads => "roads",
+            LayerKind::TrailsV1 => "trails_v1",
             LayerKind::BuildingsV8 => "buildings_v8",
             LayerKind::Business => "business",
             LayerKind::BusinessNameIndex => "business_name_index",
@@ -363,10 +413,23 @@ enum AnyFile {
 }
 
 impl AnyFile {
+    /// One cell's decompressed bytes, ready to hand to a decoder.
+    ///
+    /// `read_cell`, not `read_block`. In a merged-block layer several cells
+    /// share one compressed block behind a small `(h3_cell, offset)` directory,
+    /// and `read_block` returns that whole thing -- directory included. A
+    /// decoder handed those bytes reads the directory as its first record and
+    /// gets nothing.
+    ///
+    /// This was silent rather than loud: `decode_trails` breaks out of its loop
+    /// on the first bad record and returns `Ok(vec![])`, so a real block holding
+    /// 581 features decoded as zero, with no error, for every point in the
+    /// state. `read_cell` slices the cell out first and returns the whole block
+    /// unchanged when the layer is not merged, so this is correct for both.
     fn read_block(&self, cell: u64) -> Result<Option<Vec<u8>>, PtilesError> {
         let result = match self {
-            AnyFile::File(f) => f.read_block(cell).map_err(|e| e.to_string()),
-            AnyFile::Http(f) => f.read_block(cell).map_err(|e| e.to_string()),
+            AnyFile::File(f) => f.read_cell(cell).map_err(|e| e.to_string()),
+            AnyFile::Http(f) => f.read_cell(cell).map_err(|e| e.to_string()),
         };
         result.map_err(|message| PtilesError::Decode { message })
     }
@@ -576,6 +639,20 @@ impl PtilesLayer {
             roads.append(&mut r);
         }
         Ok(roads)
+    }
+
+    fn decoded_trails(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<TrailFeature>, PtilesError> {
+        let mut trails = Vec::new();
+        for cell in self.cells_for(lat, lon, ring) {
+            let Some(block) = self.block(cell)? else {
+                continue;
+            };
+            let mut t = decode_trails(&block).map_err(|e| PtilesError::Decode {
+                message: e.to_string(),
+            })?;
+            trails.append(&mut t);
+        }
+        Ok(trails)
     }
 
     /// Intersections from the road blocks covering `(lat, lon)` (+ ring-1
@@ -962,6 +1039,72 @@ impl PtilesLayer {
             distance_m: nr.distance_m,
             geometry: geometry_of(&road.coords),
         }))
+    }
+
+    /// The trail the point is on or nearest to, or `None` beyond the search
+    /// radius. Trails-layer only.
+    ///
+    /// Trailhead POINTS are skipped by `core::nearest_trail`, deliberately:
+    /// this answers "which trail am I walking on", and the nearest thing to a
+    /// walker on a path is the path, not the sign at its entrance.
+    ///
+    /// Searches ring-1 like `nearest_intersection` rather than ring-0 like
+    /// `nearest_road`. A trail is a long thin feature that routinely runs along
+    /// a cell edge for its whole length, so a ring-0 answer would miss the trail
+    /// underfoot whenever the walker is on the far side of the boundary.
+    pub fn nearest_trail(&self, lat: f64, lon: f64) -> Result<Option<NearestTrail>, PtilesError> {
+        if self.kind != LayerKind::TrailsV1 {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        let trails = self.decoded_trails(lat, lon, 1)?;
+        let Some(way) = core_nearest_trail(lat, lon, &trails) else {
+            return Ok(None);
+        };
+        let trail = &trails[way.index];
+        Ok(Some(NearestTrail {
+            osm_id: trail.osm_id,
+            name: way.name.clone(),
+            trail_type: way.class.clone(),
+            surface: trail.surface.clone(),
+            sac_scale: trail.sac_scale.clone(),
+            developed: trail_is_developed(&trail.trail_type),
+            snapped_lat: way.snapped.0,
+            snapped_lon: way.snapped.1,
+            distance_m: way.distance_m,
+            on_it: way.on_it,
+            geometry: geometry_of(&trail.coords),
+        }))
+    }
+
+    /// Every trail feature in the cell containing `(lat, lon)`, plus ring-1
+    /// neighbours when `ring == 1`. Includes trailhead points, which
+    /// `nearest_trail` skips -- a caller drawing a map wants them.
+    /// Trails-layer only.
+    pub fn trails(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<TrailInfo>, PtilesError> {
+        if self.kind != LayerKind::TrailsV1 {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        if ring > 1 {
+            return Err(PtilesError::InvalidRing { ring });
+        }
+        Ok(self
+            .decoded_trails(lat, lon, ring)?
+            .into_iter()
+            .map(|t| TrailInfo {
+                osm_id: t.osm_id,
+                name: t.name.clone(),
+                trail_type: t.trail_type.clone(),
+                surface: t.surface.clone(),
+                sac_scale: t.sac_scale.clone(),
+                developed: trail_is_developed(&t.trail_type),
+                is_trailhead: t.geom_type == 1,
+                geometry: geometry_of(&t.coords),
+            })
+            .collect())
     }
 
     /// Nearest labeled intersection to `(lat, lon)` within `threshold_m`
