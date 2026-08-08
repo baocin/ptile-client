@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>label-gpx — motion fixtures from GPS traces</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f26; --line: #2b303a; --fg: #dfe3ea; --dim: #8d95a5;
+    --accent: #5aa9e6;
+    /* One colour per MovementType, used by the table, the map and the legend. */
+    --unknown: #6b7280; --stationary: #a78bfa; --walking: #34d399;
+    --running: #fbbf24; --driving: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header { border-bottom: 1px solid var(--line); padding: 8px 12px; }
+  h1 { font-size: 14px; margin: 0 0 6px; font-weight: 600; }
+  h1 small { color: var(--dim); font-weight: 400; margin-left: 8px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button, select, input[type=file] {
+    background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 8px; font: inherit;
+  }
+  button:hover:enabled { border-color: var(--accent); cursor: pointer; }
+  button:disabled { opacity: 0.45; }
+  #status { color: var(--dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+  #warn { color: #fbbf24; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #map { flex: 1; background: #0e1013; }
+  aside {
+    width: 430px; border-left: 1px solid var(--line); display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  #segments { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--dim); font-weight: 500; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.sel { background: #232937; }
+  tr:hover { background: #1f2430; cursor: pointer; }
+  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+  .edited { color: var(--accent); }
+  #detail { border-top: 1px solid var(--line); padding: 8px; color: var(--dim); min-height: 96px; }
+  #detail b { color: var(--fg); font-weight: 600; }
+  #detail .k { display: inline-block; width: 84px; color: var(--dim); }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; padding: 6px 8px; border-top: 1px solid var(--line); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>label-gpx <small>upload a GPX, let the classifier propose segments, correct them, export a labeled fixture</small></h1>
+  <div class="row">
+    <input type="file" id="file" accept=".gpx,application/gpx+xml,text/xml" />
+    <button id="resolve" disabled title="Read the roads layer for every cell this trace touches">Resolve map context</button>
+    <button id="reclassify" disabled title="Re-run the classifier with the resolved road and intersection context">Re-classify with context</button>
+    <button id="undo" disabled title="Ctrl+Z">Undo</button>
+    <button id="download" disabled>Download labeled GPX</button>
+    <span id="status">no file loaded</span>
+  </div>
+  <div class="row"><span id="warn"></span></div>
+</header>
+<main>
+  <div id="map"></div>
+  <aside>
+    <div id="segments"></div>
+    <div class="legend" id="legend"></div>
+    <div id="detail">Load a GPX file to begin. Nothing is uploaded anywhere: parsing and
+      classification run in this tab, and map context is read from the public tile host by
+      byte range.</div>
+  </aside>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

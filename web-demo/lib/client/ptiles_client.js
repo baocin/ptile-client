@@ -48,6 +48,123 @@ export class AdminReader {
 if (Symbol.dispose) AdminReader.prototype[Symbol.dispose] = AdminReader.prototype.free;
 
 /**
+ * Stateful motion classifier: per-fix vote (speed + road tiles + accel) fed
+ * through the CHRE-style debouncer, so `movement` only changes when the
+ * evidence actually persists.
+ *
+ * The road half is what disambiguates the awkward cases: stopped in a traffic
+ * lane vs standing on the sidewalk. Pass the output of [`nearest_road`]
+ * straight through as `road` — its `road_class`/`distance_m` are the two
+ * fields read, extras are ignored.
+ */
+export class MovementTracker {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        MovementTrackerFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_movementtracker_free(ptr, 0);
+    }
+    /**
+     * Current debounced movement type as a lowercase string.
+     * @returns {string}
+     */
+    get movement() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.movementtracker_movement(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * `config` is optional (`null`/`undefined` = CHRE defaults): any subset of
+     * `{majority_window, rapid_latency_ms, default_latency_ms,
+     * vehicle_sticky_ms, min_continuous}`.
+     * @param {any} config
+     */
+    constructor(config) {
+        const ret = wasm.movementtracker_new(config);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        MovementTrackerFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Ingest one fix. `t_ms` is a monotonic timestamp; `speed_mps` and
+     * `accuracy_m` are optional (pass `undefined` when the platform omits
+     * them — speed is then derived from consecutive positions); `accel` is an
+     * [`accel_stats`] result or `null`; `road` is a [`nearest_road`] result or
+     * `null`; `intersection` is a [`nearest_intersection`] result or `null` —
+     * at a signal/stop/give-way the "still driving" grace period stretches
+     * from 150 s to 5 min, so a long light stops reading as an arrival.
+     *
+     * Returns `{movement, vote: {movement, confidence}, smoothed_speed_mps,
+     * at_traffic_control}` where `movement` is the debounced state and `vote`
+     * is this fix alone.
+     * @param {number} t_ms
+     * @param {number} lat
+     * @param {number} lon
+     * @param {number | null | undefined} speed_mps
+     * @param {number | null | undefined} accuracy_m
+     * @param {any} accel
+     * @param {any} road
+     * @param {any} intersection
+     * @returns {any}
+     */
+    push(t_ms, lat, lon, speed_mps, accuracy_m, accel, road, intersection) {
+        const ret = wasm.movementtracker_push(this.__wbg_ptr, t_ms, lat, lon, !isLikeNone(speed_mps), isLikeNone(speed_mps) ? 0 : speed_mps, !isLikeNone(accuracy_m), isLikeNone(accuracy_m) ? 0 : accuracy_m, accel, road, intersection);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Smoothed position-derived speed (m/s), or `undefined` before enough fixes.
+     * @returns {number | undefined}
+     */
+    get smoothedSpeedMps() {
+        const ret = wasm.movementtracker_smoothedSpeedMps(this.__wbg_ptr);
+        return ret[0] === 0 ? undefined : ret[1];
+    }
+}
+if (Symbol.dispose) MovementTracker.prototype[Symbol.dispose] = MovementTracker.prototype.free;
+
+/**
+ * Accelerometer window summary from three same-length `Float32Array`s (raw
+ * m/s^2 per axis, no gravity removal needed — magnitude is used). Returns
+ * `{variance, mean_magnitude, dominant_frequency, step_count,
+ * window_duration_s}`, the shape [`MovementTracker::push`] takes.
+ * @param {Float32Array} x
+ * @param {Float32Array} y
+ * @param {Float32Array} z
+ * @param {number} sample_rate_hz
+ * @returns {any}
+ */
+export function accel_stats(x, y, z, sample_rate_hz) {
+    const ptr0 = passArrayF32ToWasm0(x, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArrayF32ToWasm0(y, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArrayF32ToWasm0(z, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.accel_stats(ptr0, len0, ptr1, len1, ptr2, len2, sample_rate_hz);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Decode the addresses for one H3 cell from an already-decompressed merged
  * block (address layer). JS fetches the block bytes (via the v2 index) and
  * decompresses them (`decompress_block`, empty dict), then calls this per
@@ -1168,6 +1285,9 @@ function __wbg_get_imports() {
 const AdminReaderFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_adminreader_free(ptr, 1));
+const MovementTrackerFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_movementtracker_free(ptr, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();
@@ -1269,6 +1389,14 @@ function getDataViewMemory0() {
     return cachedDataViewMemory0;
 }
 
+let cachedFloat32ArrayMemory0 = null;
+function getFloat32ArrayMemory0() {
+    if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
+        cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
+    }
+    return cachedFloat32ArrayMemory0;
+}
+
 let cachedFloat64ArrayMemory0 = null;
 function getFloat64ArrayMemory0() {
     if (cachedFloat64ArrayMemory0 === null || cachedFloat64ArrayMemory0.byteLength === 0) {
@@ -1305,6 +1433,13 @@ function isLikeNone(x) {
 function passArray8ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 1, 1) >>> 0;
     getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayF32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getFloat32ArrayMemory0().set(arg, ptr / 4);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
@@ -1387,6 +1522,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedDataViewMemory0 = null;
+    cachedFloat32ArrayMemory0 = null;
     cachedFloat64ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();

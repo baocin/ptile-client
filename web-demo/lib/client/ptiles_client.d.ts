@@ -17,6 +17,57 @@ export class AdminReader {
 }
 
 /**
+ * Stateful motion classifier: per-fix vote (speed + road tiles + accel) fed
+ * through the CHRE-style debouncer, so `movement` only changes when the
+ * evidence actually persists.
+ *
+ * The road half is what disambiguates the awkward cases: stopped in a traffic
+ * lane vs standing on the sidewalk. Pass the output of [`nearest_road`]
+ * straight through as `road` — its `road_class`/`distance_m` are the two
+ * fields read, extras are ignored.
+ */
+export class MovementTracker {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * `config` is optional (`null`/`undefined` = CHRE defaults): any subset of
+     * `{majority_window, rapid_latency_ms, default_latency_ms,
+     * vehicle_sticky_ms, min_continuous}`.
+     */
+    constructor(config: any);
+    /**
+     * Ingest one fix. `t_ms` is a monotonic timestamp; `speed_mps` and
+     * `accuracy_m` are optional (pass `undefined` when the platform omits
+     * them — speed is then derived from consecutive positions); `accel` is an
+     * [`accel_stats`] result or `null`; `road` is a [`nearest_road`] result or
+     * `null`; `intersection` is a [`nearest_intersection`] result or `null` —
+     * at a signal/stop/give-way the "still driving" grace period stretches
+     * from 150 s to 5 min, so a long light stops reading as an arrival.
+     *
+     * Returns `{movement, vote: {movement, confidence}, smoothed_speed_mps,
+     * at_traffic_control}` where `movement` is the debounced state and `vote`
+     * is this fix alone.
+     */
+    push(t_ms: number, lat: number, lon: number, speed_mps: number | null | undefined, accuracy_m: number | null | undefined, accel: any, road: any, intersection: any): any;
+    /**
+     * Current debounced movement type as a lowercase string.
+     */
+    readonly movement: string;
+    /**
+     * Smoothed position-derived speed (m/s), or `undefined` before enough fixes.
+     */
+    readonly smoothedSpeedMps: number | undefined;
+}
+
+/**
+ * Accelerometer window summary from three same-length `Float32Array`s (raw
+ * m/s^2 per axis, no gravity removal needed — magnitude is used). Returns
+ * `{variance, mean_magnitude, dominant_frequency, step_count,
+ * window_duration_s}`, the shape [`MovementTracker::push`] takes.
+ */
+export function accel_stats(x: Float32Array, y: Float32Array, z: Float32Array, sample_rate_hz: number): any;
+
+/**
  * Decode the addresses for one H3 cell from an already-decompressed merged
  * block (address layer). JS fetches the block bytes (via the v2 index) and
  * decompresses them (`decompress_block`, empty dict), then calls this per
@@ -433,6 +484,8 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_adminreader_free: (a: number, b: number) => void;
+    readonly __wbg_movementtracker_free: (a: number, b: number) => void;
+    readonly accel_stats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly address_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
     readonly adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];
@@ -459,6 +512,10 @@ export interface InitOutput {
     readonly locate_point: (a: number, b: number, c: any, d: any, e: any) => [number, number, number];
     readonly match_business_name_block: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly merged_cell_slice: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly movementtracker_movement: (a: number) => [number, number];
+    readonly movementtracker_new: (a: any) => [number, number, number];
+    readonly movementtracker_push: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any, j: any, k: any) => [number, number, number];
+    readonly movementtracker_smoothedSpeedMps: (a: number) => [number, number];
     readonly nearest_address_to: (a: number, b: number, c: any, d: number, e: number) => [number, number, number];
     readonly nearest_intersection: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly nearest_road: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
