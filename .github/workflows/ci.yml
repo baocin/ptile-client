@@ -152,6 +152,10 @@ jobs:
       # cross-implementation check in the repo -- and it exits non-zero on a
       # mismatch, so it is a real gate rather than a log.
       - run: node wasm/test/golden.mjs
+      # golden.mjs covers the decoders; these cover the lookups built on them
+      # (nearest_trail/park_at/water_at/...), which is where a JS caller would
+      # otherwise hand-roll ray casting and haversine.
+      - run: node --test "wasm/test/*.test.mjs"
 
   conformance:
     name: conformance corpus

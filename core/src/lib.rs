@@ -13,6 +13,8 @@ extern crate alloc;
 
 pub mod coarse;
 pub mod codec;
+#[cfg(any(test, feature = "fixtures"))]
+pub mod fixtures;
 pub mod file;
 pub mod header;
 #[cfg(feature = "http")]

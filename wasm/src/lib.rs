@@ -246,6 +246,93 @@ pub fn locate_point(
     to_js(&ptiles_core::locate(lat, lon, &roads, &trails, &addresses))
 }
 
+/// The trail under a point, or null: "which path am I walking on".
+///
+/// `trails_js` is what `decode_trails` returned. Trailhead points are skipped
+/// -- a point has no centreline to be on -- so ask `nearest_trailhead` for
+/// those. Returns a `NearbyWay`: `{kind, name, class, distance_m, snapped,
+/// on_it}`, with `on_it` true within 25 m.
+#[wasm_bindgen]
+pub fn nearest_trail(lat: f64, lon: f64, trails_js: JsValue) -> Result<JsValue, JsValue> {
+    let trails: Vec<ptiles_core::TrailFeature> = from_js_or_empty(trails_js, "trails")?;
+    match ptiles_core::nearest_trail(lat, lon, &trails) {
+        Some(w) => to_js(&w),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// The nearest trailhead -- where a trail network is entered, which is what a
+/// caller planning to *start* a walk wants. Returns a `NearbyPoint`:
+/// `{kind, name, class, lat, lon, distance_m}`, or null.
+#[wasm_bindgen]
+pub fn nearest_trailhead(lat: f64, lon: f64, trails_js: JsValue) -> Result<JsValue, JsValue> {
+    let trails: Vec<ptiles_core::TrailFeature> = from_js_or_empty(trails_js, "trails")?;
+    match ptiles_core::nearest_trailhead(lat, lon, &trails) {
+        Some(p) => to_js(&p),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// The rail track under a point, or null. Station points are skipped; use
+/// `nearest_station` for those. `rail_js` is what `decode_rail` returned.
+#[wasm_bindgen]
+pub fn nearest_rail(lat: f64, lon: f64, rail_js: JsValue) -> Result<JsValue, JsValue> {
+    let rail: Vec<ptiles_core::RailFeature> = from_js_or_empty(rail_js, "rail")?;
+    match ptiles_core::nearest_rail(lat, lon, &rail) {
+        Some(w) => to_js(&w),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// The nearest station or halt point, or null.
+#[wasm_bindgen]
+pub fn nearest_station(lat: f64, lon: f64, rail_js: JsValue) -> Result<JsValue, JsValue> {
+    let rail: Vec<ptiles_core::RailFeature> = from_js_or_empty(rail_js, "rail")?;
+    match ptiles_core::nearest_station(lat, lon, &rail) {
+        Some(p) => to_js(&p),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// The park at a point: the polygon containing it, else the nearest park
+/// boundary. Returns a `NearbyArea`: `{kind, name, class, distance_m,
+/// inside}`, or null. Check `inside` before telling a user they are in it --
+/// `distance_m` is 0 exactly when they are.
+#[wasm_bindgen]
+pub fn park_at(lat: f64, lon: f64, parks_js: JsValue) -> Result<JsValue, JsValue> {
+    let parks: Vec<ptiles_core::ParkFeature> = from_js_or_empty(parks_js, "parks")?;
+    match ptiles_core::park_at(lat, lon, &parks) {
+        Some(a) => to_js(&a),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// The water at a point: the polygon containing it, else the nearest water
+/// feature. A river centreline is a linestring and never reports `inside`;
+/// reference geometries (`geom_type == 2`, coordinates held elsewhere in the
+/// file) are skipped rather than reported at a position they do not carry.
+#[wasm_bindgen]
+pub fn water_at(lat: f64, lon: f64, water_js: JsValue) -> Result<JsValue, JsValue> {
+    let water: Vec<ptiles_core::WaterFeature> = from_js_or_empty(water_js, "water")?;
+    match ptiles_core::water_at(lat, lon, &water) {
+        Some(a) => to_js(&a),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// Whether a point falls inside a closed ring. `coords` is a flat
+/// `[lon, lat, lon, lat, ...]` array -- the decoders' coordinate order,
+/// flattened because a nested array costs a full serde round-trip per vertex.
+///
+/// Exposed because the demo hand-rolled ray casting in JavaScript, where an
+/// off-by-one in the wrap-around index silently mis-answers points near the
+/// first vertex.
+#[wasm_bindgen]
+pub fn point_in_polygon(lat: f64, lon: f64, coords: &[f64]) -> bool {
+    let ring: Vec<[f64; 2]> = coords.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
+    ptiles_core::point_in_polygon(lat, lon, &ring)
+}
+
 /// Forward geocode over already-decoded address records: "400 Broadway".
 #[wasm_bindgen]
 pub fn geocode_addresses(

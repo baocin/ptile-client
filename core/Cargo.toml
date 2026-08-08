@@ -41,3 +41,7 @@ std = ["thiserror/std", "h3o/std", "ruzstd/std"]
 serde = ["dep:serde", "h3o/serde"]
 # HttpSource needs a real Read/blocking-IO stack (std) plus ureq itself.
 http = ["std", "dep:ureq"]
+# Synthetic `.ptiles` builders for tests in the crates above this one (CLI,
+# FFI), which otherwise can only test layers the local corpus happens to
+# have. Test-support only; nothing ships with it on.
+fixtures = []

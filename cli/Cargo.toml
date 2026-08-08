@@ -21,3 +21,8 @@ serde_json = "1"
 # std/dep weight" stance; clap's derive machinery and help/completion
 # generation are unneeded here.
 pico-args = "0.5.0"
+
+[dev-dependencies]
+# Synthetic `.ptiles` builders, so the trail and merged-block query tests run
+# on any host rather than only where the corpus happens to have those layers.
+ptiles-core = { path = "../core", features = ["std", "fixtures"] }

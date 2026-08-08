@@ -410,10 +410,13 @@ pub fn decode_business_v4_at(
 /// only cheap signal that the stream desynchronised.
 pub fn decode_business_for_cell(data: &[u8], cell: u64) -> Result<Vec<Business>, DecodeError> {
     let (lat, lon) = crate::query::try_cell_center(cell).ok_or(DecodeError::InvalidCell { cell })?;
+    // `crate::math::round`: the inherent `f64::round` exists only with std
+    // linked, and this crate is no_std-optional -- reaching for it here broke
+    // the `--no-default-features` build.
     decode_business_v4_at(
         data,
-        (lon * 100_000.0).round() as i32,
-        (lat * 100_000.0).round() as i32,
+        crate::math::round(lon * 100_000.0) as i32,
+        crate::math::round(lat * 100_000.0) as i32,
     )
 }
 
