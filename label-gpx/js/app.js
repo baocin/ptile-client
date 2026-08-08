@@ -4,7 +4,7 @@
 
 import init_wasm, * as wasm from "../lib/client/ptiles_client.js";
 import { createPtiles } from "./ptiles.js";
-import { parseGpx, writeGpx, LABELS, INTERSECTION_TYPES } from "./gpx.js";
+import { parseGpx, writeGpx, LABELS } from "./gpx.js";
 import {
   classifyTrace, coalesce, splitSegment, mergeWithPrevious, relabel,
   sampleIndices, createHistory, timePerLabel,
@@ -178,7 +178,7 @@ function renderDetail() {
     ? `<b>${escapeHtml(c.road.name ?? "(unnamed)")}</b> ${escapeHtml(c.road.road_class)}, ${c.road.distance_m.toFixed(1)} m`
     : state.resolved ? "nothing within 30 m" : "not resolved";
   const ix = c && c.intersection
-    ? `${INTERSECTION_TYPES[c.intersection.intersection_type] ?? "junction"} at ${c.intersection.distance_m.toFixed(1)} m`
+    ? `${wasm.intersection_type_name(c.intersection.intersection_type)} at ${c.intersection.distance_m.toFixed(1)} m`
     : state.resolved ? "none nearby" : "not resolved";
   const adm = c && c.admin
     ? `${escapeHtml(c.admin.county ?? "?")} · ${escapeHtml(c.admin.zip ?? "?")} · ${escapeHtml(c.admin.timezone ?? "?")}`
@@ -352,7 +352,7 @@ el("download").addEventListener("click", () => {
     derived: state.parsed.points.some((p) => p.derivedSpeed !== undefined) ? "speed" : "",
     synthetic: "",
     samples: state.resolved ? 5 : undefined,
-  });
+  }, wasm.intersection_type_name);
   const name = (state.file || "trace.gpx").replace(/\.gpx$/i, "") + ".labeled.gpx";
   const url = URL.createObjectURL(new Blob([xml], { type: "application/gpx+xml" }));
   const a = document.createElement("a");

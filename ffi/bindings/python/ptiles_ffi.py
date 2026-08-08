@@ -460,6 +460,10 @@ def _uniffi_check_contract_api_version(lib):
         raise InternalError("UniFFI contract version mismatch: try cleaning and rebuilding your project")
 
 def _uniffi_check_api_checksums(lib):
+    if lib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 45962:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_intersection_type_name() != 51266:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_addresslayer_find_address() != 59852:
@@ -468,11 +472,27 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_building() != 45883:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings_at() != 9245:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near() != 42704:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count() != 57569:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache() != 14397:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_covers() != 61769:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata() != 54913:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection() != 26252:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at() != 64541:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road() != 49038:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at() != 15623:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox() != 43698:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads() != 36266:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -671,6 +691,12 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_building.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_building.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_buildings_at.argtypes = (
+    ctypes.c_void_p,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_buildings_at.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near.argtypes = (
     ctypes.c_void_p,
     ctypes.c_double,
@@ -680,6 +706,28 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count.restype = ctypes.c_uint32
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache.restype = None
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_covers.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_covers.restype = ctypes.c_int8
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_metadata.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_metadata.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection.argtypes = (
     ctypes.c_void_p,
     ctypes.c_double,
@@ -688,6 +736,13 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection.argtypes
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at.argtypes = (
+    ctypes.c_void_p,
+    _UniffiRustBuffer,
+    ctypes.c_double,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road.argtypes = (
     ctypes.c_void_p,
     ctypes.c_double,
@@ -695,6 +750,22 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at.argtypes = (
+    ctypes.c_void_p,
+    _UniffiRustBuffer,
+    ctypes.c_double,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox.restype = ctypes.c_uint32
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_roads.argtypes = (
     ctypes.c_void_p,
     ctypes.c_double,
@@ -734,6 +805,16 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_score.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_score.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_holds_traffic.argtypes = (
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_holds_traffic.restype = ctypes.c_int8
+_UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_type_name.argtypes = (
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_type_name.restype = _UniffiRustBuffer
 _UniffiLib.ffi_ptiles_ffi_rustbuffer_alloc.argtypes = (
     ctypes.c_uint64,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -1002,6 +1083,12 @@ _UniffiLib.ffi_ptiles_ffi_rust_future_complete_void.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.ffi_ptiles_ffi_rust_future_complete_void.restype = None
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_type_name.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_type_name.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at.restype = ctypes.c_uint16
@@ -1014,15 +1101,39 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at.restype = ctype
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_building.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_building.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings_at.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings_at.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_covers.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_covers.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads.restype = ctypes.c_uint16
@@ -1114,6 +1225,27 @@ class _UniffiConverterDouble(_UniffiConverterPrimitiveFloat):
     @staticmethod
     def write(value, buf):
         buf.write_double(value)
+
+class _UniffiConverterBool:
+    @classmethod
+    def check_lower(cls, value):
+        return not not value
+
+    @classmethod
+    def lower(cls, value):
+        return 1 if value else 0
+
+    @staticmethod
+    def lift(value):
+        return value != 0
+
+    @classmethod
+    def read(cls, buf):
+        return cls.lift(buf.read_u8())
+
+    @classmethod
+    def write(cls, value, buf):
+        buf.write_u8(value)
 
 class _UniffiConverterString:
     @staticmethod
@@ -1613,6 +1745,165 @@ class _UniffiConverterTypeLatLon(_UniffiConverterRustBuffer):
         _UniffiConverterDouble.write(value.lon, buf)
 
 
+class LayerMetadata:
+    """
+    What an opened layer can say about itself.
+
+    For a file you range-read rather than download, this is the only way to know
+    what you are querying: coverage, size, schema version, and -- since the
+    format carries no build date -- the HTTP validators, which are the closest
+    thing to provenance a remote `.ptiles` has.
+    """
+
+    layer: "str"
+    """
+    Layer name inferred from the filename (`roads`, `buildings_v8`, ...).
+    """
+
+    path: "str"
+    """
+    Path or URL this layer was opened from.
+    """
+
+    version: "int"
+    """
+    Format/schema version from the header.
+    """
+
+    min_lat: "float"
+    """
+    Coverage bounding box, degrees. Everything outside it is guaranteed
+    absent, so a caller can skip the query rather than pay a range read to
+    learn there is nothing there.
+    """
+
+    min_lon: "float"
+    max_lat: "float"
+    max_lon: "float"
+    feature_count: "int"
+    """
+    Features the header claims. **Not always true**: every published
+    business layer reports 0 because of a builder bug (it compares a string
+    to an int), while its records decode fine. Treat 0 as "unknown", not as
+    "empty".
+    """
+
+    block_count: "int"
+    """
+    Blocks in the file, i.e. how many populated H3 cells it has.
+    """
+
+    byte_length: "typing.Optional[int]"
+    """
+    Total size of the remote/local file in bytes, if known.
+    """
+
+    last_modified: "typing.Optional[str]"
+    """
+    `Last-Modified` of the remote file. The format stores no build date, so
+    this is the only answer to "is this layer from 2024 or last week?".
+    `None` for a local file, or a server that does not send it.
+    """
+
+    etag: "typing.Optional[str]"
+    """
+    `ETag` of the remote file: opaque, but a change means a rebuild. Pair it
+    with a cached copy to detect that the layer moved on.
+    """
+
+    def __init__(self, *, layer: "str", path: "str", version: "int", min_lat: "float", min_lon: "float", max_lat: "float", max_lon: "float", feature_count: "int", block_count: "int", byte_length: "typing.Optional[int]", last_modified: "typing.Optional[str]", etag: "typing.Optional[str]"):
+        self.layer = layer
+        self.path = path
+        self.version = version
+        self.min_lat = min_lat
+        self.min_lon = min_lon
+        self.max_lat = max_lat
+        self.max_lon = max_lon
+        self.feature_count = feature_count
+        self.block_count = block_count
+        self.byte_length = byte_length
+        self.last_modified = last_modified
+        self.etag = etag
+
+    def __str__(self):
+        return "LayerMetadata(layer={}, path={}, version={}, min_lat={}, min_lon={}, max_lat={}, max_lon={}, feature_count={}, block_count={}, byte_length={}, last_modified={}, etag={})".format(self.layer, self.path, self.version, self.min_lat, self.min_lon, self.max_lat, self.max_lon, self.feature_count, self.block_count, self.byte_length, self.last_modified, self.etag)
+
+    def __eq__(self, other):
+        if self.layer != other.layer:
+            return False
+        if self.path != other.path:
+            return False
+        if self.version != other.version:
+            return False
+        if self.min_lat != other.min_lat:
+            return False
+        if self.min_lon != other.min_lon:
+            return False
+        if self.max_lat != other.max_lat:
+            return False
+        if self.max_lon != other.max_lon:
+            return False
+        if self.feature_count != other.feature_count:
+            return False
+        if self.block_count != other.block_count:
+            return False
+        if self.byte_length != other.byte_length:
+            return False
+        if self.last_modified != other.last_modified:
+            return False
+        if self.etag != other.etag:
+            return False
+        return True
+
+class _UniffiConverterTypeLayerMetadata(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return LayerMetadata(
+            layer=_UniffiConverterString.read(buf),
+            path=_UniffiConverterString.read(buf),
+            version=_UniffiConverterUInt8.read(buf),
+            min_lat=_UniffiConverterDouble.read(buf),
+            min_lon=_UniffiConverterDouble.read(buf),
+            max_lat=_UniffiConverterDouble.read(buf),
+            max_lon=_UniffiConverterDouble.read(buf),
+            feature_count=_UniffiConverterUInt64.read(buf),
+            block_count=_UniffiConverterUInt32.read(buf),
+            byte_length=_UniffiConverterOptionalUInt64.read(buf),
+            last_modified=_UniffiConverterOptionalString.read(buf),
+            etag=_UniffiConverterOptionalString.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterString.check_lower(value.layer)
+        _UniffiConverterString.check_lower(value.path)
+        _UniffiConverterUInt8.check_lower(value.version)
+        _UniffiConverterDouble.check_lower(value.min_lat)
+        _UniffiConverterDouble.check_lower(value.min_lon)
+        _UniffiConverterDouble.check_lower(value.max_lat)
+        _UniffiConverterDouble.check_lower(value.max_lon)
+        _UniffiConverterUInt64.check_lower(value.feature_count)
+        _UniffiConverterUInt32.check_lower(value.block_count)
+        _UniffiConverterOptionalUInt64.check_lower(value.byte_length)
+        _UniffiConverterOptionalString.check_lower(value.last_modified)
+        _UniffiConverterOptionalString.check_lower(value.etag)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterString.write(value.layer, buf)
+        _UniffiConverterString.write(value.path, buf)
+        _UniffiConverterUInt8.write(value.version, buf)
+        _UniffiConverterDouble.write(value.min_lat, buf)
+        _UniffiConverterDouble.write(value.min_lon, buf)
+        _UniffiConverterDouble.write(value.max_lat, buf)
+        _UniffiConverterDouble.write(value.max_lon, buf)
+        _UniffiConverterUInt64.write(value.feature_count, buf)
+        _UniffiConverterUInt32.write(value.block_count, buf)
+        _UniffiConverterOptionalUInt64.write(value.byte_length, buf)
+        _UniffiConverterOptionalString.write(value.last_modified, buf)
+        _UniffiConverterOptionalString.write(value.etag, buf)
+
+
 class NearestIntersection:
     """
     Nearest labeled intersection to a query point (the "am I at an
@@ -1865,10 +2156,56 @@ class PtilesError:  # type: ignore
     """
 
     class Open(_UniffiTempPtilesError):
+        """
+        Local or otherwise unclassified open failure: a missing local file, a
+        bad magic prefix, an unsupported version.
+        """
+
 
         def __repr__(self):
             return "PtilesError.Open({})".format(repr(str(self)))
     _UniffiTempPtilesError.Open = Open # type: ignore
+    class Network(_UniffiTempPtilesError):
+        """
+        The host could not be reached at all: DNS, TLS, connection refused or
+        reset, timeout.
+
+        This is deliberately separate from [`PtilesError::NotFound`]. "You are
+        offline" and "this coordinate is outside coverage" are opposite
+        situations -- one should be retried later and the other never will
+        succeed -- and a caller that cannot tell them apart has to guess. That
+        guess is what an offline fallback ends up encoding: `core`'s
+        `SourceError` has always distinguished them, this layer was flattening
+        the distinction away.
+        """
+
+
+        def __repr__(self):
+            return "PtilesError.Network({})".format(repr(str(self)))
+    _UniffiTempPtilesError.Network = Network # type: ignore
+    class NotFound(_UniffiTempPtilesError):
+        """
+        The server answered, and said no: the file is not there (404), or not
+        permitted (403), or any other non-success status. The layer genuinely
+        does not exist at that URL -- retrying will not change that.
+        """
+
+
+        def __repr__(self):
+            return "PtilesError.NotFound({})".format(repr(str(self)))
+    _UniffiTempPtilesError.NotFound = NotFound # type: ignore
+    class RangeUnsupported(_UniffiTempPtilesError):
+        """
+        The server ignored the `Range` header (answered 200 instead of 206), so
+        positioned reads cannot work against it. A server/CDN configuration
+        problem, not a data problem, and it fails loudly rather than reading the
+        whole body and treating it as a slice.
+        """
+
+
+        def __repr__(self):
+            return "PtilesError.RangeUnsupported({})".format(repr(str(self)))
+    _UniffiTempPtilesError.RangeUnsupported = RangeUnsupported # type: ignore
     class UnknownLayer(_UniffiTempPtilesError):
 
         def __repr__(self):
@@ -1889,6 +2226,19 @@ class PtilesError:  # type: ignore
         def __repr__(self):
             return "PtilesError.InvalidRing({})".format(repr(str(self)))
     _UniffiTempPtilesError.InvalidRing = InvalidRing # type: ignore
+    class InvalidBounds(_UniffiTempPtilesError):
+        """
+        A bounding box that is malformed, or larger than
+        `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, roughly a
+        metropolitan area). Reported rather than truncated: a prefetch that
+        silently covered part of the region would leave the caller trusting data
+        it does not have.
+        """
+
+
+        def __repr__(self):
+            return "PtilesError.InvalidBounds({})".format(repr(str(self)))
+    _UniffiTempPtilesError.InvalidBounds = InvalidBounds # type: ignore
 
 PtilesError = _UniffiTempPtilesError # type: ignore
 del _UniffiTempPtilesError
@@ -1903,19 +2253,35 @@ class _UniffiConverterTypePtilesError(_UniffiConverterRustBuffer):
                 _UniffiConverterString.read(buf),
             )
         if variant == 2:
-            return PtilesError.UnknownLayer(
+            return PtilesError.Network(
                 _UniffiConverterString.read(buf),
             )
         if variant == 3:
-            return PtilesError.Decode(
+            return PtilesError.NotFound(
                 _UniffiConverterString.read(buf),
             )
         if variant == 4:
-            return PtilesError.UnsupportedForLayer(
+            return PtilesError.RangeUnsupported(
                 _UniffiConverterString.read(buf),
             )
         if variant == 5:
+            return PtilesError.UnknownLayer(
+                _UniffiConverterString.read(buf),
+            )
+        if variant == 6:
+            return PtilesError.Decode(
+                _UniffiConverterString.read(buf),
+            )
+        if variant == 7:
+            return PtilesError.UnsupportedForLayer(
+                _UniffiConverterString.read(buf),
+            )
+        if variant == 8:
             return PtilesError.InvalidRing(
+                _UniffiConverterString.read(buf),
+            )
+        if variant == 9:
+            return PtilesError.InvalidBounds(
                 _UniffiConverterString.read(buf),
             )
         raise InternalError("Raw enum value doesn't match any cases")
@@ -1924,6 +2290,12 @@ class _UniffiConverterTypePtilesError(_UniffiConverterRustBuffer):
     def check_lower(value):
         if isinstance(value, PtilesError.Open):
             return
+        if isinstance(value, PtilesError.Network):
+            return
+        if isinstance(value, PtilesError.NotFound):
+            return
+        if isinstance(value, PtilesError.RangeUnsupported):
+            return
         if isinstance(value, PtilesError.UnknownLayer):
             return
         if isinstance(value, PtilesError.Decode):
@@ -1931,20 +2303,57 @@ class _UniffiConverterTypePtilesError(_UniffiConverterRustBuffer):
         if isinstance(value, PtilesError.UnsupportedForLayer):
             return
         if isinstance(value, PtilesError.InvalidRing):
+            return
+        if isinstance(value, PtilesError.InvalidBounds):
             return
 
     @staticmethod
     def write(value, buf):
         if isinstance(value, PtilesError.Open):
             buf.write_i32(1)
-        if isinstance(value, PtilesError.UnknownLayer):
+        if isinstance(value, PtilesError.Network):
             buf.write_i32(2)
-        if isinstance(value, PtilesError.Decode):
+        if isinstance(value, PtilesError.NotFound):
             buf.write_i32(3)
-        if isinstance(value, PtilesError.UnsupportedForLayer):
+        if isinstance(value, PtilesError.RangeUnsupported):
             buf.write_i32(4)
-        if isinstance(value, PtilesError.InvalidRing):
+        if isinstance(value, PtilesError.UnknownLayer):
             buf.write_i32(5)
+        if isinstance(value, PtilesError.Decode):
+            buf.write_i32(6)
+        if isinstance(value, PtilesError.UnsupportedForLayer):
+            buf.write_i32(7)
+        if isinstance(value, PtilesError.InvalidRing):
+            buf.write_i32(8)
+        if isinstance(value, PtilesError.InvalidBounds):
+            buf.write_i32(9)
+
+
+
+class _UniffiConverterOptionalUInt64(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterUInt64.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterUInt64.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterUInt64.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
 
 
 
@@ -2285,6 +2694,81 @@ class _UniffiConverterSequenceTypeRoadInfo(_UniffiConverterRustBuffer):
             _UniffiConverterTypeRoadInfo.read(buf) for i in range(count)
         ]
 
+
+
+class _UniffiConverterSequenceOptionalTypeBuildingInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterOptionalTypeBuildingInfo.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterOptionalTypeBuildingInfo.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterOptionalTypeBuildingInfo.read(buf) for i in range(count)
+        ]
+
+
+
+class _UniffiConverterSequenceOptionalTypeNearestIntersection(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterOptionalTypeNearestIntersection.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterOptionalTypeNearestIntersection.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterOptionalTypeNearestIntersection.read(buf) for i in range(count)
+        ]
+
+
+
+class _UniffiConverterSequenceOptionalTypeNearestRoad(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterOptionalTypeNearestRoad.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterOptionalTypeNearestRoad.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterOptionalTypeNearestRoad.read(buf) for i in range(count)
+        ]
+
 # objects.
 class AddressLayerProtocol(typing.Protocol):
     """
@@ -2551,11 +3035,60 @@ class PtilesLayerProtocol(typing.Protocol):
         """
 
         raise NotImplementedError
+    def buildings_at(self, points: "typing.List[LatLon]"):
+        """
+        The building at each of `points`, in input order.
+
+        Grouped by H3 cell internally, so a run of points in the same cell costs
+        one block read and one decompress rather than one each. This is the
+        difference between enriching a day of tracking per-point (~12,000 points,
+        a few dozen cells) and having to sample it.
+
+        `None` for a point with no building within 50 m, per the single-point
+        [`PtilesLayer::building`] rule.
+        """
+
+        raise NotImplementedError
     def businesses_near(self, lat: "float",lon: "float",ring: "int",radius_m: "float"):
         """
         Businesses within `radius_m` of `(lat, lon)`, searching the
         containing cell (plus ring-1 neighbors when `ring == 1`).
         Business-layer only.
+        """
+
+        raise NotImplementedError
+    def cached_block_count(self, ):
+        """
+        How many blocks are currently cached in memory. For a caller that wants
+        to know what a prefetch actually bought, or when to drop the layer.
+        """
+
+        raise NotImplementedError
+    def clear_cache(self, ):
+        """
+        Drop the block cache, keeping the layer open.
+        """
+
+        raise NotImplementedError
+    def covers(self, lat: "float",lon: "float"):
+        """
+        Whether a coordinate is inside this layer's declared coverage.
+
+        Cheap and local, so it is the right first question: outside the box the
+        answer is definitively "nothing here", and no range read can improve on
+        that. Being *inside* the box does not promise a block exists.
+        """
+
+        raise NotImplementedError
+    def metadata(self, ):
+        """
+        What this layer covers, how big it is, and when it was built -- as far as
+        that can be known. See [`LayerMetadata`], especially the caveat on
+        `feature_count`.
+
+        Free: every field comes from the 256-byte header already read at
+        `open()`, plus the HTTP validators from that same first response. No
+        additional request.
         """
 
         raise NotImplementedError
@@ -2570,12 +3103,51 @@ class PtilesLayerProtocol(typing.Protocol):
         """
 
         raise NotImplementedError
+    def nearest_intersections_at(self, points: "typing.List[LatLon]",threshold_m: "float"):
+        """
+        The nearest mapped intersection to each of `points`, in input order.
+
+        Unlike the other two batch methods this reads ring-1 neighbours per cell,
+        matching single-point [`PtilesLayer::nearest_intersection`]: an
+        intersection is a point feature and the nearest one to a fix near a cell
+        edge frequently lives in the next cell over.
+        """
+
+        raise NotImplementedError
     def nearest_road(self, lat: "float",lon: "float"):
         """
         Nearest road segment to `(lat, lon)` within the CLI's default search
         threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
         `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
         only.
+        """
+
+        raise NotImplementedError
+    def nearest_roads_at(self, points: "typing.List[LatLon]",threshold_m: "float"):
+        """
+        The nearest road to each of `points`, in input order. Same cell grouping
+        as [`PtilesLayer::buildings_at`].
+
+        `threshold_m <= 0` uses the same default as the single-point
+        [`PtilesLayer::nearest_road`].
+        """
+
+        raise NotImplementedError
+    def prefetch_bbox(self, min_lat: "float",min_lon: "float",max_lat: "float",max_lon: "float"):
+        """
+        Fetch and cache every block covering a bounding box, in one pass.
+
+        The middle ground between range-reading forever and downloading a whole
+        state (CA roads is 118 MB): name the region you are about to work in,
+        pay for it once, and every later query against it is served from memory.
+        Returns the number of blocks now cached (cells with no block are cached
+        as absent and counted as 0).
+
+        Bounded by `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, ~2,600
+        km^2 -- a metropolitan area, not a state): a larger box is an
+        `InvalidBounds` error rather than a silent truncation, because a partial
+        prefetch that looks complete is worse than a refusal. Prefetch the region
+        you are working in, or walk a larger area in tiles.
         """
 
         raise NotImplementedError
@@ -2669,6 +3241,30 @@ class PtilesLayer():
 
 
 
+    def buildings_at(self, points: "typing.List[LatLon]") -> "typing.List[typing.Optional[BuildingInfo]]":
+        """
+        The building at each of `points`, in input order.
+
+        Grouped by H3 cell internally, so a run of points in the same cell costs
+        one block read and one decompress rather than one each. This is the
+        difference between enriching a day of tracking per-point (~12,000 points,
+        a few dozen cells) and having to sample it.
+
+        `None` for a point with no building within 50 m, per the single-point
+        [`PtilesLayer::building`] rule.
+        """
+
+        _UniffiConverterSequenceTypeLatLon.check_lower(points)
+        
+        return _UniffiConverterSequenceOptionalTypeBuildingInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_buildings_at,self._uniffi_clone_pointer(),
+        _UniffiConverterSequenceTypeLatLon.lower(points))
+        )
+
+
+
+
+
     def businesses_near(self, lat: "float",lon: "float",ring: "int",radius_m: "float") -> "typing.List[BusinessInfo]":
         """
         Businesses within `radius_m` of `(lat, lon)`, searching the
@@ -2690,6 +3286,74 @@ class PtilesLayer():
         _UniffiConverterDouble.lower(lon),
         _UniffiConverterUInt8.lower(ring),
         _UniffiConverterDouble.lower(radius_m))
+        )
+
+
+
+
+
+    def cached_block_count(self, ) -> "int":
+        """
+        How many blocks are currently cached in memory. For a caller that wants
+        to know what a prefetch actually bought, or when to drop the layer.
+        """
+
+        return _UniffiConverterUInt32.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count,self._uniffi_clone_pointer(),)
+        )
+
+
+
+
+
+    def clear_cache(self, ) -> None:
+        """
+        Drop the block cache, keeping the layer open.
+        """
+
+        _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache,self._uniffi_clone_pointer(),)
+
+
+
+
+
+
+    def covers(self, lat: "float",lon: "float") -> "bool":
+        """
+        Whether a coordinate is inside this layer's declared coverage.
+
+        Cheap and local, so it is the right first question: outside the box the
+        answer is definitively "nothing here", and no range read can improve on
+        that. Being *inside* the box does not promise a block exists.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        return _UniffiConverterBool.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_covers,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon))
+        )
+
+
+
+
+
+    def metadata(self, ) -> "LayerMetadata":
+        """
+        What this layer covers, how big it is, and when it was built -- as far as
+        that can be known. See [`LayerMetadata`], especially the caveat on
+        `feature_count`.
+
+        Free: every field comes from the 256-byte header already read at
+        `open()`, plus the HTTP validators from that same first response. No
+        additional request.
+        """
+
+        return _UniffiConverterTypeLayerMetadata.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_metadata,self._uniffi_clone_pointer(),)
         )
 
 
@@ -2723,6 +3387,30 @@ class PtilesLayer():
 
 
 
+    def nearest_intersections_at(self, points: "typing.List[LatLon]",threshold_m: "float") -> "typing.List[typing.Optional[NearestIntersection]]":
+        """
+        The nearest mapped intersection to each of `points`, in input order.
+
+        Unlike the other two batch methods this reads ring-1 neighbours per cell,
+        matching single-point [`PtilesLayer::nearest_intersection`]: an
+        intersection is a point feature and the nearest one to a fix near a cell
+        edge frequently lives in the next cell over.
+        """
+
+        _UniffiConverterSequenceTypeLatLon.check_lower(points)
+        
+        _UniffiConverterDouble.check_lower(threshold_m)
+        
+        return _UniffiConverterSequenceOptionalTypeNearestIntersection.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at,self._uniffi_clone_pointer(),
+        _UniffiConverterSequenceTypeLatLon.lower(points),
+        _UniffiConverterDouble.lower(threshold_m))
+        )
+
+
+
+
+
     def nearest_road(self, lat: "float",lon: "float") -> "typing.Optional[NearestRoad]":
         """
         Nearest road segment to `(lat, lon)` within the CLI's default search
@@ -2739,6 +3427,66 @@ class PtilesLayer():
             _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road,self._uniffi_clone_pointer(),
         _UniffiConverterDouble.lower(lat),
         _UniffiConverterDouble.lower(lon))
+        )
+
+
+
+
+
+    def nearest_roads_at(self, points: "typing.List[LatLon]",threshold_m: "float") -> "typing.List[typing.Optional[NearestRoad]]":
+        """
+        The nearest road to each of `points`, in input order. Same cell grouping
+        as [`PtilesLayer::buildings_at`].
+
+        `threshold_m <= 0` uses the same default as the single-point
+        [`PtilesLayer::nearest_road`].
+        """
+
+        _UniffiConverterSequenceTypeLatLon.check_lower(points)
+        
+        _UniffiConverterDouble.check_lower(threshold_m)
+        
+        return _UniffiConverterSequenceOptionalTypeNearestRoad.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at,self._uniffi_clone_pointer(),
+        _UniffiConverterSequenceTypeLatLon.lower(points),
+        _UniffiConverterDouble.lower(threshold_m))
+        )
+
+
+
+
+
+    def prefetch_bbox(self, min_lat: "float",min_lon: "float",max_lat: "float",max_lon: "float") -> "int":
+        """
+        Fetch and cache every block covering a bounding box, in one pass.
+
+        The middle ground between range-reading forever and downloading a whole
+        state (CA roads is 118 MB): name the region you are about to work in,
+        pay for it once, and every later query against it is served from memory.
+        Returns the number of blocks now cached (cells with no block are cached
+        as absent and counted as 0).
+
+        Bounded by `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, ~2,600
+        km^2 -- a metropolitan area, not a state): a larger box is an
+        `InvalidBounds` error rather than a silent truncation, because a partial
+        prefetch that looks complete is worse than a refusal. Prefetch the region
+        you are working in, or walk a larger area in tiles.
+        """
+
+        _UniffiConverterDouble.check_lower(min_lat)
+        
+        _UniffiConverterDouble.check_lower(min_lon)
+        
+        _UniffiConverterDouble.check_lower(max_lat)
+        
+        _UniffiConverterDouble.check_lower(max_lon)
+        
+        return _UniffiConverterUInt32.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(min_lat),
+        _UniffiConverterDouble.lower(min_lon),
+        _UniffiConverterDouble.lower(max_lat),
+        _UniffiConverterDouble.lower(max_lon))
         )
 
 
@@ -2940,6 +3688,39 @@ class _UniffiConverterTypePtilesStack:
 
 # Async support
 
+def intersection_holds_traffic(intersection_type: "int") -> "bool":
+    """
+    Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
+    give-way) rather than one it flows through (roundabout, untyped junction).
+
+    This is the distinction the motion classifier uses to tell "stopped at a
+    light" from "arrived somewhere", and it is a fact about the vocabulary, so it
+    lives here rather than in every caller that needs it.
+    """
+
+    _UniffiConverterUInt8.check_lower(intersection_type)
+    
+    return _UniffiConverterBool.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_holds_traffic,
+        _UniffiConverterUInt8.lower(intersection_type)))
+
+
+def intersection_type_name(intersection_type: "int") -> "str":
+    """
+    Name for an `intersection_type` byte: `traffic_signals`, `stop`, `give_way`,
+    `roundabout`, or `junction` for 0/unrecognised.
+
+    The vocabulary is a property of the format, so it comes from
+    `ptiles_core::intersection_type_name` rather than being re-spelled by each
+    caller. A caller holding only the integer would otherwise have to invent
+    names, which is fabrication with a plausible face.
+    """
+
+    _UniffiConverterUInt8.check_lower(intersection_type)
+    
+    return _UniffiConverterString.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_type_name,
+        _UniffiConverterUInt8.lower(intersection_type)))
+
+
 __all__ = [
     "InternalError",
     "CandidateKind",
@@ -2952,9 +3733,12 @@ __all__ = [
     "Candidate",
     "Fix",
     "LatLon",
+    "LayerMetadata",
     "NearestIntersection",
     "NearestRoad",
     "RoadInfo",
+    "intersection_holds_traffic",
+    "intersection_type_name",
     "AddressLayer",
     "AdminLayer",
     "PtilesLayer",

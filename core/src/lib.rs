@@ -61,7 +61,9 @@ pub use camera::{Camera, cameras_near_road, decode_cameras};
 pub use merged::{cell_ids as merged_cell_ids, cell_slice as merged_cell_slice};
 pub use parks::{ParkFeature, decode_parks};
 pub use rail::{RailFeature, decode_rail};
-pub use roads::{Intersection, RoadSegment, decode_road_block, decode_roads};
+pub use roads::{
+    Intersection, RoadSegment, decode_road_block, decode_roads, intersection_type_name,
+};
 pub use signals::{Signal, decode_signals};
 pub use trails::{TrailFeature, decode_trails, trail_is_developed};
 pub use locate::{

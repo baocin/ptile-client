@@ -748,6 +748,26 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -763,7 +783,11 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 // when the library is loaded.
 internal interface IntegrityCheckingUniffiLib : Library {
     // Integrity check functions only
-    fun uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at(
+    fun uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic(
+): Short
+fun uniffi_ptiles_ffi_checksum_func_intersection_type_name(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_addresslayer_find_address(
 ): Short
@@ -771,11 +795,27 @@ fun uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_building(
 ): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings_at(
+): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_covers(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection(
 ): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at(
+): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_roads(
 ): Short
@@ -866,12 +906,28 @@ fun uniffi_ptiles_ffi_fn_constructor_ptileslayer_open(`path`: RustBuffer.ByValue
 ): Pointer
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_building(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_buildings_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`radiusM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Int
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_covers(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_metadata(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection(`ptr`: Pointer,`lat`: Double,`lon`: Double,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox(`ptr`: Pointer,`minLat`: Double,`minLon`: Double,`maxLat`: Double,`maxLon`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): Int
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_roads(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(`ptr`: Pointer,`query`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
@@ -883,6 +939,10 @@ fun uniffi_ptiles_ffi_fn_free_ptilesstack(`ptr`: Pointer,uniffi_out_err: UniffiR
 fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_new(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_score(`ptr`: Pointer,`fix`: RustBuffer.ByValue,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+fun uniffi_ptiles_ffi_fn_func_intersection_type_name(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun ffi_ptiles_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1010,6 +1070,12 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if (lib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 45962.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_func_intersection_type_name() != 51266.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1022,13 +1088,37 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_building() != 45883.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings_at() != 9245.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near() != 42704.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count() != 57569.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache() != 14397.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_covers() != 61769.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata() != 54913.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection() != 26252.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at() != 64541.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road() != 49038.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at() != 15623.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox() != 43698.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads() != 36266.toShort()) {
@@ -1307,6 +1397,29 @@ public object FfiConverterDouble: FfiConverter<Double, Double> {
 
     override fun write(value: Double, buf: ByteBuffer) {
         buf.putDouble(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
+    override fun lift(value: Byte): Boolean {
+        return value.toInt() != 0
+    }
+
+    override fun read(buf: ByteBuffer): Boolean {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: Boolean): Byte {
+        return if (value) 1.toByte() else 0.toByte()
+    }
+
+    override fun allocationSize(value: Boolean) = 1UL
+
+    override fun write(value: Boolean, buf: ByteBuffer) {
+        buf.put(lower(value))
     }
 }
 
@@ -2040,11 +2153,55 @@ public interface PtilesLayerInterface {
     fun `building`(`lat`: kotlin.Double, `lon`: kotlin.Double): BuildingInfo?
     
     /**
+     * The building at each of `points`, in input order.
+     *
+     * Grouped by H3 cell internally, so a run of points in the same cell costs
+     * one block read and one decompress rather than one each. This is the
+     * difference between enriching a day of tracking per-point (~12,000 points,
+     * a few dozen cells) and having to sample it.
+     *
+     * `None` for a point with no building within 50 m, per the single-point
+     * [`PtilesLayer::building`] rule.
+     */
+    fun `buildingsAt`(`points`: List<LatLon>): List<BuildingInfo?>
+    
+    /**
      * Businesses within `radius_m` of `(lat, lon)`, searching the
      * containing cell (plus ring-1 neighbors when `ring == 1`).
      * Business-layer only.
      */
     fun `businessesNear`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `radiusM`: kotlin.Double): List<BusinessInfo>
+    
+    /**
+     * How many blocks are currently cached in memory. For a caller that wants
+     * to know what a prefetch actually bought, or when to drop the layer.
+     */
+    fun `cachedBlockCount`(): kotlin.UInt
+    
+    /**
+     * Drop the block cache, keeping the layer open.
+     */
+    fun `clearCache`()
+    
+    /**
+     * Whether a coordinate is inside this layer's declared coverage.
+     *
+     * Cheap and local, so it is the right first question: outside the box the
+     * answer is definitively "nothing here", and no range read can improve on
+     * that. Being *inside* the box does not promise a block exists.
+     */
+    fun `covers`(`lat`: kotlin.Double, `lon`: kotlin.Double): kotlin.Boolean
+    
+    /**
+     * What this layer covers, how big it is, and when it was built -- as far as
+     * that can be known. See [`LayerMetadata`], especially the caveat on
+     * `feature_count`.
+     *
+     * Free: every field comes from the 256-byte header already read at
+     * `open()`, plus the HTTP validators from that same first response. No
+     * additional request.
+     */
+    fun `metadata`(): LayerMetadata
     
     /**
      * Nearest labeled intersection to `(lat, lon)` within `threshold_m`
@@ -2057,12 +2214,48 @@ public interface PtilesLayerInterface {
     fun `nearestIntersection`(`lat`: kotlin.Double, `lon`: kotlin.Double, `thresholdM`: kotlin.Double): NearestIntersection?
     
     /**
+     * The nearest mapped intersection to each of `points`, in input order.
+     *
+     * Unlike the other two batch methods this reads ring-1 neighbours per cell,
+     * matching single-point [`PtilesLayer::nearest_intersection`]: an
+     * intersection is a point feature and the nearest one to a fix near a cell
+     * edge frequently lives in the next cell over.
+     */
+    fun `nearestIntersectionsAt`(`points`: List<LatLon>, `thresholdM`: kotlin.Double): List<NearestIntersection?>
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
      * only.
      */
     fun `nearestRoad`(`lat`: kotlin.Double, `lon`: kotlin.Double): NearestRoad?
+    
+    /**
+     * The nearest road to each of `points`, in input order. Same cell grouping
+     * as [`PtilesLayer::buildings_at`].
+     *
+     * `threshold_m <= 0` uses the same default as the single-point
+     * [`PtilesLayer::nearest_road`].
+     */
+    fun `nearestRoadsAt`(`points`: List<LatLon>, `thresholdM`: kotlin.Double): List<NearestRoad?>
+    
+    /**
+     * Fetch and cache every block covering a bounding box, in one pass.
+     *
+     * The middle ground between range-reading forever and downloading a whole
+     * state (CA roads is 118 MB): name the region you are about to work in,
+     * pay for it once, and every later query against it is served from memory.
+     * Returns the number of blocks now cached (cells with no block are cached
+     * as absent and counted as 0).
+     *
+     * Bounded by `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, ~2,600
+     * km^2 -- a metropolitan area, not a state): a larger box is an
+     * `InvalidBounds` error rather than a silent truncation, because a partial
+     * prefetch that looks complete is worse than a refusal. Prefetch the region
+     * you are working in, or walk a larger area in tiles.
+     */
+    fun `prefetchBbox`(`minLat`: kotlin.Double, `minLon`: kotlin.Double, `maxLat`: kotlin.Double, `maxLon`: kotlin.Double): kotlin.UInt
     
     /**
      * All decoded road segments in the cell containing `(lat, lon)`, plus
@@ -2194,6 +2387,30 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
 
     
     /**
+     * The building at each of `points`, in input order.
+     *
+     * Grouped by H3 cell internally, so a run of points in the same cell costs
+     * one block read and one decompress rather than one each. This is the
+     * difference between enriching a day of tracking per-point (~12,000 points,
+     * a few dozen cells) and having to sample it.
+     *
+     * `None` for a point with no building within 50 m, per the single-point
+     * [`PtilesLayer::building`] rule.
+     */
+    @Throws(PtilesException::class)override fun `buildingsAt`(`points`: List<LatLon>): List<BuildingInfo?> {
+            return FfiConverterSequenceOptionalTypeBuildingInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_buildings_at(
+        it, FfiConverterSequenceTypeLatLon.lower(`points`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Businesses within `radius_m` of `(lat, lon)`, searching the
      * containing cell (plus ring-1 neighbors when `ring == 1`).
      * Business-layer only.
@@ -2204,6 +2421,76 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near(
         it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),FfiConverterDouble.lower(`radiusM`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * How many blocks are currently cached in memory. For a caller that wants
+     * to know what a prefetch actually bought, or when to drop the layer.
+     */override fun `cachedBlockCount`(): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Drop the block cache, keeping the layer open.
+     */override fun `clearCache`()
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(
+        it, _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Whether a coordinate is inside this layer's declared coverage.
+     *
+     * Cheap and local, so it is the right first question: outside the box the
+     * answer is definitively "nothing here", and no range read can improve on
+     * that. Being *inside* the box does not promise a block exists.
+     */override fun `covers`(`lat`: kotlin.Double, `lon`: kotlin.Double): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_covers(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * What this layer covers, how big it is, and when it was built -- as far as
+     * that can be known. See [`LayerMetadata`], especially the caveat on
+     * `feature_count`.
+     *
+     * Free: every field comes from the 256-byte header already read at
+     * `open()`, plus the HTTP validators from that same first response. No
+     * additional request.
+     */override fun `metadata`(): LayerMetadata {
+            return FfiConverterTypeLayerMetadata.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_metadata(
+        it, _status)
 }
     }
     )
@@ -2233,6 +2520,27 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
 
     
     /**
+     * The nearest mapped intersection to each of `points`, in input order.
+     *
+     * Unlike the other two batch methods this reads ring-1 neighbours per cell,
+     * matching single-point [`PtilesLayer::nearest_intersection`]: an
+     * intersection is a point feature and the nearest one to a fix near a cell
+     * edge frequently lives in the next cell over.
+     */
+    @Throws(PtilesException::class)override fun `nearestIntersectionsAt`(`points`: List<LatLon>, `thresholdM`: kotlin.Double): List<NearestIntersection?> {
+            return FfiConverterSequenceOptionalTypeNearestIntersection.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at(
+        it, FfiConverterSequenceTypeLatLon.lower(`points`),FfiConverterDouble.lower(`thresholdM`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -2244,6 +2552,54 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road(
         it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The nearest road to each of `points`, in input order. Same cell grouping
+     * as [`PtilesLayer::buildings_at`].
+     *
+     * `threshold_m <= 0` uses the same default as the single-point
+     * [`PtilesLayer::nearest_road`].
+     */
+    @Throws(PtilesException::class)override fun `nearestRoadsAt`(`points`: List<LatLon>, `thresholdM`: kotlin.Double): List<NearestRoad?> {
+            return FfiConverterSequenceOptionalTypeNearestRoad.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at(
+        it, FfiConverterSequenceTypeLatLon.lower(`points`),FfiConverterDouble.lower(`thresholdM`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Fetch and cache every block covering a bounding box, in one pass.
+     *
+     * The middle ground between range-reading forever and downloading a whole
+     * state (CA roads is 118 MB): name the region you are about to work in,
+     * pay for it once, and every later query against it is served from memory.
+     * Returns the number of blocks now cached (cells with no block are cached
+     * as absent and counted as 0).
+     *
+     * Bounded by `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, ~2,600
+     * km^2 -- a metropolitan area, not a state): a larger box is an
+     * `InvalidBounds` error rather than a silent truncation, because a partial
+     * prefetch that looks complete is worse than a refusal. Prefetch the region
+     * you are working in, or walk a larger area in tiles.
+     */
+    @Throws(PtilesException::class)override fun `prefetchBbox`(`minLat`: kotlin.Double, `minLon`: kotlin.Double, `maxLat`: kotlin.Double, `maxLon`: kotlin.Double): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox(
+        it, FfiConverterDouble.lower(`minLat`),FfiConverterDouble.lower(`minLon`),FfiConverterDouble.lower(`maxLat`),FfiConverterDouble.lower(`maxLon`),_status)
 }
     }
     )
@@ -2981,6 +3337,121 @@ public object FfiConverterTypeLatLon: FfiConverterRustBuffer<LatLon> {
 
 
 /**
+ * What an opened layer can say about itself.
+ *
+ * For a file you range-read rather than download, this is the only way to know
+ * what you are querying: coverage, size, schema version, and -- since the
+ * format carries no build date -- the HTTP validators, which are the closest
+ * thing to provenance a remote `.ptiles` has.
+ */
+data class LayerMetadata (
+    /**
+     * Layer name inferred from the filename (`roads`, `buildings_v8`, ...).
+     */
+    var `layer`: kotlin.String, 
+    /**
+     * Path or URL this layer was opened from.
+     */
+    var `path`: kotlin.String, 
+    /**
+     * Format/schema version from the header.
+     */
+    var `version`: kotlin.UByte, 
+    /**
+     * Coverage bounding box, degrees. Everything outside it is guaranteed
+     * absent, so a caller can skip the query rather than pay a range read to
+     * learn there is nothing there.
+     */
+    var `minLat`: kotlin.Double, 
+    var `minLon`: kotlin.Double, 
+    var `maxLat`: kotlin.Double, 
+    var `maxLon`: kotlin.Double, 
+    /**
+     * Features the header claims. **Not always true**: every published
+     * business layer reports 0 because of a builder bug (it compares a string
+     * to an int), while its records decode fine. Treat 0 as "unknown", not as
+     * "empty".
+     */
+    var `featureCount`: kotlin.ULong, 
+    /**
+     * Blocks in the file, i.e. how many populated H3 cells it has.
+     */
+    var `blockCount`: kotlin.UInt, 
+    /**
+     * Total size of the remote/local file in bytes, if known.
+     */
+    var `byteLength`: kotlin.ULong?, 
+    /**
+     * `Last-Modified` of the remote file. The format stores no build date, so
+     * this is the only answer to "is this layer from 2024 or last week?".
+     * `None` for a local file, or a server that does not send it.
+     */
+    var `lastModified`: kotlin.String?, 
+    /**
+     * `ETag` of the remote file: opaque, but a change means a rebuild. Pair it
+     * with a cached copy to detect that the layer moved on.
+     */
+    var `etag`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLayerMetadata: FfiConverterRustBuffer<LayerMetadata> {
+    override fun read(buf: ByteBuffer): LayerMetadata {
+        return LayerMetadata(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterOptionalULong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LayerMetadata) = (
+            FfiConverterString.allocationSize(value.`layer`) +
+            FfiConverterString.allocationSize(value.`path`) +
+            FfiConverterUByte.allocationSize(value.`version`) +
+            FfiConverterDouble.allocationSize(value.`minLat`) +
+            FfiConverterDouble.allocationSize(value.`minLon`) +
+            FfiConverterDouble.allocationSize(value.`maxLat`) +
+            FfiConverterDouble.allocationSize(value.`maxLon`) +
+            FfiConverterULong.allocationSize(value.`featureCount`) +
+            FfiConverterUInt.allocationSize(value.`blockCount`) +
+            FfiConverterOptionalULong.allocationSize(value.`byteLength`) +
+            FfiConverterOptionalString.allocationSize(value.`lastModified`) +
+            FfiConverterOptionalString.allocationSize(value.`etag`)
+    )
+
+    override fun write(value: LayerMetadata, buf: ByteBuffer) {
+            FfiConverterString.write(value.`layer`, buf)
+            FfiConverterString.write(value.`path`, buf)
+            FfiConverterUByte.write(value.`version`, buf)
+            FfiConverterDouble.write(value.`minLat`, buf)
+            FfiConverterDouble.write(value.`minLon`, buf)
+            FfiConverterDouble.write(value.`maxLat`, buf)
+            FfiConverterDouble.write(value.`maxLon`, buf)
+            FfiConverterULong.write(value.`featureCount`, buf)
+            FfiConverterUInt.write(value.`blockCount`, buf)
+            FfiConverterOptionalULong.write(value.`byteLength`, buf)
+            FfiConverterOptionalString.write(value.`lastModified`, buf)
+            FfiConverterOptionalString.write(value.`etag`, buf)
+    }
+}
+
+
+
+/**
  * Nearest labeled intersection to a query point (the "am I at an
  * intersection?" answer). `intersection_type`: 1 = traffic_signals,
  * 2 = stop, 3 = give_way, 4 = roundabout (0/other = untyped). Reports a
@@ -3160,7 +3631,40 @@ public object FfiConverterTypeCandidateKind: FfiConverterRustBuffer<CandidateKin
  */
 sealed class PtilesException(message: String): kotlin.Exception(message) {
         
+    /**
+     * Local or otherwise unclassified open failure: a missing local file, a
+     * bad magic prefix, an unsupported version.
+     */
         class Open(message: String) : PtilesException(message)
+        
+    /**
+     * The host could not be reached at all: DNS, TLS, connection refused or
+     * reset, timeout.
+     *
+     * This is deliberately separate from [`PtilesError::NotFound`]. "You are
+     * offline" and "this coordinate is outside coverage" are opposite
+     * situations -- one should be retried later and the other never will
+     * succeed -- and a caller that cannot tell them apart has to guess. That
+     * guess is what an offline fallback ends up encoding: `core`'s
+     * `SourceError` has always distinguished them, this layer was flattening
+     * the distinction away.
+     */
+        class Network(message: String) : PtilesException(message)
+        
+    /**
+     * The server answered, and said no: the file is not there (404), or not
+     * permitted (403), or any other non-success status. The layer genuinely
+     * does not exist at that URL -- retrying will not change that.
+     */
+        class NotFound(message: String) : PtilesException(message)
+        
+    /**
+     * The server ignored the `Range` header (answered 200 instead of 206), so
+     * positioned reads cannot work against it. A server/CDN configuration
+     * problem, not a data problem, and it fails loudly rather than reading the
+     * whole body and treating it as a slice.
+     */
+        class RangeUnsupported(message: String) : PtilesException(message)
         
         class UnknownLayer(message: String) : PtilesException(message)
         
@@ -3169,6 +3673,15 @@ sealed class PtilesException(message: String): kotlin.Exception(message) {
         class UnsupportedForLayer(message: String) : PtilesException(message)
         
         class InvalidRing(message: String) : PtilesException(message)
+        
+    /**
+     * A bounding box that is malformed, or larger than
+     * `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, roughly a
+     * metropolitan area). Reported rather than truncated: a prefetch that
+     * silently covered part of the region would leave the caller trusting data
+     * it does not have.
+     */
+        class InvalidBounds(message: String) : PtilesException(message)
         
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<PtilesException> {
@@ -3184,10 +3697,14 @@ public object FfiConverterTypePtilesError : FfiConverterRustBuffer<PtilesExcepti
         
             return when(buf.getInt()) {
             1 -> PtilesException.Open(FfiConverterString.read(buf))
-            2 -> PtilesException.UnknownLayer(FfiConverterString.read(buf))
-            3 -> PtilesException.Decode(FfiConverterString.read(buf))
-            4 -> PtilesException.UnsupportedForLayer(FfiConverterString.read(buf))
-            5 -> PtilesException.InvalidRing(FfiConverterString.read(buf))
+            2 -> PtilesException.Network(FfiConverterString.read(buf))
+            3 -> PtilesException.NotFound(FfiConverterString.read(buf))
+            4 -> PtilesException.RangeUnsupported(FfiConverterString.read(buf))
+            5 -> PtilesException.UnknownLayer(FfiConverterString.read(buf))
+            6 -> PtilesException.Decode(FfiConverterString.read(buf))
+            7 -> PtilesException.UnsupportedForLayer(FfiConverterString.read(buf))
+            8 -> PtilesException.InvalidRing(FfiConverterString.read(buf))
+            9 -> PtilesException.InvalidBounds(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
         
@@ -3203,25 +3720,73 @@ public object FfiConverterTypePtilesError : FfiConverterRustBuffer<PtilesExcepti
                 buf.putInt(1)
                 Unit
             }
-            is PtilesException.UnknownLayer -> {
+            is PtilesException.Network -> {
                 buf.putInt(2)
                 Unit
             }
-            is PtilesException.Decode -> {
+            is PtilesException.NotFound -> {
                 buf.putInt(3)
                 Unit
             }
-            is PtilesException.UnsupportedForLayer -> {
+            is PtilesException.RangeUnsupported -> {
                 buf.putInt(4)
                 Unit
             }
-            is PtilesException.InvalidRing -> {
+            is PtilesException.UnknownLayer -> {
                 buf.putInt(5)
+                Unit
+            }
+            is PtilesException.Decode -> {
+                buf.putInt(6)
+                Unit
+            }
+            is PtilesException.UnsupportedForLayer -> {
+                buf.putInt(7)
+                Unit
+            }
+            is PtilesException.InvalidRing -> {
+                buf.putInt(8)
+                Unit
+            }
+            is PtilesException.InvalidBounds -> {
+                buf.putInt(9)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
+    override fun read(buf: ByteBuffer): kotlin.ULong? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterULong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ULong?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterULong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ULong?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterULong.write(value, buf)
+        }
+    }
 }
 
 
@@ -3615,4 +4180,123 @@ public object FfiConverterSequenceTypeRoadInfo: FfiConverterRustBuffer<List<Road
         }
     }
 }
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceOptionalTypeBuildingInfo: FfiConverterRustBuffer<List<BuildingInfo?>> {
+    override fun read(buf: ByteBuffer): List<BuildingInfo?> {
+        val len = buf.getInt()
+        return List<BuildingInfo?>(len) {
+            FfiConverterOptionalTypeBuildingInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<BuildingInfo?>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterOptionalTypeBuildingInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<BuildingInfo?>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterOptionalTypeBuildingInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceOptionalTypeNearestIntersection: FfiConverterRustBuffer<List<NearestIntersection?>> {
+    override fun read(buf: ByteBuffer): List<NearestIntersection?> {
+        val len = buf.getInt()
+        return List<NearestIntersection?>(len) {
+            FfiConverterOptionalTypeNearestIntersection.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<NearestIntersection?>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterOptionalTypeNearestIntersection.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<NearestIntersection?>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterOptionalTypeNearestIntersection.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffer<List<NearestRoad?>> {
+    override fun read(buf: ByteBuffer): List<NearestRoad?> {
+        val len = buf.getInt()
+        return List<NearestRoad?>(len) {
+            FfiConverterOptionalTypeNearestRoad.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<NearestRoad?>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterOptionalTypeNearestRoad.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<NearestRoad?>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterOptionalTypeNearestRoad.write(it, buf)
+        }
+    }
+}
+        /**
+         * Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
+         * give-way) rather than one it flows through (roundabout, untyped junction).
+         *
+         * This is the distinction the motion classifier uses to tell "stopped at a
+         * light" from "arrived somewhere", and it is a fact about the vocabulary, so it
+         * lives here rather than in every caller that needs it.
+         */ fun `intersectionHoldsTraffic`(`intersectionType`: kotlin.UByte): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(
+        FfiConverterUByte.lower(`intersectionType`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Name for an `intersection_type` byte: `traffic_signals`, `stop`, `give_way`,
+         * `roundabout`, or `junction` for 0/unrecognised.
+         *
+         * The vocabulary is a property of the format, so it comes from
+         * `ptiles_core::intersection_type_name` rather than being re-spelled by each
+         * caller. A caller holding only the integer would otherwise have to invent
+         * names, which is fabrication with a plausible face.
+         */ fun `intersectionTypeName`(`intersectionType`: kotlin.UByte): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_intersection_type_name(
+        FfiConverterUByte.lower(`intersectionType`),_status)
+}
+    )
+    }
+    
+
 

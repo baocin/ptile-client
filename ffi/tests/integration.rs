@@ -4,7 +4,10 @@
 //! message, returns early) when a file is absent so `cargo test -p
 //! ptiles-ffi` still passes on a host without the data pulled.
 
-use ptiles_ffi::{AddressLayer, AdminLayer, CandidateKind, Fix, PtilesLayer, PtilesStack};
+use ptiles_ffi::{
+    intersection_holds_traffic, intersection_type_name, AddressLayer, AdminLayer, CandidateKind,
+    Fix, LatLon, PtilesError, PtilesLayer, PtilesStack,
+};
 
 const DATA_DIR: &str = "/home/aoi/kino/data/ptiles";
 const NASHVILLE_LAT: f64 = 36.16;
@@ -399,4 +402,335 @@ fn open_missing_file_errors() {
     // isn't "roads"/"buildings_v8"/"business"), so this exercises the
     // UnknownLayer path deterministically without depending on the data dir.
     assert!(err.is_err());
+}
+
+// --- Gaps closed for the Android integration -------------------------------
+//
+// These prefer the committed conformance corpus over the machine-local data
+// directory, so they run on a host with no data pulled -- the surfaces they
+// cover (batch grouping, prefetch, metadata) are the ones an app depends on and
+// are worth having green everywhere, not only where 33 MB layers exist.
+
+fn corpus(name: &str) -> String {
+    format!("{}/../conformance/corpus/{name}", env!("CARGO_MANIFEST_DIR"))
+}
+
+/// Corpus first, machine-local data second.
+fn any_roads_path() -> Option<String> {
+    for p in [corpus("TN.roads.ptiles"), roads_path()] {
+        if std::path::Path::new(&p).exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn any_buildings_path() -> Option<String> {
+    for p in [corpus("TN.buildings_v8.ptiles"), buildings_path()] {
+        if std::path::Path::new(&p).exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// A coordinate the file actually holds a block for.
+///
+/// The header bbox is the whole state, but the corpus slice is 48 cells cut out
+/// of it, so the bbox centre usually lands on a cell with no block -- being
+/// inside the coverage box has never promised a block exists. The cell ids the
+/// slice kept are recorded in `conformance/manifest.json`, so this reads the
+/// first one and takes its centre; for a full machine-local layer, downtown
+/// Nashville does.
+fn a_covered_point(path: &str, layer: &PtilesLayer) -> (f64, f64) {
+    if let Some(cell) = corpus_first_cell(path) {
+        let (lat, lon) = ptiles_core::cell_center(cell);
+        return (lat, lon);
+    }
+    let _ = layer;
+    (NASHVILLE_LAT, NASHVILLE_LON)
+}
+
+/// A point that sits *on a feature* in the first block of `path`.
+///
+/// The centre of a covered cell is not good enough: an H3 res-7 cell is ~1.2 km
+/// across and the corpus slice is rural west Tennessee, so the centre is often
+/// several hundred metres from the nearest road -- past any sane snap threshold.
+/// Asking the data where its features are keeps these tests meaningful on both
+/// the 30 KB corpus slice and a full 33 MB layer.
+fn first_feature_point(path: &str, buildings: bool) -> Option<(f64, f64)> {
+    let src = ptiles_core::FileSource::open(path).ok()?;
+    let file = ptiles_core::PtilesFile::open(src).ok()?;
+    let version = file.header().version;
+    for entry in file.index() {
+        if entry.block_length == 0 {
+            continue;
+        }
+        let Ok(Some(block)) = file.read_block(entry.h3_cell) else {
+            continue;
+        };
+        if buildings {
+            let (clat, clon) = ptiles_core::cell_center(entry.h3_cell);
+            if let Ok(bs) = ptiles_core::decode_buildings(&block, clat, clon) {
+                if let Some(b) = bs.first() {
+                    return Some((b.centroid_lat, b.centroid_lon));
+                }
+            }
+        } else {
+            let _ = version;
+            if let Ok(roads) = ptiles_core::decode_roads(&block) {
+                if let Some(c) = roads.iter().find_map(|r| r.coords.first()) {
+                    return Some((c[1], c[0]));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// `first_cell` for a corpus file, from the manifest. `None` for anything that
+/// is not a corpus path.
+fn corpus_first_cell(path: &str) -> Option<u64> {
+    let name = path.rsplit('/').next()?;
+    if !path.contains("conformance/corpus") {
+        return None;
+    }
+    let manifest = std::fs::read_to_string(format!(
+        "{}/../conformance/manifest.json",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .ok()?;
+    // One field out of one object: a five-line scan beats a serde_json
+    // dev-dependency this crate does not otherwise need.
+    let start = manifest.find(&format!("\"{name}\""))?;
+    let key = manifest[start..].find("\"first_cell\"")? + start;
+    let open = manifest[key..].find(':')? + key + 1;
+    let hex = manifest[open..].trim_start().trim_start_matches('"');
+    let hex = &hex[..hex.find('"')?];
+    u64::from_str_radix(hex, 16).ok()
+}
+
+#[test]
+fn metadata_reports_coverage_and_provenance() {
+    let Some(path) = any_roads_path() else { return };
+    let layer = PtilesLayer::open(path.clone()).expect("open roads");
+    let m = layer.metadata();
+
+    assert_eq!(m.layer, "roads");
+    assert_eq!(m.path, path);
+    assert!(m.version >= 1, "version {}", m.version);
+    assert!(m.block_count > 0, "a layer with no blocks is not useful");
+    assert!(m.min_lat < m.max_lat && m.min_lon < m.max_lon, "empty bbox: {m:?}");
+    assert!(m.byte_length.unwrap_or(0) > 0);
+    // Local file: no HTTP validators. That is the honest answer -- the format
+    // itself carries no build date, so provenance is only available remotely.
+    assert_eq!(m.last_modified, None);
+    assert_eq!(m.etag, None);
+
+    // Coverage is answerable without any read.
+    let (lat, lon) = a_covered_point(&path, &layer);
+    assert!(layer.covers(lat, lon));
+    assert!(!layer.covers(0.0, 0.0), "null island is not in Tennessee");
+    assert!(!layer.covers(m.max_lat + 1.0, lon));
+}
+
+#[test]
+fn batch_queries_agree_with_the_single_point_ones() {
+    let Some(path) = any_roads_path() else { return };
+    let layer = PtilesLayer::open(path.clone()).expect("open roads");
+    let Some((lat, lon)) = first_feature_point(&path, false) else { return };
+    // A short walk along one road, plus one point far outside coverage.
+    let points: Vec<LatLon> = (0..8)
+        .map(|i| LatLon {
+            lat: lat + i as f64 * 0.0002,
+            lon: lon + i as f64 * 0.0002,
+        })
+        .chain([LatLon { lat: 0.0, lon: 0.0 }])
+        .collect();
+
+    let batch = layer
+        .nearest_roads_at(points.clone(), 0.0)
+        .expect("batch nearest_road");
+    assert_eq!(batch.len(), points.len(), "one answer per input, in order");
+    assert!(batch.last().unwrap().is_none(), "null island has no road");
+
+    for (i, p) in points.iter().enumerate() {
+        let single = layer.nearest_road(p.lat, p.lon).expect("single nearest_road");
+        match (&batch[i], &single) {
+            (Some(b), Some(s)) => {
+                assert_eq!(b.osm_id, s.osm_id, "point {i} disagrees");
+                assert!((b.distance_m - s.distance_m).abs() < 1e-9);
+            }
+            (None, None) => {}
+            (b, s) => panic!("point {i}: batch {b:?} vs single {s:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_batch_over_one_cell_reads_one_block() {
+    // The point of the batch API. Eight points inside one H3 cell must cost one
+    // block, not eight -- that ratio is what makes per-point enrichment of a
+    // day's trace (~12,000 points, a few dozen cells) possible at all.
+    let Some(path) = any_roads_path() else { return };
+    let layer = PtilesLayer::open(path.clone()).expect("open roads");
+    let Some((lat, lon)) = first_feature_point(&path, false) else { return };
+    let points: Vec<LatLon> = (0..8)
+        .map(|i| LatLon { lat: lat + i as f64 * 0.00005, lon })
+        .collect();
+
+    assert_eq!(layer.cached_block_count(), 0);
+    let found = layer.nearest_roads_at(points, 0.0).expect("batch");
+    let after = layer.cached_block_count();
+    assert!(
+        (1..=2).contains(&after),
+        "8 points in ~1 cell should touch 1-2 blocks, touched {after}"
+    );
+    // And the batch actually answered, or the block count above proves nothing.
+    assert!(
+        found.iter().any(|r| r.is_some()),
+        "no roads found at a covered point -- this test would pass on an empty layer"
+    );
+
+    // And a second pass adds nothing: the blocks are already decompressed.
+    let again = vec![LatLon { lat, lon }];
+    layer.nearest_roads_at(again, 0.0).expect("second batch");
+    assert_eq!(layer.cached_block_count(), after, "second pass re-read blocks");
+
+    layer.clear_cache();
+    assert_eq!(layer.cached_block_count(), 0);
+}
+
+#[test]
+fn buildings_batch_matches_single_and_groups() {
+    let Some(path) = any_buildings_path() else { return };
+    let layer = PtilesLayer::open(path.clone()).expect("open buildings");
+    let Some((lat, lon)) = first_feature_point(&path, true) else { return };
+    // Tight spacing: these must stay inside the one building's cell, and within
+    // the 50 m centroid fallback for at least the first point.
+    let points: Vec<LatLon> = (0..6)
+        .map(|i| LatLon { lat: lat + i as f64 * 0.00002, lon })
+        .collect();
+
+    let batch = layer.buildings_at(points.clone()).expect("batch buildings");
+    assert_eq!(batch.len(), points.len());
+    assert!(
+        batch.iter().any(|b| b.is_some()),
+        "no buildings at a covered point -- the comparison below would be vacuous"
+    );
+    for (i, p) in points.iter().enumerate() {
+        let single = layer.building(p.lat, p.lon).expect("single building");
+        assert_eq!(
+            batch[i].as_ref().map(|b| b.osm_id),
+            single.as_ref().map(|b| b.osm_id),
+            "point {i} disagrees"
+        );
+    }
+    assert!(layer.cached_block_count() <= 2, "grouping failed");
+}
+
+#[test]
+fn batch_queries_reject_the_wrong_layer() {
+    let Some(path) = any_buildings_path() else { return };
+    let layer = PtilesLayer::open(path.clone()).expect("open buildings");
+    let p = vec![LatLon { lat: 36.16, lon: -86.78 }];
+    assert!(layer.nearest_roads_at(p.clone(), 0.0).is_err());
+    assert!(layer.nearest_intersections_at(p, 0.0).is_err());
+}
+
+#[test]
+fn prefetch_bbox_warms_the_region_then_queries_are_free() {
+    let Some(path) = any_roads_path() else { return };
+    let layer = PtilesLayer::open(path.clone()).expect("open roads");
+
+    // A box around a real feature, not the whole layer: the cell cap (512 res-7
+    // cells, ~2,600 km^2) means a state-sized prefetch is deliberately refused,
+    // which `prefetch_refuses_an_oversized_bbox` covers.
+    let Some((lat, lon)) = first_feature_point(&path, false) else { return };
+    let warmed = layer
+        .prefetch_bbox(lat - 0.05, lon - 0.05, lat + 0.05, lon + 0.05)
+        .expect("prefetch a city-sized box");
+    assert!(warmed > 0, "the middle of the layer's coverage should hold blocks");
+    let cached = layer.cached_block_count();
+    assert!(cached >= warmed, "absent cells are cached too");
+
+    // Every query inside the region now hits memory.
+    layer.nearest_road(lat, lon).expect("query after prefetch");
+    assert_eq!(layer.cached_block_count(), cached, "prefetch missed a block");
+}
+
+#[test]
+fn prefetch_refuses_an_oversized_bbox() {
+    // A whole-hemisphere prefetch is an error, not a silent truncation: a
+    // partial prefetch that reports success is worse than a refusal, because
+    // the caller then trusts a region it does not have.
+    let Some(path) = any_roads_path() else { return };
+    let layer = PtilesLayer::open(path.clone()).expect("open roads");
+    match layer.prefetch_bbox(-89.0, -179.0, 89.0, 179.0) {
+        Err(PtilesError::InvalidBounds { message }) => {
+            assert!(message.contains("too large"), "{message}");
+        }
+        other => panic!("expected InvalidBounds, got {:?}", other.map(|n| n)),
+    }
+    // A malformed box is the same class of error, not a panic.
+    assert!(matches!(
+        layer.prefetch_bbox(f64::NAN, 0.0, 1.0, 1.0),
+        Err(PtilesError::InvalidBounds { .. })
+    ));
+}
+
+#[test]
+fn an_unreachable_host_is_a_network_error_not_a_missing_file() {
+    // The distinction the Android offline fallback had to guess at. Port 1 on
+    // localhost refuses connections, so this needs no network and no server:
+    // the failure is transport-level, and it must not look like "no such
+    // layer".
+    let err = match PtilesLayer::open("http://127.0.0.1:1/TN.roads.ptiles".to_string()) {
+        Err(e) => e,
+        Ok(_) => panic!("connection to port 1 must fail"),
+    };
+    assert!(
+        matches!(err, PtilesError::Network { .. }),
+        "expected Network, got {err:?}"
+    );
+    // And the message says which of the two it was, for a log reader.
+    assert!(err.to_string().contains("network error"), "{err}");
+}
+
+#[test]
+fn the_intersection_vocabulary_is_the_formats_own() {
+    assert_eq!(intersection_type_name(1), "traffic_signals");
+    assert_eq!(intersection_type_name(2), "stop");
+    assert_eq!(intersection_type_name(3), "give_way");
+    assert_eq!(intersection_type_name(4), "roundabout");
+    // 0 and anything unrecognised: the node is mapped, its control is not
+    // stated. Naming it anything more specific would be invention.
+    assert_eq!(intersection_type_name(0), "junction");
+    assert_eq!(intersection_type_name(200), "junction");
+
+    assert!(intersection_holds_traffic(1));
+    assert!(intersection_holds_traffic(2));
+    assert!(intersection_holds_traffic(3));
+    assert!(!intersection_holds_traffic(4), "a roundabout does not queue");
+    assert!(!intersection_holds_traffic(0));
+}
+
+#[test]
+fn a_real_intersection_names_itself() {
+    let Some(path) = any_roads_path() else { return };
+    let layer = PtilesLayer::open(path.clone()).expect("open roads");
+    let Some((lat, lon)) = first_feature_point(&path, false) else { return };
+    // Whatever the corpus slice holds nearby; the claim is only that its type
+    // byte is nameable, which is what a caller holding the integer needs.
+    if let Some(ix) = layer
+        .nearest_intersection(lat, lon, 5000.0)
+        .expect("nearest_intersection")
+    {
+        let name = intersection_type_name(ix.intersection_type);
+        assert!(!name.is_empty());
+        assert!(
+            ["traffic_signals", "stop", "give_way", "roundabout", "junction"].contains(&name.as_str()),
+            "unexpected name {name}"
+        );
+    }
 }

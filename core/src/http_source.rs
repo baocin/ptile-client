@@ -68,6 +68,15 @@ pub struct HttpSource {
     /// prefetch). Exposed via [`HttpSource::request_count`] so callers/tests
     /// can verify a given query pattern isn't chatty.
     request_count: AtomicUsize,
+    /// `ETag` and `Last-Modified` from the construction-time response.
+    ///
+    /// The `.ptiles` header carries no build date, so for a file you range-read
+    /// rather than download these are the *only* provenance available: they are
+    /// what tells you whether the roads layer you are querying was built last
+    /// week or two years ago. Both are `None` when the server does not send
+    /// them, which is a fact worth surfacing rather than papering over.
+    etag: Option<String>,
+    last_modified: Option<String>,
 }
 
 impl HttpSource {
@@ -80,18 +89,23 @@ impl HttpSource {
         let agent: ureq::Agent = ureq::Agent::config_builder().build().into();
 
         let range_end = PREFETCH_BYTES - 1;
-        let (status, total_len, body) = fetch_range(&agent, &url, 0, range_end)?;
-        if status != 206 {
-            return Err(SourceError::RangeNotSupported { url, status });
+        let fetched = fetch_range(&agent, &url, 0, range_end)?;
+        if fetched.status != 206 {
+            return Err(SourceError::RangeNotSupported {
+                url,
+                status: fetched.status,
+            });
         }
 
         Ok(HttpSource {
             agent,
             url,
-            len: total_len,
-            prefetch: body,
+            len: fetched.total_len,
+            prefetch: fetched.body,
             cache: Mutex::new(HashMap::new()),
             request_count: AtomicUsize::new(1),
+            etag: fetched.etag,
+            last_modified: fetched.last_modified,
         })
     }
 
@@ -105,6 +119,19 @@ impl HttpSource {
     /// cache do not increment this.
     pub fn request_count(&self) -> usize {
         self.request_count.load(Ordering::Relaxed)
+    }
+
+    /// The resource's `ETag`, if the server sent one. Opaque, but stable per
+    /// build: a changed ETag means the file was rebuilt.
+    pub fn etag(&self) -> Option<&str> {
+        self.etag.as_deref()
+    }
+
+    /// The resource's `Last-Modified` header, if the server sent one. The
+    /// closest thing to a build date a `.ptiles` file has -- the format itself
+    /// stores none.
+    pub fn last_modified(&self) -> Option<&str> {
+        self.last_modified.as_deref()
     }
 }
 
@@ -178,7 +205,8 @@ impl PtilesSource for HttpSource {
         }
 
         self.request_count.fetch_add(1, Ordering::Relaxed);
-        let (status, _total, body) = fetch_range(&self.agent, &self.url, offset, range_end)?;
+        let RangeResponse { status, body, .. } =
+            fetch_range(&self.agent, &self.url, offset, range_end)?;
         if status != 206 {
             return Err(SourceError::RangeNotSupported {
                 url: self.url.clone(),
@@ -203,16 +231,29 @@ impl PtilesSource for HttpSource {
     }
 }
 
-/// Issue one Range GET, returning `(status, total_resource_len, body_bytes)`.
-/// `total_resource_len` is parsed from the `Content-Range` response header
-/// (`bytes start-end/total`); falls back to the fetched body's length if
-/// that header is missing.
+/// One range response: status, the resource's total length, the bytes, and the
+/// two provenance headers.
+///
+/// A struct rather than a 5-tuple because the two header fields are only read at
+/// construction and a positional tuple that long is a footgun at every call
+/// site.
+struct RangeResponse {
+    status: u16,
+    /// Parsed from `Content-Range` (`bytes start-end/total`); falls back to the
+    /// fetched body's length when the server sends no such header.
+    total_len: u64,
+    body: Vec<u8>,
+    etag: Option<String>,
+    last_modified: Option<String>,
+}
+
+/// Issue one Range GET.
 fn fetch_range(
     agent: &ureq::Agent,
     url: &str,
     start: u64,
     end: u64,
-) -> Result<(u16, u64, Vec<u8>), SourceError> {
+) -> Result<RangeResponse, SourceError> {
     let range_header = format!("bytes={start}-{end}");
     let mut response = match agent.get(url).header("Range", &range_header).call() {
         Ok(r) => r,
@@ -233,11 +274,16 @@ fn fetch_range(
     };
 
     let status = response.status().as_u16();
-    let content_range = response
-        .headers()
-        .get("Content-Range")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+    let header = |name: &str| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+    };
+    let content_range = header("Content-Range");
+    let etag = header("ETag");
+    let last_modified = header("Last-Modified");
 
     let mut body = Vec::new();
     response
@@ -250,7 +296,7 @@ fn fetch_range(
         })?;
 
     let total_len = parse_content_range_total(content_range.as_deref(), body.len());
-    Ok((status, total_len, body))
+    Ok(RangeResponse { status, total_len, body, etag, last_modified })
 }
 
 /// Extract the total resource length from a `Content-Range` header value of

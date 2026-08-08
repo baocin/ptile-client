@@ -480,6 +480,30 @@ fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterBool : FfiConverter {
+    typealias FfiType = Int8
+    typealias SwiftType = Bool
+
+    public static func lift(_ value: Int8) throws -> Bool {
+        return value != 0
+    }
+
+    public static func lower(_ value: Bool) -> Int8 {
+        return value ? 1 : 0
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Bool {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Bool, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -862,11 +886,55 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
     func building(lat: Double, lon: Double) throws  -> BuildingInfo?
     
     /**
+     * The building at each of `points`, in input order.
+     *
+     * Grouped by H3 cell internally, so a run of points in the same cell costs
+     * one block read and one decompress rather than one each. This is the
+     * difference between enriching a day of tracking per-point (~12,000 points,
+     * a few dozen cells) and having to sample it.
+     *
+     * `None` for a point with no building within 50 m, per the single-point
+     * [`PtilesLayer::building`] rule.
+     */
+    func buildingsAt(points: [LatLon]) throws  -> [BuildingInfo?]
+    
+    /**
      * Businesses within `radius_m` of `(lat, lon)`, searching the
      * containing cell (plus ring-1 neighbors when `ring == 1`).
      * Business-layer only.
      */
     func businessesNear(lat: Double, lon: Double, ring: UInt8, radiusM: Double) throws  -> [BusinessInfo]
+    
+    /**
+     * How many blocks are currently cached in memory. For a caller that wants
+     * to know what a prefetch actually bought, or when to drop the layer.
+     */
+    func cachedBlockCount()  -> UInt32
+    
+    /**
+     * Drop the block cache, keeping the layer open.
+     */
+    func clearCache() 
+    
+    /**
+     * Whether a coordinate is inside this layer's declared coverage.
+     *
+     * Cheap and local, so it is the right first question: outside the box the
+     * answer is definitively "nothing here", and no range read can improve on
+     * that. Being *inside* the box does not promise a block exists.
+     */
+    func covers(lat: Double, lon: Double)  -> Bool
+    
+    /**
+     * What this layer covers, how big it is, and when it was built -- as far as
+     * that can be known. See [`LayerMetadata`], especially the caveat on
+     * `feature_count`.
+     *
+     * Free: every field comes from the 256-byte header already read at
+     * `open()`, plus the HTTP validators from that same first response. No
+     * additional request.
+     */
+    func metadata()  -> LayerMetadata
     
     /**
      * Nearest labeled intersection to `(lat, lon)` within `threshold_m`
@@ -879,12 +947,48 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
     func nearestIntersection(lat: Double, lon: Double, thresholdM: Double) throws  -> NearestIntersection?
     
     /**
+     * The nearest mapped intersection to each of `points`, in input order.
+     *
+     * Unlike the other two batch methods this reads ring-1 neighbours per cell,
+     * matching single-point [`PtilesLayer::nearest_intersection`]: an
+     * intersection is a point feature and the nearest one to a fix near a cell
+     * edge frequently lives in the next cell over.
+     */
+    func nearestIntersectionsAt(points: [LatLon], thresholdM: Double) throws  -> [NearestIntersection?]
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
      * only.
      */
     func nearestRoad(lat: Double, lon: Double) throws  -> NearestRoad?
+    
+    /**
+     * The nearest road to each of `points`, in input order. Same cell grouping
+     * as [`PtilesLayer::buildings_at`].
+     *
+     * `threshold_m <= 0` uses the same default as the single-point
+     * [`PtilesLayer::nearest_road`].
+     */
+    func nearestRoadsAt(points: [LatLon], thresholdM: Double) throws  -> [NearestRoad?]
+    
+    /**
+     * Fetch and cache every block covering a bounding box, in one pass.
+     *
+     * The middle ground between range-reading forever and downloading a whole
+     * state (CA roads is 118 MB): name the region you are about to work in,
+     * pay for it once, and every later query against it is served from memory.
+     * Returns the number of blocks now cached (cells with no block are cached
+     * as absent and counted as 0).
+     *
+     * Bounded by `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, ~2,600
+     * km^2 -- a metropolitan area, not a state): a larger box is an
+     * `InvalidBounds` error rather than a silent truncation, because a partial
+     * prefetch that looks complete is worse than a refusal. Prefetch the region
+     * you are working in, or walk a larger area in tiles.
+     */
+    func prefetchBbox(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) throws  -> UInt32
     
     /**
      * All decoded road segments in the cell containing `(lat, lon)`, plus
@@ -992,6 +1096,25 @@ open func building(lat: Double, lon: Double)throws  -> BuildingInfo?  {
 }
     
     /**
+     * The building at each of `points`, in input order.
+     *
+     * Grouped by H3 cell internally, so a run of points in the same cell costs
+     * one block read and one decompress rather than one each. This is the
+     * difference between enriching a day of tracking per-point (~12,000 points,
+     * a few dozen cells) and having to sample it.
+     *
+     * `None` for a point with no building within 50 m, per the single-point
+     * [`PtilesLayer::building`] rule.
+     */
+open func buildingsAt(points: [LatLon])throws  -> [BuildingInfo?]  {
+    return try  FfiConverterSequenceOptionTypeBuildingInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_buildings_at(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeLatLon.lower(points),$0
+    )
+})
+}
+    
+    /**
      * Businesses within `radius_m` of `(lat, lon)`, searching the
      * containing cell (plus ring-1 neighbors when `ring == 1`).
      * Business-layer only.
@@ -1003,6 +1126,58 @@ open func businessesNear(lat: Double, lon: Double, ring: UInt8, radiusM: Double)
         FfiConverterDouble.lower(lon),
         FfiConverterUInt8.lower(ring),
         FfiConverterDouble.lower(radiusM),$0
+    )
+})
+}
+    
+    /**
+     * How many blocks are currently cached in memory. For a caller that wants
+     * to know what a prefetch actually bought, or when to drop the layer.
+     */
+open func cachedBlockCount() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Drop the block cache, keeping the layer open.
+     */
+open func clearCache()  {try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+    /**
+     * Whether a coordinate is inside this layer's declared coverage.
+     *
+     * Cheap and local, so it is the right first question: outside the box the
+     * answer is definitively "nothing here", and no range read can improve on
+     * that. Being *inside* the box does not promise a block exists.
+     */
+open func covers(lat: Double, lon: Double) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_covers(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),$0
+    )
+})
+}
+    
+    /**
+     * What this layer covers, how big it is, and when it was built -- as far as
+     * that can be known. See [`LayerMetadata`], especially the caveat on
+     * `feature_count`.
+     *
+     * Free: every field comes from the 256-byte header already read at
+     * `open()`, plus the HTTP validators from that same first response. No
+     * additional request.
+     */
+open func metadata() -> LayerMetadata  {
+    return try!  FfiConverterTypeLayerMetadata_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_metadata(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -1026,6 +1201,23 @@ open func nearestIntersection(lat: Double, lon: Double, thresholdM: Double)throw
 }
     
     /**
+     * The nearest mapped intersection to each of `points`, in input order.
+     *
+     * Unlike the other two batch methods this reads ring-1 neighbours per cell,
+     * matching single-point [`PtilesLayer::nearest_intersection`]: an
+     * intersection is a point feature and the nearest one to a fix near a cell
+     * edge frequently lives in the next cell over.
+     */
+open func nearestIntersectionsAt(points: [LatLon], thresholdM: Double)throws  -> [NearestIntersection?]  {
+    return try  FfiConverterSequenceOptionTypeNearestIntersection.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeLatLon.lower(points),
+        FfiConverterDouble.lower(thresholdM),$0
+    )
+})
+}
+    
+    /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
      * `cli/src/main.rs::OpenedLayer::query`'s roads branch). Roads-layer
@@ -1036,6 +1228,48 @@ open func nearestRoad(lat: Double, lon: Double)throws  -> NearestRoad?  {
     uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road(self.uniffiClonePointer(),
         FfiConverterDouble.lower(lat),
         FfiConverterDouble.lower(lon),$0
+    )
+})
+}
+    
+    /**
+     * The nearest road to each of `points`, in input order. Same cell grouping
+     * as [`PtilesLayer::buildings_at`].
+     *
+     * `threshold_m <= 0` uses the same default as the single-point
+     * [`PtilesLayer::nearest_road`].
+     */
+open func nearestRoadsAt(points: [LatLon], thresholdM: Double)throws  -> [NearestRoad?]  {
+    return try  FfiConverterSequenceOptionTypeNearestRoad.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeLatLon.lower(points),
+        FfiConverterDouble.lower(thresholdM),$0
+    )
+})
+}
+    
+    /**
+     * Fetch and cache every block covering a bounding box, in one pass.
+     *
+     * The middle ground between range-reading forever and downloading a whole
+     * state (CA roads is 118 MB): name the region you are about to work in,
+     * pay for it once, and every later query against it is served from memory.
+     * Returns the number of blocks now cached (cells with no block are cached
+     * as absent and counted as 0).
+     *
+     * Bounded by `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, ~2,600
+     * km^2 -- a metropolitan area, not a state): a larger box is an
+     * `InvalidBounds` error rather than a silent truncation, because a partial
+     * prefetch that looks complete is worse than a refusal. Prefetch the region
+     * you are working in, or walk a larger area in tiles.
+     */
+open func prefetchBbox(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double)throws  -> UInt32  {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(minLat),
+        FfiConverterDouble.lower(minLon),
+        FfiConverterDouble.lower(maxLat),
+        FfiConverterDouble.lower(maxLon),$0
     )
 })
 }
@@ -2042,6 +2276,234 @@ public func FfiConverterTypeLatLon_lower(_ value: LatLon) -> RustBuffer {
 
 
 /**
+ * What an opened layer can say about itself.
+ *
+ * For a file you range-read rather than download, this is the only way to know
+ * what you are querying: coverage, size, schema version, and -- since the
+ * format carries no build date -- the HTTP validators, which are the closest
+ * thing to provenance a remote `.ptiles` has.
+ */
+public struct LayerMetadata {
+    /**
+     * Layer name inferred from the filename (`roads`, `buildings_v8`, ...).
+     */
+    public var layer: String
+    /**
+     * Path or URL this layer was opened from.
+     */
+    public var path: String
+    /**
+     * Format/schema version from the header.
+     */
+    public var version: UInt8
+    /**
+     * Coverage bounding box, degrees. Everything outside it is guaranteed
+     * absent, so a caller can skip the query rather than pay a range read to
+     * learn there is nothing there.
+     */
+    public var minLat: Double
+    public var minLon: Double
+    public var maxLat: Double
+    public var maxLon: Double
+    /**
+     * Features the header claims. **Not always true**: every published
+     * business layer reports 0 because of a builder bug (it compares a string
+     * to an int), while its records decode fine. Treat 0 as "unknown", not as
+     * "empty".
+     */
+    public var featureCount: UInt64
+    /**
+     * Blocks in the file, i.e. how many populated H3 cells it has.
+     */
+    public var blockCount: UInt32
+    /**
+     * Total size of the remote/local file in bytes, if known.
+     */
+    public var byteLength: UInt64?
+    /**
+     * `Last-Modified` of the remote file. The format stores no build date, so
+     * this is the only answer to "is this layer from 2024 or last week?".
+     * `None` for a local file, or a server that does not send it.
+     */
+    public var lastModified: String?
+    /**
+     * `ETag` of the remote file: opaque, but a change means a rebuild. Pair it
+     * with a cached copy to detect that the layer moved on.
+     */
+    public var etag: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Layer name inferred from the filename (`roads`, `buildings_v8`, ...).
+         */layer: String, 
+        /**
+         * Path or URL this layer was opened from.
+         */path: String, 
+        /**
+         * Format/schema version from the header.
+         */version: UInt8, 
+        /**
+         * Coverage bounding box, degrees. Everything outside it is guaranteed
+         * absent, so a caller can skip the query rather than pay a range read to
+         * learn there is nothing there.
+         */minLat: Double, minLon: Double, maxLat: Double, maxLon: Double, 
+        /**
+         * Features the header claims. **Not always true**: every published
+         * business layer reports 0 because of a builder bug (it compares a string
+         * to an int), while its records decode fine. Treat 0 as "unknown", not as
+         * "empty".
+         */featureCount: UInt64, 
+        /**
+         * Blocks in the file, i.e. how many populated H3 cells it has.
+         */blockCount: UInt32, 
+        /**
+         * Total size of the remote/local file in bytes, if known.
+         */byteLength: UInt64?, 
+        /**
+         * `Last-Modified` of the remote file. The format stores no build date, so
+         * this is the only answer to "is this layer from 2024 or last week?".
+         * `None` for a local file, or a server that does not send it.
+         */lastModified: String?, 
+        /**
+         * `ETag` of the remote file: opaque, but a change means a rebuild. Pair it
+         * with a cached copy to detect that the layer moved on.
+         */etag: String?) {
+        self.layer = layer
+        self.path = path
+        self.version = version
+        self.minLat = minLat
+        self.minLon = minLon
+        self.maxLat = maxLat
+        self.maxLon = maxLon
+        self.featureCount = featureCount
+        self.blockCount = blockCount
+        self.byteLength = byteLength
+        self.lastModified = lastModified
+        self.etag = etag
+    }
+}
+
+#if compiler(>=6)
+extension LayerMetadata: Sendable {}
+#endif
+
+
+extension LayerMetadata: Equatable, Hashable {
+    public static func ==(lhs: LayerMetadata, rhs: LayerMetadata) -> Bool {
+        if lhs.layer != rhs.layer {
+            return false
+        }
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.version != rhs.version {
+            return false
+        }
+        if lhs.minLat != rhs.minLat {
+            return false
+        }
+        if lhs.minLon != rhs.minLon {
+            return false
+        }
+        if lhs.maxLat != rhs.maxLat {
+            return false
+        }
+        if lhs.maxLon != rhs.maxLon {
+            return false
+        }
+        if lhs.featureCount != rhs.featureCount {
+            return false
+        }
+        if lhs.blockCount != rhs.blockCount {
+            return false
+        }
+        if lhs.byteLength != rhs.byteLength {
+            return false
+        }
+        if lhs.lastModified != rhs.lastModified {
+            return false
+        }
+        if lhs.etag != rhs.etag {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(layer)
+        hasher.combine(path)
+        hasher.combine(version)
+        hasher.combine(minLat)
+        hasher.combine(minLon)
+        hasher.combine(maxLat)
+        hasher.combine(maxLon)
+        hasher.combine(featureCount)
+        hasher.combine(blockCount)
+        hasher.combine(byteLength)
+        hasher.combine(lastModified)
+        hasher.combine(etag)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLayerMetadata: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LayerMetadata {
+        return
+            try LayerMetadata(
+                layer: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                version: FfiConverterUInt8.read(from: &buf), 
+                minLat: FfiConverterDouble.read(from: &buf), 
+                minLon: FfiConverterDouble.read(from: &buf), 
+                maxLat: FfiConverterDouble.read(from: &buf), 
+                maxLon: FfiConverterDouble.read(from: &buf), 
+                featureCount: FfiConverterUInt64.read(from: &buf), 
+                blockCount: FfiConverterUInt32.read(from: &buf), 
+                byteLength: FfiConverterOptionUInt64.read(from: &buf), 
+                lastModified: FfiConverterOptionString.read(from: &buf), 
+                etag: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LayerMetadata, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.layer, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterUInt8.write(value.version, into: &buf)
+        FfiConverterDouble.write(value.minLat, into: &buf)
+        FfiConverterDouble.write(value.minLon, into: &buf)
+        FfiConverterDouble.write(value.maxLat, into: &buf)
+        FfiConverterDouble.write(value.maxLon, into: &buf)
+        FfiConverterUInt64.write(value.featureCount, into: &buf)
+        FfiConverterUInt32.write(value.blockCount, into: &buf)
+        FfiConverterOptionUInt64.write(value.byteLength, into: &buf)
+        FfiConverterOptionString.write(value.lastModified, into: &buf)
+        FfiConverterOptionString.write(value.etag, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLayerMetadata_lift(_ buf: RustBuffer) throws -> LayerMetadata {
+    return try FfiConverterTypeLayerMetadata.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLayerMetadata_lower(_ value: LayerMetadata) -> RustBuffer {
+    return FfiConverterTypeLayerMetadata.lower(value)
+}
+
+
+/**
  * Nearest labeled intersection to a query point (the "am I at an
  * intersection?" answer). `intersection_type`: 1 = traffic_signals,
  * 2 = stop, 3 = give_way, 4 = roundabout (0/other = untyped). Reports a
@@ -2417,7 +2879,40 @@ public enum PtilesError: Swift.Error {
 
     
     
+    /**
+     * Local or otherwise unclassified open failure: a missing local file, a
+     * bad magic prefix, an unsupported version.
+     */
     case Open(message: String)
+    
+    /**
+     * The host could not be reached at all: DNS, TLS, connection refused or
+     * reset, timeout.
+     *
+     * This is deliberately separate from [`PtilesError::NotFound`]. "You are
+     * offline" and "this coordinate is outside coverage" are opposite
+     * situations -- one should be retried later and the other never will
+     * succeed -- and a caller that cannot tell them apart has to guess. That
+     * guess is what an offline fallback ends up encoding: `core`'s
+     * `SourceError` has always distinguished them, this layer was flattening
+     * the distinction away.
+     */
+    case Network(message: String)
+    
+    /**
+     * The server answered, and said no: the file is not there (404), or not
+     * permitted (403), or any other non-success status. The layer genuinely
+     * does not exist at that URL -- retrying will not change that.
+     */
+    case NotFound(message: String)
+    
+    /**
+     * The server ignored the `Range` header (answered 200 instead of 206), so
+     * positioned reads cannot work against it. A server/CDN configuration
+     * problem, not a data problem, and it fails loudly rather than reading the
+     * whole body and treating it as a slice.
+     */
+    case RangeUnsupported(message: String)
     
     case UnknownLayer(message: String)
     
@@ -2426,6 +2921,15 @@ public enum PtilesError: Swift.Error {
     case UnsupportedForLayer(message: String)
     
     case InvalidRing(message: String)
+    
+    /**
+     * A bounding box that is malformed, or larger than
+     * `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, roughly a
+     * metropolitan area). Reported rather than truncated: a prefetch that
+     * silently covered part of the region would leave the caller trusting data
+     * it does not have.
+     */
+    case InvalidBounds(message: String)
     
 }
 
@@ -2447,19 +2951,35 @@ public struct FfiConverterTypePtilesError: FfiConverterRustBuffer {
             message: try FfiConverterString.read(from: &buf)
         )
         
-        case 2: return .UnknownLayer(
+        case 2: return .Network(
             message: try FfiConverterString.read(from: &buf)
         )
         
-        case 3: return .Decode(
+        case 3: return .NotFound(
             message: try FfiConverterString.read(from: &buf)
         )
         
-        case 4: return .UnsupportedForLayer(
+        case 4: return .RangeUnsupported(
             message: try FfiConverterString.read(from: &buf)
         )
         
-        case 5: return .InvalidRing(
+        case 5: return .UnknownLayer(
+            message: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 6: return .Decode(
+            message: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 7: return .UnsupportedForLayer(
+            message: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 8: return .InvalidRing(
+            message: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 9: return .InvalidBounds(
             message: try FfiConverterString.read(from: &buf)
         )
         
@@ -2476,14 +2996,22 @@ public struct FfiConverterTypePtilesError: FfiConverterRustBuffer {
         
         case .Open(_ /* message is ignored*/):
             writeInt(&buf, Int32(1))
-        case .UnknownLayer(_ /* message is ignored*/):
+        case .Network(_ /* message is ignored*/):
             writeInt(&buf, Int32(2))
-        case .Decode(_ /* message is ignored*/):
+        case .NotFound(_ /* message is ignored*/):
             writeInt(&buf, Int32(3))
-        case .UnsupportedForLayer(_ /* message is ignored*/):
+        case .RangeUnsupported(_ /* message is ignored*/):
             writeInt(&buf, Int32(4))
-        case .InvalidRing(_ /* message is ignored*/):
+        case .UnknownLayer(_ /* message is ignored*/):
             writeInt(&buf, Int32(5))
+        case .Decode(_ /* message is ignored*/):
+            writeInt(&buf, Int32(6))
+        case .UnsupportedForLayer(_ /* message is ignored*/):
+            writeInt(&buf, Int32(7))
+        case .InvalidRing(_ /* message is ignored*/):
+            writeInt(&buf, Int32(8))
+        case .InvalidBounds(_ /* message is ignored*/):
+            writeInt(&buf, Int32(9))
 
         
         }
@@ -2519,6 +3047,30 @@ extension PtilesError: Foundation.LocalizedError {
 
 
 
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -2838,6 +3390,112 @@ fileprivate struct FfiConverterSequenceTypeRoadInfo: FfiConverterRustBuffer {
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceOptionTypeBuildingInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [BuildingInfo?]
+
+    public static func write(_ value: [BuildingInfo?], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterOptionTypeBuildingInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [BuildingInfo?] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [BuildingInfo?]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterOptionTypeBuildingInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceOptionTypeNearestIntersection: FfiConverterRustBuffer {
+    typealias SwiftType = [NearestIntersection?]
+
+    public static func write(_ value: [NearestIntersection?], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterOptionTypeNearestIntersection.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [NearestIntersection?] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [NearestIntersection?]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterOptionTypeNearestIntersection.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceOptionTypeNearestRoad: FfiConverterRustBuffer {
+    typealias SwiftType = [NearestRoad?]
+
+    public static func write(_ value: [NearestRoad?], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterOptionTypeNearestRoad.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [NearestRoad?] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [NearestRoad?]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterOptionTypeNearestRoad.read(from: &buf))
+        }
+        return seq
+    }
+}
+/**
+ * Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
+ * give-way) rather than one it flows through (roundabout, untyped junction).
+ *
+ * This is the distinction the motion classifier uses to tell "stopped at a
+ * light" from "arrived somewhere", and it is a fact about the vocabulary, so it
+ * lives here rather than in every caller that needs it.
+ */
+public func intersectionHoldsTraffic(intersectionType: UInt8) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(
+        FfiConverterUInt8.lower(intersectionType),$0
+    )
+})
+}
+/**
+ * Name for an `intersection_type` byte: `traffic_signals`, `stop`, `give_way`,
+ * `roundabout`, or `junction` for 0/unrecognised.
+ *
+ * The vocabulary is a property of the format, so it comes from
+ * `ptiles_core::intersection_type_name` rather than being re-spelled by each
+ * caller. A caller holding only the integer would otherwise have to invent
+ * names, which is fabrication with a plausible face.
+ */
+public func intersectionTypeName(intersectionType: UInt8) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_intersection_type_name(
+        FfiConverterUInt8.lower(intersectionType),$0
+    )
+})
+}
+
 private enum InitializationResult {
     case ok
     case contractVersionMismatch
@@ -2853,6 +3511,12 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 45962) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_func_intersection_type_name() != 51266) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2865,13 +3529,37 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_building() != 45883) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings_at() != 9245) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near() != 42704) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count() != 57569) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache() != 14397) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_covers() != 61769) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata() != 54913) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersection() != 26252) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_intersections_at() != 64541) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_road() != 49038) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_nearest_roads_at() != 15623) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_prefetch_bbox() != 43698) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_roads() != 36266) {

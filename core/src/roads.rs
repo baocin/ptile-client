@@ -27,7 +27,37 @@ pub struct Intersection {
     pub intersection_type: u8,
 }
 
+/// Name for a stored `intersection_type` byte.
+///
+/// The vocabulary is a property of the format, so it lives here rather than
+/// being re-spelled by every caller: the browser demo, the FFI and the
+/// classifier were each about to grow their own copy of the same five strings,
+/// and a caller that has only the integer has no way to name it without
+/// guessing. `0` and anything unrecognised read as `"junction"` -- the node is
+/// mapped, its control is not stated.
+pub fn intersection_type_name(intersection_type: u8) -> &'static str {
+    match intersection_type {
+        1 => "traffic_signals",
+        2 => "stop",
+        3 => "give_way",
+        4 => "roundabout",
+        _ => "junction",
+    }
+}
+
 impl Intersection {
+    /// This node's control as a name -- see [`intersection_type_name`].
+    pub fn type_name(&self) -> &'static str {
+        intersection_type_name(self.intersection_type)
+    }
+
+    /// Whether this is a node traffic *waits* at (signals, stop, give-way)
+    /// rather than one it flows through. `ptiles-motion` uses this to decide
+    /// whether a stopped vehicle is at a light or has arrived somewhere.
+    pub fn holds_traffic(&self) -> bool {
+        matches!(self.intersection_type, 1 | 2 | 3)
+    }
+
     /// `(lon, lat)` in degrees. The stored `*_micro` fields are named "micro"
     /// but are actually at the same `/100_000` scale as road coordinates
     /// (verified against the golden fixture: `-8_679_367` -> `-86.79367`), so

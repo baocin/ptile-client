@@ -566,6 +566,41 @@ export function index_entries_absolute(header_bytes, index_bytes) {
 }
 
 /**
+ * Whether an `intersection_type` is a node traffic waits at (signals, stop,
+ * give-way) rather than flows through. This is the distinction
+ * `MovementTracker` uses to stretch its "still driving" window.
+ * @param {number} intersection_type
+ * @returns {boolean}
+ */
+export function intersection_holds_traffic(intersection_type) {
+    const ret = wasm.intersection_holds_traffic(intersection_type);
+    return ret !== 0;
+}
+
+/**
+ * Name for an `intersection_type` byte, from the format's own vocabulary:
+ * `traffic_signals` | `stop` | `give_way` | `roundabout` | `junction`.
+ *
+ * `nearest_intersection` returns the raw integer because that is what the block
+ * stores; this is how JS names it without keeping a second copy of the mapping
+ * that can drift from the Rust one.
+ * @param {number} intersection_type
+ * @returns {string}
+ */
+export function intersection_type_name(intersection_type) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.intersection_type_name(intersection_type);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * Business name search, JS-owns-fetch flavor.
  *
  * The `{STATE}.business_name_index.ptiles` sidecar (see

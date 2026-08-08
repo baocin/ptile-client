@@ -165,7 +165,144 @@ its Kotlin copy and call this one, the work is a UniFFI wrapper over `classify`,
 Until then the two implementations have to be kept in step by hand, and the tests here are the
 reference for what "in step" means: `motion/tests/` plus the unit tests in `motion/src/movement.rs`.
 
-## 4. Building labeled fixtures
+## 4. Gaps found while integrating, and what closed them
+
+Five things the app hit. Four are fixed in the FFI; one cannot be, and saying so
+is the honest answer.
+
+### Errors now distinguish offline from out-of-coverage
+
+`PtilesError` was `Open | UnknownLayer | Decode | UnsupportedForLayer |
+InvalidRing`, so an unreachable host and a file that does not exist both arrived
+as `Open` — opposite situations, one worth retrying and one never. `core` had
+always distinguished them (`SourceError::HttpNetwork` vs `HttpStatus` vs
+`RangeNotSupported`); the FFI was flattening it away. Three new variants carry it
+across:
+
+| variant | means | do |
+| --- | --- | --- |
+| `Network { path, message }` | DNS, TLS, connection refused/reset, timeout | you are offline: retry later, fall back to cache |
+| `NotFound { path, status }` | the server answered 404/403/… | that layer is not published: do not retry |
+| `RangeUnsupported { path, status }` | server ignored `Range` (200, not 206) | server/CDN misconfiguration, not a data problem |
+| `Open { path, message }` | local file missing, bad magic, unsupported version | a local/structural problem |
+| `InvalidBounds { message }` | malformed or oversized bbox (see prefetch) | shrink the region |
+
+So `stateFor`'s offline fallback no longer has to guess:
+
+```kotlin
+try { layer.nearestRoad(lat, lon) }
+catch (e: PtilesException.Network)  { useCachedContext() }   // offline
+catch (e: PtilesException.NotFound) { markLayerUnavailable() } // never coming
+```
+
+### Batch queries: one block read per cell, not per point
+
+`buildingsAt(points)`, `nearestRoadsAt(points, thresholdM)` and
+`nearestIntersectionsAt(points, thresholdM)` take a list and return one answer
+per input, in order. Internally they group by H3 cell, so a day of tracking
+(~12,300 points across a few dozen res-7 cells) costs a few dozen block reads and
+decompressions rather than 12,300. A test pins the ratio: eight points in one
+cell must touch at most two blocks.
+
+`PtilesLayer` also now memoizes decompressed blocks, including the *absence* of a
+block, so repeated queries in a cell you have already touched are free. That was
+the missing half: `HttpSource` cached byte ranges already, but every query still
+re-ran zstd over the block. `cachedBlockCount()` and `clearCache()` let a caller
+see and bound it.
+
+This is what makes per-point enrichment viable instead of per-segment sampling.
+
+### bbox prefetch: the middle ground
+
+`prefetchBbox(minLat, minLon, maxLat, maxLon)` fetches and caches every block
+covering a region in one pass, then every query inside it is served from memory.
+Between range-reading forever and downloading 118 MB of CA roads.
+
+Capped at 512 H3 res-7 cells (~2,600 km², a metropolitan area — not a state). A
+larger box is an `InvalidBounds` error, not a truncated prefetch: a partial
+region that reports success is worse than a refusal, because the caller then
+trusts data it does not have. Walk a bigger area in tiles.
+
+### Layer metadata and coverage
+
+`metadata()` returns `LayerMetadata`: layer name, path, schema version, coverage
+bbox, feature count, block count, byte length, and — since the format carries no
+build date — the HTTP `Last-Modified` and `ETag` captured at open. For a file you
+range-read rather than download, those two are the only provenance there is: they
+are how you answer "is this TN.roads from 2024 or last week?". `None` for a local
+file, or a server that does not send them.
+
+Free: every field comes from the 256-byte header already read at `open()` and
+that same first response. No extra request.
+
+`covers(lat, lon)` answers the cheap question first — outside the bbox nothing
+exists and no range read can improve on that. Inside it does *not* promise a
+block: the corpus slice has a whole-state bbox and 48 cells, which is exactly the
+distinction that caught out the first version of the tests here.
+
+**One caveat, recorded because the number lies:** `feature_count` is 0 on every
+published business layer — a builder bug (it compares a string to an int) — while
+the records decode fine. Treat 0 as unknown, not empty.
+
+### The intersection vocabulary, and the one that does not exist
+
+`intersectionTypeName(t)` → `traffic_signals` | `stop` | `give_way` |
+`roundabout` | `junction` (0/unrecognised). `intersectionHoldsTraffic(t)` is the
+signals/stop/give-way group — the distinction the motion classifier uses to tell
+a red light from an arrival. Both come from `ptiles_core::intersection_type_name`,
+so the vocabulary has one home; `label-gpx`'s hand-written copy of the same five
+strings is deleted, and the wasm build exports the same two functions.
+
+**`categoryIdx` has no vocabulary to expose, and this library cannot invent one.**
+The published `business_v4` files carry the index and no category table, and no
+sidecar mapping ships with them. Logging the raw integer is the correct behavior,
+not a shortcoming of the caller. If the POI builder starts emitting a category
+table — in `aux`, or as a sidecar — a `businessCategoryName` accessor belongs
+right next to the two above, and that is a builder change, not a client one.
+
+(Signals are unaffected: `.signals` records already carry their type as a string,
+decoded from the format's own table. `BuildingInfo.category` likewise.)
+
+## 5. On the second implementation in the server
+
+The server's `location/ptiles/` — 13 files: header parsing, block offsets, zstd,
+H3 lookup, admin/buildings/business readers, geometry, scoring — is a full
+reimplementation of what `ptiles-core` does, and `scoring.ts` is
+`PtilesStack.score`'s algorithm written a second time. With the Kotlin reading
+`buildings_v8` while that TS header says v7/v8, that is three lineages of one
+format drifting apart, and the drift shows up as a wrong answer rather than a
+build error.
+
+A wasm build deletes the TS port, and it already exists: `wasm/` is built for the
+browser today (`web-demo/`, `label-gpx/`) and the same crate builds for Node with
+one flag —
+
+```sh
+wasm-pack build wasm --target nodejs --out-dir ../wasm-pkg --release
+```
+
+— which is how `label-gpx`'s own test suite drives it under `node --test`. So the
+server-side move is mechanical rather than exploratory:
+
+1. Vendor or publish `wasm-pkg/` and `require()` it where `location/ptiles/`
+   is imported today.
+2. Replace the readers with `parse_header` / `parse_index_layout` /
+   `index_entries_absolute` / `decompress_block` / `merged_cell_slice` and the
+   per-layer `decode_*` exports — the same functions `web-demo/js/ptiles.js`
+   calls, which is 574 lines of JavaScript holding *zero* format knowledge and is
+   the shape to copy.
+3. Replace `scoring.ts` with `score_candidates`, so the ranking has one
+   definition. This is the one that changes behavior: expect small differences,
+   and treat the Rust as correct (it is what the golden fixtures and the
+   conformance corpus test).
+4. Delete `location/ptiles/`.
+
+Two things that will bite in Node specifically: `osm_id` on business records can
+exceed 2^53 and arrives as a `BigInt`, and the address layer must be sliced by
+the entry's *stored* cell id rather than the masked lookup key — masked silently
+returns zero records where stored returns all of them.
+
+## 6. Building labeled fixtures
 
 `label-gpx/` (<https://steele.red/ptile-label-gpx/>) takes a GPX from the app, classifies it,
 lets a human correct the segments, and exports the labeled result in the format `SCHEMA.md`

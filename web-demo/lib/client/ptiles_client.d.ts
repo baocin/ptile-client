@@ -223,6 +223,23 @@ export function geocode_addresses(query: string, addresses_js: any, limit?: numb
 export function index_entries_absolute(header_bytes: Uint8Array, index_bytes: Uint8Array): any;
 
 /**
+ * Whether an `intersection_type` is a node traffic waits at (signals, stop,
+ * give-way) rather than flows through. This is the distinction
+ * `MovementTracker` uses to stretch its "still driving" window.
+ */
+export function intersection_holds_traffic(intersection_type: number): boolean;
+
+/**
+ * Name for an `intersection_type` byte, from the format's own vocabulary:
+ * `traffic_signals` | `stop` | `give_way` | `roundabout` | `junction`.
+ *
+ * `nearest_intersection` returns the raw integer because that is what the block
+ * stores; this is how JS names it without keeping a second copy of the mapping
+ * that can drift from the Rust one.
+ */
+export function intersection_type_name(intersection_type: number): string;
+
+/**
  * Business name search, JS-owns-fetch flavor.
  *
  * The `{STATE}.business_name_index.ptiles` sidecar (see
@@ -508,6 +525,8 @@ export interface InitOutput {
     readonly find_block_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly geocode_addresses: (a: number, b: number, c: any, d: number) => [number, number, number];
     readonly index_entries_absolute: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly intersection_holds_traffic: (a: number) => number;
+    readonly intersection_type_name: (a: number) => [number, number];
     readonly key_for_business_name_query: (a: number, b: number) => number;
     readonly locate_point: (a: number, b: number, c: any, d: any, e: any) => [number, number, number];
     readonly match_business_name_block: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];

@@ -214,7 +214,7 @@ function readAccel(ext) {
  * One `<trk>` per segment, `<name>` = the label, so a plain GPX viewer shows
  * the labels without knowing anything about this format.
  */
-export function writeGpx(parsed, segments, provenance = {}) {
+export function writeGpx(parsed, segments, provenance = {}, intersectionTypeName = null) {
   const doc = parsed.doc.cloneNode(true);
   const root = doc.documentElement;
   root.setAttribute("xmlns:rook", ROOK_NS);
@@ -264,7 +264,7 @@ export function writeGpx(parsed, segments, provenance = {}) {
     seg.setAttribute("start_time", new Date(pts[0].t_ms).toISOString());
     seg.setAttribute("end_time", new Date(pts[pts.length - 1].t_ms).toISOString());
     ext.appendChild(seg);
-    const ctx = contextNode(doc, rook, s);
+    const ctx = contextNode(doc, rook, s, intersectionTypeName);
     if (ctx) ext.appendChild(ctx);
     trk.appendChild(ext);
 
@@ -347,7 +347,7 @@ function trimNum(v) {
  * not be silently replaced by what a 2026 map says. Only a context this page
  * resolved is generated here.
  */
-function contextNode(doc, rook, s) {
+function contextNode(doc, rook, s, intersectionTypeName) {
   if (s.sourceContext) return doc.importNode(s.sourceContext, true);
   const c = s.context;
   if (!c) return null;
@@ -387,20 +387,18 @@ function contextNode(doc, rook, s) {
     leaf(i, "lat", c.intersection.lat);
     leaf(i, "lon", c.intersection.lon);
     leaf(i, "distance_m", round1(c.intersection.distance_m));
-    leaf(i, "type", INTERSECTION_TYPES[c.intersection.intersection_type] ?? "junction");
+    // The vocabulary comes from wasm (`intersection_type_name`), passed in by
+    // the caller: a second copy of the mapping in JavaScript is a third lineage
+    // of the same format waiting to drift. With no namer the element is omitted
+    // rather than filled with the raw integer -- SCHEMA.md says this field is a
+    // name, and a number there would be a schema violation dressed as data.
+    if (intersectionTypeName) {
+      leaf(i, "type", intersectionTypeName(c.intersection.intersection_type));
+    }
     ctx.appendChild(i);
   }
   return ctx.children.length ? ctx : null;
 }
-
-/** Numeric `intersection_type` -> the name SCHEMA.md specifies. */
-export const INTERSECTION_TYPES = {
-  1: "signals",
-  2: "stop",
-  3: "give_way",
-  4: "roundabout",
-  0: "junction",
-};
 
 function round1(v) {
   return v === undefined || v === null ? undefined : Math.round(v * 10) / 10;

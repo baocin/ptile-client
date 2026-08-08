@@ -1081,6 +1081,25 @@ pub fn address_cell(block_bytes: &[u8], cell_hex: &str, version: u8) -> Result<J
     to_js(&records)
 }
 
+/// Name for an `intersection_type` byte, from the format's own vocabulary:
+/// `traffic_signals` | `stop` | `give_way` | `roundabout` | `junction`.
+///
+/// `nearest_intersection` returns the raw integer because that is what the block
+/// stores; this is how JS names it without keeping a second copy of the mapping
+/// that can drift from the Rust one.
+#[wasm_bindgen]
+pub fn intersection_type_name(intersection_type: u8) -> String {
+    ptiles_core::intersection_type_name(intersection_type).to_string()
+}
+
+/// Whether an `intersection_type` is a node traffic waits at (signals, stop,
+/// give-way) rather than flows through. This is the distinction
+/// `MovementTracker` uses to stretch its "still driving" window.
+#[wasm_bindgen]
+pub fn intersection_holds_traffic(intersection_type: u8) -> bool {
+    matches!(intersection_type, 1 | 2 | 3)
+}
+
 /// Accelerometer window summary from three same-length `Float32Array`s (raw
 /// m/s^2 per axis, no gravity removal needed — magnitude is used). Returns
 /// `{variance, mean_magnitude, dominant_frequency, step_count,

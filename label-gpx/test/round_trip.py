@@ -119,7 +119,25 @@ async (rookXml) => {
     rook,
     [{ start: 0, end: 2, type: "stationary", edited: false, sourceContext: rook.tracks[0].context }],
     {},
+    wasm.intersection_type_name,
   );
+  // The intersection vocabulary comes from wasm, not a JS copy of the mapping.
+  ok("vocabulary: wasm names the intersection type",
+     wasm.intersection_type_name(1) === "traffic_signals" &&
+     wasm.intersection_type_name(0) === "junction" &&
+     wasm.intersection_holds_traffic(1) === true &&
+     wasm.intersection_holds_traffic(4) === false,
+     wasm.intersection_type_name(1));
+  const named = gpx.writeGpx(
+    plain,
+    [{ start: 0, end: 5, type: "walking", edited: true,
+       context: { snapshot: "2026-08-07", resolved: Date.now(),
+                  intersection: { lat: 35.88, lon: -78.75, distance_m: 9, intersection_type: 1 } } }],
+    {},
+    wasm.intersection_type_name,
+  );
+  ok("vocabulary: the written context uses the name, not the integer",
+     /<type>traffic_signals<\/type>/.test(named) && !/<type>1<\/type>/.test(named), "");
   ok("rook: export does not invent accel fields",
      !/accel_mean/.test(rookOut) && !/accel_window_s/.test(rookOut) &&
      /accel_variance/.test(rookOut), "");
