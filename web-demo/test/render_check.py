@@ -57,6 +57,7 @@ LAYERS = [
     ("bldgs", "chkBldgs", False, NASHVILLE),
     ("parks", "chkParks", False, NASHVILLE),
     ("rail", "chkRail", False, NASHVILLE),
+    ("ev", "chkEv", False, NASHVILLE),
     ("camera", "chkCamera", False, SIOUX_FALLS),
     ("signal", "chkSignal", False, NASHVILLE),
 ]

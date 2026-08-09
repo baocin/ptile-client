@@ -321,6 +321,14 @@ export function intersection_holds_traffic(intersection_type: number): boolean;
 export function intersection_type_name(intersection_type: number): string;
 
 /**
+ * Whether a connector charges at DC speed in North America (CCS1, CCS2,
+ * CHAdeMO, Tesla). The difference between a twenty-minute stop and an
+ * afternoon, and a property of the format's own connector vocabulary, so it
+ * comes from core rather than being re-listed in each renderer.
+ */
+export function is_fast_connector(connector: string): boolean;
+
+/**
  * Business name search, JS-owns-fetch flavor.
  *
  * The `{STATE}.business_name_index.ptiles` sidecar (see
@@ -745,6 +753,7 @@ export interface InitOutput {
     readonly index_entries_absolute: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly intersection_holds_traffic: (a: number) => number;
     readonly intersection_type_name: (a: number) => [number, number];
+    readonly is_fast_connector: (a: number, b: number) => number;
     readonly key_for_business_name_query: (a: number, b: number) => number;
     readonly locate_point: (a: number, b: number, c: any, d: any, e: any) => [number, number, number];
     readonly match_business_name_block: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];

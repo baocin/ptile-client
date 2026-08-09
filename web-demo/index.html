@@ -153,6 +153,7 @@
     <label><input type="checkbox" id="chkRail"> Rail</label>
     <label><input type="checkbox" id="chkTrails"> Trails</label>
     <label><input type="checkbox" id="chkBldgs"> Buildings</label>
+    <label><input type="checkbox" id="chkEv" title="Public EV charging stations. Click one for power, connectors and network."> EV</label>
     <label><input type="checkbox" id="chkCamera"> Cameras</label>
     <label><input type="checkbox" id="chkSignal"> Signals</label>
     <label id="chk3DWrap" style="display:none" title="Extrude buildings; heights not published are estimated from building type and drawn faded"><input type="checkbox" id="chk3D"> 3D</label>
@@ -897,6 +898,7 @@ var ptilesLayers = {
   rail:  { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   trails:{ reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   bldgs: { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
+  ev:    { reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   camera:{ reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
   signal:{ reader: null, group: L.layerGroup(), loading: false, rendered: new Set() },
 };
@@ -1163,13 +1165,15 @@ async function renderPtilesForCells(cells) {
   var chkRail  = document.getElementById("chkRail").checked;
   var chkTrails = document.getElementById("chkTrails").checked;
   var chkBldgs = document.getElementById("chkBldgs").checked;
+  var chkEv = document.getElementById("chkEv").checked;
   var chkCamera = document.getElementById("chkCamera").checked;
   var chkSignal = document.getElementById("chkSignal").checked;
   var count = 0;
 
   prefetchCells(cells, [
     chkRoads && "roads", chkWater && "water", chkParks && "parks",
-    chkRail && "rail", chkTrails && "trails", chkBldgs && "bldgs", chkCamera && "camera",
+    chkRail && "rail", chkTrails && "trails", chkBldgs && "bldgs", chkEv && "ev",
+    chkCamera && "camera",
     chkSignal && "signal",
   ].filter(Boolean));
 
@@ -1225,6 +1229,37 @@ async function renderPtilesForCells(cells) {
         }); count += feats.length; }
       } catch(e) {}
     }
+    if (chkEv && ptilesLayers.ev.reader && !ptilesLayers.ev.rendered.has(cellInt)) {
+      ptilesLayers.ev.rendered.add(cellInt);
+      try {
+        var raw = await ptilesLayers.ev.reader.decompressCell(cellInt);
+        if (raw) { var feats = wasm_decode_chargers(raw); feats.forEach(function(c) {
+          // Filled for a fast charger, hollow for everything else: that is the
+          // difference between a twenty-minute stop and an afternoon, and it
+          // is the first thing anyone looking for a charger wants to see.
+          // `is_fast_connector` is core's call -- the connector vocabulary
+          // belongs to the format, not to this page.
+          var fast = (c.connectors || []).some(function(k) { return wasm.is_fast_connector(k); })
+                     || (c.power_kw != null && c.power_kw >= 50);
+          var kw = c.power_kw != null ? c.power_kw + " kW" : "power not tagged";
+          var conn = (c.connectors || []).length ? c.connectors.join(", ") : "connectors not tagged";
+          L.circleMarker([c.lat, c.lon], {
+            radius: fast ? 6 : 4,
+            color: "#2ea043",
+            fillColor: fast ? "#2ea043" : "#0d1117",
+            fillOpacity: fast ? 0.9 : 0.6,
+            weight: 2
+          }).bindPopup(
+            "<b>" + (c.name || c.network || "Charging station") + "</b><br>" +
+            kw + (c.capacity != null ? " · " + c.capacity + " bays" : "") + "<br>" +
+            conn + "<br>" +
+            "access: " + c.access +
+            (c.network && c.name ? "<br>network: " + c.network : "")
+          ).addTo(ptilesLayers.ev.group);
+        }); count += feats.length; }
+      } catch(e) {}
+    }
+
     if (chkTrails && ptilesLayers.trails.reader && !ptilesLayers.trails.rendered.has(cellInt)) {
       ptilesLayers.trails.rendered.add(cellInt);
       try {
@@ -1484,7 +1519,7 @@ async function loadPtilesLayerUS(key, filename) {
 // Track active PTILES layer loads per key so we can cancel on state change
 var ptilesLayerRevision = 0;
 
-var LAYER_CHK_MAP = {roads:"chkRoads",water:"chkWater",parks:"chkParks",rail:"chkRail",trails:"chkTrails",bldgs:"chkBldgs",camera:"chkCamera",signal:"chkSignal"};
+var LAYER_CHK_MAP = {roads:"chkRoads",water:"chkWater",parks:"chkParks",rail:"chkRail",trails:"chkTrails",bldgs:"chkBldgs",ev:"chkEv",camera:"chkCamera",signal:"chkSignal"};
 
 async function activatePtilesMode() {
   ptilesLayerRevision++;
@@ -1532,7 +1567,10 @@ async function loadCheckedLayers(myRev) {
 
 // Roads and water first so the map gets its basemap-substitute quickly; the
 // national point layers last because they are the largest fetch.
-var PTILES_LAYER_ORDER = ["roads", "water", "parks", "rail", "trails", "bldgs", "camera", "signal"];
+// This list, not LAYER_CHK_MAP, decides what actually loads: a layer missing
+// from it gets its group added to the map and its reader never built, which
+// looks exactly like a layer with no data in view.
+var PTILES_LAYER_ORDER = ["roads", "water", "parks", "rail", "trails", "bldgs", "ev", "camera", "signal"];
 
 // How each layer's reader is built. Buildings is the odd one out:
 // renderPtilesForCells calls `reader.renderAllInCell`, which only
@@ -1545,6 +1583,8 @@ var PTILES_LOADERS = {
   rail: function() { return loadPtilesLayer("rail", "rail"); },
   // trails ships versioned in its filename; the older layers do not.
   trails: function() { return loadPtilesLayer("trails", "trails"); },
+  // Per-state and versioned in its filename, like trails.
+  ev: function() { return loadPtilesLayer("ev", "ev"); },
   bldgs: function() { return loadPtilesLayerBldgs(); },
   camera: function() { return loadPtilesLayerUS("camera", US_LAYER_FILES.camera); },
   signal: function() { return loadPtilesLayerUS("signal", US_LAYER_FILES.signal); }

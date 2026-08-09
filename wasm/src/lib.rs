@@ -688,6 +688,15 @@ pub fn plan_charge_stops(
     ))
 }
 
+/// Whether a connector charges at DC speed in North America (CCS1, CCS2,
+/// CHAdeMO, Tesla). The difference between a twenty-minute stop and an
+/// afternoon, and a property of the format's own connector vocabulary, so it
+/// comes from core rather than being re-listed in each renderer.
+#[wasm_bindgen]
+pub fn is_fast_connector(connector: &str) -> bool {
+    ptiles_core::is_fast_connector(connector)
+}
+
 /// The fraction of range the charge planner holds back (0.2).
 #[wasm_bindgen]
 pub fn charge_reserve() -> f64 {

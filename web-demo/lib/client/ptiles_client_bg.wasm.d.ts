@@ -34,6 +34,7 @@ export const geocode_addresses: (a: number, b: number, c: any, d: number) => [nu
 export const index_entries_absolute: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const intersection_holds_traffic: (a: number) => number;
 export const intersection_type_name: (a: number) => [number, number];
+export const is_fast_connector: (a: number, b: number) => number;
 export const key_for_business_name_query: (a: number, b: number) => number;
 export const locate_point: (a: number, b: number, c: any, d: any, e: any) => [number, number, number];
 export const match_business_name_block: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];

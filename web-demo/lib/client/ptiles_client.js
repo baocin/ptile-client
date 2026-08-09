@@ -754,6 +754,21 @@ export function intersection_type_name(intersection_type) {
 }
 
 /**
+ * Whether a connector charges at DC speed in North America (CCS1, CCS2,
+ * CHAdeMO, Tesla). The difference between a twenty-minute stop and an
+ * afternoon, and a property of the format's own connector vocabulary, so it
+ * comes from core rather than being re-listed in each renderer.
+ * @param {string} connector
+ * @returns {boolean}
+ */
+export function is_fast_connector(connector) {
+    const ptr0 = passStringToWasm0(connector, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.is_fast_connector(ptr0, len0);
+    return ret !== 0;
+}
+
+/**
  * Business name search, JS-owns-fetch flavor.
  *
  * The `{STATE}.business_name_index.ptiles` sidecar (see
