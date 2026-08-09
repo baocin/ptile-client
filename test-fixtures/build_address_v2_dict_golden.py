@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate an `address_v2_dict.ptiles` golden fixture: what the real builder
-actually emits, which `address.ptiles` (v1, no dictionary, `PTILESA2` magic)
-did not resemble closely enough to catch two decoder bugs.
+"""Generate the `address_v{2,3}_dict.ptiles` golden fixtures: what the real
+builder emits, which `address.ptiles` (v1, no dictionary, `PTILESA2` magic) did
+not resemble closely enough to catch two decoder bugs.
 
 Every published `{STATE}.address_v2.ptiles` is magic `PTILESD`, version 2, and
 its blocks are compressed against an 8 KiB zstd dictionary stored in the file.
@@ -9,9 +9,12 @@ The Rust `AddressFile` rejected the magic outright and, once past that,
 decompressed blocks without the dictionary -- so the whole layer read as
 "unexpected end of input" on every real file while the v1 golden fixture passed.
 
+v3 is v2 plus a one-byte provenance field after the coordinate offsets, for the
+merged OSM + NAD + OpenAddresses layer.
+
 Emits:
-  test-fixtures/golden/address_v2_dict.ptiles
-  test-fixtures/golden/address_v2_dict.golden.json
+  test-fixtures/golden/address_v2_dict.ptiles  + .golden.json
+  test-fixtures/golden/address_v3_dict.ptiles  + .golden.json
 """
 import json
 import os
@@ -32,7 +35,6 @@ from shared import (  # noqa: E402
 )
 
 MAGIC = b"PTILESD\x00"
-VERSION = 2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "golden")
@@ -40,29 +42,30 @@ OUT_DIR = os.path.join(HERE, "golden")
 CENTER_LON_MICRO = round(-86.783 * 100000)
 CENTER_LAT_MICRO = round(36.166 * 100000)
 
-# (cell_id, [(osm_id, housenumber, street, lat, lon)]). Positions are inside the
-# cell, so the i16 microdegree offsets cannot overflow -- the same invariant the
-# builder relies on.
+# (cell_id, [(osm_id, housenumber, street, lat, lon, source)]). Positions are
+# inside the cell, so the i16 microdegree offsets cannot overflow -- the same
+# invariant the builder relies on. `source` is the v3 provenance byte
+# (0=osm, 1=nad, 2=openaddresses) and is dropped when writing v2.
 CELLS = [
     (
         0x87264D106FFFFFF,
         [
-            (1440913532, "100", "Broadway", 36.16612, -86.78321),
-            (1440913600, "102", "Broadway", 36.16650, -86.78290),
-            (1440913700, "5", "2nd Ave N", 36.16410, -86.77980),
+            (1440913532, "100", "Broadway", 36.16612, -86.78321, 0),
+            (1440913600, "102", "Broadway", 36.16650, -86.78290, 1),
+            (1440913700, "5", "2nd Ave N", 36.16410, -86.77980, 2),
         ],
     ),
     (
         0x87264D1040FFFFF,
         [
-            (900000001, "1", "Church St", 36.16901, -86.78810),
+            (900000001, "1", "Church St", 36.16901, -86.78810, 1),
         ],
     ),
 ]
 
 
-def enc_record(osm_id, pid, housenumber, street, lat, lon):
-    """One v2 record: delta osm_id, i16 lon/lat offsets, then the strings."""
+def enc_record(osm_id, pid, housenumber, street, lat, lon, source, version):
+    """One record: delta osm_id, i16 lon/lat offsets, v3's source byte, strings."""
     b = bytearray()
     b.extend(encode_varint(zigzag_encode(osm_id - pid)))
     b.extend(
@@ -72,6 +75,8 @@ def enc_record(osm_id, pid, housenumber, street, lat, lon):
             round(lat * 100000) - CENTER_LAT_MICRO,
         )
     )
+    if version >= 3:
+        b.append(source)
     for s in (housenumber, street):
         raw = s.encode("utf-8")
         b.extend(struct.pack("<H", len(raw)))
@@ -79,7 +84,7 @@ def enc_record(osm_id, pid, housenumber, street, lat, lon):
     return bytes(b)
 
 
-def train_dictionary():
+def train_dictionary(version):
     """A real (magic-carrying) zstd dictionary, trained on synthetic blocks.
 
     A raw-content dictionary would not do: the decoder parses the dictionary
@@ -97,6 +102,8 @@ def train_dictionary():
                 streets[(i + j) % len(streets)],
                 36.166 + (j * 0.0003),
                 -86.783 + (i % 11) * 0.0004,
+                j % 3,
+                version,
             )
             for j in range(6)
         ]
@@ -108,14 +115,12 @@ def train_dictionary():
     return zstd.train_dictionary(4096, samples).as_bytes()
 
 
-def main():
-    os.makedirs(OUT_DIR, exist_ok=True)
-
+def build(version, stem):
     cell_records, golden_cells = [], []
     for cell_id, addrs in CELLS:
         recs, pid, gaddrs = [], 0, []
-        for osm_id, hn, st, lat, lon in addrs:
-            recs.append(enc_record(osm_id, pid, hn, st, lat, lon))
+        for osm_id, hn, st, lat, lon, source in addrs:
+            recs.append(enc_record(osm_id, pid, hn, st, lat, lon, source, version))
             pid = osm_id
             gaddrs.append(
                 {
@@ -128,13 +133,16 @@ def main():
                     / 100000,
                     "lon": (CENTER_LON_MICRO + round(lon * 100000) - CENTER_LON_MICRO)
                     / 100000,
+                    "source": ["osm", "nad", "openaddresses"][source]
+                    if version >= 3
+                    else "osm",
                 }
             )
         cell_records.append((cell_id, recs))
         golden_cells.append({"cell_id": cell_id, "addresses": gaddrs})
 
     block = encode_merged_block(cell_records, CENTER_LON_MICRO, CENTER_LAT_MICRO)
-    dict_bytes = train_dictionary()
+    dict_bytes = train_dictionary(version)
     zd = zstd.ZstdCompressionDict(dict_bytes)
     compressed = zstd.ZstdCompressor(level=12, dict_data=zd).compress(block)
 
@@ -164,12 +172,12 @@ def main():
             )
         )
 
-    out_path = os.path.join(OUT_DIR, "address_v2_dict.ptiles")
+    out_path = os.path.join(OUT_DIR, f"{stem}.ptiles")
     with open(out_path, "wb") as f:
         write_header(
             f,
             MAGIC,
-            VERSION,
+            version,
             36.0,
             -87.0,
             36.5,
@@ -186,7 +194,7 @@ def main():
         f.write(bytes(index_bytes))
         f.write(compressed)
 
-    with open(os.path.join(OUT_DIR, "address_v2_dict.golden.json"), "w") as f:
+    with open(os.path.join(OUT_DIR, f"{stem}.golden.json"), "w") as f:
         json.dump(
             {
                 "block_count": 1,
@@ -199,9 +207,15 @@ def main():
         )
 
     print(
-        f"wrote {out_path} ({os.path.getsize(out_path)} bytes), "
+        f"wrote {out_path} (v{version}, {os.path.getsize(out_path)} bytes), "
         f"{n_index} cells, {total_features} addresses, {dict_length} B dictionary"
     )
+
+
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    build(2, "address_v2_dict")
+    build(3, "address_v3_dict")
 
 
 if __name__ == "__main__":
