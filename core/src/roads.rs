@@ -12,8 +12,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::codec::{
-    DecodeError, decode_indexed_or_custom, decode_string_u8, decode_string_u16, decode_varint,
-    read_i32, read_u8, read_u16, read_u32, tables, zigzag_decode,
+    DecodeError, decode_indexed_or_custom, decode_varint, read_i32, read_u8, read_u16, read_u32,
+    tables,
 };
 
 /// An intersection point (v2+ road blocks carry a trailing table of these
@@ -190,129 +190,6 @@ fn decode_road_record(rec: &[u8], prev_osm_id: u64) -> Result<(RoadSegment, u64)
 pub fn decode_roads(data: &[u8]) -> Result<Vec<RoadSegment>, DecodeError> {
     let (roads, _pos) = decode_road_records(data)?;
     Ok(roads)
-}
-
-/// Decode the published `{ST}.highways_v2.ptiles` record stream.
-///
-/// These files reuse `PTILESR` v2 and the ordinary 19-byte index, but their
-/// record body predates the current roads-v2 body: OSM ids are zigzag deltas,
-/// vertex count is u8 with a 0xff/u16 escape, class precedes flags, and
-/// maxspeed is stored as a string. It therefore needs an explicit decoder;
-/// handing it to [`decode_roads`] mostly returns an empty vector without an
-/// error because the misaligned fields can still look plausible.
-pub fn decode_highways(data: &[u8]) -> Result<Vec<RoadSegment>, DecodeError> {
-    let mut roads = Vec::new();
-    let mut p = 0usize;
-    let mut prev_osm_id = 0i64;
-
-    while p + 4 <= data.len() {
-        let record_len = read_u32(data, p)? as usize;
-        p += 4;
-        if record_len == 0 {
-            break;
-        }
-        if p + record_len > data.len() {
-            return Err(DecodeError::RecordOverrun {
-                offset: p,
-                len: record_len,
-                block_len: data.len(),
-            });
-        }
-        let rec = &data[p..p + record_len];
-        if let Ok((road, next_id)) = decode_highway_record(rec, prev_osm_id) {
-            prev_osm_id = next_id;
-            roads.push(road);
-        }
-        p += record_len;
-    }
-    Ok(roads)
-}
-
-fn decode_highway_record(
-    rec: &[u8],
-    prev_osm_id: i64,
-) -> Result<(RoadSegment, i64), DecodeError> {
-    let mut p = 0usize;
-    let (delta, consumed) = decode_varint(rec, p)?;
-    p += consumed;
-    let osm_id = prev_osm_id.wrapping_add(zigzag_decode(delta));
-
-    let count8 = read_u8(rec, p)?;
-    p += 1;
-    let vertex_count = if count8 == 0xff {
-        let count = read_u16(rec, p)? as usize;
-        p += 2;
-        count
-    } else {
-        count8 as usize
-    };
-    let first_lon = read_i32(rec, p)?;
-    let first_lat = read_i32(rec, p + 4)?;
-    p += 8;
-    let (coords, consumed) =
-        crate::codec::decode_coordinates(rec, p, first_lon, first_lat, vertex_count)?;
-    p += consumed;
-
-    let class_idx = read_u8(rec, p)?;
-    p += 1;
-    let road_class = match class_idx {
-        0 => "motorway",
-        1 => "motorway_link",
-        2 => "trunk",
-        3 => "trunk_link",
-        4 => "primary",
-        5 => "primary_link",
-        _ => "unknown",
-    };
-    let flags = read_u8(rec, p)?;
-    p += 1;
-
-    let mut name = None;
-    let mut ref_tag = None;
-    if flags & 0x01 != 0 {
-        let (value, consumed) = decode_string_u16(rec, p)?;
-        p += consumed;
-        name = Some(value);
-    }
-    // The generator stores the original maxspeed tag as text. The graph's
-    // class default remains a safe fallback and avoids guessing units here.
-    if flags & 0x02 != 0 {
-        let (_, consumed) = decode_string_u8(rec, p)?;
-        p += consumed;
-    }
-    if flags & 0x40 != 0 {
-        let (value, consumed) = decode_string_u8(rec, p)?;
-        p += consumed;
-        ref_tag = Some(value);
-    }
-    let _ = p;
-
-    let oneway = if flags & 0x08 != 0 {
-        Some(String::from("forward"))
-    } else if flags & 0x10 != 0 {
-        Some(String::from("reverse"))
-    } else {
-        None
-    };
-    Ok((
-        RoadSegment {
-            osm_id: osm_id as u64,
-            road_class: String::from(road_class),
-            coords,
-            name,
-            ref_tag,
-            oneway,
-            speed_limit_kmh: None,
-            lanes: None,
-            surface: None,
-            bridge_tunnel: if flags & 0x20 != 0 {
-                Some(String::from("bridge"))
-            } else {
-                None
-            },
-        },
-        osm_id,
-    ))
 }
 
 /// Shared road-record scan used by both `decode_roads` and

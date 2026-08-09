@@ -76,6 +76,7 @@ function points(stem) {
 /** The vehicular trace and a foot trace, the two ends of the behaviour. */
 const DRIVE = "tn-middle-tennessee-3605997";
 const WALK = "tn-maryville-hike-1063250";
+const UMSTEAD = "nc-umstead-trails-1184467";
 
 const have = existsSync(join(GPX, `${DRIVE}.gpx`));
 
@@ -111,6 +112,20 @@ test("a real drive classifies as driving, a real walk does not", { skip: !have }
   assert.ok(
     !walkPer.get("driving"),
     `a 1.2 m/s walk must not produce driving segments: ${walkSegs.map((s) => s.type).join(",")}`,
+  );
+});
+
+test("Umstead's spatially continuous slow stretches stay walking", { skip: !have }, () => {
+  const trace = points(UMSTEAD);
+  assert.equal(trace.length, 1957);
+  const segments = coalesce(trace, classifyTrace(wasm, trace));
+  const firstWalk = segments.findIndex((segment) => segment.type === "walking");
+  assert.ok(firstWalk >= 0, `no walking segment: ${segments.map((s) => s.type).join(",")}`);
+  assert.ok(
+    !segments.slice(firstWalk + 1).some((segment) => segment.type === "stationary"),
+    `moving stretches split out as stationary: ${segments
+      .map((segment) => `${segment.type}:${segment.start}-${segment.end}`)
+      .join(", ")}`,
   );
 });
 

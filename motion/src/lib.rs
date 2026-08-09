@@ -40,7 +40,7 @@ pub use shifts::{significant_shifts, Shift, ShiftConfig};
 pub use movement::{
     AccelStats, DebounceConfig, MovementType, RoadContext, TrafficControl, Vote, VoteDebouncer,
     classify, classify_accel_only, classify_with_history, DRIVING_FLOOR_MPS, GPS_ACCURACY_GATE_M,
-    RUNNING_SPEED_HINT_MPS, WALKING_CEILING_MPS,
+    RUNNING_SPEED_HINT_MPS, STATIONARY_CEILING_MPS, WALKING_CEILING_MPS,
 };
 
 /// A [`Fix`] stamped with a monotonic millisecond timestamp. Core's `Fix` has
@@ -89,7 +89,7 @@ pub struct MotionConfig {
 impl Default for MotionConfig {
     fn default() -> Self {
         MotionConfig {
-            stationary_max_mps: 0.5,
+            stationary_max_mps: STATIONARY_CEILING_MPS,
             driving_min_mps: 5.0,
             smoothing_window: 5,
             min_dwell_samples: 2,

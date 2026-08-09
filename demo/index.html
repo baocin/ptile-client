@@ -201,7 +201,8 @@ import init_wasm, {
   decode_business as wasm_decode_business,
   nearest_road as wasm_nearest_road,
   route_from_segments as wasm_route_from_segments,
-} from "./lib/client/ptiles_client.js?v=10";
+  route_from_segments_diagnostic as wasm_route_from_segments_diagnostic,
+} from "./lib/client/ptiles_client.js?v=11";
 
 // Init WASM in background
 var wasmInit = init_wasm();
@@ -1852,6 +1853,7 @@ stateSelect.addEventListener("change", function() { switchState(this.value); });
 // I/O + corridor in JS; graph/search only in ptiles-core via route_from_segments
 // ponytail: hard abort was 800; long routes hit ~2k with fat disks — sparse + thin
 var ROUTE_MAX_CELLS = 400;
+var ROUTE_RETRY_MAX_CELLS = 900;
 var ROUTE_END_CAP_K = 2;
 var routeMode = false;
 var routeA = null, routeB = null, routeLayer = null, routeBusy = false;
@@ -2133,45 +2135,64 @@ function sampleLine(lat1, lon1, lat2, lon2, intervalM) {
   return pts;
 }
 
+function appendCorridorLeg(spine, seen, a, b, depth) {
+  var ca = h3.latLngToCell(a.lat, a.lon, 7);
+  var cb = h3.latLngToCell(b.lat, b.lon, 7);
+  var path = null;
+  try { path = h3.gridPathCells(ca, cb); } catch (e) {}
+  if (!path && depth < 4) {
+    var mid = { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 };
+    appendCorridorLeg(spine, seen, a, mid, depth + 1);
+    appendCorridorLeg(spine, seen, mid, b, depth + 1);
+    return;
+  }
+  (path || [ca, cb]).forEach(function(c) {
+    if (!seen.has(c)) { seen.add(c); spine.push(c); }
+  });
+}
+
+function corridorSpine(lat1, lon1, lat2, lon2, intervalM) {
+  var pts = sampleLine(lat1, lon1, lat2, lon2, intervalM);
+  var spine = [], seen = new Set();
+  for (var i = 0; i + 1 < pts.length; i++) {
+    appendCorridorLeg(spine, seen, pts[i], pts[i + 1], 0);
+  }
+  if (!spine.length) spine.push(h3.latLngToCell(lat1, lon1, 7));
+  return spine;
+}
+
+function corridorCellPlan(lat1, lon1, lat2, lon2, width, intervalM, maxCells) {
+  maxCells = maxCells == null ? ROUTE_MAX_CELLS : maxCells;
+  var spine = corridorSpine(lat1, lon1, lat2, lon2, intervalM);
+  var cells = new Set(spine);
+  var addDisk = function(lat, lon, k, into) {
+    try { h3.gridDisk(h3.latLngToCell(lat, lon, 7), k).forEach(function(c) { into.add(c); }); }
+    catch (e) {}
+  };
+  addDisk(lat1, lon1, ROUTE_END_CAP_K, cells);
+  addDisk(lat2, lon2, ROUTE_END_CAP_K, cells);
+  if (cells.size > maxCells) {
+    throw new Error("route spine needs " + cells.size + " cells; budget is " + maxCells);
+  }
+  var appliedWidth = 0, budgetLimited = false;
+  for (var ring = 1; ring <= width; ring++) {
+    var candidate = new Set(cells);
+    for (var si = 0; si < spine.length; si++) {
+      try { h3.gridDisk(spine[si], ring).forEach(function(c) { candidate.add(c); }); }
+      catch (e) {}
+    }
+    if (candidate.size > maxCells) { budgetLimited = true; break; }
+    cells = candidate;
+    appliedWidth = ring;
+  }
+  return {
+    cells: Array.from(cells), spine: spine, requestedWidth: width,
+    appliedWidth: appliedWidth, budgetLimited: budgetLimited, maxCells: maxCells
+  };
+}
+
 function corridorCells(lat1, lon1, lat2, lon2, width, intervalM) {
-  var dist = haversineM(lat1, lon1, lat2, lon2);
-  var n = Math.max(1, Math.ceil(dist / intervalM));
-  var pathCells = []; // ordered spine for thinning
-  var set = new Set();
-  for (var i = 0; i <= n; i++) {
-    var t = i / n;
-    var lat = lat1 + (lat2 - lat1) * t;
-    var lon = lon1 + (lon2 - lon1) * t;
-    var c = h3.latLngToCell(lat, lon, 7);
-    if (!set.has(c)) pathCells.push(c);
-    set.add(c);
-    try {
-      var disk = h3.gridDisk(c, width);
-      for (var j = 0; j < disk.length; j++) set.add(disk[j]);
-    } catch (e) {}
-  }
-  // end caps k=2 for residential connect (even if middle width=1)
-  try {
-    h3.gridDisk(h3.latLngToCell(lat1, lon1, 7), 2).forEach(function(c) { set.add(c); });
-    h3.gridDisk(h3.latLngToCell(lat2, lon2, 7), 2).forEach(function(c) { set.add(c); });
-  } catch (e) {}
-  var cells = Array.from(set);
-  // thin: keep spine samples + end caps first (never random hex sort)
-  if (cells.length > ROUTE_MAX_CELLS) {
-    var keep = new Set();
-    var step = Math.max(1, Math.ceil(pathCells.length / Math.floor(ROUTE_MAX_CELLS * 0.6)));
-    for (var k = 0; k < pathCells.length; k += step) keep.add(pathCells[k]);
-    keep.add(h3.latLngToCell(lat1, lon1, 7));
-    keep.add(h3.latLngToCell(lat2, lon2, 7));
-    try {
-      h3.gridDisk(h3.latLngToCell(lat1, lon1, 7), 2).forEach(function(c) { keep.add(c); });
-      h3.gridDisk(h3.latLngToCell(lat2, lon2, 7), 2).forEach(function(c) { keep.add(c); });
-    } catch (e) {}
-    // fill remaining budget with near-spine cells
-    for (var ci = 0; ci < cells.length && keep.size < ROUTE_MAX_CELLS; ci++) keep.add(cells[ci]);
-    cells = Array.from(keep);
-  }
-  return cells;
+  return corridorCellPlan(lat1, lon1, lat2, lon2, width, intervalM).cells;
 }
 
 // All states whose bbox the line crosses (not just endpoints)
@@ -2346,7 +2367,7 @@ async function nearestRoadAt(lat, lon) {
 
 
 // Load + decode corridor roads. arterialMiddle: middle cells keep arterial classes only.
-async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle) {
+async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle, maxCells) {
   var distM = haversineM(lat1, lon1, lat2, lon2);
   var p = corridorParams(distM);
   var useArterial = arterialMiddle != null ? arterialMiddle : !!p.arterial;
@@ -2363,7 +2384,8 @@ async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle) 
   }
   if (!readers.length) throw new Error("roads layer unavailable (" + states.join(",") + ")");
 
-  var cells = corridorCells(lat1, lon1, lat2, lon2, w, p.interval);
+  var cellPlan = corridorCellPlan(lat1, lon1, lat2, lon2, w, p.interval, maxCells);
+  var cells = cellPlan.cells;
   var caps = null;
   if (useArterial) {
     caps = endCapCells(lat1, lon1, ROUTE_END_CAP_K);
@@ -2419,19 +2441,29 @@ async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle) 
   }
   return {
     segments: segments, zoneMiddle: zoneMiddle, cellCount: cells.length,
-    width: w, distM: distM, arterial: useArterial, states: states
+    width: cellPlan.appliedWidth, requestedWidth: w,
+    budgetLimited: cellPlan.budgetLimited, spineCount: cellPlan.spine.length,
+    maxCells: cellPlan.maxCells,
+    distM: distM, arterial: useArterial, states: states
   };
 }
 
 function tryRouteWasm(pack, a, b, snapM) {
-  if (!pack.segments.length) return null;
+  if (!pack.segments.length) return { result: null, failure: "empty_graph" };
   try {
-    return wasm_route_from_segments(
+    var diagnostic = wasm_route_from_segments_diagnostic(
       pack.segments, pack.zoneMiddle, a.lat, a.lon, b.lat, b.lon, snapM
     );
+    if (diagnostic instanceof Map) {
+      var obj = {}; diagnostic.forEach(function(v, k) { obj[k] = v; }); diagnostic = obj;
+    }
+    return {
+      result: plainRoute(diagnostic && diagnostic.result),
+      failure: diagnostic && diagnostic.failure ? String(diagnostic.failure) : null
+    };
   } catch (e) {
     console.error("route_from_segments", e);
-    return null;
+    return { result: null, failure: "wasm_error" };
   }
 }
 
@@ -2463,18 +2495,23 @@ async function runRoute(a, b) {
   var pack = await loadRouteCorridor(a.lat, a.lon, b.lat, b.lon, null, p0.arterial);
   if (!pack.segments.length) throw new Error("no road segments in corridor (" + (pack.states || []).join(",") + ")");
   setStatus("Route: A* " + pack.segments.length + " segs / " + pack.cellCount + " cells · " + (pack.states || []).join(","));
-  var result = plainRoute(tryRouteWasm(pack, a, b, 500));
+  var attempt = tryRouteWasm(pack, a, b, 500);
+  var result = attempt.result;
   // short-only: one widen with full classes
-  if (!result && distM < 80000) {
+  if (!result && attempt.failure === "disconnected" && distM < 40000) {
     setStatus("Route: widen full…");
     pack = await loadRouteCorridor(a.lat, a.lon, b.lat, b.lon, (pack.width || 1) + 1, false);
-    result = plainRoute(tryRouteWasm(pack, a, b, 500));
+    attempt = tryRouteWasm(pack, a, b, 500);
+    result = attempt.result;
   }
   // long miss: one wider arterial spine only (not full residential)
-  if (!result && distM >= 40000) {
+  if (!result && attempt.failure === "disconnected" && distM >= 40000) {
     setStatus("Route: wider arterial…");
-    pack = await loadRouteCorridor(a.lat, a.lon, b.lat, b.lon, 2, true);
-    result = plainRoute(tryRouteWasm(pack, a, b, 600));
+    pack = await loadRouteCorridor(
+      a.lat, a.lon, b.lat, b.lon, 4, true, ROUTE_RETRY_MAX_CELLS
+    );
+    attempt = tryRouteWasm(pack, a, b, 600);
+    result = attempt.result;
   }
   return result;
 }

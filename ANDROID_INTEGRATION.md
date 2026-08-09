@@ -125,11 +125,16 @@ classify(
 
 ### The one thing missing data cannot buy back
 
-With no accelerometer and no road context, **the classifier cannot see a walk below 2.2 m/s.** The
-stateless walking floor is ~5 mph, so a stroll votes `Stationary`. That is measured, not
-theoretical: 94 minutes of real walking at 1.21 m/s in
+With no accelerometer and no road context, **a cold-started classifier cannot establish a walk
+below 2.2 m/s.** The stateless walking floor is ~5 mph, so a trace that never first establishes
+Walking still votes `Stationary`. That is measured, not theoretical: 94 minutes of real walking at 1.21 m/s in
 `test-fixtures/gpx/tn-maryville-hike-1063250.gpx` votes `Stationary` for all 1,124 of its points
 (`speed_alone_cannot_see_a_stroll_but_can_see_a_jog`).
+
+Once Walking is established, sequence-aware callers preserve it while smoothed GPS speed remains
+above the 0.5 m/s stationary ceiling. This keeps slow, spatially continuous stretches inside a
+walking journey (notably `nc-umstead-trails-1184467`) without preventing a real stop from settling
+to `Stationary`.
 
 Two things fix it, in order of how much they cost the phone:
 

@@ -332,6 +332,14 @@ fn detect_steps(
 
 /// Walking/driving speed split, m/s (~5 mph).
 pub const WALKING_CEILING_MPS: f64 = 2.2;
+/// Smoothed speed above which a continuing on-foot journey is still moving,
+/// even when missing accelerometer/map context cannot identify the gait.
+///
+/// Kept equal to [`MotionConfig::default`]'s stationary ceiling. The fixed
+/// decision tree cannot accept a `MotionConfig`, but sequence-aware callers
+/// must not call a visibly advancing trace Stationary merely because its speed
+/// dipped below the speed-only walking threshold.
+pub const STATIONARY_CEILING_MPS: f64 = 0.5;
 /// Definitely-a-vehicle speed, m/s (~20 mph).
 pub const DRIVING_FLOOR_MPS: f64 = 8.9;
 /// Above this horizontal accuracy (m) GPS is not trusted at all.
@@ -476,11 +484,34 @@ pub fn classify_with_history(
         && accel.step_count > 3
         && accel.variance > 0.01;
 
+    let vehicle_context = gps_bearing.is_some_and(|bearing| bearing.is_finite())
+        || nearest_road.is_some_and(|road| {
+            road.distance_m < 15.0
+                && (is_highway(road.road_class.as_str())
+                    || is_vehicular(road.road_class.as_str()))
+        });
     if previous_stable == MovementType::Driving
         && inst_speed_mps.is_some_and(|s| s > 0.3)
         && !step_cadence
+        && vehicle_context
     {
         return Vote { movement: MovementType::Driving, confidence: 0.75 };
+    }
+
+    // Preserve a continuous on-foot journey through a slow stretch when GPS
+    // still shows displacement but there is no accelerometer signal to name
+    // the gait. Without this, the 2.2 m/s speed-only threshold calls a 1 m/s
+    // trail segment Stationary; after the minute-long debouncer commits that
+    // mistake, another minute of ordinary walking is needed to undo it. A
+    // genuine stop still falls at or below the 0.5 m/s stationary ceiling,
+    // while reported cadence remains free to promote Walking to Running.
+    if previous_stable == MovementType::Walking
+        && !accel.has_signal()
+        && inst_speed_mps.is_some_and(|s| {
+            s.is_finite() && s > STATIONARY_CEILING_MPS && s <= WALKING_CEILING_MPS
+        })
+    {
+        return Vote { movement: MovementType::Walking, confidence: 0.75 };
     }
 
     if let Some(speed) = inst_speed_mps {
@@ -999,8 +1030,28 @@ mod tests {
         // Flipping to Stationary at every red turns one journey into a string of
         // false arrivals.
         let still = AccelStats::EMPTY;
-        let v = classify_with_history(Some(1.0), Some(5.0), None, Some(&still), None, MovementType::Driving);
+        let v = classify_with_history(
+            Some(1.0),
+            Some(5.0),
+            None,
+            Some(&still),
+            Some(90.0),
+            MovementType::Driving,
+        );
         assert_eq!(v.movement, MovementType::Driving);
+
+        // State alone is not enough to call a moving point a vehicle. With no
+        // bearing and no vehicular road, an isolated fast GPX spike must not
+        // latch the rest of an on-foot trace into Driving.
+        let blind = classify_with_history(
+            Some(1.0),
+            Some(5.0),
+            None,
+            Some(&still),
+            None,
+            MovementType::Driving,
+        );
+        assert_ne!(blind.movement, MovementType::Driving);
 
         // But a real gait breaks out immediately rather than waiting the speed
         // out -- that is what makes driving -> walking responsive.
@@ -1125,6 +1176,46 @@ mod tests {
         assert_eq!(classify(Some(1.0), Some(5.0), None, Some(&e)).movement, MovementType::Stationary);
         // No speed at all: accel-only.
         assert_eq!(classify(None, Some(5.0), None, Some(&e)).movement, MovementType::Stationary);
+    }
+
+    #[test]
+    fn established_walk_survives_a_slow_moving_stretch_without_sensor_context() {
+        let empty = AccelStats::EMPTY;
+        let vote = classify_with_history(
+            Some(1.0),
+            Some(5.0),
+            None,
+            Some(&empty),
+            None,
+            MovementType::Walking,
+        );
+        assert_eq!(vote.movement, MovementType::Walking);
+
+        let stopped = classify_with_history(
+            Some(STATIONARY_CEILING_MPS),
+            Some(5.0),
+            None,
+            Some(&empty),
+            None,
+            MovementType::Walking,
+        );
+        assert_eq!(stopped.movement, MovementType::Stationary);
+
+        let running = AccelStats {
+            variance: 0.4,
+            dominant_frequency: 3.0,
+            step_count: 12,
+            ..AccelStats::EMPTY
+        };
+        let vote = classify_with_history(
+            Some(1.0),
+            Some(5.0),
+            None,
+            Some(&running),
+            None,
+            MovementType::Walking,
+        );
+        assert_eq!(vote.movement, MovementType::Running);
     }
 
     #[test]

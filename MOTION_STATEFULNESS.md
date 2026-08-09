@@ -431,7 +431,8 @@ These are exposed for inspection but are not runtime config:
 
 | Constant | Value | Meaning |
 | --- | ---: | --- |
-| `WALKING_CEILING_MPS` | `2.2` m/s | Above this, the stateless speed fallback no longer calls a fix ordinary walking |
+| `STATIONARY_CEILING_MPS` | `0.5` m/s | At or below this, an established walk may transition to Stationary; above it, visible displacement preserves Walking when sensor/map context is absent |
+| `WALKING_CEILING_MPS` | `2.2` m/s | Above this (and below the vehicle floor), the stateless speed fallback votes Walking outright; at or below it, context/acceleration normally decides |
 | `DRIVING_FLOOR_MPS` | `8.9` m/s | A finite speed above this is decisive vehicle evidence |
 | `GPS_ACCURACY_GATE_M` | `30.0` m | Worse position suppresses normal road/speed priors |
 | `RUNNING_SPEED_HINT_MPS` | `2.6` m/s | UI/labeling hint only; never read by the classifier |

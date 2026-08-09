@@ -21,7 +21,11 @@ const SPEED_FACTOR: f64 = 0.85;
 /// ~11 m at 50k micro-scale for cross-road merge.
 /// ponytail: tighter than daemon's 10 (~22m) so path follows curves instead of chords.
 const MERGE_THRESH: i32 = 5;
-const NODE_CAP: usize = 250_000;
+// Still a hard allocation bound, but large enough for the explicitly bounded
+// 2,600-cell national highway corridor. Browser-side record deduplication turns
+// NY-to-LA into ~347k input vertices; the former 250k cap rejected it before
+// the spatial merge could collapse coincident border/way nodes.
+const NODE_CAP: usize = 400_000;
 const BI_ASTAR_MIN_NODES: usize = 50_000;
 
 /// Why a graph route could not be produced.

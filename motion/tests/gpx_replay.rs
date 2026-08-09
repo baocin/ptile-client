@@ -20,8 +20,8 @@
 use ptiles_core::Fix;
 
 use ptiles_motion::{
-    classify, significant_shifts, AccelStats, DebounceConfig, MotionClassifier, MotionConfig,
-    MovementType, ShiftConfig, TimedFix, VoteDebouncer,
+    classify, classify_with_history, significant_shifts, AccelStats, DebounceConfig,
+    MotionClassifier, MotionConfig, MovementType, ShiftConfig, TimedFix, VoteDebouncer,
 };
 
 // ---------------------------------------------------------------- fixtures
@@ -254,6 +254,17 @@ fn time_share(list: &[(MovementType, u64)], t: MovementType) -> f64 {
 /// speed, `classify` for a per-fix vote, `VoteDebouncer` for the transitions.
 /// No road context and no accelerometer -- that is all these files carry.
 fn replay(points: &[Pt]) -> Replay {
+    replay_inner(points, false)
+}
+
+/// The same pipeline sequence-aware clients use. Kept separate from
+/// [`replay`] because most tests in this file deliberately pin the four-input
+/// one-shot decision tree.
+fn replay_with_history(points: &[Pt]) -> Replay {
+    replay_inner(points, true)
+}
+
+fn replay_inner(points: &[Pt], use_history: bool) -> Replay {
     let mut speed = MotionClassifier::new(MotionConfig::default());
     let mut debouncer = VoteDebouncer::new(DebounceConfig::default());
     let mut r = Replay::default();
@@ -280,7 +291,23 @@ fn replay(points: &[Pt]) -> Replay {
             None => r.speed_gaps += 1,
         }
 
-        let vote = classify(speed.smoothed_speed_mps(), None, None, Some(&AccelStats::EMPTY));
+        let vote = if use_history {
+            classify_with_history(
+                speed.smoothed_speed_mps(),
+                None,
+                None,
+                Some(&AccelStats::EMPTY),
+                None,
+                debouncer.current(),
+            )
+        } else {
+            classify(
+                speed.smoothed_speed_mps(),
+                None,
+                None,
+                Some(&AccelStats::EMPTY),
+            )
+        };
         count(&mut r.vote, vote.movement);
 
         let stable = debouncer.tick(&vote, p.t_ms);
@@ -431,6 +458,28 @@ fn speed_alone_cannot_see_a_stroll_but_can_see_a_jog() {
             r.vote
         );
     }
+}
+
+#[test]
+fn umstead_slow_stretches_remain_part_of_the_walk() {
+    let Some(traces) = load_all() else { return };
+    let (e, points) = traces
+        .iter()
+        .find(|(e, _)| e.stem == "nc-umstead-trails-1184467")
+        .expect("the Umstead fixture");
+    let r = replay_with_history(points);
+
+    let first_walk = r
+        .transitions
+        .iter()
+        .position(|movement| *movement == MovementType::Walking)
+        .expect("Umstead must establish walking");
+    assert!(
+        !r.transitions[first_walk + 1..].contains(&MovementType::Stationary),
+        "{}: a moving stretch inside the walk became stationary: {:?}",
+        e.stem,
+        r.transitions,
+    );
 }
 
 #[test]

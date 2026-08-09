@@ -26,7 +26,7 @@ use ptiles_core::{
     ScoringParams, DEFAULT_THRESHOLD_M,
 };
 use ptiles_motion::{
-    classify, significant_shifts as core_significant_shifts, AccelStats,
+    classify_with_history, significant_shifts as core_significant_shifts, AccelStats,
     AdaptiveMotionConfig, AdaptiveMotionSession as CoreAdaptiveMotionSession, AppliedSampling,
     DebounceConfig, MotionClassifier, MotionConfig, MotionObservation, MovementType, RoadContext,
     SamplingCapabilities, SamplingIntent, ShiftConfig, TimedFix, TrafficControl, Vote,
@@ -630,16 +630,6 @@ pub fn route_from_segments_diagnostic(
         Err(failure) => Response { result: None, failure: Some(failure) },
     };
     to_js(&response)
-}
-
-/// Decode a `{ST}.highways_v2.ptiles` block. The file shares the roads magic
-/// and index shape but has its own legacy record body; see
-/// `ptiles_core::decode_highways`.
-#[wasm_bindgen]
-pub fn decode_highways(data: &[u8]) -> Result<JsValue, JsValue> {
-    let roads = ptiles_core::decode_highways(data)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    to_js(&roads)
 }
 
 /// Route on foot over decoded trails: "get me there on paths, not roads".
@@ -1884,7 +1874,14 @@ impl MovementTracker {
         // fallback when the fix carries none (browser geolocation often does).
         let effective_speed = speed_mps.or_else(|| self.speed.smoothed_speed_mps());
 
-        self.last_vote = classify(effective_speed, accuracy_m, road.as_ref(), accel.as_ref());
+        self.last_vote = classify_with_history(
+            effective_speed,
+            accuracy_m,
+            road.as_ref(),
+            accel.as_ref(),
+            None,
+            self.debouncer.current(),
+        );
         let movement = self.debouncer.tick_at(&self.last_vote, t, control.as_ref());
         to_js(&MovementUpdate {
             movement: movement.as_str(),
