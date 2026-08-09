@@ -87,7 +87,7 @@ pub use signals::{Signal, decode_signals};
 pub use trails::{TrailFeature, decode_trails, trail_is_developed};
 pub use nav::{
     LOOKAHEAD_M, MIN_TURN_DEG, Maneuver, NavState, OFF_ROUTE_M, Turn, bearing_delta,
-    cumulative_m, navigate, turn_queue,
+    cumulative_m, name_turn, navigate, turn_queue,
 };
 pub use locate::{
     ADDRESS_THRESHOLD_M, Located, NearbyAddress, NearbyArea, NearbyPoint, NearbyWay,

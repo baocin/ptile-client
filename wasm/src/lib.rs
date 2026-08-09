@@ -787,11 +787,77 @@ impl Navigator {
         }
     }
 
+    /// Name one turn from roads decoded near it, the lazy alternative to
+    /// naming the whole queue when the route is built.
+    ///
+    /// Build the `Navigator` with no roads, then as each turn comes within
+    /// announcing distance: read `probe_lat`/`probe_lon` off the turn, fetch
+    /// the one cell holding that point, decode it, and pass the segments here.
+    /// That is one block per turn -- almost always already cached, since it is
+    /// a cell the route drives through -- instead of keeping a whole
+    /// corridor's roads alive for the trip.
+    ///
+    /// Name a turn *before* its first announcement: "turn left" at 2 km
+    /// followed by "turn left onto Broadway" at 200 m reads as two turns.
+    ///
+    /// Returns the named turn, or null when nothing was near enough.
+    pub fn name_turn(
+        &mut self,
+        index: usize,
+        roads_js: JsValue,
+        radius_m: Option<f64>,
+    ) -> Result<JsValue, JsValue> {
+        #[derive(serde::Deserialize)]
+        struct SegIn {
+            coords: Vec<[f64; 2]>,
+            road_class: String,
+            #[serde(default)]
+            name: Option<String>,
+            #[serde(default)]
+            ref_tag: Option<String>,
+        }
+        let Some(turn) = self.turns.get_mut(index) else {
+            return Ok(JsValue::NULL);
+        };
+        let roads_in: Vec<SegIn> = from_js_or_empty(roads_js, "roads")?;
+        let roads: Vec<RoadSegment> = roads_in
+            .into_iter()
+            .map(|s| RoadSegment {
+                osm_id: 0,
+                road_class: s.road_class,
+                coords: s.coords,
+                name: s.name,
+                ref_tag: s.ref_tag,
+                oneway: None,
+                speed_limit_kmh: None,
+                lanes: None,
+                surface: None,
+                bridge_tunnel: None,
+            })
+            .collect();
+        if ptiles_core::name_turn(turn, &roads, radius_m.unwrap_or(30.0)) {
+            to_js(turn)
+        } else {
+            Ok(JsValue::NULL)
+        }
+    }
+
+    /// The point to fetch a cell for when naming turn `index`: `[lat, lon]`,
+    /// 15 m past the corner on the road being joined. Null for an index that
+    /// is not in the queue.
+    pub fn probe(&self, index: usize) -> Option<Vec<f64>> {
+        self.turns.get(index).map(|t| alloc_vec(t.probe_lat, t.probe_lon))
+    }
+
     /// Total route length in metres.
     #[wasm_bindgen(getter)]
     pub fn length_m(&self) -> f64 {
         self.cum.last().copied().unwrap_or(0.0)
     }
+}
+
+fn alloc_vec(a: f64, b: f64) -> Vec<f64> {
+    vec![a, b]
 }
 
 /// Signed difference between two bearings, degrees, positive to the right.
@@ -1973,6 +2039,92 @@ mod tests {
             r#"{"lat": 0.0, "lon": 0.0, "horizontal_accuracy_m": 0.0}"#
         )
         .is_ok());
+    }
+
+    #[test]
+    fn geometry_exports_keep_coordinate_order_and_units() {
+        let square = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0];
+        assert!(point_in_polygon(1.0, 1.0, &square));
+        assert!(!point_in_polygon(1.0, 3.0, &square));
+
+        // A dangling scalar is intentionally ignored: only complete lon/lat
+        // pairs reach core, so malformed array tails cannot invent a vertex.
+        let mut dangling = square.to_vec();
+        dangling.push(99.0);
+        assert!(point_in_polygon(1.0, 1.0, &dangling));
+
+        assert_eq!(distance_m(36.0, -86.0, 36.0, -86.0), 0.0);
+        let one_degree = distance_m(0.0, 0.0, 1.0, 0.0);
+        assert!((one_degree - 111_195.0).abs() < 100.0, "{one_degree}");
+        assert_eq!(one_degree, distance_m(1.0, 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn bearing_export_uses_clockwise_degrees_from_north() {
+        assert!(bearing_to(0.0, 0.0, 1.0, 0.0).abs() < 1e-9);
+        assert!((bearing_to(0.0, 0.0, 0.0, 1.0) - 90.0).abs() < 1e-9);
+        assert!((bearing_to(0.0, 0.0, -1.0, 0.0) - 180.0).abs() < 1e-9);
+        assert_eq!(bearing_delta(350.0, 10.0), 20.0);
+        assert_eq!(bearing_delta(10.0, 350.0), -20.0);
+    }
+
+    #[test]
+    fn cell_normalization_export_is_idempotent_and_exposes_the_same_mask() {
+        let raw = 0x87264d106abcdef_u64;
+        let mask = cell_filler_mask();
+        assert_eq!(normalize_cell(raw), raw & mask);
+        assert_eq!(normalize_cell(normalize_cell(raw)), normalize_cell(raw));
+        assert_eq!(mask, !ptiles_core::CELL_FILLER_BITS);
+    }
+
+    #[test]
+    fn vocabulary_exports_cover_known_and_unknown_values() {
+        assert!(trail_is_developed("cycleway"));
+        assert!(trail_is_developed("footway"));
+        assert!(!trail_is_developed("path"));
+        assert!(!trail_is_developed("Footway"), "format vocabulary is case-sensitive");
+
+        for connector in [
+            "type1_combo",
+            "type2_combo",
+            "chademo",
+            "tesla_supercharger",
+            "tesla_supercharger_ccs",
+        ] {
+            assert!(is_fast_connector(connector), "{connector}");
+        }
+        for connector in ["type1", "type2", "nema_14_50", "unknown", "CHAdeMO"] {
+            assert!(!is_fast_connector(connector), "{connector}");
+        }
+
+        assert_eq!(intersection_type_name(1), "traffic_signals");
+        assert_eq!(intersection_type_name(4), "roundabout");
+        assert_eq!(intersection_type_name(255), "junction");
+        for kind in 0..=5 {
+            assert_eq!(intersection_holds_traffic(kind), matches!(kind, 1 | 2 | 3));
+        }
+    }
+
+    #[test]
+    fn scalar_policy_exports_match_the_core_defaults() {
+        assert_eq!(charge_reserve(), ptiles_core::CHARGE_RESERVE);
+        assert_eq!(charge_reserve(), 0.2);
+        assert_eq!(estimated_height_for("garage"), 3.0);
+        assert_eq!(estimated_height_for("unknown-kind"), 12.0);
+        assert_eq!(resolved_height(Some(7.25), "office"), 7.25);
+        assert_eq!(resolved_height(None, "office"), estimated_height_for("office"));
+    }
+
+    #[test]
+    fn speed_band_export_covers_every_band_and_its_boundaries() {
+        let cfg = MotionConfig::default();
+        assert_eq!(speed_band(0.0), "stationary");
+        assert_eq!(speed_band(cfg.stationary_max_mps), "stationary");
+        assert_eq!(
+            speed_band((cfg.stationary_max_mps + cfg.driving_min_mps) / 2.0),
+            "walking"
+        );
+        assert_eq!(speed_band(cfg.driving_min_mps), "driving");
     }
 
     #[test]

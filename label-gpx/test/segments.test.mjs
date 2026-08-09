@@ -27,7 +27,9 @@ import {
 } from "../js/segments.js";
 import { speedBands } from "../js/chart.js";
 import { LABELS } from "../js/gpx.js";
-import { categoryLabel, pointInPolygon } from "../js/context.js";
+import {
+  PTILES_BASE, SNAPSHOT, categoryLabel, pointInPolygon, stateAt, stateUrl,
+} from "../js/context.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -569,6 +571,47 @@ test("pointInPolygon answers containment on [lon, lat] rings", () => {
   assert.equal(pointInPolygon(1, 1, square), true);
   assert.equal(pointInPolygon(3, 1, square), false);
   assert.equal(pointInPolygon(1, 3, square), false);
+});
+
+test("stateAt resolves representative states and rejects points outside coverage", () => {
+  assert.equal(stateAt(36.1627, -86.7816), "TN", "Nashville");
+  assert.equal(stateAt(35.7796, -78.6382), "NC", "Raleigh");
+  assert.equal(stateAt(38.9072, -77.0369), "DC", "Washington");
+  assert.equal(stateAt(20.7984, -156.3319), "HI", "Maui");
+  assert.equal(stateAt(64.2008, -149.4937), "AK", "Alaska");
+  assert.equal(stateAt(0, 0), null);
+  assert.equal(stateAt(Number.NaN, -86), null);
+  assert.equal(stateAt(36, Number.POSITIVE_INFINITY), null);
+});
+
+test("stateAt chooses the nearest state centre when rough bboxes overlap", () => {
+  // Rough state boxes intentionally overlap. Each capital-ish point below is
+  // inside at least one neighbouring box too, so nearest-centre selection is
+  // what keeps the filename stable rather than object iteration order.
+  assert.equal(stateAt(39.0458, -76.6413), "MD", "Annapolis");
+  assert.equal(stateAt(39.1582, -75.5244), "DE", "Dover");
+  assert.equal(stateAt(41.7658, -72.6734), "CT", "Hartford");
+});
+
+test("stateUrl uses the dated snapshot and every versioned layer stem", () => {
+  assert.match(SNAPSHOT, /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(PTILES_BASE.endsWith(`/${SNAPSHOT}/`));
+  const stems = {
+    roads: "roads_v2",
+    water: "water_v1",
+    parks: "parks_v1",
+    trails: "trails_v1",
+    rail: "rail_v1",
+    buildings: "buildings_v9",
+    business: "business_v4",
+    address: "address_v2",
+    admin: "admin",
+  };
+  for (const [layer, stem] of Object.entries(stems)) {
+    assert.equal(stateUrl("TN", layer), `${PTILES_BASE}TN.${stem}.ptiles`, layer);
+  }
+  // Unknown layer names remain usable for forward-compatible experiments.
+  assert.equal(stateUrl("US", "camera"), `${PTILES_BASE}US.camera.ptiles`);
 });
 
 test("the real v4 business block decodes flush and in place", () => {

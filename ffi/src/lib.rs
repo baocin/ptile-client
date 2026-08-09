@@ -2176,3 +2176,184 @@ impl PtilesStack {
         Ok(candidates.iter().map(to_candidate).collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_errors_keep_transport_semantics_across_ffi() {
+        let path = "https://example.test/TN.roads.ptiles";
+
+        let network = SourceError::HttpNetwork {
+            url: path.to_string(),
+            message: "offline".to_string(),
+        };
+        assert!(matches!(
+            PtilesError::from_source(path, &network),
+            PtilesError::Network { path: p, message }
+                if p == path && message == "offline"
+        ));
+
+        let status = SourceError::HttpStatus {
+            url: path.to_string(),
+            status: 404,
+            offset: 0,
+            end: 255,
+        };
+        assert!(matches!(
+            PtilesError::from_source(path, &status),
+            PtilesError::NotFound { path: p, status: 404 } if p == path
+        ));
+
+        let range = SourceError::RangeNotSupported {
+            url: path.to_string(),
+            status: 200,
+        };
+        assert!(matches!(
+            PtilesError::from_source(path, &range),
+            PtilesError::RangeUnsupported { path: p, status: 200 } if p == path
+        ));
+    }
+
+    #[test]
+    fn structural_source_and_file_errors_stay_open_errors() {
+        let bounds = SourceError::OutOfBounds { offset: 9, needed: 4, len: 10 };
+        assert!(matches!(
+            PtilesError::from_source("local.ptiles", &bounds),
+            PtilesError::Open { path, message }
+                if path == "local.ptiles" && message.contains("offset 9")
+        ));
+
+        let bad_magic = FileError::BadMagic { found: *b"NOTILES" };
+        assert!(matches!(
+            PtilesError::from_file("bad.ptiles", &bad_magic),
+            PtilesError::Open { path, message }
+                if path == "bad.ptiles" && message.contains("bad magic")
+        ));
+
+        let wrapped = FileError::Source(SourceError::HttpNetwork {
+            url: "https://host/file".to_string(),
+            message: "dns".to_string(),
+        });
+        assert!(matches!(
+            PtilesError::from_file("https://host/file", &wrapped),
+            PtilesError::Network { message, .. } if message == "dns"
+        ));
+    }
+
+    #[test]
+    fn layer_kind_accepts_every_published_stem_and_numeric_version_suffix() {
+        let cases = [
+            ("roads", LayerKind::Roads),
+            ("buildings_v8", LayerKind::BuildingsV8),
+            ("business", LayerKind::Business),
+            ("business_name_index", LayerKind::BusinessNameIndex),
+            ("trails_v1", LayerKind::Trails),
+            ("parks", LayerKind::Parks),
+            ("water_v1", LayerKind::Water),
+            ("rail", LayerKind::Rail),
+            ("camera_v12", LayerKind::Camera),
+        ];
+        for (stem, expected) in cases {
+            let local = format!("/data/TN.{stem}.ptiles");
+            let remote = format!("https://host/maps/TN.{stem}.ptiles");
+            assert_eq!(LayerKind::from_path(&local), Some(expected), "{local}");
+            assert_eq!(LayerKind::from_path(&remote), Some(expected), "{remote}");
+            assert_eq!(expected.as_str(), match expected {
+                LayerKind::Roads => "roads",
+                LayerKind::BuildingsV8 => "buildings_v8",
+                LayerKind::Business => "business",
+                LayerKind::BusinessNameIndex => "business_name_index",
+                LayerKind::Trails => "trails",
+                LayerKind::Parks => "parks",
+                LayerKind::Water => "water",
+                LayerKind::Rail => "rail",
+                LayerKind::Camera => "camera",
+            });
+        }
+    }
+
+    #[test]
+    fn layer_kind_rejects_unknown_or_fake_version_suffixes() {
+        for path in [
+            "TN.signals.ptiles",
+            "TN.roads_latest.ptiles",
+            "TN.roads_v.ptiles",
+            "TN.roads_v2_backup.ptiles",
+            "roads.ptiles",
+            "",
+        ] {
+            assert_eq!(LayerKind::from_path(path), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn url_detection_is_strictly_http_or_https() {
+        assert!(is_url("http://host/file.ptiles"));
+        assert!(is_url("https://host/file.ptiles"));
+        assert!(!is_url("HTTPS://host/file.ptiles"));
+        assert!(!is_url("ftp://host/file.ptiles"));
+        assert!(!is_url("/tmp/http://file.ptiles"));
+    }
+
+    #[test]
+    fn geometry_conversion_flips_decoder_lon_lat_to_ffi_lat_lon() {
+        let geometry = geometry_of(&[[-86.80, 36.10], [-86.79, 36.11]]);
+        assert_eq!(geometry.len(), 2);
+        assert_eq!(geometry[0].lat, 36.10);
+        assert_eq!(geometry[0].lon, -86.80);
+        assert_eq!(geometry[1].lat, 36.11);
+        assert_eq!(geometry[1].lon, -86.79);
+        assert!(geometry_of(&[]).is_empty());
+    }
+
+    #[test]
+    fn candidate_conversion_preserves_values_and_maps_every_kind() {
+        let cases = [
+            (CoreCandidateKind::Road, CandidateKind::Road),
+            (CoreCandidateKind::Building, CandidateKind::Building),
+            (CoreCandidateKind::Business, CandidateKind::Business),
+        ];
+        for (core_kind, ffi_kind) in cases {
+            let core = CoreCandidate {
+                kind: core_kind,
+                osm_id: -42,
+                name: Some("place".to_string()),
+                distance_m: 3.5,
+                score: 0.75,
+            };
+            let got = to_candidate(&core);
+            assert_eq!(got.kind, ffi_kind);
+            assert_eq!(got.osm_id, -42);
+            assert_eq!(got.name.as_deref(), Some("place"));
+            assert_eq!(got.distance_m, 3.5);
+            assert_eq!(got.score, 0.75);
+        }
+    }
+
+    #[test]
+    fn grouping_points_by_cell_preserves_first_seen_group_and_point_order() {
+        let points = [
+            LatLon { lat: 36.1600, lon: -86.7800 },
+            LatLon { lat: 35.7800, lon: -78.6400 },
+            LatLon { lat: 36.1601, lon: -86.7801 },
+            LatLon { lat: 35.7801, lon: -78.6401 },
+        ];
+        let groups = PtilesLayer::group_by_cell(&points);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].1, vec![0, 2]);
+        assert_eq!(groups[1].1, vec![1, 3]);
+        assert_eq!(groups[0].0, cell_for_coord(points[0].lat, points[0].lon));
+        assert_eq!(groups[1].0, cell_for_coord(points[1].lat, points[1].lon));
+        assert!(PtilesLayer::group_by_cell(&[]).is_empty());
+    }
+
+    #[test]
+    fn ring_validation_reports_the_rejected_value() {
+        assert!(validate_ring(0).is_ok());
+        assert!(validate_ring(1).is_ok());
+        assert!(matches!(validate_ring(2), Err(PtilesError::InvalidRing { ring: 2 })));
+        assert!(matches!(validate_ring(u8::MAX), Err(PtilesError::InvalidRing { ring: 255 })));
+    }
+}

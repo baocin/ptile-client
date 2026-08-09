@@ -245,4 +245,79 @@ mod tests {
         let mut buf = [0u8; 1];
         assert!(src.read_exact_at(u64::MAX, &mut buf).is_err());
     }
+
+    #[cfg(feature = "std")]
+    fn temporary_file(bytes: &[u8]) -> (std::path::PathBuf, std::fs::File) {
+        use std::io::Write;
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(alloc::format!(
+            "ptiles-source-{}-{unique}.bin",
+            std::process::id()
+        ));
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .expect("create temporary source");
+        file.write_all(bytes).expect("write temporary source");
+        file.sync_all().expect("flush temporary source");
+        (path, file)
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn file_source_reads_positions_without_sharing_a_cursor() {
+        use std::io::{Seek, SeekFrom};
+
+        let (path, mut file) = temporary_file(b"abcdefghij");
+        file.seek(SeekFrom::End(0)).expect("move ordinary file cursor");
+        let src = FileSource::from_file(file);
+
+        let mut middle = [0u8; 3];
+        src.read_exact_at(3, &mut middle).unwrap();
+        assert_eq!(&middle, b"def");
+
+        let mut start = [0u8; 2];
+        src.read_exact_at(0, &mut start).unwrap();
+        assert_eq!(&start, b"ab", "the previous positioned read must not move a cursor");
+        assert_eq!(src.len(), Some(10));
+
+        std::fs::remove_file(path).expect("remove temporary source");
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn file_source_open_and_tail_read_match_memory_source() {
+        let (path, file) = temporary_file(&[10, 20, 30, 40, 50]);
+        drop(file);
+        let src = FileSource::open(&path).expect("open temporary source");
+        let mut tail = [0u8; 2];
+        src.read_exact_at(3, &mut tail).unwrap();
+        assert_eq!(tail, [40, 50]);
+        assert_eq!(src.len(), Some(5));
+        std::fs::remove_file(path).expect("remove temporary source");
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn file_source_short_read_preserves_error_context() {
+        let (path, file) = temporary_file(&[1, 2, 3]);
+        let src = FileSource::from_file(file);
+        let mut buf = [0u8; 2];
+        let err = src.read_exact_at(2, &mut buf).unwrap_err();
+        match err {
+            SourceError::Io { offset, needed, message } => {
+                assert_eq!(offset, 2);
+                assert_eq!(needed, 2);
+                assert!(!message.is_empty());
+            }
+            other => panic!("expected positioned I/O error, got {other:?}"),
+        }
+        std::fs::remove_file(path).expect("remove temporary source");
+    }
 }

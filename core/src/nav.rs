@@ -120,6 +120,17 @@ pub struct Turn {
     /// Its class (`residential`, `motorway_link`), which is how a caller tells
     /// a slip road from a street.
     pub road_class: Option<String>,
+    /// Where to look to name this turn: a point on the road being joined,
+    /// 15 m past the corner. At the corner itself both roads are equally
+    /// near, so this is the disambiguation.
+    ///
+    /// Kept on the turn so naming does not have to happen when the route is
+    /// built. A caller can leave every name empty, then fetch the one cell
+    /// containing this point as the turn comes up and name it from that --
+    /// which is one block read per turn instead of holding a whole
+    /// corridor's roads in memory for the length of a drive.
+    pub probe_lat: f64,
+    pub probe_lon: f64,
 }
 
 /// Where you are on the route, and which way you are pointed.
@@ -217,6 +228,7 @@ pub fn turn_queue(path: &[[f64; 2]], roads: &[RoadSegment], name_radius_m: f64) 
     let cum = cumulative_m(path);
     let total = *cum.last().unwrap_or(&0.0);
 
+    let probe_0 = probe_point(path, &cum, 0, PROBE_AHEAD_M);
     let mut turns = Vec::new();
     turns.push(Turn {
         maneuver: Maneuver::Depart,
@@ -228,6 +240,8 @@ pub fn turn_queue(path: &[[f64; 2]], roads: &[RoadSegment], name_radius_m: f64) 
         road_name: None,
         road_ref: None,
         road_class: None,
+        probe_lat: probe_0.0,
+        probe_lon: probe_0.1,
     });
 
     for i in 1..path.len().saturating_sub(1) {
@@ -250,6 +264,7 @@ pub fn turn_queue(path: &[[f64; 2]], roads: &[RoadSegment], name_radius_m: f64) 
                 continue;
             }
         }
+        let (probe_lat, probe_lon) = probe_point(path, &cum, i, PROBE_AHEAD_M);
         turns.push(Turn {
             maneuver: Maneuver::from_delta(delta),
             delta_deg: delta,
@@ -260,6 +275,8 @@ pub fn turn_queue(path: &[[f64; 2]], roads: &[RoadSegment], name_radius_m: f64) 
             road_name: None,
             road_ref: None,
             road_class: None,
+            probe_lat,
+            probe_lon,
         });
     }
 
@@ -274,21 +291,46 @@ pub fn turn_queue(path: &[[f64; 2]], roads: &[RoadSegment], name_radius_m: f64) 
         road_name: None,
         road_ref: None,
         road_class: None,
+        probe_lat: path[last][1],
+        probe_lon: path[last][0],
     });
 
     // Name each manoeuvre after the road it turns *onto*: sample a little past
     // the turn, not at it, since the turn point sits on both roads.
     if !roads.is_empty() {
         for t in turns.iter_mut() {
-            let probe = probe_point(path, &cum, t.index, 15.0);
-            if let Some(r) = nearest_named_road(probe.0, probe.1, roads, name_radius_m) {
-                t.road_name = r.name.clone();
-                t.road_ref = r.ref_tag.clone();
-                t.road_class = Some(r.road_class.clone());
-            }
+            name_turn(t, roads, name_radius_m);
         }
     }
     turns
+}
+
+/// How far past a corner to sample when naming the turn.
+const PROBE_AHEAD_M: f64 = 15.0;
+
+/// Name a single turn from roads loaded near it. Returns true when it found
+/// one.
+///
+/// The lazy half of [`turn_queue`]: build the queue with no roads at all, then
+/// as each turn comes within announcing distance, read the one cell holding
+/// its `probe_lat`/`probe_lon`, decode it, and call this. A drive then costs
+/// one block per turn -- almost always already cached, since it is a cell the
+/// route passes through -- instead of keeping every road in the corridor
+/// alive for the whole trip.
+///
+/// Name turns *before* the first announcement, not during it: a manoeuvre
+/// announced as "turn left" at 2 km and "turn left onto Broadway" at 200 m
+/// reads as two different turns.
+pub fn name_turn(turn: &mut Turn, roads: &[RoadSegment], radius_m: f64) -> bool {
+    match nearest_named_road(turn.probe_lat, turn.probe_lon, roads, radius_m) {
+        Some(r) => {
+            turn.road_name = r.name.clone();
+            turn.road_ref = r.ref_tag.clone();
+            turn.road_class = Some(r.road_class.clone());
+            true
+        }
+        None => false,
+    }
 }
 
 /// A point `ahead_m` further along the path from vertex `i`, clamped to the
@@ -546,6 +588,53 @@ mod tests {
             "named for the road turned onto, not the one left behind"
         );
         assert_eq!(q[0].road_name.as_deref(), Some("Broadway"), "departing on Broadway");
+    }
+
+    #[test]
+    fn naming_a_turn_late_gives_the_same_answer_as_naming_it_early() {
+        // The whole point of the lazy path: a queue built with no roads at
+        // all, named one turn at a time from a cell fetched as that turn comes
+        // up, must not disagree with the queue built with every road in hand.
+        let path = l_shape();
+        let roads = vec![
+            road("Broadway", "residential", (0..=10).map(|i| [east(i as f64 * 0.1), 36.0]).collect()),
+            road("4th Avenue", "residential", (0..=10).map(|i| [east(1.0), north(i as f64 * 0.1)]).collect()),
+        ];
+        let eager = turn_queue(&path, &roads, 30.0);
+
+        let mut lazy = turn_queue(&path, &[], 30.0);
+        assert!(lazy.iter().all(|t| t.road_name.is_none()), "starts unnamed");
+        for t in lazy.iter_mut() {
+            // A caller would fetch only the cell holding the probe; here the
+            // whole set stands in for it, which is the same input.
+            assert!(name_turn(t, &roads, 30.0));
+        }
+        assert_eq!(lazy, eager);
+    }
+
+    #[test]
+    fn the_probe_point_sits_on_the_road_being_joined_not_the_one_left() {
+        let path = l_shape();
+        let q = turn_queue(&path, &[], 30.0);
+        let turn = &q[1];
+        // The corner is at (36.0, east(1.0)); the probe must be north of it,
+        // on the new leg, or naming picks whichever road is nearer the corner.
+        assert!(
+            turn.probe_lat > turn.lat + 0.0001,
+            "probe {:?} should be up the new leg from the corner {:?}",
+            (turn.probe_lat, turn.probe_lon),
+            (turn.lat, turn.lon)
+        );
+        assert!((turn.probe_lon - turn.lon).abs() < 1e-6);
+    }
+
+    #[test]
+    fn naming_a_turn_with_nothing_near_leaves_it_alone() {
+        let path = l_shape();
+        let mut q = turn_queue(&path, &[], 30.0);
+        let far = road("Elsewhere", "residential", vec![[-87.0, 35.0], [-87.0, 35.1]]);
+        assert!(!name_turn(&mut q[1], &[far], 30.0));
+        assert!(q[1].road_name.is_none(), "an unnamed turn stays unnamed rather than borrowing");
     }
 
     #[test]

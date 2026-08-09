@@ -56,6 +56,13 @@ actually left:
   of turns; consecutive same-direction turns within 20 m merge into one
   junction; each is named after the road it turns *onto*, sampled 15 m past
   the corner, preferring a named road over a nearer unnamed stub.
+- **Naming is lazy by default.** Every turn carries the probe point naming
+  needs, so a route can be built with no roads at all and each turn named as
+  it comes up: read the one cell holding the probe, decode it, call
+  `name_turn`. One block per turn — almost always already cached, being a cell
+  the route drives through — instead of holding a corridor's roads in memory
+  for the length of a drive. Name before the first announcement, or a
+  manoeuvre called at 2 km and again at 200 m reads as two turns.
 - `navigate(path, cum, turns, lat, lon, accuracy, last_index)` → snapped
   position, distance along and remaining, next turn and distance to it, and
   `off_route`.
