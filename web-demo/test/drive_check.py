@@ -113,6 +113,20 @@ def main():
         started = page.evaluate("async () => await window.__ptiles.driveStart(null)")
         if not started:
             sys.exit("driveStart refused")
+        # Before any fix, the whole trip should be on screen: waiting on GPS
+        # while looking at one arbitrary corner of the route says nothing about
+        # whether the mode is working.
+        pre = page.evaluate("""() => {
+            const p = window.__ptiles.__routePath();
+            return {
+              start: window.__ptiles.mapContains(p[0][0], p[0][1]),
+              end: window.__ptiles.mapContains(p[p.length - 1][0], p[p.length - 1][1])
+            };
+        }""")
+        print(f"  before any fix start_visible={pre['start']} end_visible={pre['end']}")
+        if not (pre["start"] and pre["end"]):
+            failures.append("the whole route is not visible before the first fix")
+
         st0 = page.evaluate("() => window.__ptiles.driveState()")
         turns0 = st0["turns"]
         print(f"  turn queue     {len(turns0)} entries: "
@@ -215,6 +229,66 @@ def main():
         # that most of the glass shows where you are going.
         if not (0.5 * vh < xy[1] < 0.85 * vh):
             failures.append(f"vehicle drawn at y={xy[0]:.0f}, not in the lower third")
+
+        # --- POI search: bounded, and closeable ----------------------------
+        # On a phone this "timed out": it swept every cell in the corridor to
+        # the destination. It must answer from near the driver, within its
+        # deadline, and be dismissable.
+        for kind in ("ev", "fuel"):
+            r = page.evaluate("async (k) => await window.__ptiles.drivePoi(k)", kind)
+            print(f"  poi {kind:4s}       {r['rows']} rows in {r['ms']/1000:.1f}s · {r['note'][:60]}")
+            if r["ms"] > 12000:
+                failures.append(f"{kind} search took {r['ms']/1000:.1f}s; the deadline is 6s")
+            if not r["open"]:
+                failures.append(f"{kind} search closed its own sheet")
+            still_open = page.evaluate("() => window.__ptiles.driveSheetClose()")
+            if still_open:
+                failures.append(f"the {kind} sheet has no working close button")
+
+        # --- pan and zoom, and getting back ---------------------------------
+        # A driver has to be able to look ahead. Panning stops the map being
+        # yanked back on the next fix; Recenter gives it back.
+        before = page.evaluate("() => window.__ptiles.mapView().center")
+        page.mouse.move(210, 400)
+        page.mouse.down()
+        page.mouse.move(210, 250, steps=6)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        panned = page.evaluate("""() => ({
+            browsing: document.body.classList.contains("browsing"),
+            recenterShown: getComputedStyle(document.getElementById("driveRecenter")).display !== "none",
+            centre: window.__ptiles.mapView().center
+        })""")
+        moved = haversine_m(before[0], before[1], panned["centre"][0], panned["centre"][1])
+        print(f"  pan            moved {moved:.0f} m, browsing={panned['browsing']}, "
+              f"recenter={panned['recenterShown']}")
+        if moved < 20:
+            failures.append("dragging the map did not move it")
+        if not panned["browsing"] or not panned["recenterShown"]:
+            failures.append("panning did not release follow, so the next fix will yank the map back")
+
+        # A fix while browsing must not re-centre.
+        held = page.evaluate("() => window.__ptiles.mapView().center")
+        page.evaluate("async ([lat, lon]) => await window.__ptiles.driveFix(lat, lon, 5, 20)",
+                      [samples[5][0], samples[5][1]])
+        after = page.evaluate("() => window.__ptiles.mapView().center")
+        if haversine_m(held[0], held[1], after[0], after[1]) > 20:
+            failures.append("a fix re-centred the map while the driver was browsing it")
+
+        page.click("#driveRecenter")
+        page.wait_for_timeout(300)
+        if page.evaluate("() => document.body.classList.contains('browsing')"):
+            failures.append("Recenter did not resume following")
+        print("  recenter       follow resumed")
+
+        # --- zoom -----------------------------------------------------------
+        z0 = page.evaluate("() => window.__ptiles.mapView().zoom")
+        page.evaluate("(z) => window.__ptiles.mapSetZoom(z)", z0 - 2)
+        page.wait_for_timeout(400)
+        z1 = page.evaluate("() => window.__ptiles.mapView().zoom")
+        if z1 >= z0:
+            failures.append(f"zoom out did nothing ({z0} -> {z1})")
+        print(f"  zoom           {z0} -> {z1}")
 
         # --- orientation toggle --------------------------------------------
         north = page.evaluate("() => window.__ptiles.driveSetNorthUp(true)")

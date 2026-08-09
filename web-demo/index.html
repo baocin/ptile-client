@@ -183,14 +183,30 @@
   #driveArrive { font-size: 1.5rem; font-weight: 700; color: #e6edf3; }
   #driveRest { font-size: 0.95rem; color: #8b949e; }
   #driveNote { margin-left: auto; font-size: 0.75rem; color: #6e7681;
-               max-width: 45%; text-align: right; }
+               max-width: 45%; text-align: right; overflow: hidden;
+               white-space: nowrap; text-overflow: ellipsis; }
   #driveSheet {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 1300; max-height: 62vh;
     overflow-y: auto; background: #0d1117; border-top: 1px solid #30363d;
     padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: none;
   }
   #driveSheet.show { display: block; }
-  #driveSheet h4 { margin: 0 0 8px; font-size: 0.8rem; color: #8b949e; font-weight: 600; }
+  #driveSheetHead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  #driveSheet h4 { margin: 0; font-size: 0.8rem; color: #8b949e; font-weight: 600; flex: 1; }
+  #driveSheetClose {
+    background: none; border: 1px solid #30363d; border-radius: 8px; color: #8b949e;
+    width: 44px; height: 32px; cursor: pointer; font-size: 1rem; font-family: inherit;
+  }
+  /* Follow is the default, so this only appears once the driver has taken the
+     map somewhere themselves -- which is also the only time it means anything. */
+  #driveRecenter {
+    position: fixed; right: 14px; z-index: 1250; display: none;
+    bottom: calc(132px + env(safe-area-inset-bottom));
+    background: #161b22; border: 1px solid #30363d; border-radius: 22px;
+    color: #e6edf3; padding: 10px 16px; min-height: 44px; cursor: pointer;
+    font-family: inherit; font-size: 0.85rem;
+  }
+  body.driving.browsing #driveRecenter { display: block; }
   .poi-row { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid #21262d;
              align-items: center; cursor: pointer; }
   .poi-row .n { color: #e6edf3; flex: 1; overflow: hidden; text-overflow: ellipsis;
@@ -2791,10 +2807,14 @@ var ROUTE_MAX_CELLS = 400;
 // separate from the ordinary phone budget so widening cannot silently turn
 // every route into a 900-cell load.
 var ROUTE_RETRY_MAX_CELLS = 900;
-// The prefiltered state backbone has many sparse H3 entries but little data
-// (TN is ~1.7 MB compressed). Bound the aggregate explicitly so a multi-state
-// request cannot accidentally load the country.
-var ROUTE_HIGHWAY_MAX_CELLS = 10000;
+// A coast-to-coast retry follows the sparse highway indexes, then fetches only
+// roads_v2 cells along that guide. Keep both halves bounded: an individual
+// state's guide, the union considered by one route, and the actual road-cell
+// retry are separate costs. CA is the largest current guide at 11,592 cells;
+// NY-to-LA's eleven-state union is about 66k.
+var ROUTE_HIGHWAY_STATE_MAX_CELLS = 15000;
+var ROUTE_HIGHWAY_GUIDE_MAX_CELLS = 100000;
+var ROUTE_NATIONAL_RETRY_MAX_CELLS = 2600;
 var ROUTE_END_CAP_K = 2;
 var routeMode = false;
 var routeA = null, routeB = null, routeLayer = null, routeBusy = false;
@@ -3246,10 +3266,22 @@ function statesAlong(lat1, lon1, lat2, lon2) {
     var s = stateAt(pts[i].lat, pts[i].lon);
     if (s) set[s] = 1;
   }
-  // also force endpoint states ignoring "prefer current" stickiness
-  var a = stateAtForce(lat1, lon1); if (a) set[a] = 1;
-  var b = stateAtForce(lat2, lon2); if (b) set[b] = 1;
+  // Rough state rectangles overlap around borders and metro areas. Keep every
+  // endpoint candidate: Manhattan is inside both the NY and NJ rectangles,
+  // and choosing only the closest state centre can open the wrong local-road
+  // file before a national route has even reached its highway guide.
+  statesAtAll(lat1, lon1).forEach(function(s) { set[s] = 1; });
+  statesAtAll(lat2, lon2).forEach(function(s) { set[s] = 1; });
   return Object.keys(set);
+}
+
+function statesAtAll(lat, lon) {
+  var hits = [];
+  for (var s in STATE_BBOX) {
+    var bb = STATE_BBOX[s];
+    if (lat >= bb[0] && lat <= bb[2] && lon >= bb[1] && lon <= bb[3]) hits.push(s);
+  }
+  return hits;
 }
 
 // state pick that does NOT prefer current (for multi-state discovery)
@@ -3308,9 +3340,9 @@ function highwayBackboneFor(state) {
     setStatus("Route: open " + state + " highway guide…");
     var rdr = await highwaysReaderFor(state);
     var cells = rdr.file.entries.map(function(e) { return e.h3Cell.toString(16); });
-    if (cells.length > ROUTE_HIGHWAY_MAX_CELLS) {
+    if (cells.length > ROUTE_HIGHWAY_STATE_MAX_CELLS) {
       throw new Error(state + " highway guide has " + cells.length
-        + " cells; budget is " + ROUTE_HIGHWAY_MAX_CELLS);
+        + " cells; per-state budget is " + ROUTE_HIGHWAY_STATE_MAX_CELLS);
     }
     return { list: cells, set: new Set(cells), cells: cells.length, state: state };
   })().catch(function(e) {
@@ -3355,18 +3387,89 @@ function guideCellPath(guide, start, goal, radius) {
   return path;
 }
 
-async function highwayGuidedPlan(state, a, b) {
-  var guide = await highwayBackboneFor(state);
+async function highwayGuideFor(states) {
+  var list = [], set = new Set(), owners = new Map(), loaded = [];
+  for (var si = 0; si < states.length; si++) {
+    var state = states[si];
+    var one;
+    try { one = await highwayBackboneFor(state); }
+    catch (e) { console.warn("highway guide open failed", state, e); continue; }
+    loaded.push(state);
+    for (var ci = 0; ci < one.list.length; ci++) {
+      var cell = one.list[ci];
+      if (!set.has(cell)) { set.add(cell); list.push(cell); }
+      var cellOwners = owners.get(cell);
+      if (!cellOwners) owners.set(cell, cellOwners = []);
+      if (cellOwners.indexOf(state) < 0) cellOwners.push(state);
+    }
+    if (list.length > ROUTE_HIGHWAY_GUIDE_MAX_CELLS) {
+      throw new Error("highway guide needs " + list.length
+        + " cells; budget is " + ROUTE_HIGHWAY_GUIDE_MAX_CELLS);
+    }
+  }
+  return { list: list, set: set, owners: owners, cells: list.length, states: loaded };
+}
+
+function addCellOwners(into, cell, owners) {
+  if (!owners || !owners.length) return;
+  var current = into[cell] || (into[cell] = []);
+  for (var i = 0; i < owners.length; i++) {
+    if (current.indexOf(owners[i]) < 0) current.push(owners[i]);
+  }
+}
+
+// Radius-2 guide hops bridge occasional empty index cells. Fill those hops
+// back into a continuous H3 spine before fetching roads, retaining both
+// endpoint states at a border so either clipped state file may answer.
+function continuousGuideSpine(path, guide) {
+  var spine = [], seen = new Set(), statesByCell = {};
+  for (var pi = 0; pi < path.length; pi++) {
+    var from = pi ? path[pi - 1] : path[pi];
+    var to = path[pi];
+    var leg = [to];
+    if (pi) {
+      try { leg = h3.gridPathCells(from, to); } catch (e) { leg = [from, to]; }
+    }
+    var owners = (guide.owners.get(from) || []).concat(guide.owners.get(to) || []);
+    for (var li = 0; li < leg.length; li++) {
+      var cell = leg[li];
+      if (!seen.has(cell)) { seen.add(cell); spine.push(cell); }
+      addCellOwners(statesByCell, cell, guide.owners.get(cell) || owners);
+    }
+  }
+  return { spine: spine, statesByCell: statesByCell };
+}
+
+async function highwayGuidedPlan(states, a, b) {
+  var guide = await highwayGuideFor(states);
   var start = nearestGuideCell(guide, a.lat, a.lon);
   var goal = nearestGuideCell(guide, b.lat, b.lon);
   if (!start || !goal) return null;
   var path = guideCellPath(guide, start, goal, 1)
     || guideCellPath(guide, start, goal, 2);
   if (!path) return null;
+  var continuous = continuousGuideSpine(path, guide);
+  var national = guide.states.length > 1;
+  var maxCells = national ? ROUTE_NATIONAL_RETRY_MAX_CELLS : ROUTE_RETRY_MAX_CELLS;
   var plan = cellPlanAroundSpine(
-    path, a.lat, a.lon, b.lat, b.lon, 2, ROUTE_RETRY_MAX_CELLS
+    continuous.spine, a.lat, a.lon, b.lat, b.lon, national ? 0 : 2, maxCells
   );
+  // cellPlanAroundSpine adds endpoint caps after the guide spine. Assign those
+  // cells from their centre; if a rough bbox overlaps, keeping both candidates
+  // is cheaper and safer than probing every state in the route.
+  plan.statesByCell = continuous.statesByCell;
+  for (var i = 0; i < plan.cells.length; i++) {
+    var c = plan.cells[i];
+    if (plan.statesByCell[c]) continue;
+    var center;
+    try { center = h3.cellToLatLng(c); } catch (e) { continue; }
+    var candidates = statesAtAll(center[0], center[1]).filter(function(s) {
+      return guide.states.indexOf(s) >= 0;
+    });
+    addCellOwners(plan.statesByCell, c, candidates);
+  }
   plan.guideCells = guide.cells;
+  plan.guideStates = guide.states;
   return plan;
 }
 
@@ -3568,20 +3671,29 @@ async function loadRouteCorridor(
   var p = corridorParams(distM);
   var useArterial = arterialMiddle != null ? arterialMiddle : !!p.arterial;
   var w = width != null ? width : p.width;
-  // open every state the line crosses (TN→GA needs both; longer needs all)
+  // Resolve the cell plan before opening state files. An intercontinental
+  // straight spine can exceed the ordinary 400-cell budget by itself; that is
+  // a planned hand-off to the highway-guided retry, not a reason to download a
+  // dozen road indexes first.
   var states = statesAlong(lat1, lon1, lat2, lon2);
   if (!states.length) states = [currentState];
+  var cellPlan = cellPlanOverride
+    || corridorCellPlan(lat1, lon1, lat2, lon2, w, p.interval, maxCells);
+
+  // Open every state the line/guide crosses (TN→GA needs both; longer needs all).
   setStatus("Route: open " + states.join(",") + "…");
-  var readers = [];
+  var readers = [], readerByState = {};
   for (var si = 0; si < states.length; si++) {
-    try { readers.push(await roadsReaderFor(states[si])); } catch (e) {
+    try {
+      var reader = await roadsReaderFor(states[si]);
+      readers.push(reader);
+      readerByState[states[si]] = reader;
+    } catch (e) {
       console.warn("roads open failed", states[si], e);
     }
   }
   if (!readers.length) throw new Error("roads layer unavailable (" + states.join(",") + ")");
 
-  var cellPlan = cellPlanOverride
-    || corridorCellPlan(lat1, lon1, lat2, lon2, w, p.interval, maxCells);
   var cells = cellPlan.cells;
   var caps = null;
   if (useArterial) {
@@ -3589,8 +3701,28 @@ async function loadRouteCorridor(
     endCapCells(lat2, lon2, ROUTE_END_CAP_K).forEach(function(c) { caps.add(c); });
   }
 
-  var segments = [];
+  var segments = [], seenSegments = new Set(), rawSegmentCount = 0, vertexCount = 0;
   var zoneMiddle = [];
+  // A national guide knows which state owns each path cell. Prefetch those
+  // groups as coalesced ranges and query only the candidate state(s), instead
+  // of turning 2,000 cells x 11 states into 22,000 misses.
+  if (cellPlan.statesByCell) {
+    var prefetchByState = {};
+    for (var pci = 0; pci < cells.length; pci++) {
+      var ownerList = cellPlan.statesByCell[cells[pci]] || [];
+      for (var oi = 0; oi < ownerList.length; oi++) {
+        if (!readerByState[ownerList[oi]]) continue;
+        (prefetchByState[ownerList[oi]] || (prefetchByState[ownerList[oi]] = []))
+          .push(BigInt("0x" + cells[pci]) & CELL_MASK);
+      }
+    }
+    await Promise.all(Object.keys(prefetchByState).map(function(state) {
+      var layer = readerByState[state].file && readerByState[state].file.layer;
+      return layer && layer.prefetch
+        ? layer.prefetch(prefetchByState[state], { maxGap: 16384 })
+        : Promise.resolve();
+    }));
+  }
   var batch = 24; // more parallel Range GETs
   var t0 = performance.now ? performance.now() : Date.now();
   for (var n = 0; n < cells.length; n += batch) {
@@ -3600,9 +3732,15 @@ async function loadRouteCorridor(
     var chunk = cells.slice(n, n + batch);
     var raws = await Promise.all(chunk.map(async function(hex) {
       var cellInt = BigInt("0x" + hex) & CELL_MASK;
-      for (var ri = 0; ri < readers.length; ri++) {
+      var candidates = readers;
+      if (cellPlan.statesByCell && cellPlan.statesByCell[hex]) {
+        candidates = cellPlan.statesByCell[hex].map(function(s) { return readerByState[s]; })
+          .filter(Boolean);
+        if (!candidates.length) candidates = readers;
+      }
+      for (var ri = 0; ri < candidates.length; ri++) {
         try {
-          var raw = await readers[ri].decompressCell(cellInt);
+          var raw = await candidates[ri].decompressCell(cellInt);
           if (raw) return raw;
         } catch (e) {}
       }
@@ -3616,6 +3754,7 @@ async function loadRouteCorridor(
       if (!segs) continue;
       for (var s = 0; s < segs.length; s++) {
         var seg = segs[s];
+        rawSegmentCount++;
         if (!seg.coords || seg.coords.length < 2) continue;
         var rc0 = seg.road_class != null ? seg.road_class : (seg.roadClass || "");
         if (middle) {
@@ -3625,6 +3764,18 @@ async function loadRouteCorridor(
         }
         // long routes: drop tiny residential stubs even at ends if already many segs
         if (segments.length > 80000 && !ARTERIAL_CLASS[rc0]) continue;
+        // A way intersecting several indexed H3 cells is stored in each of
+        // those cells. Loading a long corridor used to hand every copy to the
+        // graph, so coast-to-coast routing spent its entire node budget on
+        // duplicate geometry. OSM id alone is insufficient because one way
+        // may have legitimate split records; endpoints + vertex count identify
+        // the repeated record without collapsing those pieces.
+        var first = seg.coords[0], last = seg.coords[seg.coords.length - 1];
+        var segKey = String(seg.osm_id != null ? seg.osm_id : seg.osmId) + "|"
+          + first[0] + "," + first[1] + "|" + last[0] + "," + last[1]
+          + "|" + seg.coords.length;
+        if (seenSegments.has(segKey)) continue;
+        seenSegments.add(segKey);
         segments.push({
           coords: seg.coords,
           road_class: rc0 || "residential",
@@ -3632,6 +3783,7 @@ async function loadRouteCorridor(
           speed_limit_kmh: seg.speed_limit_kmh != null ? seg.speed_limit_kmh
             : (seg.speedLimitKmh != null ? seg.speedLimitKmh : null)
         });
+        vertexCount += seg.coords.length;
         zoneMiddle.push(middle);
       }
     }
@@ -3641,7 +3793,8 @@ async function loadRouteCorridor(
     width: cellPlan.appliedWidth, requestedWidth: w,
     budgetLimited: cellPlan.budgetLimited, spineCount: cellPlan.spine.length,
     maxCells: cellPlan.maxCells,
-    distM: distM, arterial: useArterial, states: states
+    distM: distM, arterial: useArterial, states: states,
+    rawSegmentCount: rawSegmentCount, vertexCount: vertexCount
   };
 }
 
@@ -3902,10 +4055,26 @@ async function runRoute(a, b) {
   var p0 = corridorParams(distM);
   setStatus("Route: " + (distM / 1000).toFixed(1) + "km · " + (p0.arterial ? "arterial" : "local") + "…");
   // first pass: adaptive arterial for long, full for short
-  var pack = await loadRouteCorridor(a.lat, a.lon, b.lat, b.lon, null, p0.arterial);
-  if (!pack.segments.length) throw new Error("no road segments in corridor (" + (pack.states || []).join(",") + ")");
-  setStatus("Route: A* " + pack.segments.length + " segs / " + pack.cellCount + " cells · " + (pack.states || []).join(","));
-  var attempt = tryRouteWasm(pack, a, b, 500);
+  var pack = null;
+  var attempt = { result: null, failure: null };
+  try {
+    pack = await loadRouteCorridor(a.lat, a.lon, b.lat, b.lon, null, p0.arterial);
+    if (!pack.segments.length) {
+      attempt.failure = "empty_graph";
+    } else {
+      setStatus("Route: A* " + pack.segments.length + " segs / " + pack.cellCount
+        + " cells · " + (pack.states || []).join(","));
+      attempt = tryRouteWasm(pack, a, b, 500);
+    }
+  } catch (e) {
+    // A mandatory spine over 400 cells is not an unbounded first pass. Record
+    // that specific failure and let the one national highway retry take over.
+    if (String(e && e.message || e).indexOf("route spine needs ") === 0) {
+      attempt.failure = "corridor_budget_exceeded";
+    } else {
+      throw e;
+    }
+  }
   var result = attempt.result;
   lastRouteFailure = attempt.failure;
   // short-only: one widen with full classes
@@ -3929,36 +4098,36 @@ async function runRoute(a, b) {
     lastRouteFailure = attempt.failure;
   }
   // A geometric band still cannot see a highway that bends well away from
-  // the crow-flight line (I-24 through Monteagle is the regression). Use the
-  // state highway index to bend a final roads_v2 corridor through cells that
-  // actually contain the backbone; record bodies still come from roads_v2.
+  // the crow-flight line (I-24 through Monteagle is the regression), and a
+  // continental straight spine cannot fit the phone budget at all. Use the
+  // state highway indexes to bend one bounded roads_v2 retry through cells
+  // that actually contain the backbone; record bodies still come from roads_v2.
   var guidedPlan = null;
-  if (!result && attempt.failure === "disconnected" && distM >= 80000) {
-    var guideStates = pack.states || statesAlong(a.lat, a.lon, b.lat, b.lon);
-    // Published per-state guides do not have border portals. Same-state is
-    // reliable; cross-state stays on the ordinary bounded retry until a
-    // generator publishes overlapping boundary cells.
-    if (guideStates.length === 1) {
-      setStatus("Route: highway-guided corridor…");
-      guidedPlan = await highwayGuidedPlan(guideStates[0], a, b);
-      if (guidedPlan) {
-        pack = await loadRouteCorridor(
-          a.lat, a.lon, b.lat, b.lon, 2, true,
-          ROUTE_RETRY_MAX_CELLS, guidedPlan
-        );
-        attempt = tryRouteWasm(pack, a, b, 600);
-        result = attempt.result;
-        lastRouteFailure = attempt.failure;
-      }
+  if (!result && (attempt.failure === "disconnected"
+      || attempt.failure === "corridor_budget_exceeded") && distM >= 80000) {
+    var guideStates = pack ? pack.states : statesAlong(a.lat, a.lon, b.lat, b.lon);
+    setStatus("Route: highway-guided corridor · " + guideStates.join(",") + "…");
+    guidedPlan = await highwayGuidedPlan(guideStates, a, b);
+    if (guidedPlan) {
+      pack = await loadRouteCorridor(
+        a.lat, a.lon, b.lat, b.lon, guidedPlan.requestedWidth, true,
+        guidedPlan.maxCells, guidedPlan
+      );
+      attempt = tryRouteWasm(pack, a, b, guideStates.length > 1 ? 1000 : 600);
+      result = attempt.result;
+      lastRouteFailure = attempt.failure;
     }
   }
-  lastRouteCorridor = {
+  lastRouteCorridor = pack ? {
     cells: pack.cellCount, spine: pack.spineCount, width: pack.width,
     requestedWidth: pack.requestedWidth, budgetLimited: pack.budgetLimited,
     maxCells: pack.maxCells,
+    segments: pack.segments.length, rawSegments: pack.rawSegmentCount,
+    vertices: pack.vertexCount,
     highwayGuideCells: guidedPlan ? guidedPlan.guideCells : 0,
-    highwayPathCells: guidedPlan ? guidedPlan.spine.length : 0
-  };
+    highwayPathCells: guidedPlan ? guidedPlan.spine.length : 0,
+    highwayGuideStates: guidedPlan ? guidedPlan.guideStates : []
+  } : null;
   return result;
 }
 
@@ -4092,6 +4261,8 @@ var drive = {
   wakeLock: null,
   muted: false,
   northUp: false,
+  follow: true,   // false once the driver moves the map themselves
+  selfMove: false, // set while drive mode is moving the map itself
   named: {},            // turn index -> true once named
   spoken: {},           // "index:band" -> true, so each call happens once
   offCount: 0,          // consecutive off-route fixes
@@ -4230,6 +4401,9 @@ function driveRenderEta(st, speedMps) {
 
 function driveRenderMap(st) {
   var ll = [st.lat, st.lon];
+  // The marker tracks the vehicle even while browsing: it is the answer to
+  // "where am I now", which is exactly what someone panning the map is
+  // usually checking.
   if (!drive.marker) {
     // A chevron, not a dot. The map is heading-up, so the vehicle always
     // points up the screen -- and a shape that says which way is forward is
@@ -4265,7 +4439,15 @@ function driveRenderMap(st) {
     var b = st.bearing_deg * Math.PI / 180;
     target = map.containerPointToLatLng([p.x + d * Math.sin(b), p.y - d * Math.cos(b)]);
   }
-  map.setView(target, Math.max(map.getZoom(), 16), { animate: false });
+  if (drive.follow) {
+    // Following zooms in from the whole-route view on the first fix, and a
+    // zoom is a zoom as far as Leaflet is concerned -- so without this flag
+    // the mode's own setView fires zoomstart, the handler below reads it as
+    // the driver taking over, and follow switches off before the first turn.
+    drive.selfMove = true;
+    map.setView(target, Math.max(map.getZoom(), 16), { animate: false });
+    drive.selfMove = false;
+  }
   driveApplyOrientation(st.bearing_deg);
 }
 
@@ -4273,6 +4455,15 @@ function driveRenderMap(st) {
 // north-up leaves the world alone and rotates the chevron instead. Either way
 // the chevron shows which way the vehicle faces, which is the only thing it
 // is for.
+// Taking the map somewhere by hand stops it being yanked back on the next
+// fix. Guidance carries on regardless -- the banner, the voice and the
+// rerouting have nothing to do with where the map happens to be looking.
+function driveSetFollow(on) {
+  drive.follow = !!on;
+  document.body.classList.toggle("browsing", !drive.follow);
+  if (drive.follow && drive.last) driveRenderMap(drive.last);
+}
+
 function driveApplyOrientation(bearing_deg) {
   var rot = document.getElementById("mapRot");
   rot.style.transform = drive.northUp ? "" : "rotate(" + (-bearing_deg) + "deg)";
@@ -4397,11 +4588,46 @@ async function driveStart(dest) {
       driveOnFix(pos.coords.latitude, pos.coords.longitude,
                  pos.coords.accuracy, pos.coords.speed || 0);
     }, function(err) {
-      document.getElementById("driveNote").textContent = gpsErrorText(err);
+      // The full permission essay belongs in the lookup panel, not across the
+      // ETA bar at 60 mph. One phrase, and the console keeps the detail.
+      console.warn("[drive] geolocation", gpsErrorText(err));
+      document.getElementById("driveNote").textContent =
+        err && err.code === 1 ? "GPS blocked" : "no GPS";
     }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
   }
+  // Leaflet's own dragging stays off: it pans in pane space, and the pane is
+  // rotated, so a drag to the right moves the map off at the heading angle.
+  // driveDrag below does it in screen space instead. Zoom is unaffected by
+  // rotation, so Leaflet keeps that.
   map.dragging.disable();
-  map.scrollWheelZoom.disable();
+  map.scrollWheelZoom.enable();
+  map.touchZoom.enable();
+  map.doubleClickZoom.enable();
+  map.on("zoomstart", function() {
+    if (drive.on && !drive.selfMove) driveSetFollow(false);
+  });
+
+  // Before the first fix, show the whole trip. Waiting on GPS while looking at
+  // an arbitrary corner of the route tells the driver nothing about whether
+  // the mode is working.
+  var pts = normalizeRoutePath(lastRouteResult.path);
+  if (pts.length > 1) {
+    map.fitBounds(L.latLngBounds(pts), { padding: [50, 120], animate: false });
+  }
+  // Say what is happening while GPS warms up. "—" is indistinguishable from
+  // a mode that has silently failed.
+  driveArrow("depart");
+  document.getElementById("driveDist").textContent = "Waiting for GPS";
+  document.getElementById("driveRoad").textContent =
+    driveDistText(lastRouteResult.distance_m) + " · " +
+    Math.max(1, Math.round(lastRouteResult.duration_s / 60)) + " min planned";
+  document.getElementById("driveThen").textContent = "";
+  var eta0 = new Date(Date.now() + lastRouteResult.duration_s * 1000);
+  document.getElementById("driveArrive").textContent =
+    eta0.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  document.getElementById("driveRest").textContent =
+    Math.max(1, Math.round(lastRouteResult.duration_s / 60)) + " min · " +
+    driveDistText(lastRouteResult.distance_m);
   setTimeout(function() { map.invalidateSize(); }, 60);
   return true;
 }
@@ -4419,78 +4645,152 @@ function driveStop() {
   document.getElementById("driveSheet").classList.remove("show");
   map.dragging.enable();
   map.scrollWheelZoom.enable();
+  drive.follow = true;
+  document.body.classList.remove("browsing");
   setTimeout(function() { map.invalidateSize(); }, 60);
 }
 
 // Fuel and charging ahead on the route, not around the map: what is behind you
 // is not a stop. Ordered by how far along the route they are.
+// How long a search may take before it reports what it has. A driver asking
+// for fuel is deciding in the next few seconds, and a spinner that runs until
+// the whole corridor is scanned is the same as no answer at all.
+var POI_DEADLINE_MS = 6000;
+var POI_WANT = 5;
+var POI_MAX_RING = 3;
+
+// Fuel and charging near the driver, searched outward a ring at a time and
+// stopped by whichever comes first: enough results, the ring limit, or the
+// deadline. The old version swept every cell in the corridor to the
+// destination, which on a long trip is hundreds of blocks -- correct, and far
+// too slow to be useful, which is what "it times out" meant.
 async function drivePoiSearch(kind) {
   var sheet = document.getElementById("driveSheet");
   var body = document.getElementById("driveSheetBody");
   document.getElementById("driveSheetTitle").textContent =
-    kind === "ev" ? "Charging ahead" : "Fuel ahead";
-  body.innerHTML = "<div class='poi-row'><span class='n'>searching…</span></div>";
+    kind === "ev" ? "Charging nearby" : "Fuel nearby";
+  body.innerHTML = "<div class='poi-note'>searching…</div>";
   sheet.classList.add("show");
 
   var st = drive.last;
-  var here = st ? { lat: st.lat, lon: st.lon } : null;
-  if (!here) { body.innerHTML = "<div class='poi-row'><span class='n'>no position yet</span></div>"; return; }
+  if (!st) { body.innerHTML = "<div class='poi-note'>no position yet</div>"; return; }
+  var here = { lat: st.lat, lon: st.lon };
+  var t0 = Date.now();
+  var found = [];
+  var seen = new Set();
+  var searched = 0;
+  var stopped = "";
 
   try {
-    var found = [];
-    if (kind === "ev") {
-      var ev = await loadCorridorFeatures("chargers", evReaderFor, wasm_decode_chargers,
-        here.lat, here.lon, drive.dest.lat, drive.dest.lon, null);
-      found = ev.features.map(function(c) {
-        return { lat: c.lat, lon: c.lon,
-                 name: c.name || c.network || "Charging station",
-                 note: (c.power_kw != null ? c.power_kw + " kW" : "power not tagged") };
-      });
+    var state = stateAt(here.lat, here.lon) || currentState;
+
+    if (kind !== "ev") {
+      // BusinessReader.query already walks the cell and its ring-1 neighbours
+      // and decodes them correctly for v4; growing the radius re-reads cached
+      // blocks, so the cost is in the first pass only.
+      var biz = await businessReaderFor(state);
+      var radii = [1, 3, 8];
+      for (var ri = 0; ri < radii.length; ri++) {
+        if (found.length >= POI_WANT) { stopped = "enough"; break; }
+        if (Date.now() - t0 > POI_DEADLINE_MS) { stopped = "deadline"; break; }
+        var recs = await biz.query(here.lat, here.lon, radii[ri]);
+        searched++;
+        found = recs.filter(function(r) { return isFuelCategory(r.category); })
+          .map(function(r) {
+            return { lat: r.lat, lon: r.lon, name: r.name || "Fuel",
+                     note: r.brand || "", dist: r.distance };
+          });
+      }
     } else {
-      var biz = await loadCorridorFeatures("fuel", businessReaderFor, wasm_decode_business,
-        here.lat, here.lon, drive.dest.lat, drive.dest.lon, null);
-      found = biz.features
-        .filter(function(b) { return FUEL_CATEGORIES[b.category_idx]; })
-        .map(function(b) { return { lat: b.lat, lon: b.lon, name: b.name || "Fuel", note: "" }; });
+    var reader = await evReaderFor(state);
+    var decode = wasm_decode_chargers;
+
+    for (var k = 0; k <= POI_MAX_RING; k++) {
+      if (found.length >= POI_WANT) { stopped = "enough"; break; }
+      if (Date.now() - t0 > POI_DEADLINE_MS) { stopped = "deadline"; break; }
+      var ring = Array.from(endCapCells(here.lat, here.lon, k));
+      for (var i = 0; i < ring.length; i++) {
+        if (seen.has(ring[i])) continue;
+        seen.add(ring[i]);
+        if (Date.now() - t0 > POI_DEADLINE_MS) { stopped = "deadline"; break; }
+        var raw = null;
+        try { raw = await reader.decompressCell(BigInt("0x" + ring[i]) & CELL_MASK); } catch (e) {}
+        searched++;
+        if (!raw) continue;
+        var feats;
+        try { feats = decode(raw); } catch (e) { continue; }
+        for (var f = 0; f < feats.length; f++) {
+          var it = feats[f];
+          if (kind !== "ev" && !FUEL_CATEGORIES[it.category_idx]) continue;
+          found.push({
+            lat: it.lat, lon: it.lon,
+            name: it.name || (kind === "ev" ? (it.network || "Charging station") : "Fuel"),
+            note: kind === "ev"
+              ? (it.power_kw != null ? it.power_kw + " kW" : "power not tagged")
+              : "",
+            dist: haversineM(here.lat, here.lon, it.lat, it.lon)
+          });
+        }
+      }
+      if (stopped === "deadline") break;
     }
-    // Distance along the route, not straight line: a station across a divided
-    // highway is 200 m away and a four-kilometre detour.
-    found.forEach(function(f) {
-      f.dist = haversineM(here.lat, here.lon, f.lat, f.lon);
-    });
-    found.sort(function(a, b) { return a.dist - b.dist; });
-    found = found.slice(0, 12);
-    if (!found.length) { body.innerHTML = "<div class='poi-row'><span class='n'>nothing found ahead</span></div>"; return; }
-    body.innerHTML = "";
-    found.forEach(function(f) {
-      var row = document.createElement("div");
-      row.className = "poi-row";
-      row.innerHTML = "<span class='n'>" + escapeHtml(f.name) + "</span>" +
-        "<span class='d'>" + driveDistText(f.dist) + (f.note ? " · " + escapeHtml(f.note) : "") + "</span>";
-      var add = document.createElement("button");
-      add.className = "add";
-      add.textContent = "Add stop";
-      add.addEventListener("click", async function(e) {
-        e.stopPropagation();
-        add.textContent = "…";
-        var leg1 = await runRoute({ lat: st.lat, lon: st.lon }, { lat: f.lat, lon: f.lon });
-        var leg2 = leg1 ? await runRoute({ lat: f.lat, lon: f.lon }, drive.dest) : null;
-        if (!leg1 || !leg2) { add.textContent = "no route"; return; }
-        var joined = {
-          distance_m: leg1.distance_m + leg2.distance_m,
-          duration_s: leg1.duration_s + leg2.duration_s,
-          path: leg1.path.concat(leg2.path.slice(1))
-        };
-        driveSetRoute(joined);
-        sheet.classList.remove("show");
-        driveSay("Stop added");
-      });
-      row.appendChild(add);
-      body.appendChild(row);
-    });
+    }
   } catch (e) {
-    body.innerHTML = "<div class='poi-row'><span class='n'>" + escapeHtml(String(e.message || e)) + "</span></div>";
+    body.innerHTML = "<div class='poi-note'>" + esc(String(e.message || e)) + "</div>";
+    return;
   }
+
+  found.sort(function(a, b) { return a.dist - b.dist; });
+  found = found.slice(0, POI_WANT);
+
+  if (!found.length) {
+    body.innerHTML = "<div class='poi-note'>nothing found within " +
+      POI_MAX_RING + " cells" +
+      (stopped === "deadline" ? ", and the search hit its " + (POI_DEADLINE_MS / 1000) +
+        "s limit after " + searched + " blocks" : "") + "</div>";
+    return;
+  }
+
+  body.innerHTML = "";
+  found.forEach(function(f) {
+    var row = document.createElement("div");
+    row.className = "poi-row";
+    row.innerHTML = "<span class='n'>" + esc(f.name) + "</span>" +
+      "<span class='d'>" + driveDistText(f.dist) + (f.note ? " · " + esc(f.note) : "") + "</span>";
+    var add = document.createElement("button");
+    add.className = "add";
+    add.textContent = "Add stop";
+    add.addEventListener("click", async function(e) {
+      e.stopPropagation();
+      add.textContent = "…";
+      var leg1 = await runRoute({ lat: here.lat, lon: here.lon }, { lat: f.lat, lon: f.lon });
+      var leg2 = leg1 ? await runRoute({ lat: f.lat, lon: f.lon }, drive.dest) : null;
+      if (!leg1 || !leg2) { add.textContent = "no route"; return; }
+      driveSetRoute({
+        distance_m: leg1.distance_m + leg2.distance_m,
+        duration_s: leg1.duration_s + leg2.duration_s,
+        path: leg1.path.concat(leg2.path.slice(1))
+      });
+      sheet.classList.remove("show");
+      driveSay("Stop added");
+    });
+    row.appendChild(add);
+    body.appendChild(row);
+  });
+
+  // Say what the answer is worth: "the nearest five" and "the five I could
+  // find before the clock ran out" are different claims.
+  var note = document.createElement("div");
+  note.className = "poi-note";
+  // The two searches cover ground differently -- rings of cells for chargers,
+  // a growing radius for fuel -- so the note says which, rather than claiming
+  // a scope it did not use.
+  var scope = kind === "ev" ? POI_MAX_RING + " cells" : "8 km";
+  note.textContent = stopped === "deadline"
+    ? "Stopped at " + (POI_DEADLINE_MS / 1000) + "s — there may be closer ones."
+    : "Nearest " + found.length + " within " + scope + " (" +
+      ((Date.now() - t0) / 1000).toFixed(1) + "s).";
+  body.appendChild(note);
 }
 
 // Overture categories that mean "you can buy fuel here".
@@ -4499,9 +4799,19 @@ var FUEL_CATEGORIES = { 11: 1, 18: 1 };
 var businessByState = {};
 async function businessReaderFor(state) {
   if (businessByState[state]) return businessByState[state];
-  var rdr = await LayerReader.fromUrl(stateUrl(state, "business"));
+  // BusinessReader, not LayerReader: v4 stores coordinates relative to the
+  // cell centre, so a block decoded without its entry's stored cell id lands
+  // every record near Null Island. BusinessReader carries that entry.
+  var rdr = await BusinessReader.fromUrl(stateUrl(state, "business"), state);
   businessByState[state] = rdr;
   return rdr;
+}
+
+// The category labels that mean "you can buy fuel here". Matched on the
+// resolved label rather than the raw index, because the index is only
+// meaningful against the sidecar the reader already applied.
+function isFuelCategory(label) {
+  return /fuel|gas[_ ]?station|petrol/i.test(label || "");
 }
 
 document.getElementById("btnDrive").addEventListener("click", function() {
@@ -4590,11 +4900,59 @@ function driveAskDestination(latlng) {
   sheet.classList.add("show");
 }
 
-document.getElementById("mapRot").addEventListener("click", function(e) {
-  if (!drive.on) return;
-  e.stopPropagation();
-  driveAskDestination(driveTapLatLng(e.clientX, e.clientY));
+// One pointer gesture, two meanings: a tap sets a destination, a drag moves
+// the map. The threshold is what keeps a slightly smudged tap from being read
+// as a pan, and a pan from being read as "drive here instead".
+var driveDrag = null;
+var DRIVE_DRAG_PX = 8;
+
+document.getElementById("mapRot").addEventListener("pointerdown", function(e) {
+  if (!drive.on || e.button != null && e.button !== 0) return;
+  driveDrag = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
 }, true);
+
+document.getElementById("mapRot").addEventListener("pointermove", function(e) {
+  if (!drive.on || !driveDrag || e.pointerId !== driveDrag.id) return;
+  var dx = e.clientX - driveDrag.x, dy = e.clientY - driveDrag.y;
+  if (!driveDrag.moved && Math.abs(dx) + Math.abs(dy) < DRIVE_DRAG_PX) return;
+  driveDrag.moved = true;
+  driveSetFollow(false);
+  // The finger moves in screen space; the map pans in pane space, which is
+  // rotated under it. pane = R(b) . screen, and the map moves opposite the
+  // finger.
+  var b = drive.northUp ? 0 : ((drive.last ? drive.last.bearing_deg : 0) * Math.PI / 180);
+  var px = dx * Math.cos(b) - dy * Math.sin(b);
+  var py = dx * Math.sin(b) + dy * Math.cos(b);
+  map.panBy([-px, -py], { animate: false });
+  driveDrag.x = e.clientX;
+  driveDrag.y = e.clientY;
+  e.preventDefault();
+}, true);
+
+document.getElementById("mapRot").addEventListener("pointerup", function(e) {
+  if (!drive.on || !driveDrag) return;
+  var wasDrag = driveDrag.moved;
+  driveDrag = null;
+  e.stopPropagation();
+  if (!wasDrag) driveAskDestination(driveTapLatLng(e.clientX, e.clientY));
+}, true);
+
+document.getElementById("mapRot").addEventListener("click", function(e) {
+  // The pointer handlers above already decided what this gesture meant.
+  if (drive.on) e.stopPropagation();
+}, true);
+
+document.getElementById("driveRecenter").addEventListener("click", function(e) {
+  e.stopPropagation();
+  driveSetFollow(true);
+});
+
+document.getElementById("driveSheetClose").addEventListener("click", function() {
+  document.getElementById("driveSheet").classList.remove("show");
+  drive.poi = null;
+  document.getElementById("drivePoiFuel").classList.remove("on");
+  document.getElementById("drivePoiEv").classList.remove("on");
+});
 
 document.getElementById("driveOrient").addEventListener("click", function() {
   drive.northUp = !drive.northUp;
@@ -5600,6 +5958,7 @@ window.__ptiles = {
       })(),
       viewport: [window.innerWidth, window.innerHeight],
       northUp: drive.northUp,
+      follow: drive.follow,
       markerRotation: (function() {
         var svg = document.querySelector(".drive-me svg");
         return svg ? (svg.style.transform || "") : null;
@@ -5628,6 +5987,37 @@ window.__ptiles = {
   },
   driveScreenXY: function(lat, lon) { return driveScreenXY(lat, lon); },
   __lastFix: function() { return drive.last ? [drive.last.lat, drive.last.lon] : null; },
+  // Run a POI search and report what came back, so the harness can check the
+  // thing that actually failed on a phone: that it finishes, and finishes fast.
+  drivePoi: async function(kind) {
+    var t0 = Date.now();
+    await drivePoiSearch(kind);
+    var rows = document.querySelectorAll("#driveSheetBody .poi-row");
+    return {
+      ms: Date.now() - t0,
+      rows: rows.length,
+      open: document.getElementById("driveSheet").classList.contains("show"),
+      note: (document.querySelector("#driveSheetBody .poi-note") || {}).textContent || "",
+      first: rows.length ? rows[0].textContent.trim() : null
+    };
+  },
+  // The map is module-scoped, so a harness cannot reach it; these are the
+  // few facts a test needs about where it is looking.
+  mapView: function() {
+    var b = map.getBounds();
+    return {
+      center: [map.getCenter().lat, map.getCenter().lng],
+      zoom: map.getZoom(),
+      contains: function() { return null; },
+      south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast()
+    };
+  },
+  mapContains: function(lat, lon) { return map.getBounds().contains(L.latLng(lat, lon)); },
+  mapSetZoom: function(z) { map.setZoom(z); return map.getZoom(); },
+  driveSheetClose: function() {
+    document.getElementById("driveSheetClose").click();
+    return document.getElementById("driveSheet").classList.contains("show");
+  },
   driveSetNorthUp: function(on) {
     if (drive.northUp !== !!on) document.getElementById("driveOrient").click();
     return drive.northUp;
@@ -5749,7 +6139,14 @@ window.__ptiles = {
       <span id="driveNote"></span>
     </div>
   </div>
-  <div id="driveSheet"><h4 id="driveSheetTitle"></h4><div id="driveSheetBody"></div></div>
+  <button id="driveRecenter">Recenter</button>
+  <div id="driveSheet">
+    <div id="driveSheetHead">
+      <h4 id="driveSheetTitle"></h4>
+      <button id="driveSheetClose" title="Close">✕</button>
+    </div>
+    <div id="driveSheetBody"></div>
+  </div>
 </div>
 </body>
 </html>
