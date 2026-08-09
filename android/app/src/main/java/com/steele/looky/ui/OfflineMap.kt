@@ -36,6 +36,61 @@ private val Camera = Color(0xFFB72F3E)
 private val Rail = Color(0xFF6D4C7D)
 private val Business = Color(0xFFD67246)
 
+/**
+ * The map's screen/geography conversion, kept out of the composable so the
+ * forward and inverse transforms are one definition and can be unit tested.
+ *
+ * `pan` is a screen-space offset applied after projection, so panning moves the
+ * picture without moving `center`. That separation is what lets the caller
+ * reload PTiles data for wherever the user scrolled to while the projection
+ * anchor stays put.
+ */
+internal object MapProjection {
+    const val BASE_SPAN_LAT = 0.075
+
+    fun spanLat(scale: Float): Double = BASE_SPAN_LAT / scale
+
+    fun spanLon(centerLat: Double, scale: Float): Double =
+        spanLat(scale) / cos(Math.toRadians(centerLat)).coerceAtLeast(0.25)
+
+    fun project(
+        point: GeoPoint,
+        center: GeoPoint,
+        pan: Offset,
+        width: Float,
+        height: Float,
+        scale: Float,
+    ): Offset = Offset(
+        width / 2f + ((point.lon - center.lon) / spanLon(center.lat, scale) * width).toFloat() + pan.x,
+        height / 2f - ((point.lat - center.lat) / spanLat(scale) * height).toFloat() + pan.y,
+    )
+
+    fun unproject(
+        offset: Offset,
+        center: GeoPoint,
+        pan: Offset,
+        width: Float,
+        height: Float,
+        scale: Float,
+    ): GeoPoint {
+        val x = offset.x - width / 2f - pan.x
+        val y = offset.y - height / 2f - pan.y
+        return GeoPoint(
+            center.lat - y / height * spanLat(scale),
+            center.lon + x / width * spanLon(center.lat, scale),
+        )
+    }
+
+    /** Where the middle of the visible canvas currently sits on the ground. */
+    fun viewportCenter(
+        center: GeoPoint,
+        pan: Offset,
+        width: Float,
+        height: Float,
+        scale: Float,
+    ): GeoPoint = unproject(Offset(width / 2f, height / 2f), center, pan, width, height, scale)
+}
+
 @Composable
 fun OfflineMap(
     center: GeoPoint,
@@ -46,9 +101,13 @@ fun OfflineMap(
     trace: List<GeoPoint>,
     modifier: Modifier = Modifier,
     onLongPress: (GeoPoint) -> Unit = {},
+    onViewportChange: (GeoPoint) -> Unit = {},
+    recenterKey: Int = 0,
 ) {
-    var scale by remember(center) { mutableFloatStateOf(1f) }
-    var pan by remember(center) { mutableStateOf(Offset.Zero) }
+    // Keyed on recenterKey, not center: center changes with every GPS fix, and
+    // resetting the pan on each one yanked the map back mid-gesture.
+    var scale by remember(recenterKey) { mutableFloatStateOf(1f) }
+    var pan by remember(recenterKey) { mutableStateOf(Offset.Zero) }
 
     Canvas(
         modifier
@@ -56,32 +115,28 @@ fun OfflineMap(
             .semantics { contentDescription = "Offline PTiles map. Long press to set destination." }
             .pointerInput(center, scale, pan) {
                 detectTapGestures(onLongPress = { tap ->
-                    val spanLat = 0.075 / scale
-                    val spanLon = spanLat / cos(Math.toRadians(center.lat)).coerceAtLeast(0.25)
-                    val x = tap.x - size.width / 2f - pan.x
-                    val y = tap.y - size.height / 2f - pan.y
                     onLongPress(
-                        GeoPoint(
-                            center.lat - y / size.height * spanLat,
-                            center.lon + x / size.width * spanLon,
+                        MapProjection.unproject(
+                            tap, center, pan, size.width.toFloat(), size.height.toFloat(), scale,
                         )
                     )
                 })
             }
-            .pointerInput(center) {
+            .pointerInput(center, recenterKey) {
                 detectTransformGestures { _, panChange, zoomChange, _ ->
                     scale = (scale * zoomChange).coerceIn(0.6f, 18f)
                     pan += panChange
+                    onViewportChange(
+                        MapProjection.viewportCenter(
+                            center, pan, size.width.toFloat(), size.height.toFloat(), scale,
+                        )
+                    )
                 }
             }
     ) {
         drawRect(MapPaper)
-        val spanLat = 0.075 / scale
-        val spanLon = spanLat / cos(Math.toRadians(center.lat)).coerceAtLeast(0.25)
-        fun project(point: GeoPoint): Offset = Offset(
-            size.width / 2f + ((point.lon - center.lon) / spanLon * size.width).toFloat() + pan.x,
-            size.height / 2f - ((point.lat - center.lat) / spanLat * size.height).toFloat() + pan.y,
-        )
+        fun project(point: GeoPoint): Offset =
+            MapProjection.project(point, center, pan, size.width, size.height, scale)
         fun line(points: List<GeoPoint>, color: Color, width: Float, cap: StrokeCap = StrokeCap.Round) {
             if (points.size < 2) return
             val path = Path()

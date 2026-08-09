@@ -6,7 +6,18 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class MapDownloadProgress(val completed: Int, val total: Int, val layer: String, val bytes: Long)
+/**
+ * Progress for one download run. `region` is the state whose layer is in
+ * flight right now, which is what lets a per-state row show its own bar during
+ * an all-states download instead of one global counter.
+ */
+data class MapDownloadProgress(
+    val completed: Int,
+    val total: Int,
+    val region: String,
+    val layer: String,
+    val bytes: Long,
+)
 
 object MapPackDownloader {
     const val CURRENT_DATE = "2026-08-07"
@@ -55,7 +66,7 @@ object MapPackDownloader {
                             if (n < 0) break
                             output.write(buffer, 0, n)
                             total += n
-                            onProgress(MapDownloadProgress(completed, jobs.size, "$state $layer", total))
+                            onProgress(MapDownloadProgress(completed, jobs.size, state, layer, total))
                         }
                     }
                 }
@@ -63,7 +74,7 @@ object MapPackDownloader {
                 if (target.exists()) target.delete()
                 if (!pending.renameTo(target)) error("could not install $name")
                 completed++
-                onProgress(MapDownloadProgress(completed, jobs.size, "$state $layer", target.length()))
+                onProgress(MapDownloadProgress(completed, jobs.size, state, layer, target.length()))
             }
             completed
         }

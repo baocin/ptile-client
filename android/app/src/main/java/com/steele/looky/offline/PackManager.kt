@@ -35,6 +35,21 @@ class PackManager(private val context: Context) {
         }
     }
 
+    /**
+     * Delete every installed file for one region and report the bytes freed.
+     *
+     * Matches on the filename's region prefix rather than the `.ptiles`
+     * extension, so a state's `business_categories.json` sidecar goes with it.
+     * "US" is its own region, so removing a state never touches the national
+     * admin/camera/signals layers.
+     */
+    fun delete(region: String): Long {
+        val files = regionFiles(packsDir.listFiles().orEmpty(), region)
+        val bytes = files.sumOf(File::length)
+        files.forEach { it.delete() }
+        return bytes
+    }
+
     fun packs(): List<OfflinePack> = packsDir.listFiles()
         .orEmpty()
         .filter { it.isFile && it.extension == "ptiles" }
@@ -53,5 +68,14 @@ class PackManager(private val context: Context) {
 
         internal fun isBundledConformanceSlice(file: File): Boolean =
             BUNDLED_CONFORMANCE_LENGTHS[file.name] == file.length()
+
+        /**
+         * Installed files belonging to one region.
+         *
+         * The whole first dot-segment must match, not a `startsWith` prefix:
+         * "IN" would otherwise also claim an "INX." file.
+         */
+        internal fun regionFiles(files: Array<out File>, region: String): List<File> = files
+            .filter { it.isFile && it.name.substringBefore('.') == region }
     }
 }
