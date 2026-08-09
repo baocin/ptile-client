@@ -577,6 +577,34 @@ impl Default for DebounceConfig {
     }
 }
 
+impl DebounceConfig {
+    /// The responsive tuning: commits a transition in about 3 seconds rather
+    /// than a minute.
+    ///
+    /// **This trades stability for latency, and both sides are measured.**
+    /// Against the mined-transition corpus in `tests/data` -- real device
+    /// recordings of moments the state actually moved -- the defaults reproduce
+    /// 1 of 116 transitions and this reproduces 64, because at a 7-second fix
+    /// cadence a 60 s latency needs agreement no real transition sustains.
+    /// Against the GPX traces in `tests/`, the defaults hold 0.96 committed
+    /// transitions per 10 minutes and this reaches 5.35 on one trail hike,
+    /// flipping Stationary/Walking sixteen times in half an hour.
+    ///
+    /// So it is not a better default, it is a different point on the curve. Use
+    /// it where a missed transition costs more than a spurious one -- a client
+    /// that files a note on arrival wants to know it arrived. Leave the defaults
+    /// where a flapping state is the expensive failure.
+    pub fn responsive() -> DebounceConfig {
+        DebounceConfig {
+            majority_window: 3,
+            rapid_latency_ms: 3_000,
+            default_latency_ms: 3_000,
+            vehicle_sticky_ms: 90_000,
+            ..DebounceConfig::default()
+        }
+    }
+}
+
 /// Stabilizes a [`Vote`] stream into [`MovementType`] transitions: a majority
 /// window, per-direction latency, a minimum run of agreeing votes, and the
 /// vehicle-sticky guard.
@@ -1311,9 +1339,23 @@ mod tests {
         now
     }
 
+    /// The pre-tuning defaults, kept so the tests that exercise debouncer
+    /// MECHANICS -- latency, majority runs, the sticky windows -- pin their own
+    /// numbers instead of tracking whatever `default()` happens to be. A test of
+    /// how latency behaves should not break when the shipped latency changes.
+    fn legacy_cfg() -> DebounceConfig {
+        DebounceConfig {
+            majority_window: 5,
+            rapid_latency_ms: 15_000,
+            default_latency_ms: 60_000,
+            vehicle_sticky_ms: 150_000,
+            ..DebounceConfig::default()
+        }
+    }
+
     #[test]
     fn debouncer_needs_majority_run_and_latency() {
-        let mut d = VoteDebouncer::new(DebounceConfig::default());
+        let mut d = VoteDebouncer::new(legacy_cfg());
         assert_eq!(d.current(), MovementType::Unknown);
         // Driving has the 15 s rapid latency: 10 s of votes is not enough.
         let t = feed(&mut d, MovementType::Driving, 10, 0);
@@ -1334,7 +1376,7 @@ mod tests {
 
     #[test]
     fn vehicle_sticky_survives_a_red_light() {
-        let mut d = VoteDebouncer::new(DebounceConfig::default());
+        let mut d = VoteDebouncer::new(legacy_cfg());
         let t = feed(&mut d, MovementType::Driving, 20, 0);
         assert_eq!(d.current(), MovementType::Driving);
         // 100 s stopped at a light (< 150 s sticky): still Driving.
@@ -1349,7 +1391,7 @@ mod tests {
     #[test]
     fn first_transition_out_of_unknown_pays_the_default_latency() {
         // Unknown -> Stationary is not a "rapid" transition: 60 s, not 15 s.
-        let mut d = VoteDebouncer::new(DebounceConfig::default());
+        let mut d = VoteDebouncer::new(legacy_cfg());
         let t = feed(&mut d, MovementType::Stationary, 40, 0);
         assert_eq!(d.current(), MovementType::Unknown);
         feed(&mut d, MovementType::Stationary, 30, t);
@@ -1397,7 +1439,7 @@ mod tests {
 
     #[test]
     fn returning_to_the_current_state_restarts_the_latency_clock() {
-        let mut d = VoteDebouncer::new(DebounceConfig::default());
+        let mut d = VoteDebouncer::new(legacy_cfg());
         let mut now = feed(&mut d, MovementType::Walking, 80, 0);
         // 14 s of Driving: pending, but one second short of the 15 s latency.
         now = feed(&mut d, MovementType::Driving, 14, now);
@@ -1551,7 +1593,7 @@ mod tests {
         // A config whose signal window is *shorter* than the vehicle one must
         // not make arrivals at intersections commit sooner — the control can
         // only extend.
-        let cfg = DebounceConfig { signal_sticky_ms: 10_000, ..DebounceConfig::default() };
+        let cfg = DebounceConfig { signal_sticky_ms: 10_000, ..legacy_cfg() };
         let signal = control(1, 5.0);
         let mut d = VoteDebouncer::new(cfg);
         let t = feed_at(&mut d, MovementType::Driving, 20, 0, Some(&signal));
