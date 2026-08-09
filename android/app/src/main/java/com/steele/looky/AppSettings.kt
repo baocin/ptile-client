@@ -33,7 +33,7 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit().putBoolean("avoid_intersections", value).apply()
 
     var gpsIntervalSeconds: Int
-        get() = prefs.getInt("gps_interval_seconds", 7).coerceIn(3, 60)
+        get() = prefs.getInt("gps_interval_seconds", 3).coerceIn(3, 60)
         set(value) = prefs.edit().putInt("gps_interval_seconds", value.coerceIn(3, 60)).apply()
 
     var accelerometerRateHz: Int

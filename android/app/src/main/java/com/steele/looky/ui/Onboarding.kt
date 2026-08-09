@@ -1,6 +1,7 @@
 package com.steele.looky.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,11 +31,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.steele.looky.offline.MapDownloadProgress
+import com.steele.looky.R
 
 private data class Intro(val eyebrow: String, val title: String, val body: String)
 
@@ -46,6 +49,7 @@ fun Onboarding(
     mapDownload: MapDownloadProgress? = null,
     mapDownloadRunning: Boolean = false,
     mapDownloadError: String? = null,
+    currentStateName: String? = null,
     onDownloadMaps: () -> Unit = {},
     onComplete: () -> Unit,
 ) {
@@ -78,7 +82,11 @@ fun Onboarding(
                 Modifier.size(88.dp).background(if (page == 2) Clay else Lime, RoundedCornerShape(28.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(if (page == 0) "L" else listOf("", "↓", "●", "✓")[page], style = MaterialTheme.typography.displaySmall, color = Forest)
+                if (page == 0) {
+                    Image(painterResource(R.drawable.ic_looky), "Looky", Modifier.size(72.dp))
+                } else {
+                    Text(listOf("", "↓", "●", "✓")[page], style = MaterialTheme.typography.displaySmall, color = Forest)
+                }
             }
             Spacer(Modifier.height(30.dp))
             Text(item.eyebrow, style = MaterialTheme.typography.labelLarge, color = ForestSoft)
@@ -88,12 +96,12 @@ fun Onboarding(
             Text(item.body, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF58615C))
             Spacer(Modifier.weight(1f))
             if (page == pages.lastIndex && mapDownloadRunning) {
-                Text("Downloading Tennessee offline maps…", color = Forest, fontWeight = FontWeight.Bold)
+                Text("Downloading ${currentStateName ?: "your state"} offline maps…", color = Forest, fontWeight = FontWeight.Bold)
                 mapDownload?.let { Text("${it.completed}/${it.total} · ${it.layer.replace('_', ' ')}", color = ForestSoft) }
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Preparing offline maps…") }
             } else if (page == pages.lastIndex && permissionsGranted && mapDownload == null) {
-                Text("Tennessee and Montana roads, highways, trails, parks, rail, places, water, buildings, cameras, and lookup layers are ready to cache.", color = ForestSoft)
+                Text("${currentStateName ?: "Your state"} roads, highways, trails, parks, rail, places, water, buildings, cameras, and lookup layers are ready to cache.", color = ForestSoft)
                 mapDownloadError?.let { Text(it, color = Color(0xFF9B3D2B)) }
                 Spacer(Modifier.height(10.dp))
                 Button(
@@ -101,7 +109,8 @@ fun Onboarding(
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Lime, contentColor = Forest),
-                ) { Text("Download TN + Montana maps", fontWeight = FontWeight.Bold) }
+                    enabled = currentStateName != null,
+                ) { Text("Download ${currentStateName ?: "your state"}", fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.height(10.dp))
                 Button(onClick = onExploreOffline, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = Forest)) { Text("Skip for now") }
             } else if (page == pages.lastIndex && !permissionsGranted) {

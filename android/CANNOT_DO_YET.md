@@ -23,16 +23,17 @@ visible in UI and engineering decisions.
 
 ## Map and discovery
 
-- The native canvas intentionally starts small: roads, trails, the active route,
-  and trace. It has no cartographic label collision, vector-tile style language,
+- The native canvas draws roads, trails, water, parks, buildings, rail,
+  cameras, businesses, the active route, and trace. It has no cartographic
+  label collision, vector-tile style language,
   satellite imagery, traffic overlay, indoor maps, Street View, or production
   3D renderer.
 - Address and business lookup primitives exist, but there is no complete
   country-wide forward-geocode/search index or polished native search UI yet.
-- On first-run, Looky downloads Tennessee and Montana from the 2026-08-07 My
-  Data Timeline snapshot. Offline maps also offer a built-in all-US download
+- On first-run, Looky resolves and downloads the device's current state from
+  the 2026-08-07 My Data Timeline snapshot. Offline maps also offer an all-US download
   covering every state/DC and the US-wide admin, camera, and signals layers.
-  Automatic GPS-based state selection and resumable downloads are not wired yet.
+  Resumable downloads are not wired yet.
 - Pack delivery lacks signed manifests, resumable downloads, delta updates,
   storage forecasts, automatic adjacent-region selection, and atomic multi-layer
   version activation. Single imported files are atomically installed.

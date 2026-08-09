@@ -8,8 +8,9 @@ that should not be accidentally hidden by a UI change.
 
 Looky is an Android-only, offline-first map and movement recorder. Drive and
 Trail are first-class modes. A foreground location service stays visible in a
-persistent notification, records location and motion in the background, and
-writes one Rook-compatible GPX day file per local date.
+persistent notification, holds a partial wake lock while active, refreshes
+movement classification every two seconds, records location and motion in the
+background, and writes one Rook-compatible GPX day file per local date.
 
 Looky does not use a WebView, Google Maps SDK, or online route service. The map
 canvas and all local lookups are backed by PTiles decoded through the native
@@ -35,8 +36,8 @@ not copy credentials into the repository, CI logs, or the app.
 
 1. The onboarding stepper explains offline maps, background recording, and GPX.
 2. Location/activity/notification permissions are requested.
-3. The default download installs the Tennessee and Montana state packs from
-   the `2026-08-07` My Data Timeline snapshot, including roads, trails,
+3. The default download resolves and installs the user's current state pack
+   from the `2026-08-07` My Data Timeline snapshot, including roads, trails,
    highways, parks, rail, places, water, buildings, businesses, addresses,
    EV, and lookup layers. US-wide camera/signals/admin layers are included.
 4. The user can skip recording or continue into the app.
@@ -59,6 +60,8 @@ The bottom navigation switches modes. Starting recording updates the active
 mode in settings and the foreground service. Routing uses the current GPS
 point or a map long-press destination. Both endpoints are snapped to the
 nearest installed offline road/trail before the route graph is evaluated.
+Layer selection is state- and coverage-aware; filesystem order never decides
+which state's graph is used.
 
 If a route reports an empty graph, first verify that a versioned state roads
 layer is installed for the area and that the endpoints are inside its coverage.
@@ -165,8 +168,8 @@ The downloader currently targets:
 
 State layer stems are defined in `MapPackDownloader.STATE_LAYERS`; the US-wide
 stems are in `US_LAYERS`. If the snapshot date or vocabulary changes, update
-those constants and test a Tennessee and Montana download before enabling a
-new default. The native decoder currently has no independent `highways` layer
+those constants and test at least two representative state downloads before
+enabling a new default. The native decoder currently has no independent `highways` layer
 kind, so highway files are retained for forward compatibility while routing
 and motion classification use OSM `highway` tags from the roads layer.
 
@@ -174,7 +177,7 @@ and motion classification use OSM `highway` tags from the roads layer.
 
 Read [CANNOT_DO_YET.md](CANNOT_DO_YET.md) before promising production behavior.
 The important current limits are bounded routing, no turn-by-turn navigation,
-no traffic/closures, no automatic state selection, no resumable downloads, no
+no traffic/closures, no resumable downloads, no
 wearable heart rate, Android background-execution limits, and no end-to-end
 trace encryption.
 
@@ -183,7 +186,7 @@ trace encryption.
 - Build and unit tests pass.
 - PTiles FFI tests pass.
 - APK installs on the validation device.
-- Onboarding downloads TN/MT without a file picker.
+- Onboarding downloads the location-resolved current state without a file picker.
 - Offline Maps exposes all states and shows sizes.
 - Drive map has visible roads/buildings/water in an installed coverage area.
 - Trail map has visible trail geometry.

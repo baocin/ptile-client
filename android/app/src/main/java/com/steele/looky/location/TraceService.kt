@@ -11,6 +11,8 @@ import android.content.pm.PackageManager
 import android.hardware.SensorManager
 import android.location.Location
 import android.os.IBinder
+import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -31,6 +33,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class TraceService : Service() {
@@ -42,6 +47,7 @@ class TraceService : Service() {
         const val ACTION_APPLY_SETTINGS = "com.steele.looky.APPLY_SETTINGS"
         private const val CHANNEL = "looky-trace"
         private const val NOTIFICATION = 4102
+        internal const val CLASSIFICATION_INTERVAL_MS = 2_000L
 
         fun start(context: Context, mode: LookyMode) {
             val action = if (mode == LookyMode.DRIVE) ACTION_DRIVE else ACTION_TRAIL
@@ -66,6 +72,10 @@ class TraceService : Service() {
     private var last: Location? = null
     private var distanceM = 0.0
     private var started = false
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var classificationJob: Job? = null
+    private var latestMotion: MotionResult? = null
+    private var latestMotionAtMs = 0L
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -122,8 +132,20 @@ class TraceService : Service() {
             return false
         }
         started = true
+        wakeLock = getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Looky:TraceService")
+            .apply {
+                setReferenceCounted(false)
+                acquire()
+            }
         motion.start(mode, AppSettings(this).accelerometerRateHz)
         requestLocationUpdates(AppSettings(this).gpsIntervalSeconds)
+        classificationJob = scope.launch {
+            while (isActive) {
+                delay(CLASSIFICATION_INTERVAL_MS)
+                last?.let { classifyAndPublish(Location(it)) }
+            }
+        }
         return true
     }
 
@@ -147,7 +169,9 @@ class TraceService : Service() {
     }
 
     private fun record(fix: Location) {
-        val result = motion.classify(fix)
+        val now = SystemClock.elapsedRealtime()
+        val result = latestMotion?.takeIf { now - latestMotionAtMs <= CLASSIFICATION_INTERVAL_MS }
+            ?: classifyAndPublish(fix)
         val nearby = ptiles.nearbyRoadContext(fix.latitude, fix.longitude).second
         last?.let { previous ->
             val jump = previous.distanceTo(fix).toDouble()
@@ -174,6 +198,26 @@ class TraceService : Service() {
             .notify(NOTIFICATION, notification("${result.movement} · ${appended.pointsToday} points"))
     }
 
+    /** Advance classification between GPS writes so the UI never waits 7–60s. */
+    private fun classifyAndPublish(fix: Location): MotionResult {
+        val result = motion.classify(fix)
+        latestMotion = result
+        latestMotionAtMs = SystemClock.elapsedRealtime()
+        TraceBus.update {
+            it.copy(
+                running = true,
+                mode = mode,
+                movement = result.movement,
+                confidence = result.confidence,
+            )
+        }
+        getSystemService(NotificationManager::class.java).notify(
+            NOTIFICATION,
+            notification("${result.movement} · ${TraceBus.state.value.pointsToday} points"),
+        )
+        return result
+    }
+
     private fun notification(status: String) = NotificationCompat.Builder(this, CHANNEL)
         .setSmallIcon(R.drawable.ic_looky)
         .setContentTitle("Looky · ${if (mode == LookyMode.DRIVE) "Drive" else "Trail"}")
@@ -188,6 +232,7 @@ class TraceService : Service() {
         )
         .addAction(0, "Drive", serviceIntent(ACTION_DRIVE, 1))
         .addAction(0, "Trail", serviceIntent(ACTION_TRAIL, 2))
+        .addAction(0, "Stop", serviceIntent(ACTION_STOP, 3))
         .build()
 
     private fun serviceIntent(action: String, code: Int) = PendingIntent.getService(
@@ -210,9 +255,12 @@ class TraceService : Service() {
             ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     override fun onDestroy() {
+        classificationJob?.cancel()
         if (started) fused.removeLocationUpdates(callback)
         if (::motion.isInitialized) motion.stop()
         if (::recorder.isInitialized) recorder.close()
+        wakeLock?.takeIf { it.isHeld }?.release()
+        wakeLock = null
         scope.cancel()
         TraceBus.update { it.copy(running = false) }
         super.onDestroy()

@@ -70,7 +70,12 @@ class MotionEngine(
     fun classify(location: Location): MotionResult {
         val stats = synchronized(lock) {
             val result = if (x.size >= 3) {
-                accelStatsFromSamples(x.toList(), y.toList(), z.toList(), 50u)
+                accelStatsFromSamples(
+                    x.toList(),
+                    y.toList(),
+                    z.toList(),
+                    accelerometerRateHz.toUInt(),
+                )
             } else {
                 AccelStats(0.0, null, 0.0, 0u, null)
             }
