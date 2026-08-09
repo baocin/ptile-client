@@ -666,9 +666,14 @@ impl AdaptiveMotionSession {
         let accuracy = location.and_then(|sample| sample.horizontal_accuracy_m);
         let bearing = location.and_then(|sample| sample.bearing_degrees);
 
-        let no_evidence =
-            location.is_none() && observation.accelerometer.is_none() && observation.road.is_none();
-        self.last_vote = if no_evidence {
+        // A location object is not automatically motion evidence. The first
+        // fix, a duplicate/backwards timestamp, or the first fix after a long
+        // gap can carry coordinates but still produce no usable speed. With no
+        // accelerometer window either, classifying that absence would fall
+        // through to fake Stationary evidence.
+        let has_motion_evidence =
+            effective_speed.is_some() || observation.accelerometer.is_some();
+        self.last_vote = if !has_motion_evidence {
             Vote {
                 movement: MovementType::Unknown,
                 confidence: 0.0,
@@ -683,11 +688,17 @@ impl AdaptiveMotionSession {
                 self.debouncer.current(),
             )
         };
-        let movement = self.debouncer.tick_at(
-            &self.last_vote,
-            observation.t_ms,
-            observation.traffic_control.as_ref(),
-        );
+        let movement = if has_motion_evidence {
+            self.debouncer.tick_at(
+                &self.last_vote,
+                observation.t_ms,
+                observation.traffic_control.as_ref(),
+            )
+        } else {
+            // No vote means no transition. In particular, do not let the wall
+            // clock across a GPS gap satisfy Stationary's debounce latency.
+            self.debouncer.current()
+        };
         self.last_at_traffic_control = observation
             .traffic_control
             .is_some_and(|control| control.holds_traffic(self.cfg.debounce.signal_radius_m));
@@ -999,5 +1010,41 @@ mod tests {
         });
         assert_eq!(update.vote.movement, MovementType::Unknown);
         assert_eq!(update.movement, MovementType::Unknown);
+    }
+
+    #[test]
+    fn a_fix_without_usable_motion_evidence_holds_the_committed_state() {
+        let cfg = AdaptiveMotionConfig {
+            debounce: DebounceConfig {
+                majority_window: 1,
+                rapid_latency_ms: 0,
+                default_latency_ms: 0,
+                min_continuous: 1,
+                ..DebounceConfig::default()
+            },
+            ..AdaptiveMotionConfig::default()
+        };
+        let mut session = AdaptiveMotionSession::new(cfg, SamplingCapabilities::default());
+        let walking = session.observe(MotionObservation {
+            t_ms: 1,
+            location: Some(location(Some(3.0), 5.0)),
+            accelerometer: None,
+            road: None,
+            traffic_control: None,
+        });
+        assert_eq!(walking.movement, MovementType::Walking);
+
+        // The gap clears the derived-speed window. Coordinates alone cannot
+        // say Stationary until another timestamped fix supplies a delta.
+        let after_gap = session.observe(MotionObservation {
+            t_ms: MotionConfig::default().max_gap_ms + 2,
+            location: Some(location(None, 5.0)),
+            accelerometer: None,
+            road: None,
+            traffic_control: None,
+        });
+        assert_eq!(after_gap.vote.movement, MovementType::Unknown);
+        assert_eq!(after_gap.vote.confidence, 0.0);
+        assert_eq!(after_gap.movement, MovementType::Walking);
     }
 }

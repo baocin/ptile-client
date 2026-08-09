@@ -92,7 +92,8 @@ export class MovementTracker {
      *
      * Returns `{movement, vote: {movement, confidence}, smoothed_speed_mps,
      * at_traffic_control}` where `movement` is the debounced state and `vote`
-     * is this fix alone.
+     * is this fix alone. When neither speed nor an accelerometer window is
+     * available, `vote` is Unknown at zero confidence and `movement` is held.
      */
     push(t_ms: number, lat: number, lon: number, speed_mps: number | null | undefined, accuracy_m: number | null | undefined, accel: any, road: any, intersection: any): any;
     /**

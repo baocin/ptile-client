@@ -129,6 +129,28 @@ test("Umstead's spatially continuous slow stretches stay walking", { skip: !have
   );
 });
 
+test("a speedless fix after a gap holds movement instead of voting stationary", () => {
+  const config = {
+    majority_window: 1,
+    rapid_latency_ms: 0,
+    default_latency_ms: 0,
+    min_continuous: 1,
+  };
+  const trace = [
+    { lat: 36, lon: -86, t_ms: 0, speed: 3.0 },
+    { lat: 36.00001, lon: -86, t_ms: 1_000, speed: 3.0 },
+    // Longer than MotionConfig.max_gap_ms. No reported speed means there is
+    // no position-derived speed on this fix either.
+    { lat: 36.001, lon: -86, t_ms: 40_000 },
+  ];
+  const results = classifyTrace(wasm, trace, { config });
+  assert.equal(results[1].movement, "walking");
+  assert.deepEqual(
+    { vote: results[2].vote, confidence: results[2].confidence, movement: results[2].movement },
+    { vote: "unknown", confidence: 0, movement: "walking" },
+  );
+});
+
 test("the tracker derives speed when the file reports none", { skip: !have }, () => {
   const pts = points(DRIVE);
   classifyTrace(wasm, pts);

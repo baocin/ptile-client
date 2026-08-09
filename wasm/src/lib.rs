@@ -1825,7 +1825,8 @@ impl MovementTracker {
     ///
     /// Returns `{movement, vote: {movement, confidence}, smoothed_speed_mps,
     /// at_traffic_control}` where `movement` is the debounced state and `vote`
-    /// is this fix alone.
+    /// is this fix alone. When neither speed nor an accelerometer window is
+    /// available, `vote` is Unknown at zero confidence and `movement` is held.
     pub fn push(
         &mut self,
         t_ms: f64,
@@ -1874,15 +1875,27 @@ impl MovementTracker {
         // fallback when the fix carries none (browser geolocation often does).
         let effective_speed = speed_mps.or_else(|| self.speed.smoothed_speed_mps());
 
-        self.last_vote = classify_with_history(
-            effective_speed,
-            accuracy_m,
-            road.as_ref(),
-            accel.as_ref(),
-            None,
-            self.debouncer.current(),
-        );
-        let movement = self.debouncer.tick_at(&self.last_vote, t, control.as_ref());
+        let has_motion_evidence = effective_speed.is_some() || accel.is_some();
+        self.last_vote = if has_motion_evidence {
+            classify_with_history(
+                effective_speed,
+                accuracy_m,
+                road.as_ref(),
+                accel.as_ref(),
+                None,
+                self.debouncer.current(),
+            )
+        } else {
+            Vote {
+                movement: MovementType::Unknown,
+                confidence: 0.0,
+            }
+        };
+        let movement = if has_motion_evidence {
+            self.debouncer.tick_at(&self.last_vote, t, control.as_ref())
+        } else {
+            self.debouncer.current()
+        };
         to_js(&MovementUpdate {
             movement: movement.as_str(),
             vote: self.last_vote,

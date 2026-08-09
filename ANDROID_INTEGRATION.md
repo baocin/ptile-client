@@ -114,7 +114,9 @@ classify(
 - **A gap in the fixes** longer than `max_gap_ms` (30 s) clears the smoothing window, so speeds from
   before the gap never average into the ones after it. A reported speed still seeds the fresh
   window, because it describes that instant; a position-derived speed measured *across* the gap is
-  discarded.
+  discarded. If that first post-gap fix has neither a reported speed nor an accelerometer window,
+  the composed classifier emits an `Unknown` zero-confidence vote and holds its committed movement;
+  missing evidence is not a `Stationary` observation.
 - **Non-monotonic or duplicate timestamps** yield no derived speed rather than a division by zero or
   a negative interval.
 - **Coordinates at the poles or the antimeridian, NaN, infinity** do not panic —

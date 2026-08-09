@@ -233,6 +233,11 @@ platform speed can seed the fresh window, while a speed derived across the gap
 is discarded. The previously committed state survives this automatic gap
 cleanup.
 
+The composed stateful sessions also treat that speedless fix as **no vote**
+when no accelerometer window is present. They report an Unknown vote at zero
+confidence and hold the committed movement, rather than turning missing motion
+evidence into Stationary and letting the wall-clock gap satisfy its debounce.
+
 Public state operations:
 
 - `state()` reads the current band.

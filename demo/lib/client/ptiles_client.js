@@ -251,7 +251,8 @@ export class MovementTracker {
      *
      * Returns `{movement, vote: {movement, confidence}, smoothed_speed_mps,
      * at_traffic_control}` where `movement` is the debounced state and `vote`
-     * is this fix alone.
+     * is this fix alone. When neither speed nor an accelerometer window is
+     * available, `vote` is Unknown at zero confidence and `movement` is held.
      * @param {number} t_ms
      * @param {number} lat
      * @param {number} lon
