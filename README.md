@@ -112,6 +112,7 @@ builder, so a walk down a path and along a residential street is one route.
 cargo test --workspace
 node --test web-demo/test/ptiles.test.mjs   # the wasm reader vs conformance/corpus/
 node --test "demo/test/*.test.mjs"          # the legacy JS reader
+python3 -m unittest conformance.test_helpers # corpus slicer/checker byte helpers
 
 # The page itself, in chromium. Serves web-demo/ on its own port; tiles come
 # from the live host, so this needs network.
