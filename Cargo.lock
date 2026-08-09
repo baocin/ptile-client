@@ -541,8 +541,10 @@ dependencies = [
 name = "ptiles-motion"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "ptiles-core",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
