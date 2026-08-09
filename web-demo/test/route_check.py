@@ -46,6 +46,12 @@ EV_RANGE_MI = 40
 LONG_A = EV_A
 LONG_B = (35.0456, -85.3097)  # downtown Chattanooga, ~182 km crow distance
 
+# A short route that crosses a published state-file seam. Each state extract
+# clips the same road independently; the client must load both copies and join
+# matching road endpoints rather than treating the Mississippi as a graph cut.
+CROSS_A = (35.1495, -90.0490)  # Memphis, TN
+CROSS_B = (35.1465, -90.1845)  # West Memphis, AR
+
 
 def haversine_m(lat1, lon1, lat2, lon2):
     r = 6371000.0
@@ -157,6 +163,15 @@ def main():
             failures.append(
                 f"long driving: no Nashville-Chattanooga route "
                 f"({long_drive.get('failure')}; {long_drive['status']})")
+
+        cross = route(CROSS_A, CROSS_B)
+        print(f"  state seam    {cross['distanceM']/1000:7.1f} km  "
+              f"{cross['durationS']/60:6.1f} min  {cross['points']:5d} pts")
+        print(f"               {cross['status']} · {cross.get('corridor')}")
+        if not cross["found"]:
+            failures.append(
+                f"state seam: no Memphis-West Memphis route "
+                f"({cross.get('failure')}; {cross['status']})")
 
         ev_crow = haversine_m(*EV_A, *EV_B)
         plain = route(EV_A, EV_B)

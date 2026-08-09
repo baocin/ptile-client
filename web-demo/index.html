@@ -2807,14 +2807,10 @@ var ROUTE_MAX_CELLS = 400;
 // separate from the ordinary phone budget so widening cannot silently turn
 // every route into a 900-cell load.
 var ROUTE_RETRY_MAX_CELLS = 900;
-// A coast-to-coast retry follows the sparse highway indexes, then fetches only
-// roads_v2 cells along that guide. Keep both halves bounded: an individual
-// state's guide, the union considered by one route, and the actual road-cell
-// retry are separate costs. CA is the largest current guide at 11,592 cells;
-// NY-to-LA's eleven-state union is about 66k.
-var ROUTE_HIGHWAY_STATE_MAX_CELLS = 15000;
-var ROUTE_HIGHWAY_GUIDE_MAX_CELLS = 100000;
-var ROUTE_NATIONAL_RETRY_MAX_CELLS = 2600;
+// The prefiltered state backbone has many sparse H3 entries but little data
+// (TN is ~1.7 MB compressed). Bound the aggregate explicitly so a request
+// cannot accidentally load the country.
+var ROUTE_HIGHWAY_MAX_CELLS = 10000;
 var ROUTE_END_CAP_K = 2;
 var routeMode = false;
 var routeA = null, routeB = null, routeLayer = null, routeBusy = false;
@@ -3266,22 +3262,10 @@ function statesAlong(lat1, lon1, lat2, lon2) {
     var s = stateAt(pts[i].lat, pts[i].lon);
     if (s) set[s] = 1;
   }
-  // Rough state rectangles overlap around borders and metro areas. Keep every
-  // endpoint candidate: Manhattan is inside both the NY and NJ rectangles,
-  // and choosing only the closest state centre can open the wrong local-road
-  // file before a national route has even reached its highway guide.
-  statesAtAll(lat1, lon1).forEach(function(s) { set[s] = 1; });
-  statesAtAll(lat2, lon2).forEach(function(s) { set[s] = 1; });
+  // also force endpoint states ignoring "prefer current" stickiness
+  var a = stateAtForce(lat1, lon1); if (a) set[a] = 1;
+  var b = stateAtForce(lat2, lon2); if (b) set[b] = 1;
   return Object.keys(set);
-}
-
-function statesAtAll(lat, lon) {
-  var hits = [];
-  for (var s in STATE_BBOX) {
-    var bb = STATE_BBOX[s];
-    if (lat >= bb[0] && lat <= bb[2] && lon >= bb[1] && lon <= bb[3]) hits.push(s);
-  }
-  return hits;
 }
 
 // state pick that does NOT prefer current (for multi-state discovery)
@@ -3340,9 +3324,9 @@ function highwayBackboneFor(state) {
     setStatus("Route: open " + state + " highway guide…");
     var rdr = await highwaysReaderFor(state);
     var cells = rdr.file.entries.map(function(e) { return e.h3Cell.toString(16); });
-    if (cells.length > ROUTE_HIGHWAY_STATE_MAX_CELLS) {
+    if (cells.length > ROUTE_HIGHWAY_MAX_CELLS) {
       throw new Error(state + " highway guide has " + cells.length
-        + " cells; per-state budget is " + ROUTE_HIGHWAY_STATE_MAX_CELLS);
+        + " cells; budget is " + ROUTE_HIGHWAY_MAX_CELLS);
     }
     return { list: cells, set: new Set(cells), cells: cells.length, state: state };
   })().catch(function(e) {
@@ -3387,89 +3371,18 @@ function guideCellPath(guide, start, goal, radius) {
   return path;
 }
 
-async function highwayGuideFor(states) {
-  var list = [], set = new Set(), owners = new Map(), loaded = [];
-  for (var si = 0; si < states.length; si++) {
-    var state = states[si];
-    var one;
-    try { one = await highwayBackboneFor(state); }
-    catch (e) { console.warn("highway guide open failed", state, e); continue; }
-    loaded.push(state);
-    for (var ci = 0; ci < one.list.length; ci++) {
-      var cell = one.list[ci];
-      if (!set.has(cell)) { set.add(cell); list.push(cell); }
-      var cellOwners = owners.get(cell);
-      if (!cellOwners) owners.set(cell, cellOwners = []);
-      if (cellOwners.indexOf(state) < 0) cellOwners.push(state);
-    }
-    if (list.length > ROUTE_HIGHWAY_GUIDE_MAX_CELLS) {
-      throw new Error("highway guide needs " + list.length
-        + " cells; budget is " + ROUTE_HIGHWAY_GUIDE_MAX_CELLS);
-    }
-  }
-  return { list: list, set: set, owners: owners, cells: list.length, states: loaded };
-}
-
-function addCellOwners(into, cell, owners) {
-  if (!owners || !owners.length) return;
-  var current = into[cell] || (into[cell] = []);
-  for (var i = 0; i < owners.length; i++) {
-    if (current.indexOf(owners[i]) < 0) current.push(owners[i]);
-  }
-}
-
-// Radius-2 guide hops bridge occasional empty index cells. Fill those hops
-// back into a continuous H3 spine before fetching roads, retaining both
-// endpoint states at a border so either clipped state file may answer.
-function continuousGuideSpine(path, guide) {
-  var spine = [], seen = new Set(), statesByCell = {};
-  for (var pi = 0; pi < path.length; pi++) {
-    var from = pi ? path[pi - 1] : path[pi];
-    var to = path[pi];
-    var leg = [to];
-    if (pi) {
-      try { leg = h3.gridPathCells(from, to); } catch (e) { leg = [from, to]; }
-    }
-    var owners = (guide.owners.get(from) || []).concat(guide.owners.get(to) || []);
-    for (var li = 0; li < leg.length; li++) {
-      var cell = leg[li];
-      if (!seen.has(cell)) { seen.add(cell); spine.push(cell); }
-      addCellOwners(statesByCell, cell, guide.owners.get(cell) || owners);
-    }
-  }
-  return { spine: spine, statesByCell: statesByCell };
-}
-
-async function highwayGuidedPlan(states, a, b) {
-  var guide = await highwayGuideFor(states);
+async function highwayGuidedPlan(state, a, b) {
+  var guide = await highwayBackboneFor(state);
   var start = nearestGuideCell(guide, a.lat, a.lon);
   var goal = nearestGuideCell(guide, b.lat, b.lon);
   if (!start || !goal) return null;
   var path = guideCellPath(guide, start, goal, 1)
     || guideCellPath(guide, start, goal, 2);
   if (!path) return null;
-  var continuous = continuousGuideSpine(path, guide);
-  var national = guide.states.length > 1;
-  var maxCells = national ? ROUTE_NATIONAL_RETRY_MAX_CELLS : ROUTE_RETRY_MAX_CELLS;
   var plan = cellPlanAroundSpine(
-    continuous.spine, a.lat, a.lon, b.lat, b.lon, national ? 0 : 2, maxCells
+    path, a.lat, a.lon, b.lat, b.lon, 2, ROUTE_RETRY_MAX_CELLS
   );
-  // cellPlanAroundSpine adds endpoint caps after the guide spine. Assign those
-  // cells from their centre; if a rough bbox overlaps, keeping both candidates
-  // is cheaper and safer than probing every state in the route.
-  plan.statesByCell = continuous.statesByCell;
-  for (var i = 0; i < plan.cells.length; i++) {
-    var c = plan.cells[i];
-    if (plan.statesByCell[c]) continue;
-    var center;
-    try { center = h3.cellToLatLng(c); } catch (e) { continue; }
-    var candidates = statesAtAll(center[0], center[1]).filter(function(s) {
-      return guide.states.indexOf(s) >= 0;
-    });
-    addCellOwners(plan.statesByCell, c, candidates);
-  }
   plan.guideCells = guide.cells;
-  plan.guideStates = guide.states;
   return plan;
 }
 
@@ -3489,6 +3402,70 @@ var ARTERIAL_CLASS = {
   primary:1, primary_link:1, secondary:1, secondary_link:1,
   tertiary:1, tertiary_link:1
 };
+
+function roadClassFamily(rc) {
+  return String(rc || "").replace(/_link$/, "");
+}
+
+// State extracts clip a way independently. The last vertex in one file and
+// the first in its neighbour are often tens of metres apart, so core's normal
+// 11 m coincident-node merge cannot join them. Add only evidence-backed seam
+// edges: different source states, matching road family (and matching route ref
+// when both have one), with endpoints no more than 250 m apart.
+function stitchStateBorders(segments, zoneMiddle) {
+  var MAX_M = 250;
+  var STEP = 0.003; // ~250-330 m over CONUS; search the surrounding buckets
+  var buckets = new Map(), connectors = [], seen = new Set();
+  function key(lat, lon) { return Math.floor(lat / STEP) + ":" + Math.floor(lon / STEP); }
+  function compatible(a, b) {
+    if (!a.state || !b.state || a.state === b.state) return false;
+    if (roadClassFamily(a.roadClass) !== roadClassFamily(b.roadClass)) return false;
+    if (a.refTag && b.refTag && a.refTag !== b.refTag) return false;
+    return true;
+  }
+  for (var si = 0; si < segments.length; si++) {
+    var seg = segments[si];
+    if (!seg._state || !seg.coords || seg.coords.length < 2) continue;
+    var ends = [seg.coords[0], seg.coords[seg.coords.length - 1]];
+    for (var ei = 0; ei < ends.length; ei++) {
+      var c = ends[ei], ep = {
+        lon: c[0], lat: c[1], state: seg._state,
+        roadClass: seg.road_class, refTag: seg._refTag
+      };
+      var bx = Math.floor(ep.lat / STEP), by = Math.floor(ep.lon / STEP);
+      var best = null, bestD = Infinity;
+      for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) {
+        var nearby = buckets.get((bx + dx) + ":" + (by + dy)) || [];
+        for (var ni = 0; ni < nearby.length; ni++) {
+          var other = nearby[ni];
+          if (!compatible(ep, other)) continue;
+          var d = haversineM(ep.lat, ep.lon, other.lat, other.lon);
+          if (d <= MAX_M && d < bestD) { best = other; bestD = d; }
+        }
+      }
+      if (best) {
+        var a = ep.lat + "," + ep.lon, b = best.lat + "," + best.lon;
+        var pair = a < b ? a + "|" + b : b + "|" + a;
+        if (!seen.has(pair)) {
+          seen.add(pair);
+          connectors.push({
+            coords: [[ep.lon, ep.lat], [best.lon, best.lat]],
+            road_class: ep.roadClass || best.roadClass || "primary",
+            oneway: null, speed_limit_kmh: null, _state: ep.state + "/" + best.state,
+            _borderConnector: true
+          });
+        }
+      }
+      var k = key(ep.lat, ep.lon);
+      (buckets.get(k) || (buckets.set(k, []), buckets.get(k))).push(ep);
+    }
+  }
+  for (var ci = 0; ci < connectors.length; ci++) {
+    segments.push(connectors[ci]);
+    zoneMiddle.push(true);
+  }
+  return connectors.length;
+}
 
 // project point onto segment; returns {lat,lon,d} or null
 function projectOnSeg(lat, lon, aLon, aLat, bLon, bLat) {
@@ -3732,27 +3709,32 @@ async function loadRouteCorridor(
     var chunk = cells.slice(n, n + batch);
     var raws = await Promise.all(chunk.map(async function(hex) {
       var cellInt = BigInt("0x" + hex) & CELL_MASK;
-      var candidates = readers;
+      var candidateStates = states.filter(function(s) { return !!readerByState[s]; });
       if (cellPlan.statesByCell && cellPlan.statesByCell[hex]) {
-        candidates = cellPlan.statesByCell[hex].map(function(s) { return readerByState[s]; })
-          .filter(Boolean);
-        if (!candidates.length) candidates = readers;
+        candidateStates = cellPlan.statesByCell[hex].filter(function(s) {
+          return !!readerByState[s];
+        });
+        if (!candidateStates.length) {
+          candidateStates = states.filter(function(s) { return !!readerByState[s]; });
+        }
       }
-      for (var ri = 0; ri < candidates.length; ri++) {
+      var found = [];
+      for (var ri = 0; ri < candidateStates.length; ri++) {
         try {
-          var raw = await candidates[ri].decompressCell(cellInt);
-          if (raw) return raw;
+          var state = candidateStates[ri], raw = await readerByState[state].decompressCell(cellInt);
+          if (raw) found.push({ raw: raw, state: state });
         } catch (e) {}
       }
-      return null;
+      return found;
     }));
     for (var i = 0; i < chunk.length; i++) {
-      if (!raws[i]) continue;
+      if (!raws[i] || !raws[i].length) continue;
       var middle = caps ? !caps.has(chunk[i]) : false;
-      var segs;
-      try { segs = wasm_decode_roads(raws[i]); } catch (e) { continue; }
-      if (!segs) continue;
-      for (var s = 0; s < segs.length; s++) {
+      for (var gi = 0; gi < raws[i].length; gi++) {
+        var group = raws[i][gi], segs;
+        try { segs = wasm_decode_roads(group.raw); } catch (e) { continue; }
+        if (!segs) continue;
+        for (var s = 0; s < segs.length; s++) {
         var seg = segs[s];
         rawSegmentCount++;
         if (!seg.coords || seg.coords.length < 2) continue;
@@ -3781,20 +3763,25 @@ async function loadRouteCorridor(
           road_class: rc0 || "residential",
           oneway: seg.oneway != null ? seg.oneway : null,
           speed_limit_kmh: seg.speed_limit_kmh != null ? seg.speed_limit_kmh
-            : (seg.speedLimitKmh != null ? seg.speedLimitKmh : null)
+            : (seg.speedLimitKmh != null ? seg.speedLimitKmh : null),
+          _state: group.state,
+          _refTag: seg.ref_tag != null ? seg.ref_tag : seg.refTag
         });
         vertexCount += seg.coords.length;
         zoneMiddle.push(middle);
+        }
       }
     }
   }
+  var borderConnectors = states.length > 1 ? stitchStateBorders(segments, zoneMiddle) : 0;
   return {
     segments: segments, zoneMiddle: zoneMiddle, cellCount: cells.length,
     width: cellPlan.appliedWidth, requestedWidth: w,
     budgetLimited: cellPlan.budgetLimited, spineCount: cellPlan.spine.length,
     maxCells: cellPlan.maxCells,
     distM: distM, arterial: useArterial, states: states,
-    rawSegmentCount: rawSegmentCount, vertexCount: vertexCount
+    rawSegmentCount: rawSegmentCount, vertexCount: vertexCount,
+    borderConnectors: borderConnectors
   };
 }
 
@@ -4098,22 +4085,21 @@ async function runRoute(a, b) {
     lastRouteFailure = attempt.failure;
   }
   // A geometric band still cannot see a highway that bends well away from
-  // the crow-flight line (I-24 through Monteagle is the regression), and a
-  // continental straight spine cannot fit the phone budget at all. Use the
-  // state highway indexes to bend one bounded roads_v2 retry through cells
-  // that actually contain the backbone; record bodies still come from roads_v2.
+  // the crow-flight line (I-24 through Monteagle is the regression). Use one
+  // state's highway index to bend a bounded roads_v2 retry through cells that
+  // actually contain the backbone; record bodies still come from roads_v2.
   var guidedPlan = null;
-  if (!result && (attempt.failure === "disconnected"
-      || attempt.failure === "corridor_budget_exceeded") && distM >= 80000) {
-    var guideStates = pack ? pack.states : statesAlong(a.lat, a.lon, b.lat, b.lon);
-    setStatus("Route: highway-guided corridor · " + guideStates.join(",") + "…");
-    guidedPlan = await highwayGuidedPlan(guideStates, a, b);
+  var guideStates = pack ? pack.states : statesAlong(a.lat, a.lon, b.lat, b.lon);
+  if (!result && attempt.failure === "disconnected" && distM >= 80000
+      && guideStates.length === 1) {
+    setStatus("Route: highway-guided corridor…");
+    guidedPlan = await highwayGuidedPlan(guideStates[0], a, b);
     if (guidedPlan) {
       pack = await loadRouteCorridor(
         a.lat, a.lon, b.lat, b.lon, guidedPlan.requestedWidth, true,
         guidedPlan.maxCells, guidedPlan
       );
-      attempt = tryRouteWasm(pack, a, b, guideStates.length > 1 ? 1000 : 600);
+      attempt = tryRouteWasm(pack, a, b, 600);
       result = attempt.result;
       lastRouteFailure = attempt.failure;
     }
@@ -4123,10 +4109,10 @@ async function runRoute(a, b) {
     requestedWidth: pack.requestedWidth, budgetLimited: pack.budgetLimited,
     maxCells: pack.maxCells,
     segments: pack.segments.length, rawSegments: pack.rawSegmentCount,
-    vertices: pack.vertexCount,
+    vertices: pack.vertexCount, borderConnectors: pack.borderConnectors,
     highwayGuideCells: guidedPlan ? guidedPlan.guideCells : 0,
     highwayPathCells: guidedPlan ? guidedPlan.spine.length : 0,
-    highwayGuideStates: guidedPlan ? guidedPlan.guideStates : []
+    highwayGuideStates: guidedPlan ? guideStates : []
   } : null;
   return result;
 }
@@ -4267,6 +4253,7 @@ var drive = {
   spoken: {},           // "index:band" -> true, so each call happens once
   offCount: 0,          // consecutive off-route fixes
   lastReroute: 0,
+  rerouteTries: 0,      // reroutes in a row that did not put us back on route
   rerouting: false,
   startedAt: 0,
   fixes: 0,
@@ -4503,35 +4490,61 @@ async function driveOnFix(lat, lon, accuracy_m, speedMps) {
   // Off-route is a property of one fix. Three in a row is a wrong turn; one is
   // a parking garage. The debounce stops a bad stretch of sky from queuing a
   // reroute per second.
+  // A reroute that leaves the car just as far off the line has not found
+  // anything: the corridor simply has no road where the car is. Repeating it
+  // every 10 s is the loop drivers actually see, so each fruitless attempt
+  // doubles the wait instead.
+  // Rerouting asks a harder question than the banner does. `off_route` fires
+  // at 35 m (or 3x accuracy), which a parallel service road, a divided
+  // carriageway, or coarse tile geometry can reach while the car is exactly
+  // where it should be. Tearing up the route needs the car to be somewhere a
+  // wrong turn would put it, so the reroute bar is 100 m or 6x accuracy.
+  var rerouteBar = Math.max(100, 6 * (accuracy_m || 0));
   if (st.off_route) {
     drive.offCount++;
-    if (drive.offCount >= 3 && !drive.rerouting && Date.now() - drive.lastReroute > 10000) {
+    var wait = Math.min(120000, 10000 * Math.pow(2, drive.rerouteTries));
+    if (st.offset_m > rerouteBar
+        && drive.offCount >= 3 && !drive.rerouting && Date.now() - drive.lastReroute > wait) {
       drive.lastReroute = Date.now();
-      driveReroute(lat, lon);
+      console.warn("[drive] off route: offset " + Math.round(st.offset_m)
+        + " m, accuracy " + Math.round(accuracy_m || 0) + " m, try " + (drive.rerouteTries + 1));
+      driveReroute(lat, lon, accuracy_m);
     } else if (!drive.rerouting) {
       document.getElementById("driveNote").textContent = "off route";
     }
   } else if (!drive.rerouting) {
     drive.offCount = 0;
+    drive.rerouteTries = 0;
     document.getElementById("driveNote").textContent = "";
   }
 }
 
-async function driveReroute(lat, lon) {
+async function driveReroute(lat, lon, accuracy_m, quiet) {
   drive.rerouting = true;
   document.getElementById("driveNote").textContent = "rerouting…";
-  driveSay("Rerouting");
+  if (!quiet) driveSay("Rerouting");
   try {
     var r = await runRoute({ lat: lat, lon: lon }, drive.dest);
     if (!r || !r.path || r.path.length < 2) {
+      drive.rerouteTries++;
       document.getElementById("driveNote").textContent = "no new route";
       return;
     }
     driveSetRoute(r);
     drive.offCount = 0;
-    document.getElementById("driveNote").textContent = "";
+    // Judge the new route by the fix that caused it: if that point is still
+    // off the line, another identical attempt in 10 s will be too.
+    var st = drive.nav.update(lat, lon, accuracy_m == null ? 10 : accuracy_m);
+    if (st && st.offset_m > Math.max(100, 6 * (accuracy_m || 0))) {
+      drive.rerouteTries++;
+      document.getElementById("driveNote").textContent = "off route";
+    } else {
+      drive.rerouteTries = 0;
+      document.getElementById("driveNote").textContent = "";
+    }
   } catch (e) {
     console.warn("[drive] reroute failed", e);
+    drive.rerouteTries++;
     document.getElementById("driveNote").textContent = "reroute failed";
   } finally {
     drive.rerouting = false;
@@ -4564,6 +4577,7 @@ async function driveStart(dest) {
                          lon: lastRouteResult.path[lastRouteResult.path.length - 1][1] };
   drive.startedAt = Date.now();
   drive.fixes = 0;
+  drive.rerouteTries = 0;
   document.body.classList.add("driving");
   window.__driveReroutes = 0;
   driveSetRoute(lastRouteResult);
@@ -4577,10 +4591,16 @@ async function driveStart(dest) {
   // take many seconds to produce anything, and starting a drive looking at
   // wherever the map happened to be -- often the far end of the route -- is
   // the wrong first impression and hides whether the mode is working at all.
+  // The planned route starts wherever the search put it, which is never where
+  // the car is. Rebuild it from the first real fix instead of letting the
+  // off-route counter discover the same thing three fixes into the drive.
   if (navigator.geolocation && window.isSecureContext) {
-    navigator.geolocation.getCurrentPosition(function(pos) {
-      driveOnFix(pos.coords.latitude, pos.coords.longitude,
-                 pos.coords.accuracy, pos.coords.speed || 0);
+    navigator.geolocation.getCurrentPosition(async function(pos) {
+      var c = pos.coords;
+      drive.lastReroute = Date.now();
+      await driveReroute(c.latitude, c.longitude, c.accuracy, true);
+      window.__driveReroutes = 1; // starting from the driver is not a reroute
+      driveOnFix(c.latitude, c.longitude, c.accuracy, c.speed || 0);
     }, function() {}, { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
   }
   if (navigator.geolocation && window.isSecureContext) {
