@@ -101,6 +101,7 @@ fun OfflineMap(
     trace: List<GeoPoint>,
     modifier: Modifier = Modifier,
     onLongPress: (GeoPoint) -> Unit = {},
+    onTap: (GeoPoint) -> Unit = {},
     onViewportChange: (GeoPoint) -> Unit = {},
     recenterKey: Int = 0,
 ) {
@@ -112,15 +113,15 @@ fun OfflineMap(
     Canvas(
         modifier
             .fillMaxSize()
-            .semantics { contentDescription = "Offline PTiles map. Long press to set destination." }
+            .semantics { contentDescription = "Offline PTiles map. Long press to add a stop to the route." }
             .pointerInput(center, scale, pan) {
-                detectTapGestures(onLongPress = { tap ->
-                    onLongPress(
-                        MapProjection.unproject(
-                            tap, center, pan, size.width.toFloat(), size.height.toFloat(), scale,
-                        )
-                    )
-                })
+                fun ground(tap: Offset) = MapProjection.unproject(
+                    tap, center, pan, size.width.toFloat(), size.height.toFloat(), scale,
+                )
+                detectTapGestures(
+                    onLongPress = { onLongPress(ground(it)) },
+                    onTap = { onTap(ground(it)) },
+                )
             }
             .pointerInput(center, recenterKey) {
                 detectTransformGestures { _, panChange, zoomChange, _ ->

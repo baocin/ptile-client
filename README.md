@@ -183,6 +183,26 @@ Line of sight is reciprocal, which is why it and the view finder need no
 geometry of their own: both run `viewshed` from the far end and read the answer
 back.
 
+## Android Client
+
+`android/` is Looky, a native client over the `ffi` crate's UniFFI bindings. It
+decodes the same `.ptiles` files on-device, so browsing, business search, and
+bounded routing keep working in airplane mode once a state is installed.
+
+Debug builds: [latest release](https://github.com/baocin/ptile-client/releases).
+Debug-signed, so the installer warns about an unknown source.
+
+| | | |
+| :---: | :---: | :---: |
+| ![Drive](docs/screenshots/01-drive.png) | ![Business search](docs/screenshots/02-search.png) | ![Offline route](docs/screenshots/03-route.png) |
+| Drive: roads, water and parks decoded from local packs | Business search over the `business_name_index` sidecar | A route computed with no network |
+| ![Offline maps](docs/screenshots/04-packs.png) | ![Delete a state](docs/screenshots/05-delete.png) | ![Recording](docs/screenshots/06-recording.png) |
+| Per-state packs, sized and versioned | Deleting a state, with the cost stated first | A recorded GPX day file, replayed |
+
+Screenshots are from a Pixel 5 emulator (API 34) with the real Tennessee packs
+installed and a fixed Nashville location, which is why the trace is a single
+point and the recorded distance is zero.
+
 ## Live Tiles
 
 ```

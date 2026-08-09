@@ -43,6 +43,7 @@ class TraceService : Service() {
         const val ACTION_STOP = "com.steele.looky.STOP"
         const val ACTION_DRIVE = "com.steele.looky.DRIVE"
         const val ACTION_TRAIL = "com.steele.looky.TRAIL"
+        const val ACTION_BACKGROUND = "com.steele.looky.BACKGROUND"
         const val ACTION_APPLY_SETTINGS = "com.steele.looky.APPLY_SETTINGS"
         private const val CHANNEL = "looky-trace"
         private const val NOTIFICATION = 4102
@@ -57,6 +58,15 @@ class TraceService : Service() {
         fun start(context: Context, mode: LookyMode) {
             val action = if (mode == LookyMode.DRIVE) ACTION_DRIVE else ACTION_TRAIL
             ContextCompat.startForegroundService(context, Intent(context, TraceService::class.java).setAction(action))
+        }
+
+        /**
+         * Recording that nobody pressed Start for -- the settings toggle and
+         * boot restore. It writes to the background day file so an always-on
+         * log never lands in the drive or trail history.
+         */
+        fun startBackground(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, TraceService::class.java).setAction(ACTION_BACKGROUND))
         }
 
         fun stop(context: Context) {
@@ -74,6 +84,7 @@ class TraceService : Service() {
     private lateinit var recorder: TraceRecorder
     private lateinit var ptiles: PtilesRepository
     private var mode = LookyMode.DRIVE
+    private var session = TraceRecorder.SESSION_BACKGROUND
     private var last: Location? = null
     private var distanceM = 0.0
     private var started = false
@@ -97,6 +108,7 @@ class TraceService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val settings = AppSettings(this)
+        val previousSession = session
         when (intent?.action) {
             ACTION_APPLY_SETTINGS -> {
                 if (started) {
@@ -110,10 +122,22 @@ class TraceService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_TRAIL -> mode = LookyMode.TRAIL
-            ACTION_DRIVE -> mode = LookyMode.DRIVE
-            null -> mode = settings.activeMode
+            ACTION_TRAIL -> { mode = LookyMode.TRAIL; session = TraceRecorder.SESSION_TRAIL }
+            ACTION_DRIVE -> { mode = LookyMode.DRIVE; session = TraceRecorder.SESSION_DRIVE }
+            // A sticky restart resumes whatever was running, so the session
+            // label has to survive the process, not the intent.
+            ACTION_BACKGROUND -> { mode = settings.activeMode; session = TraceRecorder.SESSION_BACKGROUND }
+            null -> { mode = settings.activeMode; session = settings.activeSession }
         }
+        // The breadcrumb belongs to the session being recorded, so switching
+        // from a drive to a walk starts the trail line empty instead of
+        // inheriting the drive that came before it.
+        if (!started || previousSession != session) {
+            distanceM = 0.0
+            last = null
+            TraceBus.update { it.copy(recentPoints = emptyList(), distanceM = 0.0, pointsToday = 0) }
+        }
+        settings.activeSession = session
         settings.apply {
             continuousRecording = true
             activeMode = mode
@@ -123,7 +147,7 @@ class TraceService : Service() {
         } else {
             motion.setMode(mode)
         }
-        TraceBus.update { it.copy(running = true, mode = mode, error = null) }
+        TraceBus.update { it.copy(running = true, mode = mode, session = session, error = null) }
         startForeground(NOTIFICATION, notification("Finding GPS…"))
         return START_STICKY
     }
@@ -183,12 +207,13 @@ class TraceService : Service() {
             if (jump < 2_000.0) distanceM += jump
         }
         last = Location(fix)
-        val appended = recorder.append(fix, result.movement, result.accel, nearby)
+        val appended = recorder.append(fix, result.movement, result.accel, nearby, session)
         TraceBus.update {
             val recent = (it.recentPoints + GeoPoint(fix.latitude, fix.longitude)).takeLast(2_000)
             it.copy(
                 running = true,
                 mode = mode,
+                session = session,
                 movement = result.movement,
                 confidence = result.confidence,
                 location = Location(fix),
@@ -210,6 +235,7 @@ class TraceService : Service() {
             it.copy(
                 running = true,
                 mode = mode,
+                session = session,
                 movement = result.movement,
                 confidence = result.confidence,
             )

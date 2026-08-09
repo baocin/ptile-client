@@ -17,6 +17,8 @@ data class MapFeature(
 data class LiveTraceState(
     val running: Boolean = false,
     val mode: LookyMode = LookyMode.DRIVE,
+    /** Which log is being written: drive, trail, or background. */
+    val session: String = "background",
     val movement: String = "Unknown",
     val confidence: Double = 0.0,
     val location: Location? = null,

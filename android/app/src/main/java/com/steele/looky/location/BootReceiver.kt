@@ -9,7 +9,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val settings = AppSettings(context)
         if (intent.action == Intent.ACTION_BOOT_COMPLETED && settings.continuousRecording) {
-            TraceService.start(context, settings.activeMode)
+            TraceService.startBackground(context)
         }
     }
 }

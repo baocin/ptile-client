@@ -6,12 +6,14 @@ import com.steele.looky.model.MapFeature
 import uniffi.ptiles_ffi.PtilesLayer
 import uniffi.ptiles_ffi.PtilesStack
 import uniffi.ptiles_ffi.AdminLayer
+import uniffi.ptiles_ffi.BusinessInfo
 import uniffi.ptiles_ffi.CameraInfo
 import uniffi.ptiles_ffi.OfflineRouteMode
 import uniffi.ptiles_ffi.RoadContext
 import uniffi.ptiles_ffi.LatLon
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.cos
 
 data class NearbyContext(
     val roadName: String?,
@@ -88,15 +90,17 @@ class PtilesRepository(context: Context) {
         ?.let { GeoPoint(it.lat, it.lon) }
 
     /**
-     * Every renderable feature within `ring` H3 rings of the coordinate.
+     * Every renderable feature around a coordinate.
      *
-     * `ring` is the H3 k-ring radius handed to the PTiles queries: 1 is 7
-     * res-7 cells, 2 is 19. Ring 1 left visible blank paper at the default
-     * 0.075-degree viewport and immediately when panned, which is why the
-     * default is 2.
+     * A single ring-1 query covers about 4 km, well short of the roughly 8 km
+     * the default viewport shows, so the map ran out of data mid-screen and
+     * immediately when panned. The FFI caps `ring` at 1 (`validate_ring` in
+     * `ffi/src/lib.rs`), and passing 2 does not widen the query -- it throws,
+     * which the `runCatching` blocks below turn into an empty map. So coverage
+     * is widened by querying ring 1 at several sample centres and merging.
      *
-     * ponytail: ring 2 is ~2.7x the decode work of ring 1. If first paint
-     * drags on a real device, turn this default down rather than adding a
+     * ponytail: `spread` sample centres cost `2 * spread + 1` times the decode
+     * work. If first paint drags, drop the default to 0 before reaching for a
      * tile cache.
      */
     fun featuresAround(
@@ -104,82 +108,84 @@ class PtilesRepository(context: Context) {
         lon: Double,
         trails: Boolean,
         developer: Boolean = false,
-        ring: UByte = DEFAULT_RING,
+        spread: Int = DEFAULT_SPREAD,
     ): List<MapFeature> {
         val out = mutableListOf<MapFeature>()
-        runCatching {
-            layer("roads", lat, lon)?.roads(lat, lon, ring)?.forEach { road ->
-                out += MapFeature(
-                    road.geometry.map { GeoPoint(it.lat, it.lon) },
-                    road.roadClass,
-                    road.name,
-                )
+        val centers = sampleCenters(lat, lon, spread)
+        centers.forEach { c ->
+            runCatching {
+                layer("roads", c.lat, c.lon)?.roads(c.lat, c.lon, RING)?.forEach { road ->
+                    out += MapFeature(
+                        road.geometry.map { GeoPoint(it.lat, it.lon) },
+                        road.roadClass,
+                        road.name,
+                    )
+                }
+            }
+            runCatching {
+                layer("water", c.lat, c.lon)?.water(c.lat, c.lon, RING)?.forEach { water ->
+                    if (water.geometry.size > 1) out += MapFeature(water.geometry.map { GeoPoint(it.lat, it.lon) }, "water", water.name)
+                }
+            }
+            runCatching {
+                layer("parks", c.lat, c.lon)?.parks(c.lat, c.lon, RING)?.forEach { park ->
+                    if (park.geometry.size > 1) out += MapFeature(park.geometry.map { GeoPoint(it.lat, it.lon) }, "park", park.name)
+                }
+            }
+            if (trails) runCatching {
+                layer("trails", c.lat, c.lon)?.trails(c.lat, c.lon, RING)?.filter { !it.isTrailhead }?.forEach { trail ->
+                    out += MapFeature(
+                        trail.geometry.map { GeoPoint(it.lat, it.lon) },
+                        "trail:${trail.trailType}",
+                        trail.name,
+                    )
+                }
+            }
+            // Camera is a national layer, so the normal state-aware selection
+            // falls through to US.camera.ptiles. It is rendered in both Drive
+            // and Trail whenever installed, not hidden behind developer mode.
+            runCatching {
+                layer("camera", c.lat, c.lon)?.cameras(c.lat, c.lon, RING)?.forEach { camera ->
+                    out += cameraMapFeature(camera)
+                }
+            }
+            if (developer) {
+                runCatching {
+                    layer("rail", c.lat, c.lon)?.rail(c.lat, c.lon, RING)?.forEach { rail ->
+                        if (rail.geometry.isNotEmpty()) {
+                            out += MapFeature(
+                                rail.geometry.map { GeoPoint(it.lat, it.lon) },
+                                if (rail.geomType == 1.toUByte()) "station" else "rail:${rail.railType}",
+                                rail.name,
+                            )
+                        }
+                    }
+                }
+                runCatching {
+                    layer("business", c.lat, c.lon)?.businessesNear(c.lat, c.lon, RING, 1_500.0)?.forEach { business ->
+                        out += MapFeature(
+                            listOf(GeoPoint(business.location.lat, business.location.lon)),
+                            "business:${business.categoryIdx}",
+                            business.name,
+                        )
+                    }
+                }
             }
         }
-        runCatching {
-            layer("water", lat, lon)?.water(lat, lon, ring)?.forEach { water ->
-                if (water.geometry.size > 1) out += MapFeature(water.geometry.map { GeoPoint(it.lat, it.lon) }, "water", water.name)
-            }
-        }
-        runCatching {
-            layer("parks", lat, lon)?.parks(lat, lon, ring)?.forEach { park ->
-                if (park.geometry.size > 1) out += MapFeature(park.geometry.map { GeoPoint(it.lat, it.lon) }, "park", park.name)
-            }
-        }
-        // Buildings are point centroids in the PTiles API. Sample the visible
-        // viewport so the drive map still communicates the built environment.
-        // The grid widens with the ring so a panned view is not ringed by
-        // roads with no buildings between them.
+        // Buildings are point centroids in the PTiles API and are fetched by
+        // explicit point list rather than by ring, so one widened grid covers
+        // every sample centre at once.
         runCatching {
             val buildingLayer = layer("buildings", lat, lon)
             if (buildingLayer != null) {
-                val span = buildingSampleSpan(ring)
+                val span = buildingSampleSpan(spread)
                 val sample = (-span..span).flatMap { y -> (-span..span).map { x -> LatLon(lat + y * 0.003, lon + x * 0.004) } }
                 buildingLayer.buildingsAt(sample).filterNotNull().forEach { building ->
                     out += MapFeature(listOf(GeoPoint(building.centroid.lat, building.centroid.lon)), "building", building.name)
                 }
             }
         }
-        if (trails) runCatching {
-            layer("trails", lat, lon)?.trails(lat, lon, ring)?.filter { !it.isTrailhead }?.forEach { trail ->
-                out += MapFeature(
-                    trail.geometry.map { GeoPoint(it.lat, it.lon) },
-                    "trail:${trail.trailType}",
-                    trail.name,
-                )
-            }
-        }
-        // Camera is a national layer, so the normal state-aware selection
-        // falls through to US.camera.ptiles. It is rendered in both Drive and
-        // Trail whenever installed, not hidden behind developer mode.
-        runCatching {
-            layer("camera", lat, lon)?.cameras(lat, lon, ring)?.forEach { camera ->
-                out += cameraMapFeature(camera)
-            }
-        }
-        if (developer) {
-            runCatching {
-                layer("rail", lat, lon)?.rail(lat, lon, ring)?.forEach { rail ->
-                    if (rail.geometry.isNotEmpty()) {
-                        out += MapFeature(
-                            rail.geometry.map { GeoPoint(it.lat, it.lon) },
-                            if (rail.geomType == 1.toUByte()) "station" else "rail:${rail.railType}",
-                            rail.name,
-                        )
-                    }
-                }
-            }
-            runCatching {
-                layer("business", lat, lon)?.businessesNear(lat, lon, ring, 1_500.0)?.forEach { business ->
-                    out += MapFeature(
-                        listOf(GeoPoint(business.location.lat, business.location.lon)),
-                        "business:${business.categoryIdx}",
-                        business.name,
-                    )
-                }
-            }
-        }
-        return out
+        return capFeatures(dedupeFeatures(out))
     }
 
     /**
@@ -202,6 +208,25 @@ class PtilesRepository(context: Context) {
         }
         return mergeBusinessHits(hits, limit)
     }
+
+    /**
+     * The business record nearest to a tap, with its extended attributes.
+     *
+     * The map draws businesses from [featuresAround], which keeps only name and
+     * category. Phone, website, status, and provenance live on [BusinessInfo],
+     * so the detail card re-reads the layer for the one record that was tapped.
+     */
+    fun businessAt(point: GeoPoint, radiusM: Double = BUSINESS_TAP_RADIUS_M): BusinessInfo? = runCatching {
+        layer("business", point.lat, point.lon)
+            ?.businessesNear(point.lat, point.lon, RING, radiusM)
+            // The FFI already bounded the set by radius; ranking only needs a
+            // monotone distance, so a flat-earth squared metre suffices.
+            ?.minByOrNull { hit ->
+                val dLat = (hit.location.lat - point.lat) * 111_320.0
+                val dLon = (hit.location.lon - point.lon) * 111_320.0 * cos(Math.toRadians(point.lat))
+                dLat * dLat + dLon * dLon
+            }
+    }.getOrNull()
 
     private fun nameIndexFiles(): List<File> = manager.packsDir.listFiles()
         .orEmpty()
@@ -289,12 +314,113 @@ class PtilesRepository(context: Context) {
     companion object {
         private val VERSIONED_STEM = Regex("^(.+)_v(\\d+)$")
 
-        /** H3 k-ring radius for map queries. See [featuresAround]. */
-        internal val DEFAULT_RING: UByte = 2u
+        /**
+         * The only ring the FFI accepts. `validate_ring` in `ffi/src/lib.rs`
+         * rejects anything above 1, so widening coverage means more query
+         * centres, not a bigger ring.
+         */
+        internal val RING: UByte = 1u
+
+        /** Extra sample centres in each direction. See [featuresAround]. */
+        internal const val DEFAULT_SPREAD = 1
+
+        /**
+         * Spacing between sample centres, roughly one res-7 cell.
+         *
+         * A res-7 cell is about 1.4 km across; these are the degree equivalents
+         * at mid-latitudes, close enough for query placement -- overlap is
+         * deduped, and only a gap would show, as blank paper.
+         */
+        internal const val SAMPLE_STEP_LAT = 0.030
+        internal const val SAMPLE_STEP_LON = 0.037
+
         internal const val SEARCH_LIMIT = 20
 
-        /** Half-width of the building sample grid for an H3 ring radius. */
-        internal fun buildingSampleSpan(ring: UByte): Int = (ring.toInt() + 1).coerceIn(2, 5)
+        /**
+         * Ceiling on features handed to the renderer in one viewport.
+         *
+         * Every polyline is its own `drawPath` stroke. Five ring-1 queries over
+         * central Nashville return enough of them to block the render thread
+         * past the 5 s input timeout -- an ANR whose main-thread stack sits in
+         * `syncAndDrawFrame`, with no app code on it. Dense cities are the
+         * normal case, not the edge one.
+         *
+         * ponytail: a flat cap with a length-based priority. The real fix is
+         * per-zoom road-class filtering, worth building when someone complains
+         * about a missing side street rather than before.
+         */
+        internal const val MAX_DRAWN_FEATURES = 1_500
+
+        /**
+         * Draw priority when a viewport exceeds [MAX_DRAWN_FEATURES].
+         *
+         * Ranked by kind, not by vertex count: park and water polygons carry
+         * far more points than a street does, so a purely length-based cap
+         * kept the scenery and deleted the road network -- exactly backwards
+         * for a map you navigate by.
+         */
+        internal fun featureRank(kind: String): Int = when {
+            kind in setOf("motorway", "trunk", "primary", "secondary") -> 0
+            kind.startsWith("trail") || kind in setOf("path", "footway", "track", "steps") -> 1
+            kind == "water" -> 2
+            kind == "building" || kind.startsWith("camera") || kind.startsWith("business") -> 4
+            kind == "park" -> 3
+            else -> 2 // residential and unclassified roads
+        }
+
+        /**
+         * Keep the most navigationally useful features when over the cap.
+         *
+         * Kind first, then vertex count inside a kind, so the arterial grid
+         * survives and the least legible detail goes first.
+         */
+        internal fun capFeatures(
+            features: List<MapFeature>,
+            max: Int = MAX_DRAWN_FEATURES,
+        ): List<MapFeature> =
+            if (features.size <= max) features
+            else features
+                .sortedWith(compareBy<MapFeature> { featureRank(it.kind) }.thenByDescending { it.points.size })
+                .take(max)
+
+        /** How close a tap must land to count as hitting a business pin. */
+        internal const val BUSINESS_TAP_RADIUS_M = 60.0
+
+        /** Half-width of the building sample grid for a given spread. */
+        internal fun buildingSampleSpan(spread: Int): Int = (spread + 2).coerceIn(2, 6)
+
+        /**
+         * Query centres for a viewport: the coordinate itself plus `spread`
+         * steps out along each axis.
+         *
+         * A plus shape rather than a full grid -- the diagonals are largely
+         * reached by the ring around each arm, and a 3x3 grid would cost 9
+         * decodes for coverage 5 mostly provides.
+         */
+        internal fun sampleCenters(lat: Double, lon: Double, spread: Int): List<GeoPoint> {
+            if (spread <= 0) return listOf(GeoPoint(lat, lon))
+            val out = mutableListOf(GeoPoint(lat, lon))
+            for (step in 1..spread) {
+                out += GeoPoint(lat + step * SAMPLE_STEP_LAT, lon)
+                out += GeoPoint(lat - step * SAMPLE_STEP_LAT, lon)
+                out += GeoPoint(lat, lon + step * SAMPLE_STEP_LON)
+                out += GeoPoint(lat, lon - step * SAMPLE_STEP_LON)
+            }
+            return out
+        }
+
+        /**
+         * Drop features returned by more than one sample centre.
+         *
+         * Neighbouring ring queries share cells, so the same road comes back
+         * several times. Identity is the geometry itself: this API exposes no
+         * stable id, and two features with identical kind, name, length and
+         * endpoints would render identically anyway.
+         */
+        internal fun dedupeFeatures(features: List<MapFeature>): List<MapFeature> =
+            features.distinctBy {
+                listOf(it.kind, it.name, it.points.size, it.points.firstOrNull(), it.points.lastOrNull())
+            }
 
         /**
          * Rank and de-duplicate hits gathered from several state indexes.

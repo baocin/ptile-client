@@ -17,6 +17,27 @@ data class TraceAppendResult(val file: File, val pointsToday: Int)
 class TraceRecorder(private val context: Context) : AutoCloseable {
     companion object {
         const val RETENTION_DAYS = 30L
+
+        const val SESSION_DRIVE = "drive"
+        const val SESSION_TRAIL = "trail"
+
+        /** Recording that nobody pressed Start for: boot, restart, or the setting. */
+        const val SESSION_BACKGROUND = "background"
+
+        /**
+         * Day files are `{date}.{session}.gpx`, so a drive, a walk, and the
+         * always-on background log stay three separate files on the same day.
+         * Files written before sessions existed have no suffix and are read
+         * back as background.
+         */
+        fun fileName(day: LocalDate, session: String): String = "$day.$session.gpx"
+
+        fun sessionOf(file: File): String =
+            file.nameWithoutExtension.substringAfter('.', SESSION_BACKGROUND)
+
+        fun dateOf(file: File): LocalDate? =
+            runCatching { LocalDate.parse(file.nameWithoutExtension.substringBefore('.')) }.getOrNull()
+
         private const val HEADER = """<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Looky" xmlns="http://www.topografix.com/GPX/1/1" xmlns:rook="https://rookery.local/gpx/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
 """
@@ -27,6 +48,7 @@ class TraceRecorder(private val context: Context) : AutoCloseable {
     private var file: File? = null
     private var raf: RandomAccessFile? = null
     private var date: LocalDate? = null
+    private var session: String? = null
     private var openType: String? = null
     private var tailOffset = 0L
     private var contextXml = ""
@@ -40,9 +62,10 @@ class TraceRecorder(private val context: Context) : AutoCloseable {
         movement: String,
         accel: AccelStats,
         nearby: NearbyContext,
+        session: String = SESSION_BACKGROUND,
     ): TraceAppendResult {
         val localDate = Instant.ofEpochMilli(location.time).atZone(ZoneId.systemDefault()).toLocalDate()
-        if (date != localDate) openDay(localDate)
+        if (date != localDate || this.session != session) openDay(localDate, session)
         val out = requireNotNull(raf)
 
         if (openType != movement) {
@@ -67,10 +90,11 @@ class TraceRecorder(private val context: Context) : AutoCloseable {
         return TraceAppendResult(requireNotNull(file), points)
     }
 
-    private fun openDay(day: LocalDate) {
+    private fun openDay(day: LocalDate, session: String) {
         close()
         date = day
-        file = File(dir, "$day.gpx")
+        this.session = session
+        file = File(dir, fileName(day, session))
         val out = RandomAccessFile(file, "rw")
         raf = out
         if (out.length() == 0L) {
@@ -132,7 +156,7 @@ class TraceRecorder(private val context: Context) : AutoCloseable {
 
     fun prune(now: LocalDate = LocalDate.now()) {
         dir.listFiles().orEmpty().filter { it.extension == "gpx" }.forEach { candidate ->
-            val day = runCatching { LocalDate.parse(candidate.nameWithoutExtension) }.getOrNull()
+            val day = dateOf(candidate)
             if (day != null && day.isBefore(now.minusDays(RETENTION_DAYS))) candidate.delete()
         }
     }
@@ -142,6 +166,7 @@ class TraceRecorder(private val context: Context) : AutoCloseable {
         raf = null
         file = null
         date = null
+        session = null
         openType = null
         points = 0
     }

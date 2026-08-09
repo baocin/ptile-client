@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,10 +52,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -79,9 +83,17 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.layout.offset
 import androidx.core.content.ContextCompat
 import com.steele.looky.AppSettings
 import com.steele.looky.R
+import com.steele.looky.location.TraceRecorder
 import com.steele.looky.location.TraceService
 import com.steele.looky.model.GeoPoint
 import com.steele.looky.model.LookyMode
@@ -90,6 +102,7 @@ import com.steele.looky.offline.PackManager
 import com.steele.looky.offline.MapDownloadProgress
 import com.steele.looky.offline.MapPackDownloader
 import com.steele.looky.offline.PtilesRepository
+import uniffi.ptiles_ffi.BusinessInfo
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -109,8 +122,10 @@ private const val SEARCH_DEBOUNCE_MS = 300L
 /** How far the viewport must move before reloading features, in metres. */
 private const val VIEWPORT_RELOAD_M = 400.0
 
-/** Search hits shown inline before the list would swamp the card. */
-private const val SEARCH_ROWS = 4
+/** Height cap on the hits-and-stops list before it scrolls inside the card. */
+private val LIST_MAX_HEIGHT = 200.dp
+
+private val STOP_ROW_HEIGHT = 52.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -146,6 +161,11 @@ fun LookyApp(
         }
     }
     val root = screen in setOf(Screen.DRIVE, Screen.TRAIL, Screen.MORE)
+    // Back walks up the app instead of leaving it. Only Drive, the home
+    // screen, hands the gesture back to the system.
+    BackHandler(screen != Screen.DRIVE) {
+        screen = if (root) Screen.DRIVE else Screen.MORE
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -165,6 +185,9 @@ fun LookyApp(
                     Surface(
                         color = if (mapsReady) Lime.copy(alpha = .45f) else Clay.copy(alpha = .55f),
                         shape = RoundedCornerShape(100.dp),
+                        // The badge is the only place the app admits a pack is
+                        // missing, so it is also the fastest way to go fix it.
+                        modifier = Modifier.clickable { screen = Screen.PACKS },
                     ) {
                         Text(
                             if (mapsReady) "Ready" else "Downloads Needed",
@@ -185,13 +208,18 @@ fun LookyApp(
                 // opened, so Trail read as in-progress when the user was just
                 // looking. Recording starts from the Start button or the
                 // Settings toggle -- the two places it is actually asked for.
+                // One session records at a time, so the other mode's tab greys
+                // out while a drive or trail is running. Background recording
+                // is nobody's session and blocks neither tab.
                 NavigationBarItem(
                     selected = screen == Screen.DRIVE,
+                    enabled = live.session != TraceRecorder.SESSION_TRAIL || !live.running,
                     onClick = { screen = Screen.DRIVE },
                     icon = { Icon(Icons.Rounded.DirectionsCar, null) }, label = { Text("Drive") },
                 )
                 NavigationBarItem(
                     selected = screen == Screen.TRAIL,
+                    enabled = live.session != TraceRecorder.SESSION_DRIVE || !live.running,
                     onClick = { screen = Screen.TRAIL },
                     icon = { Icon(Icons.Rounded.Terrain, null) }, label = { Text("Trail") },
                 )
@@ -206,8 +234,8 @@ fun LookyApp(
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (screen) {
-                Screen.DRIVE -> ModeMap(false, settings, onRequestPermissions)
-                Screen.TRAIL -> ModeMap(true, settings, onRequestPermissions)
+                Screen.DRIVE -> DriveScreen(settings, onRequestPermissions)
+                Screen.TRAIL -> TrailScreen(settings, onRequestPermissions)
                 Screen.MORE -> MoreScreen(settings) { screen = it }
                 Screen.RECORDINGS -> RecordingsScreen()
                 Screen.PACKS -> PacksScreen(currentStateCode) { mapsRevision++ }
@@ -226,23 +254,38 @@ private fun Screen.title() = when (this) {
     else -> "Looky"
 }
 
+/** Drive: search, destination chain, offline route, and its own recording. */
 @Composable
-private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions: () -> Unit) {
+private fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit) =
+    ModeMap(trail = false, routing = true, settings = settings, onRequestPermissions = onRequestPermissions)
+
+/**
+ * Trail: a log and a breadcrumb, nothing else.
+ *
+ * A walk has no destination to pick, so the whole search-and-route panel is
+ * left out rather than shown and ignored.
+ */
+@Composable
+private fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit) =
+    ModeMap(trail = true, routing = false, settings = settings, onRequestPermissions = onRequestPermissions)
+
+@Composable
+private fun ModeMap(trail: Boolean, routing: Boolean, settings: AppSettings, onRequestPermissions: () -> Unit) {
     val context = LocalContext.current
     val live by TraceBus.state.collectAsState()
     val repo = remember { PtilesRepository(context) }
     val scope = rememberCoroutineScope()
     val current = live.location?.let { GeoPoint(it.latitude, it.longitude) }
     val anchor = current ?: GeoPoint(35.73377, -88.03220)
-    var destination by remember(trail) { mutableStateOf<GeoPoint?>(null) }
-    var waypoints by remember(trail) { mutableStateOf(emptyList<GeoPoint>()) }
-    var coordinate by remember(trail) { mutableStateOf("") }
+    // One ordered list, no separate destination field: the last stop is the
+    // destination by definition, which is also what a one-stop route means.
+    var stops by remember(trail) { mutableStateOf(emptyList<Stop>()) }
     var query by remember(trail) { mutableStateOf("") }
     var results by remember(trail) { mutableStateOf(emptyList<PtilesRepository.BusinessResult>()) }
     var features by remember { mutableStateOf(emptyList<com.steele.looky.model.MapFeature>()) }
     var route by remember { mutableStateOf<PtilesRepository.RouteResult?>(null) }
     var routeError by remember { mutableStateOf<String?>(null) }
-    var routing by remember { mutableStateOf(false) }
+    var routeRunning by remember { mutableStateOf(false) }
     var routeProgress by remember { mutableStateOf(0f) }
     // dataCenter is where PTiles data is loaded from; anchor is where the map
     // is projected from. Panning moves the first without disturbing the second,
@@ -252,15 +295,8 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
     var recenterKey by remember(trail) { mutableIntStateOf(0) }
     val requestedMode = if (trail) LookyMode.TRAIL else LookyMode.DRIVE
     val active = live.running && live.mode == requestedMode
+    val imperial = settings.imperialUnits
     val hasLayers = remember(live.running) { repo.installedLayers().isNotEmpty() }
-
-    fun clearDestination() {
-        coordinate = ""
-        destination = null
-        waypoints = emptyList()
-        route = null
-        routeError = null
-    }
 
     // Follow the GPS fix until the user pans away from it.
     LaunchedEffect(anchor.lat, anchor.lon) {
@@ -286,15 +322,9 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
             center = anchor,
             features = features,
             current = current,
-            destination = destination,
+            destination = stops.lastOrNull()?.point,
             route = route?.points.orEmpty(),
             trace = live.recentPoints,
-            onLongPress = {
-                destination = it
-                coordinate = "%.5f, %.5f".format(it.lat, it.lon)
-                route = null
-                routeError = null
-            },
             onViewportChange = { viewport ->
                 // Ignore sub-tile drags so a nudge does not trigger a decode.
                 if (GpxReader.distanceM(dataCenter, viewport) > VIEWPORT_RELOAD_M) {
@@ -310,8 +340,6 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(if (trail) "TRAIL MODE" else "DRIVE MODE", style = MaterialTheme.typography.labelLarge, color = ForestSoft)
-                            // While recording, the Stop button already says so.
-                            if (!active) Text("Ready offline", style = MaterialTheme.typography.titleLarge)
                         }
                         // No badge until there is a real classification: the
                         // bus starts at "Unknown", and printing that is worse
@@ -326,18 +354,7 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                             }
                         }
                     }
-                    if (active) {
-                        Button(
-                            onClick = {
-                                TraceService.stop(context)
-                            },
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Clay),
-                        ) {
-                            Text("Stop ${if (trail) "Trail" else "Drive"}")
-                        }
-                    } else {
+                    if (routing) {
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it },
@@ -349,81 +366,59 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                                     Icon(Icons.Rounded.Close, "Clear search")
                                 }
                             },
-                            label = { Text("Search businesses") },
-                            placeholder = { Text("Waffle House") },
+                            label = { Text("Search") },
+                            placeholder = { Text("Business Name") },
                         )
-                        results.take(SEARCH_ROWS).forEach { hit ->
-                            BusinessRow(
-                                hit = hit,
-                                onSelect = {
-                                    destination = hit.point
-                                    coordinate = "%.5f, %.5f".format(hit.point.lat, hit.point.lon)
-                                    route = null
-                                    routeError = null
-                                    query = ""
-                                },
-                                onAddWaypoint = {
-                                    waypoints = waypoints + hit.point
-                                    route = null
-                                    routeError = null
-                                    query = ""
-                                },
-                            )
-                        }
-                        waypoints.forEachIndexed { index, point ->
-                            WaypointRow(
-                                index = index,
-                                point = point,
-                                onRemove = {
-                                    waypoints = waypoints.filterIndexed { at, _ -> at != index }
-                                    route = null
-                                },
-                            )
-                        }
-                        OutlinedTextField(
-                            value = coordinate,
-                            onValueChange = {
-                                coordinate = it
-                                parseCoordinate(it)?.let { point -> destination = point }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            trailingIcon = {
-                                if (coordinate.isNotEmpty()) IconButton(onClick = ::clearDestination) {
-                                    Icon(Icons.Rounded.Close, "Clear destination")
+                        // Both lists are height-capped and scroll inside the
+                        // card. Unbounded, a dozen stops grew the panel over
+                        // the whole map and pushed Route offline off-screen.
+                        if (results.isNotEmpty() || stops.isNotEmpty()) {
+                            Column(
+                                Modifier.fillMaxWidth().heightIn(max = LIST_MAX_HEIGHT).verticalScroll(rememberScrollState()),
+                            ) {
+                                results.forEach { hit ->
+                                    BusinessRow(
+                                        hit = hit,
+                                        distanceM = GpxReader.distanceM(anchor, hit.point),
+                                        imperial = imperial,
+                                        onAdd = {
+                                            stops = stops + Stop(hit.name, hit.point)
+                                            route = null
+                                            routeError = null
+                                            query = ""
+                                        },
+                                    )
                                 }
-                            },
-                            label = { Text(if (trail) "Trailhead or destination coordinates" else "Destination coordinates") },
-                            placeholder = { Text("35.7338, -88.0322") },
-                        )
+                                StopList(
+                                    stops = stops,
+                                    onMove = { from, to -> stops = stops.move(from, to); route = null },
+                                    onRemove = { index -> stops = stops.filterIndexed { at, _ -> at != index }; route = null },
+                                )
+                            }
+                        }
                         Button(
+                            enabled = stops.isNotEmpty() && !routeRunning,
                             onClick = {
-                                if (hasLocationPermission(context)) {
-                                    TraceService.start(context, requestedMode)
-                                } else {
-                                    onRequestPermissions()
-                                }
-                                destination?.let { end ->
-                                    routing = true; routeError = null; routeProgress = 0f
-                                    val stops = waypoints
-                                    scope.launch {
-                                        runCatching {
-                                            withContext(Dispatchers.Default) {
-                                                repo.offlineRouteVia(
-                                                    anchor, stops, end, trail,
-                                                    settings.avoidHighways, settings.avoidIntersections,
-                                                ) { done, total -> routeProgress = done.toFloat() / total }
-                                            }
-                                        }.onSuccess { route = it }.onFailure { routeError = it.message ?: "No connected route in this pack" }
-                                        routing = false
-                                    }
+                                val chain = stops
+                                val end = chain.lastOrNull()?.point ?: return@Button
+                                routeRunning = true; routeError = null; routeProgress = 0f
+                                scope.launch {
+                                    runCatching {
+                                        withContext(Dispatchers.Default) {
+                                            repo.offlineRouteVia(
+                                                anchor, chain.dropLast(1).map { it.point }, end, trail,
+                                                settings.avoidHighways, settings.avoidIntersections,
+                                            ) { done, total -> routeProgress = done.toFloat() / total }
+                                        }
+                                    }.onSuccess { route = it }.onFailure { routeError = it.message ?: "No connected route in this pack" }
+                                    routeRunning = false
                                 }
                             },
                             modifier = Modifier.fillMaxWidth().height(50.dp),
                             shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Forest),
                         ) {
-                            if (routing) {
+                            if (routeRunning) {
                                 CircularProgressIndicator(
                                     progress = { routeProgress },
                                     modifier = Modifier.size(20.dp),
@@ -433,17 +428,34 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                                 Spacer(Modifier.width(10.dp))
                                 Text("${(routeProgress * 100).roundToInt()}%")
                             } else {
-                                Text(if (destination == null) "Start ${if (trail) "trail" else "drive"}" else "Route offline")
+                                Text("Route offline")
                             }
                         }
-                        Text("Long-press the map to place a destination.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF69716C))
+                    }
+                    // Recording is its own action. Routing used to start it as a
+                    // side effect, which let the Drive tab relabel a running
+                    // Trail session. Starting here takes over from whatever was
+                    // running; the old session's day file is already closed.
+                    Button(
+                        onClick = {
+                            when {
+                                active -> TraceService.stop(context)
+                                hasLocationPermission(context) -> TraceService.start(context, requestedMode)
+                                else -> onRequestPermissions()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (active) Clay else Forest),
+                    ) {
+                        Text(if (active) "Stop ${if (trail) "trail" else "drive"}" else "Start ${if (trail) "trail" else "drive"}")
                     }
                 }
             }
             route?.let {
                 Card(colors = CardDefaults.cardColors(containerColor = Lime), shape = RoundedCornerShape(18.dp)) {
                     Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(formatDistance(it.distanceM), fontWeight = FontWeight.Black, color = Forest)
+                        Text(formatDistance(it.distanceM, imperial), fontWeight = FontWeight.Black, color = Forest)
                         Text("${(it.durationS / 60).roundToInt().coerceAtLeast(1)} min", fontWeight = FontWeight.Bold, color = Forest)
                     }
                 }
@@ -476,38 +488,89 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
         ) {
             Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceAround) {
                 Metric(if (live.location?.hasAccuracy() == true) "±${live.location?.accuracy?.roundToInt()} m" else "—", "GPS")
-                Metric(formatDistance(live.distanceM), "TODAY")
+                Metric(formatDistance(live.distanceM, imperial), "TODAY")
                 Metric(live.pointsToday.toString(), "POINTS")
             }
         }
     }
 }
 
-@Composable
-private fun BusinessRow(
-    hit: PtilesRepository.BusinessResult,
-    onSelect: () -> Unit,
-    onAddWaypoint: () -> Unit,
-) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onSelect), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
-            Text(hit.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("%.5f, %.5f".format(hit.point.lat, hit.point.lon), style = MaterialTheme.typography.bodySmall, color = ForestSoft)
-        }
-        IconButton(onClick = onAddWaypoint) { Icon(Icons.Rounded.Add, "Add as waypoint") }
-    }
+/** A place on the route. The last one in the list is the destination. */
+internal data class Stop(val label: String, val point: GeoPoint)
+
+internal fun List<Stop>.move(from: Int, to: Int): List<Stop> {
+    if (from == to || from !in indices || to !in indices) return this
+    val out = toMutableList()
+    out.add(to, out.removeAt(from))
+    return out
 }
 
 @Composable
-private fun WaypointRow(index: Int, point: GeoPoint, onRemove: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            "Stop ${index + 1} · %.5f, %.5f".format(point.lat, point.lon),
-            Modifier.weight(1f),
-            style = MaterialTheme.typography.bodyMedium,
-            color = Forest,
-        )
-        IconButton(onClick = onRemove) { Icon(Icons.Rounded.Close, "Remove stop") }
+private fun BusinessRow(
+    hit: PtilesRepository.BusinessResult,
+    distanceM: Double,
+    imperial: Boolean,
+    onAdd: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onAdd), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+            Text(hit.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(formatDistance(distanceM, imperial), style = MaterialTheme.typography.bodySmall, color = ForestSoft)
+        }
+        IconButton(onClick = onAdd) { Icon(Icons.Rounded.Add, "Add stop") }
+    }
+}
+
+/**
+ * The stop chain, reordered by dragging a row's handle.
+ *
+ * ponytail: rows are a fixed height so the drop index is offset/height. If the
+ * rows ever wrap to two lines, measure them instead.
+ */
+@Composable
+private fun StopList(stops: List<Stop>, onMove: (Int, Int) -> Unit, onRemove: (Int) -> Unit) {
+    val rowPx = with(LocalDensity.current) { STOP_ROW_HEIGHT.toPx() }
+    var dragging by remember { mutableStateOf<Int?>(null) }
+    var dragOffset by remember { mutableStateOf(0f) }
+    Column(Modifier.fillMaxWidth()) {
+        stops.forEachIndexed { index, stop ->
+            val held = dragging == index
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(STOP_ROW_HEIGHT)
+                    .zIndex(if (held) 1f else 0f)
+                    .offset { IntOffset(0, if (held) dragOffset.roundToInt() else 0) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Rounded.DragHandle,
+                    "Reorder stop",
+                    tint = ForestSoft,
+                    modifier = Modifier.pointerInput(index, stops.size) {
+                        detectDragGestures(
+                            onDragStart = { dragging = index; dragOffset = 0f },
+                            onDrag = { change, amount -> change.consume(); dragOffset += amount.y },
+                            onDragEnd = {
+                                onMove(index, (index + (dragOffset / rowPx).roundToInt()).coerceIn(0, stops.lastIndex))
+                                dragging = null; dragOffset = 0f
+                            },
+                            onDragCancel = { dragging = null; dragOffset = 0f },
+                        )
+                    },
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stop.label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Forest)
+                    Text(
+                        if (index == stops.lastIndex) "Destination" else "Stop ${index + 1}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ForestSoft,
+                    )
+                }
+                IconButton(onClick = { onRemove(index) }) { Icon(Icons.Rounded.Close, "Remove stop") }
+            }
+        }
     }
 }
 
@@ -560,6 +623,7 @@ private fun SettingsScreen(settings: AppSettings, onRequestPermissions: () -> Un
     val context = LocalContext.current
     var recording by remember { mutableStateOf(settings.continuousRecording) }
     var developer by remember { mutableStateOf(settings.developerMapEnabled) }
+    var imperial by remember { mutableStateOf(settings.imperialUnits) }
     var highways by remember { mutableStateOf(settings.avoidHighways) }
     var intersections by remember { mutableStateOf(settings.avoidIntersections) }
     var gpsSeconds by remember { mutableStateOf(settings.gpsIntervalSeconds) }
@@ -573,8 +637,11 @@ private fun SettingsScreen(settings: AppSettings, onRequestPermissions: () -> Un
             } else {
                 recording = it
                 settings.continuousRecording = it
-                if (it) TraceService.start(context, settings.activeMode) else TraceService.stop(context)
+                if (it) TraceService.startBackground(context) else TraceService.stop(context)
             }
+        } }
+        item { SettingsToggle("Imperial units", "Feet and miles instead of metres and kilometres.", imperial) {
+            imperial = it; settings.imperialUnits = it
         } }
         item { SettingsToggle("Developer map", "Show experimental layers and diagnostics. On by default during development.", developer) {
             developer = it; settings.developerMapEnabled = it
@@ -593,11 +660,6 @@ private fun SettingsScreen(settings: AppSettings, onRequestPermissions: () -> Un
         item { SettingsToggle("Avoid intersections", "Prefer routes with fewer junctions.", intersections) {
             intersections = it; settings.avoidIntersections = it
         } }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = Lime.copy(alpha = .45f))) {
-                Text("Offline is the normal state. Looky never uploads traces and never requests an online route.", Modifier.padding(16.dp), color = Forest)
-            }
-        }
     }
 }
 
@@ -642,8 +704,21 @@ private fun RecordingsScreen() {
         EmptyState("No day files yet", "Start Drive or Trail and the first accurate fix will create one.")
         return
     }
+    // Three logs, three sections: a drive, a walk, and the always-on background
+    // recording are different journeys and were never worth reading merged.
+    val sections = listOf(
+        "Drives" to TraceRecorder.SESSION_DRIVE,
+        "Trails" to TraceRecorder.SESSION_TRAIL,
+        "Background" to TraceRecorder.SESSION_BACKGROUND,
+    ).mapNotNull { (title, session) ->
+        traces.filter { TraceRecorder.sessionOf(it) == session }.takeIf { it.isNotEmpty() }?.let { title to it }
+    }
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(traces, key = File::getName) { file ->
+        sections.forEach { (title, files) ->
+        item(key = title) {
+            Text(title.uppercase(), style = MaterialTheme.typography.labelLarge, color = ForestSoft)
+        }
+        items(files, key = File::getName) { file ->
             Card(
                 Modifier.clickable { open = file },
                 colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -651,12 +726,16 @@ private fun RecordingsScreen() {
             ) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(file.nameWithoutExtension, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            TraceRecorder.dateOf(file)?.toString() ?: file.nameWithoutExtension,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                         Text("${file.length() / 1024} KB · GPX 1.1", color = Color(0xFF69716C))
                     }
                     Text("Open", color = Forest, fontWeight = FontWeight.Bold)
                 }
             }
+        }
         }
     }
 }
@@ -787,6 +866,8 @@ private fun DeveloperMapScreen() {
     var features by remember { mutableStateOf(emptyList<com.steele.looky.model.MapFeature>()) }
     var stateCode by remember { mutableStateOf<String?>(null) }
     var nearestRoad by remember { mutableStateOf<String?>(null) }
+    var selected by remember { mutableStateOf<BusinessInfo?>(null) }
+    val scope = rememberCoroutineScope()
     val groups = listOf("Roads", "Trails", "Water", "Parks", "Buildings", "Rail", "Cameras", "Businesses")
     var enabledGroups by remember { mutableStateOf(groups.toSet()) }
     LaunchedEffect(center) {
@@ -848,7 +929,65 @@ private fun DeveloperMapScreen() {
             )
         }
         HorizontalDivider()
-        OfflineMap(center, visible, center, null, emptyList(), live.recentPoints, Modifier.weight(1f))
+        OfflineMap(
+            center, visible, center, null, emptyList(), live.recentPoints, Modifier.weight(1f),
+            onTap = { tap ->
+                scope.launch {
+                    selected = withContext(Dispatchers.IO) { repo.businessAt(tap) }
+                }
+            },
+        )
+    }
+    selected?.let { business ->
+        BusinessSheet(business) { selected = null }
+    }
+}
+
+/**
+ * Tapped-business detail, dragged up for the full record.
+ *
+ * The map only carries name and category, so everything below the first two
+ * rows comes from the layer's extended-attributes trailer and is missing on
+ * older packs -- absent fields are dropped rather than printed empty.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BusinessSheet(business: BusinessInfo, onDismiss: () -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+        containerColor = Color.White,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(business.name, style = MaterialTheme.typography.headlineSmall, color = Forest)
+            Text(
+                "%.5f, %.5f".format(business.location.lat, business.location.lon),
+                style = MaterialTheme.typography.bodyMedium,
+                color = ForestSoft,
+            )
+            Spacer(Modifier.height(14.dp))
+            DetailRow("Category index", business.categoryIdx.toString())
+            DetailRow("Operating status", business.operatingStatus)
+            business.phone?.let { DetailRow("Phone", it) }
+            business.website?.let { DetailRow("Website", it) }
+            DetailRow("OSM id", business.osmId.toString())
+            business.sourceType?.let {
+                DetailRow("Source", when (it.toInt()) { 1 -> "Overture"; 2 -> "Foursquare"; else -> "Unknown ($it)" })
+            }
+            business.sourceId?.let { DetailRow("Source id", it) }
+            business.confidence?.let { DetailRow("Confidence", "$it/100") }
+        }
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(label, Modifier.width(150.dp), style = MaterialTheme.typography.labelLarge, color = ForestSoft)
+        Text(value, style = MaterialTheme.typography.bodyLarge, color = Forest)
     }
 }
 
@@ -864,16 +1003,11 @@ private fun EmptyState(title: String, subtitle: String) {
     }
 }
 
-private fun parseCoordinate(value: String): GeoPoint? {
-    val pieces = value.split(',').map { it.trim().toDoubleOrNull() }
-    if (pieces.size != 2 || pieces.any { it == null }) return null
-    val lat = pieces[0]!!; val lon = pieces[1]!!
-    return if (lat in -90.0..90.0 && lon in -180.0..180.0) GeoPoint(lat, lon) else null
-}
-
-private fun formatDistance(meters: Double): String = when {
-    meters < 1_000 -> "${meters.roundToInt()} m"
-    else -> "%.1f km".format(meters / 1_000)
+private fun formatDistance(meters: Double, imperial: Boolean): String = if (imperial) {
+    val feet = meters * 3.28084
+    if (feet < 1_000) "${feet.roundToInt()} ft" else "%.1f mi".format(feet / 5_280)
+} else {
+    if (meters < 1_000) "${meters.roundToInt()} m" else "%.1f km".format(meters / 1_000)
 }
 
 private fun formatBytes(bytes: Long): String = when {

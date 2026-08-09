@@ -1,6 +1,7 @@
 package com.steele.looky.offline
 
 import com.steele.looky.model.GeoPoint
+import com.steele.looky.model.MapFeature
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -83,13 +84,54 @@ class RouteAndSearchTest {
         assertEquals(5, PtilesRepository.mergeBusinessHits(hits, limit = 5).size)
     }
 
-    @Test fun theBuildingSampleGridWidensWithTheRingButStaysBounded() {
-        assertEquals(2, PtilesRepository.buildingSampleSpan(1u))
-        assertEquals(3, PtilesRepository.buildingSampleSpan(2u))
-        assertTrue(PtilesRepository.buildingSampleSpan(20u) <= 5)
+    @Test fun theBuildingSampleGridWidensWithTheSpreadButStaysBounded() {
+        assertEquals(3, PtilesRepository.buildingSampleSpan(1))
+        assertEquals(4, PtilesRepository.buildingSampleSpan(2))
+        assertTrue(PtilesRepository.buildingSampleSpan(50) <= 6)
     }
 
-    @Test fun theDefaultRingCoversMoreThanTheImmediateCell() {
-        assertTrue(PtilesRepository.DEFAULT_RING >= 2u)
+    @Test fun theRingStaysAtTheOnlyValueTheFfiAccepts() {
+        // ffi/src/lib.rs::validate_ring rejects anything above 1, and the
+        // runCatching blocks in featuresAround turn that error into an empty
+        // map rather than a crash. Raising this silently blanks the map.
+        assertEquals(1u.toUByte(), PtilesRepository.RING)
+    }
+
+    @Test fun oneSampleCentreWhenThereIsNoSpread() {
+        assertEquals(
+            listOf(GeoPoint(35.0, -88.0)),
+            PtilesRepository.sampleCenters(35.0, -88.0, 0),
+        )
+    }
+
+    @Test fun spreadAddsFourArmsPerStepAroundTheCentre() {
+        val centers = PtilesRepository.sampleCenters(35.0, -88.0, 1)
+
+        assertEquals(5, centers.size)
+        assertEquals(GeoPoint(35.0, -88.0), centers.first())
+        assertTrue(centers.any { it.lat > 35.0 && it.lon == -88.0 })
+        assertTrue(centers.any { it.lat < 35.0 && it.lon == -88.0 })
+        assertTrue(centers.any { it.lon > -88.0 && it.lat == 35.0 })
+        assertTrue(centers.any { it.lon < -88.0 && it.lat == 35.0 })
+    }
+
+    @Test fun sampleStepsStayInsideOneCellSoNoGapOpensBetweenRings() {
+        // A res-7 cell is ~1.4 km across and a ring-1 query reaches ~2 km, so
+        // steps of this size overlap rather than leaving blank paper between.
+        assertTrue(PtilesRepository.SAMPLE_STEP_LAT * 111_320 < 4_000)
+        assertTrue(PtilesRepository.SAMPLE_STEP_LON * 91_000 < 4_000)
+    }
+
+    @Test fun aFeatureReturnedByTwoOverlappingCentresIsDrawnOnce() {
+        val road = MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.1)), "primary", "Broadway")
+
+        assertEquals(1, PtilesRepository.dedupeFeatures(listOf(road, road.copy())).size)
+    }
+
+    @Test fun twoDistinctRoadsBothSurviveDeduplication() {
+        val first = MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.1)), "primary", "Broadway")
+        val second = MapFeature(listOf(GeoPoint(36.0, -87.0), GeoPoint(36.1, -87.1)), "primary", "Church St")
+
+        assertEquals(2, PtilesRepository.dedupeFeatures(listOf(first, second)).size)
     }
 }
