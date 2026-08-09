@@ -194,6 +194,42 @@ def main():
             if state["reroutes"] > 1:
                 failures.append(f"{state['reroutes']} reroutes for one wrong turn")
 
+        # --- taps land where they are aimed --------------------------------
+        # The pane is rotated under the viewport, so Leaflet's own click
+        # coordinates are off by the heading -- which on a phone reads as
+        # "every tap starts a route somewhere I did not touch". The page
+        # carries both directions of the correction; this checks them against
+        # each other and against the thing a driver actually aims at.
+        state = page.evaluate("() => window.__ptiles.driveState()")
+        vw, vh = state["viewport"]
+        car = page.evaluate("() => window.__ptiles.__lastFix()")
+        xy = page.evaluate("([a, b]) => window.__ptiles.driveScreenXY(a, b)", [car[0], car[1]])
+        tap = page.evaluate("([x, y]) => window.__ptiles.driveTapAt(x, y)", [xy[0], xy[1]])
+        d = haversine_m(tap[0], tap[1], car[0], car[1])
+        print(f"  tap on car     {d:.0f} m off, car drawn at "
+              f"({xy[0]:.0f}, {xy[1]:.0f}) of {vw}x{vh}")
+        if d > 25:
+            failures.append(f"tapping the vehicle resolved {d:.0f} m away; "
+                            "the rotation correction is wrong")
+        # Drawn in the lower part of the screen: the point of heading-up is
+        # that most of the glass shows where you are going.
+        if not (0.5 * vh < xy[1] < 0.85 * vh):
+            failures.append(f"vehicle drawn at y={xy[0]:.0f}, not in the lower third")
+
+        # --- orientation toggle --------------------------------------------
+        north = page.evaluate("() => window.__ptiles.driveSetNorthUp(true)")
+        st_n = page.evaluate("() => window.__ptiles.driveState()")
+        print(f"  north-up       rotation={st_n['rotation']!r} marker={st_n['markerRotation']!r}")
+        if not north or st_n["rotation"] not in ("", None):
+            failures.append(f"north-up left the map rotated: {st_n['rotation']!r}")
+        if "rotate" not in (st_n["markerRotation"] or ""):
+            failures.append("north-up did not rotate the vehicle marker, so heading is unreadable")
+        tap_n = page.evaluate("([x, y]) => window.__ptiles.driveTapAt(x, y)", [vw / 2, vh / 2])
+        page.evaluate("() => window.__ptiles.driveSetNorthUp(false)")
+        st_h = page.evaluate("() => window.__ptiles.driveState()")
+        if "rotate" not in (st_h["rotation"] or ""):
+            failures.append("heading-up did not restore the map rotation")
+
         page.evaluate("() => window.__ptiles.driveStop()")
         for e in errors[:5]:
             failures.append(e)

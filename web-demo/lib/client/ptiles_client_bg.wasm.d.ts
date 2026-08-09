@@ -34,7 +34,6 @@ export const decode_business_for_cell: (a: number, b: number, c: number, d: numb
 export const decode_business_versioned: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const decode_cameras: (a: number, b: number) => [number, number, number];
 export const decode_chargers: (a: number, b: number) => [number, number, number];
-export const decode_highways: (a: number, b: number) => [number, number, number];
 export const decode_parks: (a: number, b: number) => [number, number, number];
 export const decode_rail: (a: number, b: number) => [number, number, number];
 export const decode_roads: (a: number, b: number) => [number, number, number];

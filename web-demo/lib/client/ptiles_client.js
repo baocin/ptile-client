@@ -787,23 +787,6 @@ export function decode_chargers(data) {
 }
 
 /**
- * Decode a `{ST}.highways_v2.ptiles` block. The file shares the roads magic
- * and index shape but has its own legacy record body; see
- * `ptiles_core::decode_highways`.
- * @param {Uint8Array} data
- * @returns {any}
- */
-export function decode_highways(data) {
-    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.decode_highways(ptr0, len0);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
  * @param {Uint8Array} data
  * @returns {any}
  */

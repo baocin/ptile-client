@@ -347,13 +347,6 @@ export function decode_cameras(data: Uint8Array): any;
  */
 export function decode_chargers(data: Uint8Array): any;
 
-/**
- * Decode a `{ST}.highways_v2.ptiles` block. The file shares the roads magic
- * and index shape but has its own legacy record body; see
- * `ptiles_core::decode_highways`.
- */
-export function decode_highways(data: Uint8Array): any;
-
 export function decode_parks(data: Uint8Array): any;
 
 export function decode_rail(data: Uint8Array): any;
@@ -889,7 +882,6 @@ export interface InitOutput {
     readonly decode_business_versioned: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly decode_cameras: (a: number, b: number) => [number, number, number];
     readonly decode_chargers: (a: number, b: number) => [number, number, number];
-    readonly decode_highways: (a: number, b: number) => [number, number, number];
     readonly decode_parks: (a: number, b: number) => [number, number, number];
     readonly decode_rail: (a: number, b: number) => [number, number, number];
     readonly decode_roads: (a: number, b: number) => [number, number, number];
