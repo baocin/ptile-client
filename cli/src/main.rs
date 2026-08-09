@@ -7,7 +7,7 @@
 //! (`~/.hermes/plans/ptiles-client-extraction-plan.md`, Addendum 2 item 1).
 //!
 //! Modes:
-//! - one-shot: `--path <file.ptiles|https://.../file.ptiles> --lat <f64> --lon <f64> [--query road|roads|intersection|buildings|business|trail|trails|trailhead|park|parks|water|waters|rail|rails|station|locate|all] [--ring 1]`
+//! - one-shot: `--path <file.ptiles|https://.../file.ptiles> --lat <f64> --lon <f64> [--query road|roads|intersection|buildings|business|trail|trails|trailhead|park|parks|water|waters|rail|rails|station|cameras|camera|locate|all] [--ring 1]`
 //!   Opens a single `.ptiles` file (local or remote), resolves the H3 res-7
 //!   cell for the point (plus ring-1 neighbors if `--ring 1`), decodes the
 //!   block(s) with the decoder matching the file's layer (inferred from its
@@ -16,7 +16,8 @@
 //!   (grouped by state + layer parsed from the filename), then reads JSON
 //!   lines from stdin. `--serve --remote-base <https://host/path/> --states
 //!   TN,US`: same, but for each state and each queried layer (`roads`,
-//!   `buildings_v8`, `business`, `trails`, `parks`, `water`, `rail`) opens
+//!   `buildings_v8`, `business`, `trails`, `parks`, `water`, `rail`,
+//!   `camera`) opens
 //!   `<remote_base><state>.<layer>.ptiles` over HTTP instead of scanning a
 //!   local directory -- a state/layer combination that 404s or errors is
 //!   skipped (eprintln), not fatal, since not every state has every layer.
@@ -24,7 +25,7 @@
 //!
 //!   `--serve` JSON lines:
 //!   `{"lat":..,"lon":..,"query":"building|road|roads|business|trail|park|
-//!   water|rail|locate|all","state":?,
+//!   water|rail|camera|locate|all","state":?,
 //!   "ring":0|1,"accuracy_m":?,"speed_mps":?}`.
 //!   `state` is optional; if omitted, the sole state present in the data dir
 //!   is used, or an `{"error":...}` line if more than one state is loaded.
@@ -88,6 +89,7 @@ enum Layer {
     Parks,
     Water,
     Rail,
+    Camera,
 }
 
 impl Layer {
@@ -109,6 +111,7 @@ impl Layer {
             "parks" => Some(Layer::Parks),
             "water" => Some(Layer::Water),
             "rail" => Some(Layer::Rail),
+            "camera" => Some(Layer::Camera),
             _ => None,
         }
     }
@@ -122,6 +125,7 @@ impl Layer {
             Layer::Parks => "parks",
             Layer::Water => "water",
             Layer::Rail => "rail",
+            Layer::Camera => "camera",
         }
     }
 }
@@ -152,6 +156,8 @@ enum QueryKind {
     Rail,
     Rails,
     Station,
+    Cameras,
+    Camera,
     Locate,
     All,
 }
@@ -174,6 +180,8 @@ impl QueryKind {
             "rail" => Some(QueryKind::Rail),
             "rails" => Some(QueryKind::Rails),
             "station" => Some(QueryKind::Station),
+            "cameras" => Some(QueryKind::Cameras),
+            "camera" => Some(QueryKind::Camera),
             "locate" => Some(QueryKind::Locate),
             "all" => Some(QueryKind::All),
             _ => None,
@@ -190,6 +198,11 @@ impl QueryKind {
             QueryKind::Park | QueryKind::Parks => layer == Layer::Parks,
             QueryKind::Water | QueryKind::Waters => layer == Layer::Water,
             QueryKind::Rail | QueryKind::Rails | QueryKind::Station => layer == Layer::Rail,
+            // `camera` reads buildings too, when the state has them -- see
+            // `handle_serve_line`. One-shot against the camera file alone
+            // still answers, without the occlusion half.
+            QueryKind::Cameras => layer == Layer::Camera,
+            QueryKind::Camera => matches!(layer, Layer::Camera | Layer::BuildingsV8),
             // Cross-layer: roads and trails together, plus whatever else the
             // state has open. Never satisfied by a single layer.
             QueryKind::Locate => matches!(layer, Layer::Roads | Layer::Trails),
@@ -318,7 +331,7 @@ fn main() {
         Some(s) => match QueryKind::parse(s) {
             Some(q) => q,
             None => {
-                eprintln!("ptiles-cli: unknown --query {s:?} (expected road|roads|intersection|buildings|business|trail|trails|trailhead|park|parks|water|waters|rail|rails|station|locate|all)");
+                eprintln!("ptiles-cli: unknown --query {s:?} (expected road|roads|intersection|buildings|business|trail|trails|trailhead|park|parks|water|waters|rail|rails|station|cameras|camera|locate|all)");
                 std::process::exit(2);
             }
         },
@@ -673,7 +686,7 @@ impl OpenedLayer {
             // a trail or a lake is not a thing a GPS fix "is at" in the sense
             // the scorer means, so these layers contribute nothing here. They
             // answer through `query` / `locate` instead.
-            Layer::Trails | Layer::Parks | Layer::Water | Layer::Rail => {}
+            Layer::Trails | Layer::Parks | Layer::Water | Layer::Rail | Layer::Camera => {}
         }
         (roads, buildings, businesses)
     }
@@ -846,6 +859,33 @@ impl OpenedLayer {
                         })
                     }
                 }
+            }
+            Layer::Camera => {
+                let cameras = match self.decode_all(&cells, ptiles_core::decode_cameras) {
+                    Ok(c) => c,
+                    Err(e) => return json!({"error": format!("decode_cameras: {e}")}),
+                };
+                if query_kind == QueryKind::Cameras {
+                    let all: Vec<Value> = cameras.iter().map(camera_json).collect();
+                    return json!({"cameras": all, "candidate_count": cameras.len()});
+                }
+                // One-shot against the camera file alone: no buildings are
+                // open, so nothing can occlude and every in-range camera
+                // reports a clear sight line. `--serve` with a buildings
+                // layer loaded is where the occlusion half of the answer
+                // comes from; the flag says which answer this is.
+                let views = ptiles_core::cameras_seeing(
+                    lat,
+                    lon,
+                    &cameras,
+                    &[],
+                    ptiles_core::CAMERA_RANGE_M,
+                );
+                json!({
+                    "seen_by": views.iter().map(|v| camera_view_json(v, &cameras)).collect::<Vec<_>>(),
+                    "occlusion_checked": false,
+                    "candidate_count": cameras.len(),
+                })
             }
         }
     }
@@ -1168,6 +1208,43 @@ fn rail_json(r: &ptiles_core::RailFeature) -> Value {
     })
 }
 
+fn camera_json(c: &ptiles_core::Camera) -> Value {
+    json!({
+        "osm_id": c.osm_id,
+        "lat": c.lat,
+        "lon": c.lon,
+        "device_type": c.device_type,
+        "placement": c.placement,
+        "camera_type": c.camera_type,
+        "direction": c.direction,
+        "angle": c.angle,
+        "operator": c.operator,
+        "name": c.name,
+        "ref": c.ref_tag,
+    })
+}
+
+/// One camera's answer to "can it see me", with enough of the camera itself
+/// that a caller need not join back to the listing.
+fn camera_view_json(v: &ptiles_core::CameraView, cameras: &[ptiles_core::Camera]) -> Value {
+    let cam = &cameras[v.index];
+    json!({
+        "osm_id": v.osm_id,
+        "name": cam.name,
+        "operator": cam.operator,
+        "camera_type": cam.camera_type,
+        "lat": cam.lat,
+        "lon": cam.lon,
+        "distance_m": v.distance_m,
+        "bearing_deg": v.bearing_deg,
+        "aimed_at_you": v.aimed_at_you,
+        "aim_assumed": v.aim_assumed,
+        "line_of_sight": v.line_of_sight,
+        "blocked_by": v.blocked_by,
+        "sees": v.sees,
+    })
+}
+
 fn business_hit_json(h: &BusinessHit) -> Value {
     json!({
         "name": h.name,
@@ -1206,6 +1283,7 @@ struct StateFiles {
     parks: Option<OpenedLayer>,
     water: Option<OpenedLayer>,
     rail: Option<OpenedLayer>,
+    camera: Option<OpenedLayer>,
     /// `business_name_index.ptiles` sidecar, when present. Not an
     /// `OpenedLayer` -- it's not one of the `Layer` variants (a different
     /// index shape, see `core::business_search`), so it's stored as a bare
@@ -1223,6 +1301,7 @@ impl StateFiles {
             Layer::Parks => &mut self.parks,
             Layer::Water => &mut self.water,
             Layer::Rail => &mut self.rail,
+            Layer::Camera => &mut self.camera,
         };
         *slot = Some(opened);
     }
@@ -1331,6 +1410,7 @@ fn run_serve_remote(remote_base: &str, states_csv: &str) {
             Layer::Parks,
             Layer::Water,
             Layer::Rail,
+            Layer::Camera,
         ] {
             let url = format!("{base}{state}.{}.ptiles", layer.as_str());
             match OpenedLayer::open(&url, layer) {
@@ -1508,6 +1588,47 @@ fn handle_serve_line(line: &str, states: &HashMap<String, StateFiles>) -> Value 
         });
     }
 
+    // "Can a camera see me": the camera layer answers who is in range and
+    // aimed at you, the buildings layer answers what stands in the way. A
+    // state with no buildings file still gets the first half, flagged, rather
+    // than a silently optimistic clear sight line.
+    if query_kind == QueryKind::Camera {
+        if state_files.camera.is_none() {
+            return json!({"error": "no camera layer loaded for this state"});
+        }
+        let cameras = StateFiles::decode_from(
+            &state_files.camera,
+            lat,
+            lon,
+            ring,
+            ptiles_core::decode_cameras,
+        );
+        let buildings = match &state_files.buildings {
+            Some(layer) => layer.candidates_for(lat, lon, ring).1,
+            None => Vec::new(),
+        };
+        let view_buildings: Vec<ptiles_core::ViewBuilding> = buildings
+            .iter()
+            .map(|b| ptiles_core::ViewBuilding {
+                coords: b.coords.clone(),
+                height_m: b.height_m,
+                building_type: b.building_type.clone(),
+            })
+            .collect();
+        let views = ptiles_core::cameras_seeing(
+            lat,
+            lon,
+            &cameras,
+            &view_buildings,
+            ptiles_core::CAMERA_RANGE_M,
+        );
+        return json!({
+            "seen_by": views.iter().map(|v| camera_view_json(v, &cameras)).collect::<Vec<_>>(),
+            "occlusion_checked": state_files.buildings.is_some(),
+            "candidate_count": cameras.len(),
+        });
+    }
+
     // Single-layer queries against the layers `--serve` opens beyond the
     // scoring three. Answered by the same `OpenedLayer::query` the one-shot
     // path uses, so the two cannot drift; a state missing that file says so
@@ -1521,6 +1642,7 @@ fn handle_serve_line(line: &str, states: &HashMap<String, StateFiles>) -> Value 
         QueryKind::Rail | QueryKind::Rails | QueryKind::Station => {
             Some((Layer::Rail, &state_files.rail))
         }
+        QueryKind::Cameras => Some((Layer::Camera, &state_files.camera)),
         _ => None,
     };
     if let Some((kind, slot)) = single {

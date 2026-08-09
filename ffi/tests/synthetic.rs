@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ptiles_core::cell_for_coord;
-use ptiles_core::fixtures::{park_record, ptiles_v1, ptiles_v2_merged, trail_record};
+use ptiles_core::fixtures::{camera_record, park_record, ptiles_v1, ptiles_v2_merged, trail_record};
 use ptiles_ffi::{PtilesError, PtilesLayer, PtilesStack};
 
 const LAT: f64 = 36.16;
@@ -155,6 +155,7 @@ fn stack_locate_prefers_the_closer_of_road_and_trail() {
         Some(merged_parks_layer("stack_locate")),
         None,
         None,
+        None,
     );
 
     let got = stack.locate(LAT, LON, 0).expect("locate");
@@ -181,5 +182,80 @@ fn a_trails_file_refuses_park_and_rail_questions() {
     assert!(matches!(
         layer.nearest_trail(LAT, LON, 2),
         Err(PtilesError::InvalidRing { ring: 2 })
+    ));
+}
+
+/// One camera ~22 m south of the query point, facing north with a 60-degree
+/// cone -- pointed straight at you.
+fn camera_layer(owner: &str) -> Arc<PtilesLayer> {
+    let cell = cell_for_coord(LAT, LON);
+    let records = camera_record(2, LAT - 0.0002, LON, 0, Some(0), Some(60), Some("At You"));
+    open(write_fixture(
+        owner,
+        "XX.camera.ptiles",
+        ptiles_v1(b"PTILESC", &[(cell, records)]),
+    ))
+}
+
+/// A buildings layer is not something `fixtures` can build (the buildings
+/// decoder wants a cell-relative framing of its own), so the occlusion half
+/// is covered in `core::camera`'s own tests. This proves the wiring: the
+/// camera reaches the FFI, and the stack answers with it.
+#[test]
+fn a_camera_aimed_at_you_is_reported_with_its_reasons() {
+    let layer = camera_layer("camera_sees");
+
+    let cameras = layer.cameras(LAT, LON, 0).expect("cameras query");
+    assert_eq!(cameras.len(), 1);
+    assert_eq!(cameras[0].camera_type, "fixed");
+    assert_eq!(cameras[0].direction, Some(0));
+    assert_eq!(cameras[0].angle, Some(60));
+
+    let seen = layer.cameras_seeing(LAT, LON, 0, 50.0).expect("cameras_seeing");
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].sees);
+    assert!(seen[0].aimed_at_you);
+    assert!(!seen[0].aim_assumed, "direction and angle were both tagged");
+    assert!(seen[0].line_of_sight, "no buildings were loaded, so nothing occludes");
+    assert!(seen[0].distance_m > 15.0 && seen[0].distance_m < 30.0);
+    assert!(seen[0].bearing_deg.abs() < 1.0, "due north, got {}", seen[0].bearing_deg);
+}
+
+#[test]
+fn a_camera_out_of_range_is_not_reported() {
+    let layer = camera_layer("camera_range");
+    assert!(layer.cameras_seeing(LAT, LON, 0, 5.0).expect("query").is_empty());
+}
+
+#[test]
+fn the_stack_answers_from_its_camera_layer_and_says_nothing_without_one() {
+    let with_camera = PtilesStack::with_layers(
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(camera_layer("camera_stack")),
+        None,
+    );
+    // range_m <= 0 means "use core's default", not "see nothing".
+    let seen = with_camera.cameras_seeing(LAT, LON, 0, 0.0).expect("stack query");
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].sees);
+
+    let without = PtilesStack::new(None, None, None);
+    assert!(
+        without.cameras_seeing(LAT, LON, 0, 0.0).expect("query").is_empty(),
+        "no camera layer means no answer, not an error"
+    );
+}
+
+#[test]
+fn a_camera_file_refuses_a_trails_question() {
+    let layer = camera_layer("camera_wrong_layer");
+    assert!(matches!(
+        layer.trails(LAT, LON, 0),
+        Err(PtilesError::UnsupportedForLayer { .. })
     ));
 }

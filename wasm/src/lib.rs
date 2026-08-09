@@ -333,6 +333,46 @@ pub fn point_in_polygon(lat: f64, lon: f64, coords: &[f64]) -> bool {
     ptiles_core::point_in_polygon(lat, lon, &ring)
 }
 
+/// Which cameras can see `(lat, lon)`, nearest first -- "is anything pointed
+/// at me right now".
+///
+/// `cameras_js` is what `decode_cameras` returned; `buildings_js` is a
+/// `ViewBuilding` array (`{coords, height_m, building_type}`), the same input
+/// `viewshed` takes, and may be null when the caller has no buildings loaded.
+/// `range_m` defaults to `ptiles_core::CAMERA_RANGE_M` (50 m).
+///
+/// Each answer carries `sees` plus the three reasons behind it
+/// (`aimed_at_you`, `aim_assumed`, `line_of_sight`, `blocked_by`). Every
+/// assumption leans toward reporting a camera rather than omitting one: an
+/// untagged aim is assumed to point at you, a dome rotates, and an unmeasured
+/// building is credited with the low end of its height range. Passing no
+/// buildings therefore gives every in-range camera a clear sight line.
+///
+/// `index` and `blocked_by` arrive as BigInt -- they are `usize` in Rust, and
+/// serde carries 64-bit integers across as BigInt rather than silently
+/// narrowing them to a Number.
+#[wasm_bindgen]
+pub fn cameras_seeing(
+    lat: f64,
+    lon: f64,
+    cameras_js: JsValue,
+    buildings_js: JsValue,
+    range_m: Option<f64>,
+) -> Result<JsValue, JsValue> {
+    let cameras: Vec<ptiles_core::Camera> = from_js_or_empty(cameras_js, "cameras")?;
+    let buildings: Vec<ptiles_core::ViewBuilding> = from_js_or_empty(buildings_js, "buildings")?;
+    let range = range_m.unwrap_or(ptiles_core::CAMERA_RANGE_M);
+    to_js(&ptiles_core::cameras_seeing(lat, lon, &cameras, &buildings, range))
+}
+
+/// Bearing from one point to another, degrees clockwise from north -- the
+/// convention a camera's own `direction` tag uses, so the two are directly
+/// comparable.
+#[wasm_bindgen]
+pub fn bearing_to(from_lat: f64, from_lon: f64, to_lat: f64, to_lon: f64) -> f64 {
+    ptiles_core::bearing_to(from_lat, from_lon, to_lat, to_lon)
+}
+
 /// Forward geocode over already-decoded address records: "400 Broadway".
 #[wasm_bindgen]
 pub fn geocode_addresses(

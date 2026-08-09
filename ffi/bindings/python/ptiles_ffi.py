@@ -490,6 +490,10 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count() != 57569:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras() != 41716:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing() != 15491:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache() != 14397:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_covers() != 61769:
@@ -530,6 +534,8 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at() != 24453:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing() != 19587:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403:
@@ -550,7 +556,7 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 38860:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 1730:
+    if lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 22188:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new() != 6510:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -757,6 +763,23 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count.argtypes =
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count.restype = ctypes.c_uint32
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cameras.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cameras.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.c_double,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache.argtypes = (
     ctypes.c_void_p,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -932,9 +955,19 @@ _UniffiLib.uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
     _UniffiRustBuffer,
+    _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers.restype = ctypes.c_void_p
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_uint8,
+    ctypes.c_double,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_locate.argtypes = (
     ctypes.c_void_p,
     ctypes.c_double,
@@ -1347,6 +1380,12 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near.restype
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache.restype = ctypes.c_uint16
@@ -1407,6 +1446,9 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water.restype = ctypes.
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate.restype = ctypes.c_uint16
@@ -2086,6 +2128,242 @@ class _UniffiConverterTypeBusinessSearchHit(_UniffiConverterRustBuffer):
         _UniffiConverterUInt8.write(value.category_idx, buf)
         _UniffiConverterTypeLatLon.write(value.location, buf)
         _UniffiConverterUInt8.write(value.score, buf)
+
+
+class CameraInfo:
+    """
+    One decoded surveillance camera. `direction` is degrees clockwise from
+    north when tagged; `angle` is the field of view in degrees when tagged.
+    """
+
+    osm_id: "int"
+    location: "LatLon"
+    device_type: "str"
+    """
+    `camera`, `ALPR`, `guard`, or `unknown`.
+    """
+
+    placement: "str"
+    """
+    `public`, `outdoor`, `indoor`, or `unknown`.
+    """
+
+    camera_type: "str"
+    """
+    `fixed`, `panning`, `dome`, or `unknown`. The last two rotate.
+    """
+
+    direction: "typing.Optional[int]"
+    angle: "typing.Optional[int]"
+    operator: "typing.Optional[str]"
+    name: "typing.Optional[str]"
+    ref_tag: "typing.Optional[str]"
+    def __init__(self, *, osm_id: "int", location: "LatLon", device_type: "str", placement: "str", camera_type: "str", direction: "typing.Optional[int]", angle: "typing.Optional[int]", operator: "typing.Optional[str]", name: "typing.Optional[str]", ref_tag: "typing.Optional[str]"):
+        self.osm_id = osm_id
+        self.location = location
+        self.device_type = device_type
+        self.placement = placement
+        self.camera_type = camera_type
+        self.direction = direction
+        self.angle = angle
+        self.operator = operator
+        self.name = name
+        self.ref_tag = ref_tag
+
+    def __str__(self):
+        return "CameraInfo(osm_id={}, location={}, device_type={}, placement={}, camera_type={}, direction={}, angle={}, operator={}, name={}, ref_tag={})".format(self.osm_id, self.location, self.device_type, self.placement, self.camera_type, self.direction, self.angle, self.operator, self.name, self.ref_tag)
+
+    def __eq__(self, other):
+        if self.osm_id != other.osm_id:
+            return False
+        if self.location != other.location:
+            return False
+        if self.device_type != other.device_type:
+            return False
+        if self.placement != other.placement:
+            return False
+        if self.camera_type != other.camera_type:
+            return False
+        if self.direction != other.direction:
+            return False
+        if self.angle != other.angle:
+            return False
+        if self.operator != other.operator:
+            return False
+        if self.name != other.name:
+            return False
+        if self.ref_tag != other.ref_tag:
+            return False
+        return True
+
+class _UniffiConverterTypeCameraInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return CameraInfo(
+            osm_id=_UniffiConverterInt64.read(buf),
+            location=_UniffiConverterTypeLatLon.read(buf),
+            device_type=_UniffiConverterString.read(buf),
+            placement=_UniffiConverterString.read(buf),
+            camera_type=_UniffiConverterString.read(buf),
+            direction=_UniffiConverterOptionalUInt16.read(buf),
+            angle=_UniffiConverterOptionalUInt8.read(buf),
+            operator=_UniffiConverterOptionalString.read(buf),
+            name=_UniffiConverterOptionalString.read(buf),
+            ref_tag=_UniffiConverterOptionalString.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterInt64.check_lower(value.osm_id)
+        _UniffiConverterTypeLatLon.check_lower(value.location)
+        _UniffiConverterString.check_lower(value.device_type)
+        _UniffiConverterString.check_lower(value.placement)
+        _UniffiConverterString.check_lower(value.camera_type)
+        _UniffiConverterOptionalUInt16.check_lower(value.direction)
+        _UniffiConverterOptionalUInt8.check_lower(value.angle)
+        _UniffiConverterOptionalString.check_lower(value.operator)
+        _UniffiConverterOptionalString.check_lower(value.name)
+        _UniffiConverterOptionalString.check_lower(value.ref_tag)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterInt64.write(value.osm_id, buf)
+        _UniffiConverterTypeLatLon.write(value.location, buf)
+        _UniffiConverterString.write(value.device_type, buf)
+        _UniffiConverterString.write(value.placement, buf)
+        _UniffiConverterString.write(value.camera_type, buf)
+        _UniffiConverterOptionalUInt16.write(value.direction, buf)
+        _UniffiConverterOptionalUInt8.write(value.angle, buf)
+        _UniffiConverterOptionalString.write(value.operator, buf)
+        _UniffiConverterOptionalString.write(value.name, buf)
+        _UniffiConverterOptionalString.write(value.ref_tag, buf)
+
+
+class CameraViewInfo:
+    """
+    What one camera can see of a point -- `ptiles_core::CameraView`, plus
+    enough of the camera itself that a caller need not join back to the
+    listing.
+
+    `sees` is the answer; the other flags are why. Every assumption behind
+    them leans toward reporting a camera rather than omitting one, so a `true`
+    may be inference (check `aim_assumed`) while a `false` is comparatively
+    solid.
+    """
+
+    osm_id: "int"
+    name: "typing.Optional[str]"
+    operator: "typing.Optional[str]"
+    camera_type: "str"
+    location: "LatLon"
+    distance_m: "float"
+    bearing_deg: "float"
+    """
+    Bearing from the camera to you, degrees clockwise from north.
+    """
+
+    aimed_at_you: "bool"
+    """
+    False only when the camera is tagged with a direction and you fall
+    outside the resulting cone.
+    """
+
+    aim_assumed: "bool"
+    """
+    True when `aimed_at_you` rests on an assumption rather than on tags.
+    """
+
+    line_of_sight: "bool"
+    """
+    False when a building stands between you and it.
+    """
+
+    sees: "bool"
+    def __init__(self, *, osm_id: "int", name: "typing.Optional[str]", operator: "typing.Optional[str]", camera_type: "str", location: "LatLon", distance_m: "float", bearing_deg: "float", aimed_at_you: "bool", aim_assumed: "bool", line_of_sight: "bool", sees: "bool"):
+        self.osm_id = osm_id
+        self.name = name
+        self.operator = operator
+        self.camera_type = camera_type
+        self.location = location
+        self.distance_m = distance_m
+        self.bearing_deg = bearing_deg
+        self.aimed_at_you = aimed_at_you
+        self.aim_assumed = aim_assumed
+        self.line_of_sight = line_of_sight
+        self.sees = sees
+
+    def __str__(self):
+        return "CameraViewInfo(osm_id={}, name={}, operator={}, camera_type={}, location={}, distance_m={}, bearing_deg={}, aimed_at_you={}, aim_assumed={}, line_of_sight={}, sees={})".format(self.osm_id, self.name, self.operator, self.camera_type, self.location, self.distance_m, self.bearing_deg, self.aimed_at_you, self.aim_assumed, self.line_of_sight, self.sees)
+
+    def __eq__(self, other):
+        if self.osm_id != other.osm_id:
+            return False
+        if self.name != other.name:
+            return False
+        if self.operator != other.operator:
+            return False
+        if self.camera_type != other.camera_type:
+            return False
+        if self.location != other.location:
+            return False
+        if self.distance_m != other.distance_m:
+            return False
+        if self.bearing_deg != other.bearing_deg:
+            return False
+        if self.aimed_at_you != other.aimed_at_you:
+            return False
+        if self.aim_assumed != other.aim_assumed:
+            return False
+        if self.line_of_sight != other.line_of_sight:
+            return False
+        if self.sees != other.sees:
+            return False
+        return True
+
+class _UniffiConverterTypeCameraViewInfo(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return CameraViewInfo(
+            osm_id=_UniffiConverterInt64.read(buf),
+            name=_UniffiConverterOptionalString.read(buf),
+            operator=_UniffiConverterOptionalString.read(buf),
+            camera_type=_UniffiConverterString.read(buf),
+            location=_UniffiConverterTypeLatLon.read(buf),
+            distance_m=_UniffiConverterDouble.read(buf),
+            bearing_deg=_UniffiConverterDouble.read(buf),
+            aimed_at_you=_UniffiConverterBool.read(buf),
+            aim_assumed=_UniffiConverterBool.read(buf),
+            line_of_sight=_UniffiConverterBool.read(buf),
+            sees=_UniffiConverterBool.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterInt64.check_lower(value.osm_id)
+        _UniffiConverterOptionalString.check_lower(value.name)
+        _UniffiConverterOptionalString.check_lower(value.operator)
+        _UniffiConverterString.check_lower(value.camera_type)
+        _UniffiConverterTypeLatLon.check_lower(value.location)
+        _UniffiConverterDouble.check_lower(value.distance_m)
+        _UniffiConverterDouble.check_lower(value.bearing_deg)
+        _UniffiConverterBool.check_lower(value.aimed_at_you)
+        _UniffiConverterBool.check_lower(value.aim_assumed)
+        _UniffiConverterBool.check_lower(value.line_of_sight)
+        _UniffiConverterBool.check_lower(value.sees)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterInt64.write(value.osm_id, buf)
+        _UniffiConverterOptionalString.write(value.name, buf)
+        _UniffiConverterOptionalString.write(value.operator, buf)
+        _UniffiConverterString.write(value.camera_type, buf)
+        _UniffiConverterTypeLatLon.write(value.location, buf)
+        _UniffiConverterDouble.write(value.distance_m, buf)
+        _UniffiConverterDouble.write(value.bearing_deg, buf)
+        _UniffiConverterBool.write(value.aimed_at_you, buf)
+        _UniffiConverterBool.write(value.aim_assumed, buf)
+        _UniffiConverterBool.write(value.line_of_sight, buf)
+        _UniffiConverterBool.write(value.sees, buf)
 
 
 class Candidate:
@@ -4452,6 +4730,56 @@ class _UniffiConverterSequenceTypeBusinessSearchHit(_UniffiConverterRustBuffer):
 
 
 
+class _UniffiConverterSequenceTypeCameraInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterTypeCameraInfo.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterTypeCameraInfo.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterTypeCameraInfo.read(buf) for i in range(count)
+        ]
+
+
+
+class _UniffiConverterSequenceTypeCameraViewInfo(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiConverterTypeCameraViewInfo.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiConverterTypeCameraViewInfo.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiConverterTypeCameraViewInfo.read(buf) for i in range(count)
+        ]
+
+
+
 class _UniffiConverterSequenceTypeCandidate(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -4995,6 +5323,22 @@ class PtilesLayerProtocol(typing.Protocol):
         """
 
         raise NotImplementedError
+    def cameras(self, lat: "float",lon: "float",ring: "int"):
+        """
+        Every camera in the query cells. Camera-layer only.
+        """
+
+        raise NotImplementedError
+    def cameras_seeing(self, lat: "float",lon: "float",ring: "int",range_m: "float"):
+        """
+        Which cameras can see `(lat, lon)`, nearest first -- without the
+        occlusion half of the answer, since a camera file alone knows nothing
+        about what stands in the way. Every in-range camera therefore reports
+        a clear sight line here. Use [`PtilesStack::cameras_seeing`], which
+        reads the buildings layer too, when that matters. Camera-layer only.
+        """
+
+        raise NotImplementedError
     def clear_cache(self, ):
         """
         Drop the block cache, keeping the layer open.
@@ -5299,6 +5643,57 @@ class PtilesLayer():
 
         return _UniffiConverterUInt32.lift(
             _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count,self._uniffi_clone_pointer(),)
+        )
+
+
+
+
+
+    def cameras(self, lat: "float",lon: "float",ring: "int") -> "typing.List[CameraInfo]":
+        """
+        Every camera in the query cells. Camera-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        return _UniffiConverterSequenceTypeCameraInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cameras,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring))
+        )
+
+
+
+
+
+    def cameras_seeing(self, lat: "float",lon: "float",ring: "int",range_m: "float") -> "typing.List[CameraViewInfo]":
+        """
+        Which cameras can see `(lat, lon)`, nearest first -- without the
+        occlusion half of the answer, since a camera file alone knows nothing
+        about what stands in the way. Every in-range camera therefore reports
+        a clear sight line here. Use [`PtilesStack::cameras_seeing`], which
+        reads the buildings layer too, when that matters. Camera-layer only.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        _UniffiConverterDouble.check_lower(range_m)
+        
+        return _UniffiConverterSequenceTypeCameraViewInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring),
+        _UniffiConverterDouble.lower(range_m))
         )
 
 
@@ -5809,6 +6204,23 @@ class PtilesStackProtocol(typing.Protocol):
     single-file one-shot path.
     """
 
+    def cameras_seeing(self, lat: "float",lon: "float",ring: "int",range_m: "float"):
+        """
+        Which cameras can see `(lat, lon)`, nearest first -- "is anything
+        pointed at me right now".
+
+        The camera layer answers who is in range and aimed at you; the
+        buildings layer answers what stands in the way. Without a buildings
+        layer every in-range camera reports a clear sight line, which is the
+        honest reading of "nothing known to be in the way" and errs toward
+        naming a camera rather than omitting one -- the direction every
+        assumption in `core::cameras_seeing` leans. Empty when this stack
+        holds no camera layer.
+
+        `range_m <= 0` uses `ptiles_core::CAMERA_RANGE_M` (50 m).
+        """
+
+        raise NotImplementedError
     def locate(self, lat: "float",lon: "float",ring: "int"):
         """
         Reverse geocode across the stack: the way under the point (road and
@@ -5882,7 +6294,7 @@ class PtilesStack():
         inst._pointer = pointer
         return inst
     @classmethod
-    def with_layers(cls, roads: "typing.Optional[PtilesLayer]",buildings: "typing.Optional[PtilesLayer]",business: "typing.Optional[PtilesLayer]",trails: "typing.Optional[PtilesLayer]",parks: "typing.Optional[PtilesLayer]",water: "typing.Optional[PtilesLayer]",addresses: "typing.Optional[AddressLayer]"):
+    def with_layers(cls, roads: "typing.Optional[PtilesLayer]",buildings: "typing.Optional[PtilesLayer]",business: "typing.Optional[PtilesLayer]",trails: "typing.Optional[PtilesLayer]",parks: "typing.Optional[PtilesLayer]",water: "typing.Optional[PtilesLayer]",camera: "typing.Optional[PtilesLayer]",addresses: "typing.Optional[AddressLayer]"):
         """
         Every layer this stack can use. `score` reads roads/buildings/business,
         `locate` reads roads/trails/addresses/parks/water; pass whichever files
@@ -5901,6 +6313,8 @@ class PtilesStack():
         
         _UniffiConverterOptionalTypePtilesLayer.check_lower(water)
         
+        _UniffiConverterOptionalTypePtilesLayer.check_lower(camera)
+        
         _UniffiConverterOptionalTypeAddressLayer.check_lower(addresses)
         
         # Call the (fallible) function before creating any half-baked object instances.
@@ -5911,8 +6325,45 @@ class PtilesStack():
         _UniffiConverterOptionalTypePtilesLayer.lower(trails),
         _UniffiConverterOptionalTypePtilesLayer.lower(parks),
         _UniffiConverterOptionalTypePtilesLayer.lower(water),
+        _UniffiConverterOptionalTypePtilesLayer.lower(camera),
         _UniffiConverterOptionalTypeAddressLayer.lower(addresses))
         return cls._make_instance_(pointer)
+
+
+
+    def cameras_seeing(self, lat: "float",lon: "float",ring: "int",range_m: "float") -> "typing.List[CameraViewInfo]":
+        """
+        Which cameras can see `(lat, lon)`, nearest first -- "is anything
+        pointed at me right now".
+
+        The camera layer answers who is in range and aimed at you; the
+        buildings layer answers what stands in the way. Without a buildings
+        layer every in-range camera reports a clear sight line, which is the
+        honest reading of "nothing known to be in the way" and errs toward
+        naming a camera rather than omitting one -- the direction every
+        assumption in `core::cameras_seeing` leans. Empty when this stack
+        holds no camera layer.
+
+        `range_m <= 0` uses `ptiles_core::CAMERA_RANGE_M` (50 m).
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterUInt8.check_lower(ring)
+        
+        _UniffiConverterDouble.check_lower(range_m)
+        
+        return _UniffiConverterSequenceTypeCameraViewInfo.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterUInt8.lower(ring),
+        _UniffiConverterDouble.lower(range_m))
+        )
+
+
 
 
 
@@ -6320,6 +6771,8 @@ __all__ = [
     "BuildingInfo",
     "BusinessInfo",
     "BusinessSearchHit",
+    "CameraInfo",
+    "CameraViewInfo",
     "Candidate",
     "DebounceConfig",
     "Fix",

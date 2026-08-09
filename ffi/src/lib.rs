@@ -224,6 +224,53 @@ pub struct RoadInfo {
     pub geometry: Vec<LatLon>,
 }
 
+/// One decoded surveillance camera. `direction` is degrees clockwise from
+/// north when tagged; `angle` is the field of view in degrees when tagged.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CameraInfo {
+    pub osm_id: i64,
+    pub location: LatLon,
+    /// `camera`, `ALPR`, `guard`, or `unknown`.
+    pub device_type: String,
+    /// `public`, `outdoor`, `indoor`, or `unknown`.
+    pub placement: String,
+    /// `fixed`, `panning`, `dome`, or `unknown`. The last two rotate.
+    pub camera_type: String,
+    pub direction: Option<u16>,
+    pub angle: Option<u8>,
+    pub operator: Option<String>,
+    pub name: Option<String>,
+    pub ref_tag: Option<String>,
+}
+
+/// What one camera can see of a point -- `ptiles_core::CameraView`, plus
+/// enough of the camera itself that a caller need not join back to the
+/// listing.
+///
+/// `sees` is the answer; the other flags are why. Every assumption behind
+/// them leans toward reporting a camera rather than omitting one, so a `true`
+/// may be inference (check `aim_assumed`) while a `false` is comparatively
+/// solid.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CameraViewInfo {
+    pub osm_id: i64,
+    pub name: Option<String>,
+    pub operator: Option<String>,
+    pub camera_type: String,
+    pub location: LatLon,
+    pub distance_m: f64,
+    /// Bearing from the camera to you, degrees clockwise from north.
+    pub bearing_deg: f64,
+    /// False only when the camera is tagged with a direction and you fall
+    /// outside the resulting cone.
+    pub aimed_at_you: bool,
+    /// True when `aimed_at_you` rests on an assumption rather than on tags.
+    pub aim_assumed: bool,
+    /// False when a building stands between you and it.
+    pub line_of_sight: bool,
+    pub sees: bool,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ParkInfo {
     pub osm_id: i64,
@@ -474,6 +521,52 @@ fn to_candidate(c: &CoreCandidate) -> Candidate {
     }
 }
 
+fn camera_info(c: &ptiles_core::Camera) -> CameraInfo {
+    CameraInfo {
+        osm_id: c.osm_id,
+        location: LatLon { lat: c.lat, lon: c.lon },
+        device_type: c.device_type.clone(),
+        placement: c.placement.clone(),
+        camera_type: c.camera_type.clone(),
+        direction: c.direction,
+        angle: c.angle,
+        operator: c.operator.clone(),
+        name: c.name.clone(),
+        ref_tag: c.ref_tag.clone(),
+    }
+}
+
+/// `core::cameras_seeing`, with each answer carrying its camera's own
+/// details. Shared by the layer and stack entry points so the two cannot
+/// drift on what "sees" means.
+fn camera_views(
+    lat: f64,
+    lon: f64,
+    cameras: &[ptiles_core::Camera],
+    buildings: &[ptiles_core::ViewBuilding],
+    range_m: f64,
+) -> Vec<CameraViewInfo> {
+    ptiles_core::cameras_seeing(lat, lon, cameras, buildings, range_m)
+        .into_iter()
+        .map(|v| {
+            let cam = &cameras[v.index];
+            CameraViewInfo {
+                osm_id: v.osm_id,
+                name: cam.name.clone(),
+                operator: cam.operator.clone(),
+                camera_type: cam.camera_type.clone(),
+                location: LatLon { lat: cam.lat, lon: cam.lon },
+                distance_m: v.distance_m,
+                bearing_deg: v.bearing_deg,
+                aimed_at_you: v.aimed_at_you,
+                aim_assumed: v.aim_assumed,
+                line_of_sight: v.line_of_sight,
+                sees: v.sees,
+            }
+        })
+        .collect()
+}
+
 fn geometry_of(coords: &[[f64; 2]]) -> Vec<LatLon> {
     // Decoders store `[lon, lat]` pairs (see roads.rs/buildings.rs doc
     // comments) -- flip to the lat/lon field order this FFI surface uses
@@ -505,6 +598,7 @@ enum LayerKind {
     Parks,
     Water,
     Rail,
+    Camera,
 }
 
 impl LayerKind {
@@ -537,6 +631,7 @@ impl LayerKind {
             "parks" => Some(LayerKind::Parks),
             "water" => Some(LayerKind::Water),
             "rail" => Some(LayerKind::Rail),
+            "camera" => Some(LayerKind::Camera),
             _ => None,
         }
     }
@@ -551,6 +646,7 @@ impl LayerKind {
             LayerKind::Parks => "parks",
             LayerKind::Water => "water",
             LayerKind::Rail => "rail",
+            LayerKind::Camera => "camera",
         }
     }
 }
@@ -885,6 +981,15 @@ impl PtilesLayer {
         ring: u8,
     ) -> Result<Vec<ptiles_core::WaterFeature>, PtilesError> {
         self.decoded_layer(lat, lon, ring, ptiles_core::decode_water)
+    }
+
+    fn decoded_cameras(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Vec<ptiles_core::Camera>, PtilesError> {
+        self.decoded_layer(lat, lon, ring, ptiles_core::decode_cameras)
     }
 
     fn decoded_rail(
@@ -1542,6 +1647,35 @@ impl PtilesLayer {
         Ok(ptiles_core::nearest_station(lat, lon, &rail).map(PointInfo::from))
     }
 
+    /// Every camera in the query cells. Camera-layer only.
+    pub fn cameras(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<CameraInfo>, PtilesError> {
+        self.require(LayerKind::Camera)?;
+        validate_ring(ring)?;
+        Ok(self
+            .decoded_cameras(lat, lon, ring)?
+            .iter()
+            .map(camera_info)
+            .collect())
+    }
+
+    /// Which cameras can see `(lat, lon)`, nearest first -- without the
+    /// occlusion half of the answer, since a camera file alone knows nothing
+    /// about what stands in the way. Every in-range camera therefore reports
+    /// a clear sight line here. Use [`PtilesStack::cameras_seeing`], which
+    /// reads the buildings layer too, when that matters. Camera-layer only.
+    pub fn cameras_seeing(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+        range_m: f64,
+    ) -> Result<Vec<CameraViewInfo>, PtilesError> {
+        self.require(LayerKind::Camera)?;
+        validate_ring(ring)?;
+        let cameras = self.decoded_cameras(lat, lon, ring)?;
+        Ok(camera_views(lat, lon, &cameras, &[], range_m))
+    }
+
     /// Business name search over a `{STATE}.business_name_index.ptiles`
     /// sidecar (open a `PtilesLayer` on that file, not the main
     /// `business.ptiles` file). Index-accelerated: correct for
@@ -1720,6 +1854,7 @@ pub struct PtilesStack {
     trails: Option<Arc<PtilesLayer>>,
     parks: Option<Arc<PtilesLayer>>,
     water: Option<Arc<PtilesLayer>>,
+    camera: Option<Arc<PtilesLayer>>,
     addresses: Option<Arc<AddressLayer>>,
 }
 
@@ -1741,6 +1876,7 @@ impl PtilesStack {
             trails: None,
             parks: None,
             water: None,
+            camera: None,
             addresses: None,
         })
     }
@@ -1756,6 +1892,7 @@ impl PtilesStack {
         trails: Option<Arc<PtilesLayer>>,
         parks: Option<Arc<PtilesLayer>>,
         water: Option<Arc<PtilesLayer>>,
+        camera: Option<Arc<PtilesLayer>>,
         addresses: Option<Arc<AddressLayer>>,
     ) -> Arc<Self> {
         Arc::new(PtilesStack {
@@ -1765,8 +1902,49 @@ impl PtilesStack {
             trails,
             parks,
             water,
+            camera,
             addresses,
         })
+    }
+
+    /// Which cameras can see `(lat, lon)`, nearest first -- "is anything
+    /// pointed at me right now".
+    ///
+    /// The camera layer answers who is in range and aimed at you; the
+    /// buildings layer answers what stands in the way. Without a buildings
+    /// layer every in-range camera reports a clear sight line, which is the
+    /// honest reading of "nothing known to be in the way" and errs toward
+    /// naming a camera rather than omitting one -- the direction every
+    /// assumption in `core::cameras_seeing` leans. Empty when this stack
+    /// holds no camera layer.
+    ///
+    /// `range_m <= 0` uses `ptiles_core::CAMERA_RANGE_M` (50 m).
+    pub fn cameras_seeing(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+        range_m: f64,
+    ) -> Result<Vec<CameraViewInfo>, PtilesError> {
+        validate_ring(ring)?;
+        let Some(layer) = &self.camera else {
+            return Ok(Vec::new());
+        };
+        let cameras = layer.decoded_cameras(lat, lon, ring)?;
+        let buildings: Vec<ptiles_core::ViewBuilding> = match &self.buildings {
+            Some(b) => b
+                .decoded_buildings(lat, lon, ring)?
+                .into_iter()
+                .map(|b| ptiles_core::ViewBuilding {
+                    coords: b.coords,
+                    height_m: b.height_m,
+                    building_type: b.building_type,
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        let range = if range_m > 0.0 { range_m } else { ptiles_core::CAMERA_RANGE_M };
+        Ok(camera_views(lat, lon, &cameras, &buildings, range))
     }
 
     /// Reverse geocode across the stack: the way under the point (road and

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use ptiles_core::cell_for_coord;
-use ptiles_core::fixtures::{park_record, ptiles_v1, ptiles_v2_merged, trail_record};
+use ptiles_core::fixtures::{camera_record, park_record, ptiles_v1, ptiles_v2_merged, trail_record};
 
 const LAT: f64 = 36.16;
 const LON: f64 = -86.78;
@@ -158,4 +158,62 @@ fn a_merged_block_is_sliced_to_the_queried_cell() {
     assert_eq!(park["name"], "Here Park");
     assert!(park["inside"].as_bool().unwrap());
     assert_eq!(park["distance_m"].as_f64().unwrap(), 0.0);
+}
+
+/// A camera file with two cameras ~22 m south of the query point: one facing
+/// north (at you) and one facing south (away), both tagged with a 60-degree
+/// field of view.
+fn cameras_fixture(owner: &str) -> PathBuf {
+    let cell = cell_for_coord(LAT, LON);
+    let mut records = camera_record(2, LAT - 0.0002, LON, 0, Some(0), Some(60), Some("At You"));
+    records.extend(camera_record(
+        2,
+        LAT - 0.0002,
+        LON + 0.00001,
+        0,
+        Some(180),
+        Some(60),
+        Some("Facing Away"),
+    ));
+    write_fixture(owner, "XX.camera.ptiles", ptiles_v1(b"PTILESC", &[(cell, records)]))
+}
+
+#[test]
+fn the_camera_query_answers_who_can_see_you_and_why() {
+    let path = cameras_fixture("camera_query");
+    let got = query(&path, "camera");
+    assert_eq!(got["candidate_count"], 2);
+    assert_eq!(
+        got["occlusion_checked"], false,
+        "a camera file alone knows nothing about what stands in the way"
+    );
+
+    let seen: Vec<&serde_json::Value> = got["seen_by"].as_array().expect("seen_by array").iter().collect();
+    assert_eq!(seen.len(), 2, "both are in range, whatever they are pointed at");
+
+    let at_you = seen.iter().find(|v| v["name"] == "At You").expect("the one facing north");
+    assert_eq!(at_you["sees"], true);
+    assert_eq!(at_you["aimed_at_you"], true);
+    assert_eq!(at_you["aim_assumed"], false, "direction and angle were both tagged");
+    assert!(at_you["bearing_deg"].as_f64().unwrap().abs() < 1.0, "due north");
+
+    let away = seen.iter().find(|v| v["name"] == "Facing Away").expect("the one facing south");
+    assert_eq!(away["sees"], false);
+    assert_eq!(away["aimed_at_you"], false);
+    // Still reported, with the reason -- the caller decides what to show.
+    assert_eq!(away["line_of_sight"], true);
+}
+
+#[test]
+fn the_cameras_listing_returns_the_tags_as_stored() {
+    let path = cameras_fixture("cameras_listing");
+    let got = query(&path, "cameras");
+    let cameras = got["cameras"].as_array().expect("cameras array");
+    assert_eq!(cameras.len(), 2);
+    assert_eq!(cameras[0]["device_type"], "camera");
+    assert_eq!(cameras[0]["placement"], "public");
+    assert_eq!(cameras[0]["camera_type"], "fixed");
+    assert_eq!(cameras[0]["direction"], 0);
+    assert_eq!(cameras[0]["angle"], 60);
+    assert_eq!(cameras[0]["name"], "At You");
 }

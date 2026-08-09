@@ -204,3 +204,83 @@ test("the lookups accept what the decoders actually return", () => {
   if (track) assert.equal(track.kind, "rail");
   if (station) assert.equal(station.kind, "station");
 });
+
+// "Can a camera see me": a camera ~22 m south of the subject, facing north.
+const cameraAt = (lat, lon, camera_type, direction, angle, name) => ({
+  osm_id: 1,
+  lat,
+  lon,
+  device_type: "camera",
+  placement: "public",
+  camera_type,
+  direction,
+  angle,
+  operator: null,
+  name,
+  ref_tag: null,
+});
+
+const SUBJECT_LAT = 36.0002;
+const CAM_LAT = 36.0;
+
+test("a camera aimed at you sees you, one aimed away does not", () => {
+  const cameras = [
+    cameraAt(CAM_LAT, LON, "fixed", 0, 60, "At You"),
+    cameraAt(CAM_LAT, LON, "fixed", 180, 60, "Facing Away"),
+  ];
+  const seen = wasm.cameras_seeing(SUBJECT_LAT, LON, cameras, null, null);
+  assert.equal(seen.length, 2, "both are in range, whatever they point at");
+
+  const [atYou, away] = [seen[0], seen[1]];
+  assert.equal(atYou.sees, true);
+  assert.equal(atYou.aimed_at_you, true);
+  assert.equal(atYou.aim_assumed, false, "direction and angle were both tagged");
+  assert.ok(Math.abs(atYou.bearing_deg) < 1, `due north, got ${atYou.bearing_deg}`);
+
+  assert.equal(away.sees, false);
+  assert.equal(away.aimed_at_you, false);
+  assert.equal(away.line_of_sight, true, "still reported, with the reason");
+});
+
+test("an untagged aim and a dome both assume they can point at you", () => {
+  const untagged = wasm.cameras_seeing(SUBJECT_LAT, LON, [cameraAt(CAM_LAT, LON, "fixed", null, null, "Untagged")], null, null);
+  assert.equal(untagged[0].sees, true);
+  assert.equal(untagged[0].aim_assumed, true);
+
+  // Pointed away on paper, but a dome sweeps.
+  const dome = wasm.cameras_seeing(SUBJECT_LAT, LON, [cameraAt(CAM_LAT, LON, "dome", 180, 60, "Dome")], null, null);
+  assert.equal(dome[0].sees, true);
+  assert.equal(dome[0].aim_assumed, true);
+});
+
+test("range excludes, and a building blocks", () => {
+  const cameras = [cameraAt(CAM_LAT, LON, "fixed", null, null, "Near")];
+  assert.deepEqual(wasm.cameras_seeing(SUBJECT_LAT, LON, cameras, null, 5), []);
+
+  // A tall block straddling the sight line halfway between.
+  const wall = {
+    coords: square(36.0001, LON, 0.00003),
+    height_m: 20,
+    building_type: "office",
+  };
+  const blocked = wasm.cameras_seeing(SUBJECT_LAT, LON, cameras, [wall], null);
+  assert.equal(blocked[0].line_of_sight, false);
+  // Indices cross as BigInt: they are usize in Rust.
+  assert.equal(blocked[0].blocked_by, 0n);
+  assert.equal(blocked[0].sees, false);
+
+  // A 1 m canopy is below the line, which runs 4 m down to 1.7 m.
+  const canopy = { coords: square(36.0001, LON, 0.00003), height_m: 1, building_type: "canopy" };
+  const clear = wasm.cameras_seeing(SUBJECT_LAT, LON, cameras, [canopy], null);
+  assert.equal(clear[0].line_of_sight, true);
+  assert.equal(clear[0].sees, true);
+});
+
+test("bearing_to is clockwise from north and matches the camera answer", () => {
+  assert.ok(Math.abs(wasm.bearing_to(36.0, LON, 36.001, LON)) < 0.5);
+  assert.ok(Math.abs(wasm.bearing_to(36.0, LON, 36.0, LON + 0.001) - 90) < 0.5);
+  assert.ok(Math.abs(wasm.bearing_to(36.0, LON, 35.999, LON) - 180) < 0.5);
+
+  const seen = wasm.cameras_seeing(SUBJECT_LAT, LON, [cameraAt(CAM_LAT, LON, "fixed", null, null, "N")], null, null);
+  assert.ok(Math.abs(seen[0].bearing_deg - wasm.bearing_to(CAM_LAT, LON, SUBJECT_LAT, LON)) < 1e-9);
+});

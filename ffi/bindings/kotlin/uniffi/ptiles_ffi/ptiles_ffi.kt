@@ -816,6 +816,12 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -861,6 +867,10 @@ fun uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count(
 ): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing(
+): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_covers(
@@ -900,6 +910,8 @@ fun uniffi_ptiles_ffi_checksum_method_ptileslayer_trails(
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_water(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptilesstack_locate(
 ): Short
@@ -1006,6 +1018,10 @@ fun uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near(`ptr`: Pointer,`lat`
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_cameras(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`rangeM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_covers(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
@@ -1052,8 +1068,10 @@ fun uniffi_ptiles_ffi_fn_free_ptilesstack(`ptr`: Pointer,uniffi_out_err: UniffiR
 ): Unit
 fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_new(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,`trails`: RustBuffer.ByValue,`parks`: RustBuffer.ByValue,`water`: RustBuffer.ByValue,`addresses`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,`trails`: RustBuffer.ByValue,`parks`: RustBuffer.ByValue,`water`: RustBuffer.ByValue,`camera`: RustBuffer.ByValue,`addresses`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
+fun uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`rangeM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_locate(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_score(`ptr`: Pointer,`fix`: RustBuffer.ByValue,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -1259,6 +1277,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count() != 57569.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras() != 41716.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing() != 15491.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache() != 14397.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1319,6 +1343,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at() != 24453.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing() != 19587.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1349,7 +1376,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 38860.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 1730.toShort()) {
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 22188.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new() != 6510.toShort()) {
@@ -2438,6 +2465,20 @@ public interface PtilesLayerInterface {
     fun `cachedBlockCount`(): kotlin.UInt
     
     /**
+     * Every camera in the query cells. Camera-layer only.
+     */
+    fun `cameras`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<CameraInfo>
+    
+    /**
+     * Which cameras can see `(lat, lon)`, nearest first -- without the
+     * occlusion half of the answer, since a camera file alone knows nothing
+     * about what stands in the way. Every in-range camera therefore reports
+     * a clear sight line here. Use [`PtilesStack::cameras_seeing`], which
+     * reads the buildings layer too, when that matters. Camera-layer only.
+     */
+    fun `camerasSeeing`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `rangeM`: kotlin.Double): List<CameraViewInfo>
+    
+    /**
      * Drop the block cache, keeping the layer open.
      */
     fun `clearCache`()
@@ -2754,6 +2795,42 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(
         it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Every camera in the query cells. Camera-layer only.
+     */
+    @Throws(PtilesException::class)override fun `cameras`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<CameraInfo> {
+            return FfiConverterSequenceTypeCameraInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_cameras(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Which cameras can see `(lat, lon)`, nearest first -- without the
+     * occlusion half of the answer, since a camera file alone knows nothing
+     * about what stands in the way. Every in-range camera therefore reports
+     * a clear sight line here. Use [`PtilesStack::cameras_seeing`], which
+     * reads the buildings layer too, when that matters. Camera-layer only.
+     */
+    @Throws(PtilesException::class)override fun `camerasSeeing`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `rangeM`: kotlin.Double): List<CameraViewInfo> {
+            return FfiConverterSequenceTypeCameraViewInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),FfiConverterDouble.lower(`rangeM`),_status)
 }
     }
     )
@@ -3296,6 +3373,22 @@ public object FfiConverterTypePtilesLayer: FfiConverter<PtilesLayer, Pointer> {
 public interface PtilesStackInterface {
     
     /**
+     * Which cameras can see `(lat, lon)`, nearest first -- "is anything
+     * pointed at me right now".
+     *
+     * The camera layer answers who is in range and aimed at you; the
+     * buildings layer answers what stands in the way. Without a buildings
+     * layer every in-range camera reports a clear sight line, which is the
+     * honest reading of "nothing known to be in the way" and errs toward
+     * naming a camera rather than omitting one -- the direction every
+     * assumption in `core::cameras_seeing` leans. Empty when this stack
+     * holds no camera layer.
+     *
+     * `range_m <= 0` uses `ptiles_core::CAMERA_RANGE_M` (50 m).
+     */
+    fun `camerasSeeing`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `rangeM`: kotlin.Double): List<CameraViewInfo>
+    
+    /**
      * Reverse geocode across the stack: the way under the point (road and
      * trail compete on distance alone — see `core::locate`), the nearest
      * address, and the park/water the point falls in.
@@ -3425,6 +3518,33 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
 
     
     /**
+     * Which cameras can see `(lat, lon)`, nearest first -- "is anything
+     * pointed at me right now".
+     *
+     * The camera layer answers who is in range and aimed at you; the
+     * buildings layer answers what stands in the way. Without a buildings
+     * layer every in-range camera reports a clear sight line, which is the
+     * honest reading of "nothing known to be in the way" and errs toward
+     * naming a camera rather than omitting one -- the direction every
+     * assumption in `core::cameras_seeing` leans. Empty when this stack
+     * holds no camera layer.
+     *
+     * `range_m <= 0` uses `ptiles_core::CAMERA_RANGE_M` (50 m).
+     */
+    @Throws(PtilesException::class)override fun `camerasSeeing`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `rangeM`: kotlin.Double): List<CameraViewInfo> {
+            return FfiConverterSequenceTypeCameraViewInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),FfiConverterDouble.lower(`rangeM`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Reverse geocode across the stack: the way under the point (road and
      * trail compete on distance alone — see `core::locate`), the nearest
      * address, and the park/water the point falls in.
@@ -3476,11 +3596,11 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
      * Every layer this stack can use. `score` reads roads/buildings/business,
      * `locate` reads roads/trails/addresses/parks/water; pass whichever files
      * the region actually has and the rest stay silent.
-     */ fun `withLayers`(`roads`: PtilesLayer?, `buildings`: PtilesLayer?, `business`: PtilesLayer?, `trails`: PtilesLayer?, `parks`: PtilesLayer?, `water`: PtilesLayer?, `addresses`: AddressLayer?): PtilesStack {
+     */ fun `withLayers`(`roads`: PtilesLayer?, `buildings`: PtilesLayer?, `business`: PtilesLayer?, `trails`: PtilesLayer?, `parks`: PtilesLayer?, `water`: PtilesLayer?, `camera`: PtilesLayer?, `addresses`: AddressLayer?): PtilesStack {
             return FfiConverterTypePtilesStack.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(
-        FfiConverterOptionalTypePtilesLayer.lower(`roads`),FfiConverterOptionalTypePtilesLayer.lower(`buildings`),FfiConverterOptionalTypePtilesLayer.lower(`business`),FfiConverterOptionalTypePtilesLayer.lower(`trails`),FfiConverterOptionalTypePtilesLayer.lower(`parks`),FfiConverterOptionalTypePtilesLayer.lower(`water`),FfiConverterOptionalTypeAddressLayer.lower(`addresses`),_status)
+        FfiConverterOptionalTypePtilesLayer.lower(`roads`),FfiConverterOptionalTypePtilesLayer.lower(`buildings`),FfiConverterOptionalTypePtilesLayer.lower(`business`),FfiConverterOptionalTypePtilesLayer.lower(`trails`),FfiConverterOptionalTypePtilesLayer.lower(`parks`),FfiConverterOptionalTypePtilesLayer.lower(`water`),FfiConverterOptionalTypePtilesLayer.lower(`camera`),FfiConverterOptionalTypeAddressLayer.lower(`addresses`),_status)
 }
     )
     }
@@ -4233,6 +4353,174 @@ public object FfiConverterTypeBusinessSearchHit: FfiConverterRustBuffer<Business
             FfiConverterUByte.write(value.`categoryIdx`, buf)
             FfiConverterTypeLatLon.write(value.`location`, buf)
             FfiConverterUByte.write(value.`score`, buf)
+    }
+}
+
+
+
+/**
+ * One decoded surveillance camera. `direction` is degrees clockwise from
+ * north when tagged; `angle` is the field of view in degrees when tagged.
+ */
+data class CameraInfo (
+    var `osmId`: kotlin.Long, 
+    var `location`: LatLon, 
+    /**
+     * `camera`, `ALPR`, `guard`, or `unknown`.
+     */
+    var `deviceType`: kotlin.String, 
+    /**
+     * `public`, `outdoor`, `indoor`, or `unknown`.
+     */
+    var `placement`: kotlin.String, 
+    /**
+     * `fixed`, `panning`, `dome`, or `unknown`. The last two rotate.
+     */
+    var `cameraType`: kotlin.String, 
+    var `direction`: kotlin.UShort?, 
+    var `angle`: kotlin.UByte?, 
+    var `operator`: kotlin.String?, 
+    var `name`: kotlin.String?, 
+    var `refTag`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCameraInfo: FfiConverterRustBuffer<CameraInfo> {
+    override fun read(buf: ByteBuffer): CameraInfo {
+        return CameraInfo(
+            FfiConverterLong.read(buf),
+            FfiConverterTypeLatLon.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalUShort.read(buf),
+            FfiConverterOptionalUByte.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CameraInfo) = (
+            FfiConverterLong.allocationSize(value.`osmId`) +
+            FfiConverterTypeLatLon.allocationSize(value.`location`) +
+            FfiConverterString.allocationSize(value.`deviceType`) +
+            FfiConverterString.allocationSize(value.`placement`) +
+            FfiConverterString.allocationSize(value.`cameraType`) +
+            FfiConverterOptionalUShort.allocationSize(value.`direction`) +
+            FfiConverterOptionalUByte.allocationSize(value.`angle`) +
+            FfiConverterOptionalString.allocationSize(value.`operator`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterOptionalString.allocationSize(value.`refTag`)
+    )
+
+    override fun write(value: CameraInfo, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`osmId`, buf)
+            FfiConverterTypeLatLon.write(value.`location`, buf)
+            FfiConverterString.write(value.`deviceType`, buf)
+            FfiConverterString.write(value.`placement`, buf)
+            FfiConverterString.write(value.`cameraType`, buf)
+            FfiConverterOptionalUShort.write(value.`direction`, buf)
+            FfiConverterOptionalUByte.write(value.`angle`, buf)
+            FfiConverterOptionalString.write(value.`operator`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterOptionalString.write(value.`refTag`, buf)
+    }
+}
+
+
+
+/**
+ * What one camera can see of a point -- `ptiles_core::CameraView`, plus
+ * enough of the camera itself that a caller need not join back to the
+ * listing.
+ *
+ * `sees` is the answer; the other flags are why. Every assumption behind
+ * them leans toward reporting a camera rather than omitting one, so a `true`
+ * may be inference (check `aim_assumed`) while a `false` is comparatively
+ * solid.
+ */
+data class CameraViewInfo (
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `operator`: kotlin.String?, 
+    var `cameraType`: kotlin.String, 
+    var `location`: LatLon, 
+    var `distanceM`: kotlin.Double, 
+    /**
+     * Bearing from the camera to you, degrees clockwise from north.
+     */
+    var `bearingDeg`: kotlin.Double, 
+    /**
+     * False only when the camera is tagged with a direction and you fall
+     * outside the resulting cone.
+     */
+    var `aimedAtYou`: kotlin.Boolean, 
+    /**
+     * True when `aimed_at_you` rests on an assumption rather than on tags.
+     */
+    var `aimAssumed`: kotlin.Boolean, 
+    /**
+     * False when a building stands between you and it.
+     */
+    var `lineOfSight`: kotlin.Boolean, 
+    var `sees`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCameraViewInfo: FfiConverterRustBuffer<CameraViewInfo> {
+    override fun read(buf: ByteBuffer): CameraViewInfo {
+        return CameraViewInfo(
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeLatLon.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CameraViewInfo) = (
+            FfiConverterLong.allocationSize(value.`osmId`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterOptionalString.allocationSize(value.`operator`) +
+            FfiConverterString.allocationSize(value.`cameraType`) +
+            FfiConverterTypeLatLon.allocationSize(value.`location`) +
+            FfiConverterDouble.allocationSize(value.`distanceM`) +
+            FfiConverterDouble.allocationSize(value.`bearingDeg`) +
+            FfiConverterBoolean.allocationSize(value.`aimedAtYou`) +
+            FfiConverterBoolean.allocationSize(value.`aimAssumed`) +
+            FfiConverterBoolean.allocationSize(value.`lineOfSight`) +
+            FfiConverterBoolean.allocationSize(value.`sees`)
+    )
+
+    override fun write(value: CameraViewInfo, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`osmId`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterOptionalString.write(value.`operator`, buf)
+            FfiConverterString.write(value.`cameraType`, buf)
+            FfiConverterTypeLatLon.write(value.`location`, buf)
+            FfiConverterDouble.write(value.`distanceM`, buf)
+            FfiConverterDouble.write(value.`bearingDeg`, buf)
+            FfiConverterBoolean.write(value.`aimedAtYou`, buf)
+            FfiConverterBoolean.write(value.`aimAssumed`, buf)
+            FfiConverterBoolean.write(value.`lineOfSight`, buf)
+            FfiConverterBoolean.write(value.`sees`, buf)
     }
 }
 
@@ -6284,6 +6572,62 @@ public object FfiConverterSequenceTypeBusinessSearchHit: FfiConverterRustBuffer<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeBusinessSearchHit.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCameraInfo: FfiConverterRustBuffer<List<CameraInfo>> {
+    override fun read(buf: ByteBuffer): List<CameraInfo> {
+        val len = buf.getInt()
+        return List<CameraInfo>(len) {
+            FfiConverterTypeCameraInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CameraInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCameraInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CameraInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCameraInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCameraViewInfo: FfiConverterRustBuffer<List<CameraViewInfo>> {
+    override fun read(buf: ByteBuffer): List<CameraViewInfo> {
+        val len = buf.getInt()
+        return List<CameraViewInfo>(len) {
+            FfiConverterTypeCameraViewInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CameraViewInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCameraViewInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CameraViewInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCameraViewInfo.write(it, buf)
         }
     }
 }

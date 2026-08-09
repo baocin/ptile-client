@@ -271,6 +271,44 @@ pub fn park_record(osm_delta: i64, park_type: &str, coords: &[(f64, f64)], name:
     out
 }
 
+/// One camera record: zigzag-delta osm_id, lon/lat as i32 microdegrees, the
+/// three indexed type bytes, then flags and their optional fields. Indices
+/// follow `camera.rs`'s own tables (device 0 = camera, placement 0 = public,
+/// camera_type 0 = fixed, 2 = dome).
+pub fn camera_record(
+    osm_delta: i64,
+    lat: f64,
+    lon: f64,
+    camera_type: u8,
+    direction: Option<u16>,
+    angle: Option<u8>,
+    name: Option<&str>,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_zigzag(&mut out, osm_delta);
+    out.extend_from_slice(&micro(lon).to_le_bytes());
+    out.extend_from_slice(&micro(lat).to_le_bytes());
+    out.push(0); // device_type: camera
+    out.push(0); // placement: public
+    out.push(camera_type);
+
+    let flags = u8::from(direction.is_some())
+        | (u8::from(name.is_some()) << 2)
+        | (u8::from(angle.is_some()) << 4);
+    out.push(flags);
+    if let Some(d) = direction {
+        out.extend_from_slice(&d.to_le_bytes());
+    }
+    if let Some(n) = name {
+        out.extend_from_slice(&(n.len() as u16).to_le_bytes());
+        out.extend_from_slice(n.as_bytes());
+    }
+    if let Some(a) = angle {
+        out.push(a);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
