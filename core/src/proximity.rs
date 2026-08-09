@@ -186,6 +186,32 @@ pub fn point_in_polygon(lat: f64, lon: f64, coords: &[[f64; 2]]) -> bool {
     inside
 }
 
+/// Where segment `a`→`b` crosses segment `c`→`d`, as a fraction of the way
+/// along `a`→`b`, or `None` when they do not cross. All points are
+/// `[lon, lat]`.
+///
+/// Degrees, not metres, deliberately: whether two segments cross and where
+/// along the first they do are both preserved by the affine
+/// degrees-to-local-metres map, so projecting first would cost trigonometry
+/// and change no answer. Convert the returned fraction to a distance with the
+/// segment's own length when you need metres.
+///
+/// Touching endpoints count as a crossing; parallel segments never do, even
+/// when collinear and overlapping, since there is no single crossing point to
+/// name.
+pub fn segment_crossing(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> Option<f64> {
+    let r = [b[0] - a[0], b[1] - a[1]];
+    let s = [d[0] - c[0], d[1] - c[1]];
+    let denom = r[0] * s[1] - r[1] * s[0];
+    if denom == 0.0 || !denom.is_finite() {
+        return None;
+    }
+    let ac = [c[0] - a[0], c[1] - a[1]];
+    let t = (ac[0] * s[1] - ac[1] * s[0]) / denom;
+    let u = (ac[0] * r[1] - ac[1] * r[0]) / denom;
+    ((0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u)).then_some(t)
+}
+
 /// Distance from a point to a ring's boundary, in metres. A ring is a closed
 /// linestring, so the boundary distance is the linestring distance with the
 /// closing edge included — without it, a point just outside the gap between

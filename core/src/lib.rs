@@ -62,7 +62,10 @@ pub use business_search::{
     BusinessHit, match_business_name_block, name_to_key, search_business_brute_force,
     search_business_indexed,
 };
-pub use camera::{Camera, cameras_near_road, decode_cameras};
+pub use camera::{
+    CAMERA_MOUNT_M, CAMERA_RANGE_M, Camera, CameraView, DEFAULT_FOV_DEG, SUBJECT_M, bearing_to,
+    cameras_near_road, cameras_seeing, decode_cameras,
+};
 pub use merged::{cell_ids as merged_cell_ids, cell_slice as merged_cell_slice};
 pub use parks::{ParkFeature, decode_parks};
 pub use rail::{RailFeature, decode_rail};
@@ -81,7 +84,7 @@ pub use water::{WaterFeature, decode_water};
 pub use proximity::{
     DEFAULT_THRESHOLD_M, NearestIntersection, NearestRoad, SegmentProjection, haversine_distance_m,
     nearest_intersection, nearest_road, point_in_polygon, point_to_linestring_distance_m,
-    point_to_ring_distance_m, point_to_segment_distance_m,
+    point_to_ring_distance_m, point_to_segment_distance_m, segment_crossing,
 };
 pub use query::{
     BoundsError, MAX_BOUNDS_CELLS, cell_center, cell_for_coord, cells_for_bounds, neighbor_cells,

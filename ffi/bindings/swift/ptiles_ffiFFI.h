@@ -331,6 +331,16 @@ RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near(void*_Nonnull
 uint32_t uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_CAMERAS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_CAMERAS
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_cameras(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_CAMERAS_SEEING
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_CAMERAS_SEEING
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing(void*_Nonnull ptr, double lat, double lon, uint8_t ring, double range_m, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_CLEAR_CACHE
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_CLEAR_CACHE
 void uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
@@ -448,7 +458,12 @@ void*_Nonnull uniffi_ptiles_ffi_fn_constructor_ptilesstack_new(RustBuffer roads,
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_PTILESSTACK_WITH_LAYERS
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_PTILESSTACK_WITH_LAYERS
-void*_Nonnull uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(RustBuffer roads, RustBuffer buildings, RustBuffer business, RustBuffer trails, RustBuffer parks, RustBuffer water, RustBuffer addresses, RustCallStatus *_Nonnull out_status
+void*_Nonnull uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(RustBuffer roads, RustBuffer buildings, RustBuffer business, RustBuffer trails, RustBuffer parks, RustBuffer water, RustBuffer camera, RustBuffer addresses, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_CAMERAS_SEEING
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_CAMERAS_SEEING
+RustBuffer uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing(void*_Nonnull ptr, double lat, double lon, uint8_t ring, double range_m, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_LOCATE
@@ -924,6 +939,18 @@ uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_CAMERAS
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_CAMERAS
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_CAMERAS_SEEING
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_CAMERAS_SEEING
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_CLEAR_CACHE
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_CLEAR_CACHE
 uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache(void
@@ -1041,6 +1068,12 @@ uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_water(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_WATER_AT
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_WATER_AT
 uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_CAMERAS_SEEING
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_CAMERAS_SEEING
+uint16_t uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing(void
     
 );
 #endif

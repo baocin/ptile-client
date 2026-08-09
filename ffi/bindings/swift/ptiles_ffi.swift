@@ -944,6 +944,20 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
     func cachedBlockCount()  -> UInt32
     
     /**
+     * Every camera in the query cells. Camera-layer only.
+     */
+    func cameras(lat: Double, lon: Double, ring: UInt8) throws  -> [CameraInfo]
+    
+    /**
+     * Which cameras can see `(lat, lon)`, nearest first -- without the
+     * occlusion half of the answer, since a camera file alone knows nothing
+     * about what stands in the way. Every in-range camera therefore reports
+     * a clear sight line here. Use [`PtilesStack::cameras_seeing`], which
+     * reads the buildings layer too, when that matters. Camera-layer only.
+     */
+    func camerasSeeing(lat: Double, lon: Double, ring: UInt8, rangeM: Double) throws  -> [CameraViewInfo]
+    
+    /**
      * Drop the block cache, keeping the layer open.
      */
     func clearCache() 
@@ -1227,6 +1241,37 @@ open func businessesNear(lat: Double, lon: Double, ring: UInt8, radiusM: Double)
 open func cachedBlockCount() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Every camera in the query cells. Camera-layer only.
+     */
+open func cameras(lat: Double, lon: Double, ring: UInt8)throws  -> [CameraInfo]  {
+    return try  FfiConverterSequenceTypeCameraInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_cameras(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),$0
+    )
+})
+}
+    
+    /**
+     * Which cameras can see `(lat, lon)`, nearest first -- without the
+     * occlusion half of the answer, since a camera file alone knows nothing
+     * about what stands in the way. Every in-range camera therefore reports
+     * a clear sight line here. Use [`PtilesStack::cameras_seeing`], which
+     * reads the buildings layer too, when that matters. Camera-layer only.
+     */
+open func camerasSeeing(lat: Double, lon: Double, ring: UInt8, rangeM: Double)throws  -> [CameraViewInfo]  {
+    return try  FfiConverterSequenceTypeCameraViewInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),
+        FfiConverterDouble.lower(rangeM),$0
     )
 })
 }
@@ -1606,6 +1651,22 @@ public func FfiConverterTypePtilesLayer_lower(_ value: PtilesLayer) -> UnsafeMut
 public protocol PtilesStackProtocol: AnyObject, Sendable {
     
     /**
+     * Which cameras can see `(lat, lon)`, nearest first -- "is anything
+     * pointed at me right now".
+     *
+     * The camera layer answers who is in range and aimed at you; the
+     * buildings layer answers what stands in the way. Without a buildings
+     * layer every in-range camera reports a clear sight line, which is the
+     * honest reading of "nothing known to be in the way" and errs toward
+     * naming a camera rather than omitting one -- the direction every
+     * assumption in `core::cameras_seeing` leans. Empty when this stack
+     * holds no camera layer.
+     *
+     * `range_m <= 0` uses `ptiles_core::CAMERA_RANGE_M` (50 m).
+     */
+    func camerasSeeing(lat: Double, lon: Double, ring: UInt8, rangeM: Double) throws  -> [CameraViewInfo]
+    
+    /**
      * Reverse geocode across the stack: the way under the point (road and
      * trail compete on distance alone — see `core::locate`), the nearest
      * address, and the park/water the point falls in.
@@ -1707,7 +1768,7 @@ public convenience init(roads: PtilesLayer?, buildings: PtilesLayer?, business: 
      * `locate` reads roads/trails/addresses/parks/water; pass whichever files
      * the region actually has and the rest stay silent.
      */
-public static func withLayers(roads: PtilesLayer?, buildings: PtilesLayer?, business: PtilesLayer?, trails: PtilesLayer?, parks: PtilesLayer?, water: PtilesLayer?, addresses: AddressLayer?) -> PtilesStack  {
+public static func withLayers(roads: PtilesLayer?, buildings: PtilesLayer?, business: PtilesLayer?, trails: PtilesLayer?, parks: PtilesLayer?, water: PtilesLayer?, camera: PtilesLayer?, addresses: AddressLayer?) -> PtilesStack  {
     return try!  FfiConverterTypePtilesStack_lift(try! rustCall() {
     uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(
         FfiConverterOptionTypePtilesLayer.lower(roads),
@@ -1716,12 +1777,38 @@ public static func withLayers(roads: PtilesLayer?, buildings: PtilesLayer?, busi
         FfiConverterOptionTypePtilesLayer.lower(trails),
         FfiConverterOptionTypePtilesLayer.lower(parks),
         FfiConverterOptionTypePtilesLayer.lower(water),
+        FfiConverterOptionTypePtilesLayer.lower(camera),
         FfiConverterOptionTypeAddressLayer.lower(addresses),$0
     )
 })
 }
     
 
+    
+    /**
+     * Which cameras can see `(lat, lon)`, nearest first -- "is anything
+     * pointed at me right now".
+     *
+     * The camera layer answers who is in range and aimed at you; the
+     * buildings layer answers what stands in the way. Without a buildings
+     * layer every in-range camera reports a clear sight line, which is the
+     * honest reading of "nothing known to be in the way" and errs toward
+     * naming a camera rather than omitting one -- the direction every
+     * assumption in `core::cameras_seeing` leans. Empty when this stack
+     * holds no camera layer.
+     *
+     * `range_m <= 0` uses `ptiles_core::CAMERA_RANGE_M` (50 m).
+     */
+open func camerasSeeing(lat: Double, lon: Double, ring: UInt8, rangeM: Double)throws  -> [CameraViewInfo]  {
+    return try  FfiConverterSequenceTypeCameraViewInfo.lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterUInt8.lower(ring),
+        FfiConverterDouble.lower(rangeM),$0
+    )
+})
+}
     
     /**
      * Reverse geocode across the stack: the way under the point (road and
@@ -2820,6 +2907,340 @@ public func FfiConverterTypeBusinessSearchHit_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeBusinessSearchHit_lower(_ value: BusinessSearchHit) -> RustBuffer {
     return FfiConverterTypeBusinessSearchHit.lower(value)
+}
+
+
+/**
+ * One decoded surveillance camera. `direction` is degrees clockwise from
+ * north when tagged; `angle` is the field of view in degrees when tagged.
+ */
+public struct CameraInfo {
+    public var osmId: Int64
+    public var location: LatLon
+    /**
+     * `camera`, `ALPR`, `guard`, or `unknown`.
+     */
+    public var deviceType: String
+    /**
+     * `public`, `outdoor`, `indoor`, or `unknown`.
+     */
+    public var placement: String
+    /**
+     * `fixed`, `panning`, `dome`, or `unknown`. The last two rotate.
+     */
+    public var cameraType: String
+    public var direction: UInt16?
+    public var angle: UInt8?
+    public var `operator`: String?
+    public var name: String?
+    public var refTag: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(osmId: Int64, location: LatLon, 
+        /**
+         * `camera`, `ALPR`, `guard`, or `unknown`.
+         */deviceType: String, 
+        /**
+         * `public`, `outdoor`, `indoor`, or `unknown`.
+         */placement: String, 
+        /**
+         * `fixed`, `panning`, `dome`, or `unknown`. The last two rotate.
+         */cameraType: String, direction: UInt16?, angle: UInt8?, `operator`: String?, name: String?, refTag: String?) {
+        self.osmId = osmId
+        self.location = location
+        self.deviceType = deviceType
+        self.placement = placement
+        self.cameraType = cameraType
+        self.direction = direction
+        self.angle = angle
+        self.`operator` = `operator`
+        self.name = name
+        self.refTag = refTag
+    }
+}
+
+#if compiler(>=6)
+extension CameraInfo: Sendable {}
+#endif
+
+
+extension CameraInfo: Equatable, Hashable {
+    public static func ==(lhs: CameraInfo, rhs: CameraInfo) -> Bool {
+        if lhs.osmId != rhs.osmId {
+            return false
+        }
+        if lhs.location != rhs.location {
+            return false
+        }
+        if lhs.deviceType != rhs.deviceType {
+            return false
+        }
+        if lhs.placement != rhs.placement {
+            return false
+        }
+        if lhs.cameraType != rhs.cameraType {
+            return false
+        }
+        if lhs.direction != rhs.direction {
+            return false
+        }
+        if lhs.angle != rhs.angle {
+            return false
+        }
+        if lhs.`operator` != rhs.`operator` {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.refTag != rhs.refTag {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(osmId)
+        hasher.combine(location)
+        hasher.combine(deviceType)
+        hasher.combine(placement)
+        hasher.combine(cameraType)
+        hasher.combine(direction)
+        hasher.combine(angle)
+        hasher.combine(`operator`)
+        hasher.combine(name)
+        hasher.combine(refTag)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCameraInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CameraInfo {
+        return
+            try CameraInfo(
+                osmId: FfiConverterInt64.read(from: &buf), 
+                location: FfiConverterTypeLatLon.read(from: &buf), 
+                deviceType: FfiConverterString.read(from: &buf), 
+                placement: FfiConverterString.read(from: &buf), 
+                cameraType: FfiConverterString.read(from: &buf), 
+                direction: FfiConverterOptionUInt16.read(from: &buf), 
+                angle: FfiConverterOptionUInt8.read(from: &buf), 
+                operator: FfiConverterOptionString.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                refTag: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CameraInfo, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.osmId, into: &buf)
+        FfiConverterTypeLatLon.write(value.location, into: &buf)
+        FfiConverterString.write(value.deviceType, into: &buf)
+        FfiConverterString.write(value.placement, into: &buf)
+        FfiConverterString.write(value.cameraType, into: &buf)
+        FfiConverterOptionUInt16.write(value.direction, into: &buf)
+        FfiConverterOptionUInt8.write(value.angle, into: &buf)
+        FfiConverterOptionString.write(value.`operator`, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterOptionString.write(value.refTag, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCameraInfo_lift(_ buf: RustBuffer) throws -> CameraInfo {
+    return try FfiConverterTypeCameraInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCameraInfo_lower(_ value: CameraInfo) -> RustBuffer {
+    return FfiConverterTypeCameraInfo.lower(value)
+}
+
+
+/**
+ * What one camera can see of a point -- `ptiles_core::CameraView`, plus
+ * enough of the camera itself that a caller need not join back to the
+ * listing.
+ *
+ * `sees` is the answer; the other flags are why. Every assumption behind
+ * them leans toward reporting a camera rather than omitting one, so a `true`
+ * may be inference (check `aim_assumed`) while a `false` is comparatively
+ * solid.
+ */
+public struct CameraViewInfo {
+    public var osmId: Int64
+    public var name: String?
+    public var `operator`: String?
+    public var cameraType: String
+    public var location: LatLon
+    public var distanceM: Double
+    /**
+     * Bearing from the camera to you, degrees clockwise from north.
+     */
+    public var bearingDeg: Double
+    /**
+     * False only when the camera is tagged with a direction and you fall
+     * outside the resulting cone.
+     */
+    public var aimedAtYou: Bool
+    /**
+     * True when `aimed_at_you` rests on an assumption rather than on tags.
+     */
+    public var aimAssumed: Bool
+    /**
+     * False when a building stands between you and it.
+     */
+    public var lineOfSight: Bool
+    public var sees: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(osmId: Int64, name: String?, `operator`: String?, cameraType: String, location: LatLon, distanceM: Double, 
+        /**
+         * Bearing from the camera to you, degrees clockwise from north.
+         */bearingDeg: Double, 
+        /**
+         * False only when the camera is tagged with a direction and you fall
+         * outside the resulting cone.
+         */aimedAtYou: Bool, 
+        /**
+         * True when `aimed_at_you` rests on an assumption rather than on tags.
+         */aimAssumed: Bool, 
+        /**
+         * False when a building stands between you and it.
+         */lineOfSight: Bool, sees: Bool) {
+        self.osmId = osmId
+        self.name = name
+        self.`operator` = `operator`
+        self.cameraType = cameraType
+        self.location = location
+        self.distanceM = distanceM
+        self.bearingDeg = bearingDeg
+        self.aimedAtYou = aimedAtYou
+        self.aimAssumed = aimAssumed
+        self.lineOfSight = lineOfSight
+        self.sees = sees
+    }
+}
+
+#if compiler(>=6)
+extension CameraViewInfo: Sendable {}
+#endif
+
+
+extension CameraViewInfo: Equatable, Hashable {
+    public static func ==(lhs: CameraViewInfo, rhs: CameraViewInfo) -> Bool {
+        if lhs.osmId != rhs.osmId {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.`operator` != rhs.`operator` {
+            return false
+        }
+        if lhs.cameraType != rhs.cameraType {
+            return false
+        }
+        if lhs.location != rhs.location {
+            return false
+        }
+        if lhs.distanceM != rhs.distanceM {
+            return false
+        }
+        if lhs.bearingDeg != rhs.bearingDeg {
+            return false
+        }
+        if lhs.aimedAtYou != rhs.aimedAtYou {
+            return false
+        }
+        if lhs.aimAssumed != rhs.aimAssumed {
+            return false
+        }
+        if lhs.lineOfSight != rhs.lineOfSight {
+            return false
+        }
+        if lhs.sees != rhs.sees {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(osmId)
+        hasher.combine(name)
+        hasher.combine(`operator`)
+        hasher.combine(cameraType)
+        hasher.combine(location)
+        hasher.combine(distanceM)
+        hasher.combine(bearingDeg)
+        hasher.combine(aimedAtYou)
+        hasher.combine(aimAssumed)
+        hasher.combine(lineOfSight)
+        hasher.combine(sees)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCameraViewInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CameraViewInfo {
+        return
+            try CameraViewInfo(
+                osmId: FfiConverterInt64.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                operator: FfiConverterOptionString.read(from: &buf), 
+                cameraType: FfiConverterString.read(from: &buf), 
+                location: FfiConverterTypeLatLon.read(from: &buf), 
+                distanceM: FfiConverterDouble.read(from: &buf), 
+                bearingDeg: FfiConverterDouble.read(from: &buf), 
+                aimedAtYou: FfiConverterBool.read(from: &buf), 
+                aimAssumed: FfiConverterBool.read(from: &buf), 
+                lineOfSight: FfiConverterBool.read(from: &buf), 
+                sees: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CameraViewInfo, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.osmId, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterOptionString.write(value.`operator`, into: &buf)
+        FfiConverterString.write(value.cameraType, into: &buf)
+        FfiConverterTypeLatLon.write(value.location, into: &buf)
+        FfiConverterDouble.write(value.distanceM, into: &buf)
+        FfiConverterDouble.write(value.bearingDeg, into: &buf)
+        FfiConverterBool.write(value.aimedAtYou, into: &buf)
+        FfiConverterBool.write(value.aimAssumed, into: &buf)
+        FfiConverterBool.write(value.lineOfSight, into: &buf)
+        FfiConverterBool.write(value.sees, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCameraViewInfo_lift(_ buf: RustBuffer) throws -> CameraViewInfo {
+    return try FfiConverterTypeCameraViewInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCameraViewInfo_lower(_ value: CameraViewInfo) -> RustBuffer {
+    return FfiConverterTypeCameraViewInfo.lower(value)
 }
 
 
@@ -6004,6 +6425,56 @@ fileprivate struct FfiConverterSequenceTypeBusinessSearchHit: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeCameraInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [CameraInfo]
+
+    public static func write(_ value: [CameraInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCameraInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CameraInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CameraInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCameraInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCameraViewInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [CameraViewInfo]
+
+    public static func write(_ value: [CameraViewInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCameraViewInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CameraViewInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CameraViewInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCameraViewInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeCandidate: FfiConverterRustBuffer {
     typealias SwiftType = [Candidate]
 
@@ -6443,6 +6914,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count() != 57569) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras() != 41716) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing() != 15491) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache() != 14397) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6503,6 +6980,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at() != 24453) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing() != 19587) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6536,7 +7016,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 38860) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 1730) {
+    if (uniffi_ptiles_ffi_checksum_constructor_ptilesstack_with_layers() != 22188) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_constructor_votedebouncer_new() != 6510) {

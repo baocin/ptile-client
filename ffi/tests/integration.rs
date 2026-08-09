@@ -545,6 +545,7 @@ fn stack_locate_answers_from_whichever_layers_it_holds() {
         Some(parks),
         None,
         None,
+        None,
     );
 
     let got = stack.locate(NASHVILLE_LAT, NASHVILLE_LON, 0).expect("locate");
