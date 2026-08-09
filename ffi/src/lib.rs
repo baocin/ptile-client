@@ -30,10 +30,11 @@
 use std::sync::Arc;
 
 use ptiles_core::{
-    cell_center, cell_for_coord, decode_buildings, decode_business_versioned, decode_road_block,
+    cell_center, cell_for_coord, cells_for_bounds, decode_buildings, decode_business_versioned, decode_road_block,
     decode_roads, haversine_distance_m, nearest_intersection as core_nearest_intersection,
     nearest_road as core_nearest_road, neighbor_cells, point_in_polygon, score_candidates,
     search_business_indexed, trail_is_developed as core_trail_is_developed,
+    route_roads_diagnostic, trail_segments as core_trail_segments, RoutePrefs, RouteProfile,
     Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind, FileSource,
     Fix as CoreFix, HttpSource, Intersection, PtilesFile, RoadSegment, ScoringParams,
 };
@@ -97,6 +98,8 @@ pub enum PtilesError {
     /// it does not have.
     #[error("bad bounding box: {message}")]
     InvalidBounds { message: String },
+    #[error("offline route failed: {message}")]
+    Routing { message: String },
 }
 
 impl PtilesError {
@@ -147,6 +150,22 @@ impl PtilesError {
 pub struct LatLon {
     pub lat: f64,
     pub lon: f64,
+}
+
+/// Which local network an offline route may use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum OfflineRouteMode {
+    Driving,
+    Trail,
+}
+
+/// A complete route computed from installed PTiles blocks only.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct OfflineRoute {
+    pub distance_m: f64,
+    pub duration_s: f64,
+    pub path: Vec<LatLon>,
+    pub decoded_segments: u32,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -978,6 +997,33 @@ impl PtilesLayer {
             roads.append(&mut r);
         }
         Ok(roads)
+    }
+
+    fn decoded_roads_for_cells(&self, cells: &[u64]) -> Result<Vec<RoadSegment>, PtilesError> {
+        let mut roads = Vec::new();
+        for &cell in cells {
+            let Some(block) = self.block(cell)? else { continue };
+            let mut decoded = decode_roads(&block).map_err(|e| PtilesError::Decode {
+                message: e.to_string(),
+            })?;
+            roads.append(&mut decoded);
+        }
+        Ok(roads)
+    }
+
+    fn decoded_trails_for_cells(
+        &self,
+        cells: &[u64],
+    ) -> Result<Vec<ptiles_core::TrailFeature>, PtilesError> {
+        let mut trails = Vec::new();
+        for &cell in cells {
+            let Some(block) = self.block(cell)? else { continue };
+            let mut decoded = ptiles_core::decode_trails(&block).map_err(|e| PtilesError::Decode {
+                message: e.to_string(),
+            })?;
+            trails.append(&mut decoded);
+        }
+        Ok(trails)
     }
 
     /// Intersections from the road blocks covering `(lat, lon)` (+ ring-1
@@ -2144,6 +2190,71 @@ impl PtilesStack {
             address: located.address.map(NearbyAddressInfo::from),
             park,
             water,
+        })
+    }
+
+    /// Compute a bounded route entirely from installed PTiles layers.
+    ///
+    /// The corridor is the endpoint bounding box plus a 1.5 km-ish end cap,
+    /// capped by `cells_for_bounds` at 512 H3 cells. That keeps a mistaken
+    /// coast-to-coast request from turning into an unbounded download or graph.
+    /// Driving uses roads. Trail mode combines pedestrian-legal roads with the
+    /// trails layer, so a path can connect to a trailhead through quiet streets.
+    #[allow(clippy::too_many_arguments)]
+    pub fn offline_route(
+        &self,
+        start_lat: f64,
+        start_lon: f64,
+        end_lat: f64,
+        end_lon: f64,
+        mode: OfflineRouteMode,
+        avoid_highways: bool,
+        avoid_intersections: bool,
+    ) -> Result<OfflineRoute, PtilesError> {
+        let roads_layer = self.roads.as_ref().ok_or_else(|| PtilesError::Routing {
+            message: "no roads layer is installed".to_string(),
+        })?;
+        let lat_span = (start_lat - end_lat).abs();
+        let lon_span = (start_lon - end_lon).abs();
+        let lat_margin = 0.015_f64.max(lat_span * 0.15);
+        let lon_margin = 0.020_f64.max(lon_span * 0.15);
+        let cells = cells_for_bounds(
+            start_lat.min(end_lat) - lat_margin,
+            start_lon.min(end_lon) - lon_margin,
+            start_lat.max(end_lat) + lat_margin,
+            start_lon.max(end_lon) + lon_margin,
+        )
+        .map_err(|e| PtilesError::InvalidBounds { message: e.to_string() })?;
+
+        let mut segments = roads_layer.decoded_roads_for_cells(&cells)?;
+        if mode == OfflineRouteMode::Trail {
+            if let Some(trails_layer) = &self.trails {
+                let trails = trails_layer.decoded_trails_for_cells(&cells)?;
+                segments.extend(core_trail_segments(&trails));
+            }
+        }
+        let decoded_segments = segments.len() as u32;
+        let profile = match mode {
+            OfflineRouteMode::Driving => RouteProfile::Driving,
+            OfflineRouteMode::Trail => RouteProfile::Foot,
+        };
+        let prefs = RoutePrefs { profile, avoid_highways, avoid_intersections };
+        let route = route_roads_diagnostic(
+            &segments,
+            &[],
+            start_lat,
+            start_lon,
+            end_lat,
+            end_lon,
+            if mode == OfflineRouteMode::Driving { 250.0 } else { 120.0 },
+            prefs,
+        )
+        .map_err(|e| PtilesError::Routing { message: format!("{e:?}") })?;
+        Ok(OfflineRoute {
+            distance_m: route.distance_m,
+            duration_s: route.duration_s,
+            path: route.path.into_iter().map(|p| LatLon { lat: p[0], lon: p[1] }).collect(),
+            decoded_segments,
         })
     }
 

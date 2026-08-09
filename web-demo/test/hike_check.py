@@ -165,6 +165,30 @@ def main():
         if ended["on"] or ended["stored"] or ended["visible"]:
             failures.append("ending the hike left the session behind")
 
+        # Permission requests and wake-lock acquisition are asynchronous on a
+        # phone. Ending during one used to let the remainder of hikeStart save
+        # the just-ended hike again. It then appeared to be Route that revived
+        # Trail mode, because the next reload resumed that stale session.
+        page.evaluate("""() => {
+          window.__finishHikePermission = null;
+          window.DeviceOrientationEvent = {
+            requestPermission: () => new Promise(resolve => {
+              window.__finishHikePermission = resolve;
+            })
+          };
+          window.__pendingHikeStart = window.__ptiles.hikeStart(48.6962, -113.7180);
+        }""")
+        page.wait_for_function("() => typeof window.__finishHikePermission === 'function'")
+        page.evaluate("() => window.__ptiles.hikeStop()")
+        page.click("#btnRoute")
+        page.evaluate("() => window.__finishHikePermission('granted')")
+        page.evaluate("async () => await window.__pendingHikeStart")
+        cancelled = page.evaluate("() => window.__ptiles.hikeState()")
+        print(f"  ended in setup on={cancelled['on']} stored={cancelled['stored']} "
+              f"visible={cancelled['visible']}")
+        if cancelled["on"] or cancelled["stored"] or cancelled["visible"]:
+            failures.append("an async hike start continued after the hike was ended")
+
         page.reload(wait_until="load", timeout=90_000)
         page.wait_for_function("() => !!window.__ptiles && !!window.__ptiles.hikeState",
                                timeout=40_000)

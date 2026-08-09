@@ -1616,7 +1616,7 @@ impl AdminReader {
 #[wasm_bindgen]
 pub fn address_cell(block_bytes: &[u8], cell_hex: &str, version: u8) -> Result<JsValue, JsValue> {
     let cell = parse_cell_hex(cell_hex).map_err(|e| JsValue::from_str(&e))?;
-    let records = merged_block_cell_slice(block_bytes, cell, version >= 2)
+    let records = merged_block_cell_slice(block_bytes, cell, version)
         .map_err(|e| JsValue::from_str(&e.to_string()))?
         .unwrap_or_default();
     to_js(&records)

@@ -371,7 +371,10 @@ fn check_region(source_len: Option<u64>, offset: u64, length: u64) -> Result<(),
 /// Try zstd decompress with the layer dictionary, falling back to plain
 /// (dict-less) decompress on failure — matches
 /// `ptiles/compression.py::decompress_block` / `decompress_fallback`.
-fn decompress_with_dict_fallback(compressed: &[u8], dict: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn decompress_with_dict_fallback(
+    compressed: &[u8],
+    dict: &[u8],
+) -> Result<Vec<u8>, String> {
     if !dict.is_empty() {
         if let Ok(parsed_dict) = Dictionary::decode_dict(dict) {
             let mut decoder = FrameDecoder::new();
