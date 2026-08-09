@@ -23,6 +23,7 @@ export async function crawlRoadRefCells({
   end,
   h3,
   readRefs,
+  prefetch,
   maxProbeCells = 900,
   neighborRadius = 2,
 }) {
@@ -33,10 +34,24 @@ export async function crawlRoadRefCells({
     if (!pending) {
       if (refsByCell.size >= maxProbeCells) return [];
       pending = Promise.resolve(readRefs(cell)).then((refs) =>
-        [...new Set((refs || []).flatMap(normalizeRoadRefs))]);
+        [...new Set((refs || []).flatMap(normalizeRoadRefs))])
+        .catch(() => []);
       refsByCell.set(cell, pending);
     }
     return pending;
+  }
+
+  async function refsFor(cells) {
+    const unique = [...new Set(cells)];
+    const remaining = Math.max(0, maxProbeCells - refsByCell.size);
+    const fresh = unique.filter((cell) => !refsByCell.has(cell)).slice(0, remaining);
+    // Prefetch only reduces Range round trips. A speculative coalesced read
+    // failing must not make the route less reliable than individual reads.
+    if (fresh.length && prefetch) {
+      try { await prefetch(fresh); }
+      catch {}
+    }
+    return Promise.all(unique.map(refsAt));
   }
 
   function disk(cell) {
@@ -47,7 +62,7 @@ export async function crawlRoadRefCells({
   async function refsNear(point) {
     const cells = disk(h3.cellFor(point[0], point[1]));
     const found = new Map();
-    const values = await Promise.all(cells.map(refsAt));
+    const values = await refsFor(cells);
     for (let i = 0; i < cells.length; i++) {
       for (const ref of values[i]) {
         let refCells = found.get(ref);
@@ -68,29 +83,38 @@ export async function crawlRoadRefCells({
 
   for (const ref of common) {
     const goals = new Set(endRefs.get(ref));
-    const queue = [];
+    let frontier = [];
     const previous = new Map();
     const considered = new Set();
     for (const cell of startRefs.get(ref)) {
-      queue.push(cell);
+      frontier.push(cell);
       previous.set(cell, null);
       considered.add(cell);
     }
 
-    let head = 0;
-    let goal = queue.find((cell) => goals.has(cell)) || null;
-    while (!goal && head < queue.length && refsByCell.size < maxProbeCells) {
-      const current = queue[head++];
-      const candidates = disk(current).filter((cell) => !considered.has(cell));
-      candidates.forEach((cell) => considered.add(cell));
-      const values = await Promise.all(candidates.map(refsAt));
+    let matched = frontier.length;
+    let goal = frontier.find((cell) => goals.has(cell)) || null;
+    while (!goal && frontier.length && refsByCell.size < maxProbeCells) {
+      const parent = new Map();
+      for (const current of frontier) {
+        for (const cell of disk(current)) {
+          if (considered.has(cell)) continue;
+          considered.add(cell);
+          parent.set(cell, current);
+        }
+      }
+      const candidates = [...parent.keys()];
+      const values = await refsFor(candidates);
+      const next = [];
       for (let i = 0; i < candidates.length; i++) {
         if (!values[i].includes(ref)) continue;
-        const next = candidates[i];
-        previous.set(next, current);
-        queue.push(next);
-        if (goals.has(next)) { goal = next; break; }
+        const cell = candidates[i];
+        previous.set(cell, parent.get(cell));
+        next.push(cell);
+        matched++;
+        if (goals.has(cell)) { goal = cell; break; }
       }
+      frontier = next;
     }
     if (!goal) continue;
 
@@ -115,7 +139,7 @@ export async function crawlRoadRefCells({
       path,
       spine,
       probedCells: refsByCell.size,
-      matchedCells: queue.length,
+      matchedCells: matched,
       commonRefs: common,
     };
   }

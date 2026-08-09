@@ -4,7 +4,11 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>PTILES — library demo</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<!-- Leaflet is vendored, not pulled from unpkg: this page has to work in a
+     national park with no signal, and a CDN stylesheet is a hard dependency on
+     a network the user does not have. Files are dist/ of leaflet@1.9.4
+     unmodified, images included -- the CSS references them relatively. -->
+<link rel="stylesheet" href="lib/leaflet/leaflet.css" />
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -3438,6 +3442,13 @@ async function roadRefGuidedPlan(state, a, b) {
       gridPath: function(from, to) { return h3.gridPathCells(from, to); },
       center: function(cell) { return h3.cellToLatLng(cell); }
     },
+    prefetch: async function(cells) {
+      var layer = reader.file && reader.file.layer;
+      if (!layer || !layer.prefetch) return;
+      await layer.prefetch(cells.map(function(cell) {
+        return BigInt("0x" + cell) & CELL_MASK;
+      }), { maxGap: 16384 });
+    },
     readRefs: async function(cell) {
       var raw = await reader.decompressCell(BigInt("0x" + cell) & CELL_MASK);
       if (!raw) return [];
@@ -3458,7 +3469,7 @@ async function roadRefGuidedPlan(state, a, b) {
     return { plan: null, attempted: crawl.commonRefs.length > 0, crawl: crawl };
   }
   var plan = cellPlanAroundSpine(
-    crawl.spine, a.lat, a.lon, b.lat, b.lon, 2, ROUTE_RETRY_MAX_CELLS
+    crawl.spine, a.lat, a.lon, b.lat, b.lon, 4, ROUTE_RETRY_MAX_CELLS
   );
   plan.roadRef = crawl.ref;
   plan.roadRefProbeCells = crawl.probedCells;
@@ -3797,6 +3808,21 @@ async function loadRouteCorridor(
       var layer = readerByState[state].file && readerByState[state].file.layer;
       return layer && layer.prefetch
         ? layer.prefetch(prefetchByState[state], { maxGap: 16384 })
+        : Promise.resolve();
+    }));
+  } else if (cells.length >= 100) {
+    // A ref-guided retry adds a broad ring around its highway spine. Most of
+    // those cells were not touched while discovering the ref, and fetching
+    // each one in the decode loop turns network latency into the dominant
+    // cost. Every reader already has its complete spatial index, so it can
+    // ignore cells outside that state and coalesce the remaining blocks.
+    var corridorCells = cells.map(function(hex) {
+      return BigInt("0x" + hex) & CELL_MASK;
+    });
+    await Promise.all(readers.map(function(reader) {
+      var layer = reader.file && reader.file.layer;
+      return layer && layer.prefetch
+        ? layer.prefetch(corridorCells, { maxGap: 16384 })
         : Promise.resolve();
     }));
   }

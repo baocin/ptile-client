@@ -163,6 +163,14 @@ def main():
             failures.append(
                 f"long driving: no Nashville-Chattanooga route "
                 f"({long_drive.get('failure')}; {long_drive['status']})")
+        else:
+            long_corridor = long_drive.get("corridor") or {}
+            if long_corridor.get("roadRef") != "I 24":
+                failures.append(
+                    "long driving: route did not use the I 24 road-ref crawler")
+            if long_corridor.get("roadRefProbeCells", 0) > 900:
+                failures.append(
+                    "long driving: road-ref crawler exceeded its 900-cell budget")
 
         cross = route(CROSS_A, CROSS_B)
         print(f"  state seam    {cross['distanceM']/1000:7.1f} km  "
