@@ -117,3 +117,48 @@ fn address_v2_dictionary_compressed_file_decodes() {
         }
     }
 }
+
+/// v3: v2 plus a provenance byte, for the merged OSM + NAD + OpenAddresses
+/// layer. The byte sits after the coordinate offsets so a v2 record stays a
+/// prefix of a v3 one -- but the strings shift by one byte, so a v2 reader
+/// pointed at a v3 file must not be allowed to "work".
+#[test]
+fn address_v3_records_carry_their_source() {
+    use ptiles_core::address::AddressSource;
+
+    let bytes = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../test-fixtures/golden/address_v3_dict.ptiles"
+    ))
+    .unwrap();
+    let golden: Value = serde_json::from_slice(
+        &std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-fixtures/golden/address_v3_dict.golden.json"
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let file = AddressFile::open(MemorySource::new(bytes)).expect("open v3");
+    let mut seen = 0;
+    for cell in golden["cells"].as_array().unwrap() {
+        let cell_id = cell["cell_id"].as_u64().unwrap();
+        let decoded = file.addresses_in_cell(cell_id).expect("decode cell");
+        let expected = cell["addresses"].as_array().unwrap();
+        assert_eq!(decoded.len(), expected.len());
+        for (d, e) in decoded.iter().zip(expected) {
+            assert_eq!(d.housenumber, e["housenumber"].as_str().unwrap());
+            assert_eq!(d.street, e["street"].as_str().unwrap());
+            let want = match e["source"].as_str().unwrap() {
+                "osm" => AddressSource::Osm,
+                "nad" => AddressSource::Nad,
+                "openaddresses" => AddressSource::OpenAddresses,
+                other => panic!("unexpected source {other}"),
+            };
+            assert_eq!(d.source, want, "{} {}", d.housenumber, d.street);
+            seen += 1;
+        }
+    }
+    assert_eq!(seen, 4, "fixture has four records");
+}

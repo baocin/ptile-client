@@ -95,8 +95,8 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
     FormatEntry {
         magic: b"PTILESD",
         file_kind: "address",
-        versions: &[1, 2],
-        notes: "{STATE}.address_v2.ptiles as published since the builder stopped truncating PTILESA2 to the admin magic. v2 records carry i16 cell-relative coordinates; v1 has none. Older published address files still say PTILESA and are accepted under that entry",
+        versions: &[1, 2, 3],
+        notes: "{STATE}.address_v2.ptiles as published since the builder stopped truncating PTILESA2 to the admin magic. v2 records carry i16 cell-relative coordinates, v3 adds a one-byte source (0=osm, 1=nad, 2=openaddresses) for the merged bulk-address layer; v1 has neither. Older published address files still say PTILESA and are accepted under that entry",
     },
     FormatEntry {
         magic: b"PTILESX",
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(versions_for(b"PTILESA"), Some(&[1u8][..]));
         // PTILESD is the address magic and is supported now that the builder
         // stopped truncating it to PTILESA; PTILESU (routing) still is not.
-        assert_eq!(versions_for(b"PTILESD"), Some(&[1u8, 2][..]));
+        assert_eq!(versions_for(b"PTILESD"), Some(&[1u8, 2, 3][..]));
         assert!(versions_for(b"PTILESU").is_none());
         assert!(versions_for(b"XXXXXXX").is_none());
     }

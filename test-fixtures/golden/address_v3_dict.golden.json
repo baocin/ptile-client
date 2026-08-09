@@ -20,7 +20,7 @@
           "street": "Broadway",
           "lat": 36.1665,
           "lon": -86.7829,
-          "source": "osm"
+          "source": "nad"
         },
         {
           "osm_id": 1440913700,
@@ -28,7 +28,7 @@
           "street": "2nd Ave N",
           "lat": 36.1641,
           "lon": -86.7798,
-          "source": "osm"
+          "source": "openaddresses"
         }
       ]
     },
@@ -41,7 +41,7 @@
           "street": "Church St",
           "lat": 36.16901,
           "lon": -86.7881,
-          "source": "osm"
+          "source": "nad"
         }
       ]
     }
