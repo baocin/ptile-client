@@ -79,7 +79,11 @@ class MotionEngine(
             } else {
                 AccelStats(0.0, null, 0.0, 0u, null)
             }
-            x.clear(); y.clear(); z.clear()
+            // Keep the most recent second rather than clearing outright. The
+            // classifier now runs every second, and a full clear left the next
+            // window starved of samples -- under three of them the stats above
+            // collapse to zeroes, which reads as stationary.
+            trimToWindow()
             result
         }
         val road = ptiles.nearbyRoadContext(location.latitude, location.longitude).first
@@ -103,6 +107,14 @@ class MotionEngine(
             update.vote.confidence,
             stats,
         )
+    }
+
+    /** Drop all but the newest second of samples. Caller holds [lock]. */
+    private fun trimToWindow() {
+        val keep = accelerometerRateHz.coerceIn(10, 100)
+        while (x.size > keep) {
+            x.removeAt(0); y.removeAt(0); z.removeAt(0)
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent) {

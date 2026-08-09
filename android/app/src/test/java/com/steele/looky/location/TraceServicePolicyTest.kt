@@ -5,6 +5,6 @@ import org.junit.Test
 
 class TraceServicePolicyTest {
     @Test fun movementClassificationRefreshesAtInteractiveCadence() {
-        assertTrue(TraceService.CLASSIFICATION_INTERVAL_MS <= 2_000L)
+        assertTrue(TraceService.CLASSIFICATION_INTERVAL_MS <= 1_000L)
     }
 }

@@ -12,7 +12,6 @@ import android.hardware.SensorManager
 import android.location.Location
 import android.os.IBinder
 import android.os.PowerManager
-import android.os.SystemClock
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -47,7 +46,13 @@ class TraceService : Service() {
         const val ACTION_APPLY_SETTINGS = "com.steele.looky.APPLY_SETTINGS"
         private const val CHANNEL = "looky-trace"
         private const val NOTIFICATION = 4102
-        internal const val CLASSIFICATION_INTERVAL_MS = 2_000L
+        /**
+         * How often movement is re-classified between GPS writes.
+         *
+         * At 2 s the badge read as stuck. Faster and occasionally wrong beats
+         * correct and stale for a label the user watches while moving.
+         */
+        internal const val CLASSIFICATION_INTERVAL_MS = 1_000L
 
         fun start(context: Context, mode: LookyMode) {
             val action = if (mode == LookyMode.DRIVE) ACTION_DRIVE else ACTION_TRAIL
@@ -74,8 +79,6 @@ class TraceService : Service() {
     private var started = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var classificationJob: Job? = null
-    private var latestMotion: MotionResult? = null
-    private var latestMotionAtMs = 0L
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -169,9 +172,11 @@ class TraceService : Service() {
     }
 
     private fun record(fix: Location) {
-        val now = SystemClock.elapsedRealtime()
-        val result = latestMotion?.takeIf { now - latestMotionAtMs <= CLASSIFICATION_INTERVAL_MS }
-            ?: classifyAndPublish(fix)
+        // Always classify the fix being written. This used to reuse the timer's
+        // verdict when one landed inside CLASSIFICATION_INTERVAL_MS, which meant
+        // a fresh GPS fix -- the best evidence available -- was labelled with
+        // the previous, staler position's answer.
+        val result = classifyAndPublish(fix)
         val nearby = ptiles.nearbyRoadContext(fix.latitude, fix.longitude).second
         last?.let { previous ->
             val jump = previous.distanceTo(fix).toDouble()
@@ -201,8 +206,6 @@ class TraceService : Service() {
     /** Advance classification between GPS writes so the UI never waits 7–60s. */
     private fun classifyAndPublish(fix: Location): MotionResult {
         val result = motion.classify(fix)
-        latestMotion = result
-        latestMotionAtMs = SystemClock.elapsedRealtime()
         TraceBus.update {
             it.copy(
                 running = true,

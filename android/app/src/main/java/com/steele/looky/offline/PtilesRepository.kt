@@ -41,6 +41,8 @@ class PtilesRepository(context: Context) {
         val decodedSegments: Int,
     )
 
+    data class BusinessResult(val name: String, val point: GeoPoint, val score: Int)
+
     private fun layer(suffix: String, lat: Double, lon: Double): PtilesLayer? {
         val state = currentStateCode(lat, lon)
         return layerCandidates(manager.packsDir.listFiles().orEmpty(), suffix, state)
@@ -85,15 +87,28 @@ class PtilesRepository(context: Context) {
         ?.minByOrNull { (it.lat - target.lat) * (it.lat - target.lat) + (it.lon - target.lon) * (it.lon - target.lon) }
         ?.let { GeoPoint(it.lat, it.lon) }
 
+    /**
+     * Every renderable feature within `ring` H3 rings of the coordinate.
+     *
+     * `ring` is the H3 k-ring radius handed to the PTiles queries: 1 is 7
+     * res-7 cells, 2 is 19. Ring 1 left visible blank paper at the default
+     * 0.075-degree viewport and immediately when panned, which is why the
+     * default is 2.
+     *
+     * ponytail: ring 2 is ~2.7x the decode work of ring 1. If first paint
+     * drags on a real device, turn this default down rather than adding a
+     * tile cache.
+     */
     fun featuresAround(
         lat: Double,
         lon: Double,
         trails: Boolean,
         developer: Boolean = false,
+        ring: UByte = DEFAULT_RING,
     ): List<MapFeature> {
         val out = mutableListOf<MapFeature>()
         runCatching {
-            layer("roads", lat, lon)?.roads(lat, lon, 1u)?.forEach { road ->
+            layer("roads", lat, lon)?.roads(lat, lon, ring)?.forEach { road ->
                 out += MapFeature(
                     road.geometry.map { GeoPoint(it.lat, it.lon) },
                     road.roadClass,
@@ -102,28 +117,31 @@ class PtilesRepository(context: Context) {
             }
         }
         runCatching {
-            layer("water", lat, lon)?.water(lat, lon, 1u)?.forEach { water ->
+            layer("water", lat, lon)?.water(lat, lon, ring)?.forEach { water ->
                 if (water.geometry.size > 1) out += MapFeature(water.geometry.map { GeoPoint(it.lat, it.lon) }, "water", water.name)
             }
         }
         runCatching {
-            layer("parks", lat, lon)?.parks(lat, lon, 1u)?.forEach { park ->
+            layer("parks", lat, lon)?.parks(lat, lon, ring)?.forEach { park ->
                 if (park.geometry.size > 1) out += MapFeature(park.geometry.map { GeoPoint(it.lat, it.lon) }, "park", park.name)
             }
         }
         // Buildings are point centroids in the PTiles API. Sample the visible
         // viewport so the drive map still communicates the built environment.
+        // The grid widens with the ring so a panned view is not ringed by
+        // roads with no buildings between them.
         runCatching {
             val buildingLayer = layer("buildings", lat, lon)
             if (buildingLayer != null) {
-                val sample = (-2..2).flatMap { y -> (-2..2).map { x -> LatLon(lat + y * 0.003, lon + x * 0.004) } }
+                val span = buildingSampleSpan(ring)
+                val sample = (-span..span).flatMap { y -> (-span..span).map { x -> LatLon(lat + y * 0.003, lon + x * 0.004) } }
                 buildingLayer.buildingsAt(sample).filterNotNull().forEach { building ->
                     out += MapFeature(listOf(GeoPoint(building.centroid.lat, building.centroid.lon)), "building", building.name)
                 }
             }
         }
         if (trails) runCatching {
-            layer("trails", lat, lon)?.trails(lat, lon, 1u)?.filter { !it.isTrailhead }?.forEach { trail ->
+            layer("trails", lat, lon)?.trails(lat, lon, ring)?.filter { !it.isTrailhead }?.forEach { trail ->
                 out += MapFeature(
                     trail.geometry.map { GeoPoint(it.lat, it.lon) },
                     "trail:${trail.trailType}",
@@ -135,13 +153,13 @@ class PtilesRepository(context: Context) {
         // falls through to US.camera.ptiles. It is rendered in both Drive and
         // Trail whenever installed, not hidden behind developer mode.
         runCatching {
-            layer("camera", lat, lon)?.cameras(lat, lon, 1u)?.forEach { camera ->
+            layer("camera", lat, lon)?.cameras(lat, lon, ring)?.forEach { camera ->
                 out += cameraMapFeature(camera)
             }
         }
         if (developer) {
             runCatching {
-                layer("rail", lat, lon)?.rail(lat, lon, 1u)?.forEach { rail ->
+                layer("rail", lat, lon)?.rail(lat, lon, ring)?.forEach { rail ->
                     if (rail.geometry.isNotEmpty()) {
                         out += MapFeature(
                             rail.geometry.map { GeoPoint(it.lat, it.lon) },
@@ -152,7 +170,7 @@ class PtilesRepository(context: Context) {
                 }
             }
             runCatching {
-                layer("business", lat, lon)?.businessesNear(lat, lon, 1u, 1_500.0)?.forEach { business ->
+                layer("business", lat, lon)?.businessesNear(lat, lon, ring, 1_500.0)?.forEach { business ->
                     out += MapFeature(
                         listOf(GeoPoint(business.location.lat, business.location.lon)),
                         "business:${business.categoryIdx}",
@@ -163,6 +181,32 @@ class PtilesRepository(context: Context) {
         }
         return out
     }
+
+    /**
+     * Business-name search across every installed state's name index.
+     *
+     * Deliberately not routed through [layer]: that filters candidates on
+     * `covers(lat, lon)`, and `{STATE}.business_name_index.ptiles` is keyed by
+     * the first letter of the business name, not by geography. Its header bbox
+     * is not a coverage claim to filter on.
+     */
+    fun searchBusinesses(query: String, limit: Int = SEARCH_LIMIT): List<BusinessResult> {
+        if (query.isBlank() || limit <= 0) return emptyList()
+        val hits = nameIndexFiles().flatMap { file ->
+            runCatching {
+                openCached(file)
+                    ?.searchBusiness(query, limit.toUInt())
+                    ?.map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), it.score.toInt()) }
+                    .orEmpty()
+            }.getOrDefault(emptyList())
+        }
+        return mergeBusinessHits(hits, limit)
+    }
+
+    private fun nameIndexFiles(): List<File> = manager.packsDir.listFiles()
+        .orEmpty()
+        .filter { it.isFile && it.name.endsWith(".business_name_index.ptiles", ignoreCase = true) }
+        .sortedBy { it.name }
 
     fun offlineRoute(
         start: GeoPoint,
@@ -196,6 +240,33 @@ class PtilesRepository(context: Context) {
         )
     }
 
+    /**
+     * A multi-stop route, built by chaining single-leg [offlineRoute] calls.
+     *
+     * `PtilesStack.offline_route` takes exactly one start and one end, so a
+     * waypoint route is N independent graph builds and costs roughly N times a
+     * single route. `onLegDone(completed, total)` reports that progress so the
+     * caller can show a real percentage instead of an indeterminate spinner.
+     */
+    fun offlineRouteVia(
+        start: GeoPoint,
+        waypoints: List<GeoPoint>,
+        end: GeoPoint,
+        trail: Boolean,
+        avoidHighways: Boolean,
+        avoidIntersections: Boolean,
+        onLegDone: (Int, Int) -> Unit = { _, _ -> },
+    ): RouteResult {
+        val legs = routeLegs(start, waypoints, end)
+        val results = legs.mapIndexed { index, (from, to) ->
+            val snappedFrom = snapForRoute(from, trail) ?: from
+            val snappedTo = snapForRoute(to, trail) ?: to
+            offlineRoute(snappedFrom, snappedTo, trail, avoidHighways, avoidIntersections)
+                .also { onLegDone(index + 1, legs.size) }
+        }
+        return joinLegs(results)
+    }
+
     fun installedLayers(): List<File> = manager.packs().flatMap { it.layers }
 
     /** True when a real installed roads pack covers the current coordinate. */
@@ -217,6 +288,65 @@ class PtilesRepository(context: Context) {
 
     companion object {
         private val VERSIONED_STEM = Regex("^(.+)_v(\\d+)$")
+
+        /** H3 k-ring radius for map queries. See [featuresAround]. */
+        internal val DEFAULT_RING: UByte = 2u
+        internal const val SEARCH_LIMIT = 20
+
+        /** Half-width of the building sample grid for an H3 ring radius. */
+        internal fun buildingSampleSpan(ring: UByte): Int = (ring.toInt() + 1).coerceIn(2, 5)
+
+        /**
+         * Rank and de-duplicate hits gathered from several state indexes.
+         *
+         * Score is the FFI's match quality (2 exact, 1 prefix, 0 substring),
+         * so it sorts descending and name breaks ties. Two states can hold the
+         * same chain at the same spot only when their bounding boxes overlap at
+         * a border, so identity is name plus coordinate rounded to 5 decimal
+         * places -- about a metre, well under the spacing of two real stores.
+         */
+        internal fun mergeBusinessHits(hits: List<BusinessResult>, limit: Int): List<BusinessResult> = hits
+            .sortedWith(compareByDescending<BusinessResult> { it.score }.thenBy { it.name })
+            .distinctBy { Triple(it.name, round5(it.point.lat), round5(it.point.lon)) }
+            .take(limit)
+
+        private fun round5(value: Double): Long = Math.round(value * 100_000.0)
+
+        /**
+         * Consecutive (from, to) pairs for a start, ordered waypoints, and end.
+         *
+         * No waypoints yields the single original leg, so the waypoint path and
+         * the plain path are the same code.
+         */
+        internal fun routeLegs(
+            start: GeoPoint,
+            waypoints: List<GeoPoint>,
+            end: GeoPoint,
+        ): List<Pair<GeoPoint, GeoPoint>> {
+            val stops = listOf(start) + waypoints + end
+            return stops.zipWithNext()
+        }
+
+        /**
+         * Concatenate leg results into one route.
+         *
+         * Each leg starts where the previous ended, so the shared joint point
+         * is dropped rather than drawn twice.
+         */
+        internal fun joinLegs(legs: List<RouteResult>): RouteResult {
+            require(legs.isNotEmpty()) { "a route needs at least one leg" }
+            val points = mutableListOf<GeoPoint>()
+            legs.forEach { leg ->
+                if (points.isEmpty()) points += leg.points
+                else points += leg.points.drop(1)
+            }
+            return RouteResult(
+                points,
+                legs.sumOf { it.distanceM },
+                legs.sumOf { it.durationS },
+                legs.sumOf { it.decodedSegments },
+            )
+        }
 
         internal fun layerCandidates(
             files: Array<out File>,

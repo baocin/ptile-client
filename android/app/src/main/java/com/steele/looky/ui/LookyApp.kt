@@ -24,13 +24,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Terrain
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -42,6 +48,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -50,6 +57,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -82,13 +90,27 @@ import com.steele.looky.offline.PackManager
 import com.steele.looky.offline.MapDownloadProgress
 import com.steele.looky.offline.MapPackDownloader
 import com.steele.looky.offline.PtilesRepository
+import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
 
 private enum class Screen { DRIVE, TRAIL, MORE, RECORDINGS, PACKS, SETTINGS, DEVELOPER }
+
+/** Settle time before a panned viewport triggers a PTiles decode. */
+private const val VIEWPORT_DEBOUNCE_MS = 400L
+
+/** Settle time before a search query hits the name indexes. */
+private const val SEARCH_DEBOUNCE_MS = 300L
+
+/** How far the viewport must move before reloading features, in metres. */
+private const val VIEWPORT_RELOAD_M = 400.0
+
+/** Search hits shown inline before the list would swamp the card. */
+private const val SEARCH_ROWS = 4
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -158,20 +180,19 @@ fun LookyApp(
         },
         bottomBar = {
             if (root) NavigationBar(containerColor = Color.White) {
+                // Tabs navigate only. Starting the service here re-labelled a
+                // running Drive session as Trail the moment the Trail tab was
+                // opened, so Trail read as in-progress when the user was just
+                // looking. Recording starts from the Start button or the
+                // Settings toggle -- the two places it is actually asked for.
                 NavigationBarItem(
                     selected = screen == Screen.DRIVE,
-                    onClick = {
-                        screen = Screen.DRIVE
-                        if (settings.continuousRecording) TraceService.start(context, LookyMode.DRIVE)
-                    },
+                    onClick = { screen = Screen.DRIVE },
                     icon = { Icon(Icons.Rounded.DirectionsCar, null) }, label = { Text("Drive") },
                 )
                 NavigationBarItem(
                     selected = screen == Screen.TRAIL,
-                    onClick = {
-                        screen = Screen.TRAIL
-                        if (settings.continuousRecording) TraceService.start(context, LookyMode.TRAIL)
-                    },
+                    onClick = { screen = Screen.TRAIL },
                     icon = { Icon(Icons.Rounded.Terrain, null) }, label = { Text("Trail") },
                 )
                 NavigationBarItem(
@@ -212,23 +233,57 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
     val repo = remember { PtilesRepository(context) }
     val scope = rememberCoroutineScope()
     val current = live.location?.let { GeoPoint(it.latitude, it.longitude) }
-    val center = current ?: GeoPoint(35.73377, -88.03220)
+    val anchor = current ?: GeoPoint(35.73377, -88.03220)
     var destination by remember(trail) { mutableStateOf<GeoPoint?>(null) }
+    var waypoints by remember(trail) { mutableStateOf(emptyList<GeoPoint>()) }
     var coordinate by remember(trail) { mutableStateOf("") }
+    var query by remember(trail) { mutableStateOf("") }
+    var results by remember(trail) { mutableStateOf(emptyList<PtilesRepository.BusinessResult>()) }
     var features by remember { mutableStateOf(emptyList<com.steele.looky.model.MapFeature>()) }
     var route by remember { mutableStateOf<PtilesRepository.RouteResult?>(null) }
     var routeError by remember { mutableStateOf<String?>(null) }
     var routing by remember { mutableStateOf(false) }
+    var routeProgress by remember { mutableStateOf(0f) }
+    // dataCenter is where PTiles data is loaded from; anchor is where the map
+    // is projected from. Panning moves the first without disturbing the second,
+    // which is what stops a reload from yanking the view back.
+    var dataCenter by remember(trail) { mutableStateOf(anchor) }
+    var panned by remember(trail) { mutableStateOf(false) }
+    var recenterKey by remember(trail) { mutableIntStateOf(0) }
     val requestedMode = if (trail) LookyMode.TRAIL else LookyMode.DRIVE
     val active = live.running && live.mode == requestedMode
+    val hasLayers = remember(live.running) { repo.installedLayers().isNotEmpty() }
 
-    LaunchedEffect(center.lat, center.lon, trail) {
-        features = withContext(Dispatchers.IO) { repo.featuresAround(center.lat, center.lon, trail) }
+    fun clearDestination() {
+        coordinate = ""
+        destination = null
+        waypoints = emptyList()
+        route = null
+        routeError = null
+    }
+
+    // Follow the GPS fix until the user pans away from it.
+    LaunchedEffect(anchor.lat, anchor.lon) {
+        if (!panned) dataCenter = anchor
+    }
+
+    LaunchedEffect(dataCenter.lat, dataCenter.lon, trail) {
+        delay(VIEWPORT_DEBOUNCE_MS)
+        features = withContext(Dispatchers.IO) { repo.featuresAround(dataCenter.lat, dataCenter.lon, trail) }
+    }
+
+    LaunchedEffect(query) {
+        if (query.isBlank()) {
+            results = emptyList()
+        } else {
+            delay(SEARCH_DEBOUNCE_MS)
+            results = withContext(Dispatchers.IO) { repo.searchBusinesses(query) }
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
         OfflineMap(
-            center = center,
+            center = anchor,
             features = features,
             current = current,
             destination = destination,
@@ -240,6 +295,14 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                 route = null
                 routeError = null
             },
+            onViewportChange = { viewport ->
+                // Ignore sub-tile drags so a nudge does not trigger a decode.
+                if (GpxReader.distanceM(dataCenter, viewport) > VIEWPORT_RELOAD_M) {
+                    panned = true
+                    dataCenter = viewport
+                }
+            },
+            recenterKey = recenterKey,
         )
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .96f))) {
@@ -247,15 +310,19 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(if (trail) "TRAIL MODE" else "DRIVE MODE", style = MaterialTheme.typography.labelLarge, color = ForestSoft)
-                            Text(
-                                if (live.running && live.mode == if (trail) LookyMode.TRAIL else LookyMode.DRIVE) "Recording in background" else "Ready offline",
-                                style = MaterialTheme.typography.titleLarge,
-                            )
+                            // While recording, the Stop button already says so.
+                            if (!active) Text("Ready offline", style = MaterialTheme.typography.titleLarge)
                         }
-                        if (live.running && repo.installedLayers().isNotEmpty()) {
+                        // No badge until there is a real classification: the
+                        // bus starts at "Unknown", and printing that is worse
+                        // than printing nothing.
+                        if (live.running && hasLayers && live.movement != "Unknown") {
                             Surface(color = Lime, shape = CircleShape) {
-                                val label = if (live.movement == "Unknown") "Starting…" else live.movement
-                                Text(label, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
+                                Text(
+                                    live.movement,
+                                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
                             }
                         }
                     }
@@ -272,6 +339,48 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                         }
                     } else {
                         OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                            trailingIcon = {
+                                if (query.isNotEmpty()) IconButton(onClick = { query = "" }) {
+                                    Icon(Icons.Rounded.Close, "Clear search")
+                                }
+                            },
+                            label = { Text("Search businesses") },
+                            placeholder = { Text("Waffle House") },
+                        )
+                        results.take(SEARCH_ROWS).forEach { hit ->
+                            BusinessRow(
+                                hit = hit,
+                                onSelect = {
+                                    destination = hit.point
+                                    coordinate = "%.5f, %.5f".format(hit.point.lat, hit.point.lon)
+                                    route = null
+                                    routeError = null
+                                    query = ""
+                                },
+                                onAddWaypoint = {
+                                    waypoints = waypoints + hit.point
+                                    route = null
+                                    routeError = null
+                                    query = ""
+                                },
+                            )
+                        }
+                        waypoints.forEachIndexed { index, point ->
+                            WaypointRow(
+                                index = index,
+                                point = point,
+                                onRemove = {
+                                    waypoints = waypoints.filterIndexed { at, _ -> at != index }
+                                    route = null
+                                },
+                            )
+                        }
+                        OutlinedTextField(
                             value = coordinate,
                             onValueChange = {
                                 coordinate = it
@@ -279,46 +388,53 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                             },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
+                            trailingIcon = {
+                                if (coordinate.isNotEmpty()) IconButton(onClick = ::clearDestination) {
+                                    Icon(Icons.Rounded.Close, "Clear destination")
+                                }
+                            },
                             label = { Text(if (trail) "Trailhead or destination coordinates" else "Destination coordinates") },
                             placeholder = { Text("35.7338, -88.0322") },
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = {
-                                    if (hasLocationPermission(context)) {
-                                        TraceService.start(context, requestedMode)
-                                    } else {
-                                        onRequestPermissions()
+                        Button(
+                            onClick = {
+                                if (hasLocationPermission(context)) {
+                                    TraceService.start(context, requestedMode)
+                                } else {
+                                    onRequestPermissions()
+                                }
+                                destination?.let { end ->
+                                    routing = true; routeError = null; routeProgress = 0f
+                                    val stops = waypoints
+                                    scope.launch {
+                                        runCatching {
+                                            withContext(Dispatchers.Default) {
+                                                repo.offlineRouteVia(
+                                                    anchor, stops, end, trail,
+                                                    settings.avoidHighways, settings.avoidIntersections,
+                                                ) { done, total -> routeProgress = done.toFloat() / total }
+                                            }
+                                        }.onSuccess { route = it }.onFailure { routeError = it.message ?: "No connected route in this pack" }
+                                        routing = false
                                     }
-                                    destination?.let { end ->
-                                        routing = true; routeError = null
-                                        scope.launch {
-                                            runCatching {
-                                                withContext(Dispatchers.Default) {
-                                                    val snappedStart = repo.snapForRoute(center, trail) ?: center
-                                                    val snappedEnd = repo.snapForRoute(end, trail) ?: end
-                                                    repo.offlineRoute(snappedStart, snappedEnd, trail, settings.avoidHighways, settings.avoidIntersections)
-                                                }
-                                            }.onSuccess { route = it }.onFailure { routeError = it.message ?: "No connected route in this pack" }
-                                            routing = false
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.weight(1f).height(50.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Forest),
-                            ) {
-                                if (routing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
-                                else Text(if (destination == null) "Start ${if (trail) "trail" else "drive"}" else "Route offline")
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Forest),
+                        ) {
+                            if (routing) {
+                                CircularProgressIndicator(
+                                    progress = { routeProgress },
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.White,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text("${(routeProgress * 100).roundToInt()}%")
+                            } else {
+                                Text(if (destination == null) "Start ${if (trail) "trail" else "drive"}" else "Route offline")
                             }
-                            FilledTonalButton(
-                                onClick = {
-                                    destination = GeoPoint(center.lat + 0.006, center.lon + 0.006)
-                                    coordinate = "%.5f, %.5f".format(center.lat + 0.006, center.lon + 0.006)
-                                },
-                                modifier = Modifier.height(50.dp),
-                                shape = RoundedCornerShape(16.dp),
-                            ) { Text("Drop pin") }
                         }
                         Text("Long-press the map to place a destination.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF69716C))
                     }
@@ -329,7 +445,6 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                     Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(formatDistance(it.distanceM), fontWeight = FontWeight.Black, color = Forest)
                         Text("${(it.durationS / 60).roundToInt().coerceAtLeast(1)} min", fontWeight = FontWeight.Bold, color = Forest)
-                        Text("${it.decodedSegments} local segments", color = ForestSoft)
                     }
                 }
             }
@@ -337,6 +452,21 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                 Surface(color = Color(0xFFFFE4DA), shape = RoundedCornerShape(14.dp)) {
                     Text(it, Modifier.padding(12.dp), color = Color(0xFF7A2B16))
                 }
+            }
+        }
+        if (panned) {
+            FilledTonalButton(
+                onClick = {
+                    panned = false
+                    dataCenter = anchor
+                    recenterKey++
+                },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 96.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Icon(Icons.Rounded.MyLocation, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Recenter")
             }
         }
         Card(
@@ -350,6 +480,34 @@ private fun ModeMap(trail: Boolean, settings: AppSettings, onRequestPermissions:
                 Metric(live.pointsToday.toString(), "POINTS")
             }
         }
+    }
+}
+
+@Composable
+private fun BusinessRow(
+    hit: PtilesRepository.BusinessResult,
+    onSelect: () -> Unit,
+    onAddWaypoint: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onSelect), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+            Text(hit.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("%.5f, %.5f".format(hit.point.lat, hit.point.lon), style = MaterialTheme.typography.bodySmall, color = ForestSoft)
+        }
+        IconButton(onClick = onAddWaypoint) { Icon(Icons.Rounded.Add, "Add as waypoint") }
+    }
+}
+
+@Composable
+private fun WaypointRow(index: Int, point: GeoPoint, onRemove: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "Stop ${index + 1} · %.5f, %.5f".format(point.lat, point.lon),
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Forest,
+        )
+        IconButton(onClick = onRemove) { Icon(Icons.Rounded.Close, "Remove stop") }
     }
 }
 
@@ -474,19 +632,29 @@ private fun SettingsToggle(title: String, subtitle: String, checked: Boolean, on
 private fun RecordingsScreen() {
     val context = LocalContext.current
     val traces = remember { File(context.filesDir, "traces").listFiles().orEmpty().filter { it.extension == "gpx" }.sortedDescending() }
+    var open by remember { mutableStateOf<File?>(null) }
+    open?.let { file ->
+        BackHandler { open = null }
+        RecordingDetailScreen(file)
+        return
+    }
     if (traces.isEmpty()) {
         EmptyState("No day files yet", "Start Drive or Trail and the first accurate fix will create one.")
         return
     }
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(traces, key = File::getName) { file ->
-            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+            Card(
+                Modifier.clickable { open = file },
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(18.dp),
+            ) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(file.nameWithoutExtension, style = MaterialTheme.typography.titleMedium)
                         Text("${file.length() / 1024} KB · GPX 1.1", color = Color(0xFF69716C))
                     }
-                    Text("Saved", color = Forest, fontWeight = FontWeight.Bold)
+                    Text("Open", color = Forest, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -548,20 +716,63 @@ private fun PacksScreen(currentStateCode: String?, onPacksChanged: () -> Unit) {
         items(MapPackDownloader.US_STATES, key = { it }) { region ->
             val pack = installedByRegion[region]
             var expanded by remember { mutableStateOf(false) }
+            var confirmDelete by remember { mutableStateOf(false) }
+            val active = progress?.takeIf { downloading && it.region == region }
             Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(16.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(region, style = MaterialTheme.typography.titleLarge)
-                            Text(if (pack == null) "Not downloaded" else "${pack.layers.size} layers · ${formatBytes(pack.bytes)}", color = Color(0xFF69716C))
+                            Text(
+                                when {
+                                    active != null -> "${active.layer} · ${formatBytes(active.bytes)}"
+                                    pack == null -> "Not downloaded"
+                                    else -> "${pack.layers.size} layers · ${formatBytes(pack.bytes)}"
+                                },
+                                color = Color(0xFF69716C),
+                            )
+                        }
+                        if (pack != null && !downloading) {
+                            IconButton(onClick = { confirmDelete = true }) {
+                                Icon(Icons.Rounded.Delete, "Delete $region maps", tint = Clay)
+                            }
                         }
                         FilledTonalButton(enabled = !downloading, onClick = { download(listOf(region)) }) { Text(if (pack == null) "Download" else "Update") }
+                    }
+                    if (active != null) {
+                        LinearProgressIndicator(
+                            progress = { active.completed.toFloat() / active.total.coerceAtLeast(1) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                        )
+                        Text(
+                            "${active.completed}/${active.total} layers",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ForestSoft,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
                     }
                     if (pack != null) {
                         Text(if (expanded) "Hide layer filenames" else "Show layer filenames", Modifier.clickable { expanded = !expanded }.padding(top = 10.dp), color = ForestSoft, style = MaterialTheme.typography.labelMedium)
                         if (expanded) pack.layers.forEach { Text("${it.name} · ${formatBytes(it.length())}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF69716C)) }
                     }
                 }
+            }
+            if (confirmDelete && pack != null) {
+                AlertDialog(
+                    onDismissRequest = { confirmDelete = false },
+                    title = { Text("Delete $region maps?") },
+                    text = { Text("Removes ${pack.layers.size} layers and frees ${formatBytes(pack.bytes)}. Offline routing and search stop working in $region until you download again.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            confirmDelete = false
+                            val freed = manager.delete(region)
+                            packs = manager.packs()
+                            message = "$region maps deleted · ${formatBytes(freed)} freed"
+                            onPacksChanged()
+                        }) { Text("Delete", color = Clay) }
+                    },
+                    dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep") } },
+                )
             }
         }
     }
