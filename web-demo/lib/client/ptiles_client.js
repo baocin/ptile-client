@@ -281,6 +281,138 @@ export class MovementTracker {
 if (Symbol.dispose) MovementTracker.prototype[Symbol.dispose] = MovementTracker.prototype.free;
 
 /**
+ * A route being followed. Holds the path, its cumulative distances and its
+ * turn queue on the Rust side so a position update costs one small call
+ * rather than re-serialising the whole route at every GPS fix -- which, at
+ * 1 Hz on a 600-point route, is the difference between free and not.
+ *
+ * ```js
+ * const nav = Navigator.new(route.path.map(p => [p[1], p[0]]), corridorRoads);
+ * const turns = nav.turns();            // the queue, once
+ * const st = nav.update(lat, lon, acc);  // every fix
+ * map.setBearing(st.bearing_deg);        // the predicted heading
+ * ```
+ */
+export class Navigator {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        NavigatorFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_navigator_free(ptr, 0);
+    }
+    /**
+     * Total route length in metres.
+     * @returns {number}
+     */
+    get length_m() {
+        const ret = wasm.navigator_length_m(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Name one turn from roads decoded near it, the lazy alternative to
+     * naming the whole queue when the route is built.
+     *
+     * Build the `Navigator` with no roads, then as each turn comes within
+     * announcing distance: read `probe_lat`/`probe_lon` off the turn, fetch
+     * the one cell holding that point, decode it, and pass the segments here.
+     * That is one block per turn -- almost always already cached, since it is
+     * a cell the route drives through -- instead of keeping a whole
+     * corridor's roads alive for the trip.
+     *
+     * Name a turn *before* its first announcement: "turn left" at 2 km
+     * followed by "turn left onto Broadway" at 200 m reads as two turns.
+     *
+     * Returns the named turn, or null when nothing was near enough.
+     * @param {number} index
+     * @param {any} roads_js
+     * @param {number | null} [radius_m]
+     * @returns {any}
+     */
+    name_turn(index, roads_js, radius_m) {
+        const ret = wasm.navigator_name_turn(this.__wbg_ptr, index, roads_js, !isLikeNone(radius_m), isLikeNone(radius_m) ? 0 : radius_m);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * `path` is `[lon, lat]` pairs -- the decoders' order. `RouteResult.path`
+     * is `[lat, lon]` for Leaflet, so flip it on the way in.
+     *
+     * `roads` is the corridor the route was found in, used only to name the
+     * turns; pass null for an unnamed queue. `name_radius_m` defaults to 30.
+     * @param {any} path_js
+     * @param {any} roads_js
+     * @param {number | null} [name_radius_m]
+     */
+    constructor(path_js, roads_js, name_radius_m) {
+        const ret = wasm.navigator_new(path_js, roads_js, !isLikeNone(name_radius_m), isLikeNone(name_radius_m) ? 0 : name_radius_m);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        NavigatorFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * The point to fetch a cell for when naming turn `index`: `[lat, lon]`,
+     * 15 m past the corner on the road being joined. Null for an index that
+     * is not in the queue.
+     * @param {number} index
+     * @returns {Float64Array | undefined}
+     */
+    probe(index) {
+        const ret = wasm.navigator_probe(this.__wbg_ptr, index);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        }
+        return v1;
+    }
+    /**
+     * The turn queue: `Depart`, every manoeuvre, `Arrive`. Each carries the
+     * manoeuvre, the signed bearing change, where it is, how far along the
+     * route, and the road it turns onto when one could be named.
+     * @returns {any}
+     */
+    turns() {
+        const ret = wasm.navigator_turns(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Where a fix puts you: snapped position, distance along and remaining,
+     * the predicted heading, the next turn and how far to it, and whether
+     * this fix is off the route.
+     *
+     * `off_route` describes one fix, not a decision. Require it on several
+     * consecutive fixes before rerouting -- a single bad fix in a parking
+     * garage is not a wrong turn.
+     *
+     * Null when the route is too short to follow.
+     * @param {number} lat
+     * @param {number} lon
+     * @param {number} accuracy_m
+     * @returns {any}
+     */
+    update(lat, lon, accuracy_m) {
+        const ret = wasm.navigator_update(this.__wbg_ptr, lat, lon, accuracy_m);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+}
+if (Symbol.dispose) Navigator.prototype[Symbol.dispose] = Navigator.prototype.free;
+
+/**
  * Accelerometer window summary from three same-length `Float32Array`s (raw
  * m/s^2 per axis, no gravity removal needed — magnitude is used). Returns
  * `{variance, mean_magnitude, dominant_frequency, step_count,
@@ -332,6 +464,17 @@ export function address_cell(block_bytes, cell_hex, version) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Signed difference between two bearings, degrees, positive to the right.
+ * @param {number} from_deg
+ * @param {number} to_deg
+ * @returns {number}
+ */
+export function bearing_delta(from_deg, to_deg) {
+    const ret = wasm.bearing_delta(from_deg, to_deg);
+    return ret;
 }
 
 /**
@@ -1906,6 +2049,9 @@ const AdminReaderFinalization = (typeof FinalizationRegistry === 'undefined')
 const MovementTrackerFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_movementtracker_free(ptr, 1));
+const NavigatorFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_navigator_free(ptr, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();

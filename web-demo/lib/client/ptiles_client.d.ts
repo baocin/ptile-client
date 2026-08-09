@@ -106,6 +106,77 @@ export class MovementTracker {
 }
 
 /**
+ * A route being followed. Holds the path, its cumulative distances and its
+ * turn queue on the Rust side so a position update costs one small call
+ * rather than re-serialising the whole route at every GPS fix -- which, at
+ * 1 Hz on a 600-point route, is the difference between free and not.
+ *
+ * ```js
+ * const nav = Navigator.new(route.path.map(p => [p[1], p[0]]), corridorRoads);
+ * const turns = nav.turns();            // the queue, once
+ * const st = nav.update(lat, lon, acc);  // every fix
+ * map.setBearing(st.bearing_deg);        // the predicted heading
+ * ```
+ */
+export class Navigator {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Name one turn from roads decoded near it, the lazy alternative to
+     * naming the whole queue when the route is built.
+     *
+     * Build the `Navigator` with no roads, then as each turn comes within
+     * announcing distance: read `probe_lat`/`probe_lon` off the turn, fetch
+     * the one cell holding that point, decode it, and pass the segments here.
+     * That is one block per turn -- almost always already cached, since it is
+     * a cell the route drives through -- instead of keeping a whole
+     * corridor's roads alive for the trip.
+     *
+     * Name a turn *before* its first announcement: "turn left" at 2 km
+     * followed by "turn left onto Broadway" at 200 m reads as two turns.
+     *
+     * Returns the named turn, or null when nothing was near enough.
+     */
+    name_turn(index: number, roads_js: any, radius_m?: number | null): any;
+    /**
+     * `path` is `[lon, lat]` pairs -- the decoders' order. `RouteResult.path`
+     * is `[lat, lon]` for Leaflet, so flip it on the way in.
+     *
+     * `roads` is the corridor the route was found in, used only to name the
+     * turns; pass null for an unnamed queue. `name_radius_m` defaults to 30.
+     */
+    constructor(path_js: any, roads_js: any, name_radius_m?: number | null);
+    /**
+     * The point to fetch a cell for when naming turn `index`: `[lat, lon]`,
+     * 15 m past the corner on the road being joined. Null for an index that
+     * is not in the queue.
+     */
+    probe(index: number): Float64Array | undefined;
+    /**
+     * The turn queue: `Depart`, every manoeuvre, `Arrive`. Each carries the
+     * manoeuvre, the signed bearing change, where it is, how far along the
+     * route, and the road it turns onto when one could be named.
+     */
+    turns(): any;
+    /**
+     * Where a fix puts you: snapped position, distance along and remaining,
+     * the predicted heading, the next turn and how far to it, and whether
+     * this fix is off the route.
+     *
+     * `off_route` describes one fix, not a decision. Require it on several
+     * consecutive fixes before rerouting -- a single bad fix in a parking
+     * garage is not a wrong turn.
+     *
+     * Null when the route is too short to follow.
+     */
+    update(lat: number, lon: number, accuracy_m: number): any;
+    /**
+     * Total route length in metres.
+     */
+    readonly length_m: number;
+}
+
+/**
  * Accelerometer window summary from three same-length `Float32Array`s (raw
  * m/s^2 per axis, no gravity removal needed — magnitude is used). Returns
  * `{variance, mean_magnitude, dominant_frequency, step_count,
@@ -127,6 +198,11 @@ export function accel_stats(x: Float32Array, y: Float32Array, z: Float32Array, s
  * already have `parse_header(...)`.
  */
 export function address_cell(block_bytes: Uint8Array, cell_hex: string, version: number): any;
+
+/**
+ * Signed difference between two bearings, degrees, positive to the right.
+ */
+export function bearing_delta(from_deg: number, to_deg: number): number;
 
 /**
  * Bearing from one point to another, degrees clockwise from north -- the
@@ -769,6 +845,7 @@ export interface InitOutput {
     readonly __wbg_adaptivemotionsession_free: (a: number, b: number) => void;
     readonly __wbg_adminreader_free: (a: number, b: number) => void;
     readonly __wbg_movementtracker_free: (a: number, b: number) => void;
+    readonly __wbg_navigator_free: (a: number, b: number) => void;
     readonly accel_stats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly adaptivemotionsession_currentAdvice: (a: number) => [number, number, number];
     readonly adaptivemotionsession_lastAppliedSampling: (a: number) => [number, number, number];
@@ -783,6 +860,7 @@ export interface InitOutput {
     readonly address_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
     readonly adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly bearing_delta: (a: number, b: number) => number;
     readonly cameras_seeing: (a: number, b: number, c: any, d: any, e: number, f: number) => [number, number, number];
     readonly cell_center: (a: number, b: number) => [number, number, number, number];
     readonly cell_filler_mask: () => bigint;
@@ -820,6 +898,12 @@ export interface InitOutput {
     readonly movementtracker_new: (a: any) => [number, number, number];
     readonly movementtracker_push: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any, j: any, k: any) => [number, number, number];
     readonly movementtracker_smoothedSpeedMps: (a: number) => [number, number];
+    readonly navigator_length_m: (a: number) => number;
+    readonly navigator_name_turn: (a: number, b: number, c: any, d: number, e: number) => [number, number, number];
+    readonly navigator_new: (a: any, b: any, c: number, d: number) => [number, number, number];
+    readonly navigator_probe: (a: number, b: number) => [number, number];
+    readonly navigator_turns: (a: number) => [number, number, number];
+    readonly navigator_update: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly nearest_address_to: (a: number, b: number, c: any, d: number, e: number) => [number, number, number];
     readonly nearest_intersection: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly nearest_rail: (a: number, b: number, c: any) => [number, number, number];
