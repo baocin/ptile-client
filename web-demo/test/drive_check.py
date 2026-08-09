@@ -127,6 +127,13 @@ def main():
         if not (pre["start"] and pre["end"]):
             failures.append("the whole route is not visible before the first fix")
 
+        # A drive that cannot survive the tab being evicted cannot be resumed,
+        # so the destination has to be on disk from the moment it starts.
+        sess = page.evaluate("() => window.__ptiles.driveSession()")
+        print(f"  session        {sess and sess.get('dest')}")
+        if not sess or not sess.get("dest"):
+            failures.append("starting a drive stored no resumable session")
+
         st0 = page.evaluate("() => window.__ptiles.driveState()")
         turns0 = st0["turns"]
         print(f"  turn queue     {len(turns0)} entries: "

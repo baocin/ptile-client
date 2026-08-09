@@ -219,6 +219,49 @@
   .poi-row .add { border: 1px solid #30363d; border-radius: 6px; background: none;
                   color: #2ea043; padding: 6px 10px; font-size: 0.75rem; cursor: pointer;
                   font-family: inherit; }
+  /* --- Trail mode ---------------------------------------------------------
+     A hiking compass, not a turn-by-turn screen: there are no turns on a
+     trail. One needle pointing back at the car, one distance, and a track
+     being written. Same full-screen treatment as drive mode, minus the
+     rotation -- the map stays north-up and the needle does the turning,
+     which is what a compass in the hand does. */
+  body.hiking .topbar, body.hiking .layer-bar, body.hiking .info-panel,
+  body.hiking .cam-panel, body.hiking .leaflet-control-container { display: none !important; }
+  body.hiking #map { height: 100%; width: 100%; }
+  #hikeUi { display: none; }
+  body.hiking #hikeUi { display: block; }
+  #hikeTop {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1200;
+    background: #0d1117; border-bottom: 1px solid #21262d;
+    padding: 12px 16px calc(12px + env(safe-area-inset-top)) 16px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  #hikeDial { width: 92px; height: 92px; flex: 0 0 92px; }
+  #hikeDial svg { width: 100%; height: 100%; display: block; }
+  /* The needle turns; the dial does not. A transition would lag the real
+     heading on a switchback, so there is none. */
+  #hikeNeedle { transform-box: fill-box; transform-origin: 50% 50%; }
+  #hikeBack { font-size: 1.9rem; font-weight: 700; line-height: 1.05; color: #e6edf3; }
+  #hikeBackLabel { font-size: 0.85rem; color: #8b949e; margin-top: 2px; }
+  #hikeHeading { font-size: 0.8rem; color: #6e7681; margin-top: 4px; }
+  #hikeBottom {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 1200;
+    background: #0d1117; border-top: 1px solid #21262d;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #hikeStats { display: flex; border-bottom: 1px solid #21262d; }
+  #hikeStats div { flex: 1; padding: 10px 4px; text-align: center; }
+  #hikeStats b { display: block; font-size: 1.15rem; color: #e6edf3; font-weight: 700; }
+  #hikeStats span { font-size: 0.66rem; color: #6e7681; }
+  #hikeButtons { display: flex; }
+  #hikeButtons button {
+    flex: 1; background: none; border: none; color: #8b949e;
+    padding: 12px 0; min-height: 48px; cursor: pointer;
+    font-size: 0.75rem; font-family: inherit;
+  }
+  #hikeButtons button.end { color: #f85149; }
+  #hikeNote { padding: 0 16px 10px; font-size: 0.75rem; color: #6e7681; min-height: 1em; }
+  .hike-car { background: none; border: none; }
   @media (prefers-color-scheme: light) { /* the road is bright; the screen is not */ }
 </style>
 </head>
@@ -240,6 +283,7 @@
       <label title="Electric range remaining, in miles. Set it and the route plans charging stops, driving only 80% of it between them."><input type="number" id="evRange" min="0" step="10" placeholder="EV range (mi)" style="width:110px"></label>
     </span>
     <button id="btnDrive" title="Follow the route you just found, turn by turn">Drive</button>
+    <button id="btnTrail" title="Hiking compass: mark where you parked, record the track, walk back to it">Trail</button>
     <button id="btnGeo" class="toggle-off" title="Click the map for the road or trail you are on and the nearest address; or type an address to find it">Geocode</button>
     <span id="geoOpts" style="display:none">
       <input type="text" id="geoInput" placeholder="400 Broadway" style="width:130px" />
@@ -454,6 +498,7 @@
   <script type="module">
 import init_wasm, * as wasm from "./lib/client/ptiles_client.js?v=4";
 import { createPtiles } from "./js/ptiles.js";
+import { crawlRoadRefCells } from "./js/road-ref-crawler.js";
 
 // Every question of the form "what do these bytes mean" goes through here.
 // This page keeps Leaflet, h3-js and the DOM; it decodes nothing itself.
@@ -2807,6 +2852,10 @@ var ROUTE_MAX_CELLS = 400;
 // separate from the ordinary phone budget so widening cannot silently turn
 // every route into a 900-cell load.
 var ROUTE_RETRY_MAX_CELLS = 900;
+// A reference crawl and the final guided road corridor share this ceiling.
+// Negative probes are still real Range reads, so they count even though they
+// do not appear in the final route graph.
+var ROUTE_REF_CRAWL_MAX_CELLS = 900;
 // The prefiltered state backbone has many sparse H3 entries but little data
 // (TN is ~1.7 MB compressed). Bound the aggregate explicitly so a request
 // cannot accidentally load the country.
@@ -3371,6 +3420,53 @@ function guideCellPath(guide, start, goal, radius) {
   return path;
 }
 
+// Prefer following a road reference already present in roads_v2 over opening
+// the complete highways_v2 index. OSM changes way ids constantly along one
+// interstate; a normalised ref survives those splits. Radius 2 tolerates one
+// empty H3 cell between recorded vertices, then the returned path is filled
+// back into a continuous spine before it reaches the corridor loader.
+async function roadRefGuidedPlan(state, a, b) {
+  var reader = await roadsReaderFor(state);
+  var crawl = await crawlRoadRefCells({
+    start: [a.lat, a.lon],
+    end: [b.lat, b.lon],
+    maxProbeCells: ROUTE_REF_CRAWL_MAX_CELLS,
+    neighborRadius: 2,
+    h3: {
+      cellFor: function(lat, lon) { return h3.latLngToCell(lat, lon, 7); },
+      gridDisk: function(cell, radius) { return h3.gridDisk(cell, radius); },
+      gridPath: function(from, to) { return h3.gridPathCells(from, to); },
+      center: function(cell) { return h3.cellToLatLng(cell); }
+    },
+    readRefs: async function(cell) {
+      var raw = await reader.decompressCell(BigInt("0x" + cell) & CELL_MASK);
+      if (!raw) return [];
+      var refs = [];
+      try {
+        var roads = wasm_decode_roads(raw);
+        for (var i = 0; roads && i < roads.length; i++) {
+          var road = roads[i];
+          var rc = road.road_class != null ? road.road_class : road.roadClass;
+          var ref = road.ref_tag != null ? road.ref_tag : road.refTag;
+          if (ROAD_REF_CRAWL_CLASS[rc] && ref) refs.push(ref);
+        }
+      } catch (e) {}
+      return refs;
+    }
+  });
+  if (!crawl.ref || !crawl.spine.length) {
+    return { plan: null, attempted: crawl.commonRefs.length > 0, crawl: crawl };
+  }
+  var plan = cellPlanAroundSpine(
+    crawl.spine, a.lat, a.lon, b.lat, b.lon, 2, ROUTE_RETRY_MAX_CELLS
+  );
+  plan.roadRef = crawl.ref;
+  plan.roadRefProbeCells = crawl.probedCells;
+  plan.roadRefMatchedCells = crawl.matchedCells;
+  plan.roadRefPathCells = crawl.path.length;
+  return { plan: plan, attempted: true, crawl: crawl };
+}
+
 async function highwayGuidedPlan(state, a, b) {
   var guide = await highwayBackboneFor(state);
   var start = nearestGuideCell(guide, a.lat, a.lon);
@@ -3401,6 +3497,10 @@ var ARTERIAL_CLASS = {
   motorway:1, motorway_link:1, trunk:1, trunk_link:1,
   primary:1, primary_link:1, secondary:1, secondary_link:1,
   tertiary:1, tertiary_link:1
+};
+var ROAD_REF_CRAWL_CLASS = {
+  motorway:1, motorway_link:1, trunk:1, trunk_link:1,
+  primary:1, primary_link:1
 };
 
 function roadClassFamily(rc) {
@@ -4055,7 +4155,7 @@ async function runRoute(a, b) {
     }
   } catch (e) {
     // A mandatory spine over 400 cells is not an unbounded first pass. Record
-    // that specific failure and let the one national highway retry take over.
+    // that specific failure instead of opening road files anyway.
     if (String(e && e.message || e).indexOf("route spine needs ") === 0) {
       attempt.failure = "corridor_budget_exceeded";
     } else {
@@ -4085,15 +4185,21 @@ async function runRoute(a, b) {
     lastRouteFailure = attempt.failure;
   }
   // A geometric band still cannot see a highway that bends well away from
-  // the crow-flight line (I-24 through Monteagle is the regression). Use one
-  // state's highway index to bend a bounded roads_v2 retry through cells that
-  // actually contain the backbone; record bodies still come from roads_v2.
+  // the crow-flight line (I-24 through Monteagle is the regression). First
+  // follow a highway ref directly through roads_v2. If the endpoints share no
+  // followable ref, fall back to the state's complete highway occupancy index.
   var guidedPlan = null;
+  var refGuide = null;
   var guideStates = pack ? pack.states : statesAlong(a.lat, a.lon, b.lat, b.lon);
   if (!result && attempt.failure === "disconnected" && distM >= 80000
       && guideStates.length === 1) {
-    setStatus("Route: highway-guided corridor…");
-    guidedPlan = await highwayGuidedPlan(guideStates[0], a, b);
+    setStatus("Route: follow highway ref…");
+    refGuide = await roadRefGuidedPlan(guideStates[0], a, b);
+    guidedPlan = refGuide.plan;
+    if (!guidedPlan && !refGuide.attempted) {
+      setStatus("Route: highway-index corridor…");
+      guidedPlan = await highwayGuidedPlan(guideStates[0], a, b);
+    }
     if (guidedPlan) {
       pack = await loadRouteCorridor(
         a.lat, a.lon, b.lat, b.lon, guidedPlan.requestedWidth, true,
@@ -4112,7 +4218,11 @@ async function runRoute(a, b) {
     vertices: pack.vertexCount, borderConnectors: pack.borderConnectors,
     highwayGuideCells: guidedPlan ? guidedPlan.guideCells : 0,
     highwayPathCells: guidedPlan ? guidedPlan.spine.length : 0,
-    highwayGuideStates: guidedPlan ? guideStates : []
+    highwayGuideStates: guidedPlan ? guideStates : [],
+    roadRef: guidedPlan ? guidedPlan.roadRef || null : null,
+    roadRefProbeCells: guidedPlan ? guidedPlan.roadRefProbeCells || 0 : 0,
+    roadRefMatchedCells: guidedPlan ? guidedPlan.roadRefMatchedCells || 0 : 0,
+    roadRefPathCells: guidedPlan ? guidedPlan.roadRefPathCells || 0 : 0
   } : null;
   return result;
 }
@@ -4578,6 +4688,10 @@ async function driveStart(dest) {
   drive.startedAt = Date.now();
   drive.fixes = 0;
   drive.rerouteTries = 0;
+  // Only the destination is worth keeping: the route itself is rebuilt from
+  // wherever the car turns out to be, which is what resuming has to do anyway.
+  sessionSave(DRIVE_KEY, { dest: drive.dest, startedAt: drive.startedAt,
+                           muted: drive.muted, northUp: drive.northUp });
   document.body.classList.add("driving");
   window.__driveReroutes = 0;
   driveSetRoute(lastRouteResult);
@@ -4982,7 +5096,388 @@ document.getElementById("driveOrient").addEventListener("click", function() {
   if (drive.last) driveRenderMap(drive.last);
 });
 
-document.getElementById("driveEnd").addEventListener("click", driveStop);
+// --- Sessions that survive a refresh ---------------------------------------
+// A phone in a pocket reloads the page for reasons nobody chose: the tab is
+// evicted under memory pressure, the screen locks, a notification takes over.
+// Losing a recorded hike to that is losing the whole point of recording it, so
+// both modes keep their state in localStorage and pick it up on load.
+var DRIVE_KEY = "ptiles.drive";
+var HIKE_KEY = "ptiles.hike";
+
+function sessionSave(key, obj) {
+  try { localStorage.setItem(key, JSON.stringify(obj)); return true; }
+  catch (e) { console.warn("[session] save failed", key, e); return false; }
+}
+function sessionLoad(key) {
+  try { return JSON.parse(localStorage.getItem(key) || "null"); }
+  catch (e) { return null; }
+}
+function sessionClear(key) {
+  try { localStorage.removeItem(key); } catch (e) {}
+}
+
+document.getElementById("driveEnd").addEventListener("click", function() {
+  sessionClear(DRIVE_KEY);
+  driveStop();
+});
+// --- Trail mode ------------------------------------------------------------
+// Glacier has no turn-by-turn and no cell service, and the question at 4 pm is
+// never "which exit" -- it is "which way is the car and how far". So: mark the
+// trailhead, record the track, point a needle back at it, and write a GPX at
+// the end. Everything is local; nothing here needs a network.
+
+// A fix is kept if the walker has moved HIKE_MIN_MOVE_M, or if
+// HIKE_MIN_GAP_MS have passed standing still (so a lunch stop still shows in
+// the track). At a walking pace that is roughly a point every few seconds --
+// a 6-hour hike lands near 4,000 points, which localStorage holds easily.
+var HIKE_MIN_MOVE_M = 8;
+var HIKE_MIN_GAP_MS = 20000;
+var HIKE_MAX_ACC_M = 60;      // a fix vaguer than this is a rumour, not a point
+// ponytail: hard cap so a phone left recording overnight cannot fill the
+// 5 MB quota; raise it or spill to IndexedDB if anyone actually hits it.
+var HIKE_MAX_POINTS = 20000;
+var HIKE_SAVE_MS = 5000;
+
+var hike = {
+  on: false,
+  car: null,          // {lat, lon} -- where you parked
+  track: [],          // [lat, lon, t_ms, acc_m] per kept fix
+  startedAt: 0,
+  walked_m: 0,
+  last: null,         // last fix, kept or not: {lat, lon, acc, t}
+  kept: null,         // last fix actually written to the track
+  heading: null,      // compass degrees, null until the device supplies one
+  moving: false,
+  motionAt: 0,        // last time the accelerometer saw movement
+  watchId: null,
+  wakeLock: null,
+  savedAt: 0,
+  savedCount: 0,
+  follow: true,
+  marker: null, carMarker: null, line: null, tick: null,
+  fixes: 0
+};
+
+function hikeDistText(m) {
+  // Feet under a quarter mile: on a trail "0.04 mi" is not a distance anyone
+  // can walk toward, and "210 ft" is.
+  var ft = m * 3.28084;
+  if (ft < 1320) return Math.round(ft / 10) * 10 + " ft";
+  return (ft / 5280).toFixed(ft < 52800 ? 2 : 1) + " mi";
+}
+
+function hikeElapsedText(ms) {
+  var s = Math.max(0, Math.round(ms / 1000));
+  var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? h + ":" + String(m).padStart(2, "0") : m + ":" + String(s % 60).padStart(2, "0");
+}
+
+// The needle points at the car *relative to the way the phone is held*. With no
+// compass (most desktops, and Android before permission is granted) it falls
+// back to the true bearing, which is still right if you hold the phone
+// north-up -- and the label says which of the two you are looking at.
+function hikeRender() {
+  var here = hike.last;
+  var note = document.getElementById("hikeNote");
+  if (here && hike.car) {
+    var away = haversineM(here.lat, here.lon, hike.car.lat, hike.car.lon);
+    var brg = bearingDeg(here.lat, here.lon, hike.car.lat, hike.car.lon);
+    document.getElementById("hikeBack").textContent = hikeDistText(away);
+    var rel = hike.heading == null ? brg : ((brg - hike.heading) % 360 + 360) % 360;
+    document.getElementById("hikeNeedle").style.transform = "rotate(" + rel + "deg)";
+    document.getElementById("hikeHeading").textContent =
+      Math.round(brg) + "° true" + (hike.heading == null ? " · no compass" : " · compass on")
+      + (hike.moving ? " · moving" : " · still");
+  }
+  document.getElementById("hikeWalked").textContent = hikeDistText(hike.walked_m);
+  document.getElementById("hikeElapsed").textContent =
+    hikeElapsedText(Date.now() - hike.startedAt);
+  document.getElementById("hikePoints").textContent = String(hike.track.length);
+  document.getElementById("hikeAcc").textContent =
+    here && here.acc != null ? Math.round(here.acc) + " m" : "—";
+  if (hike.track.length >= HIKE_MAX_POINTS) note.textContent = "track full; still navigating";
+}
+
+function hikeDrawMap() {
+  if (!hike.on) return;
+  var pts = hike.track.map(function(p) { return [p[0], p[1]]; });
+  if (!hike.line) hike.line = L.polyline(pts, { color: "#2ea043", weight: 4 }).addTo(map);
+  else hike.line.setLatLngs(pts);
+  if (hike.car && !hike.carMarker) {
+    hike.carMarker = L.marker([hike.car.lat, hike.car.lon], {
+      interactive: false,
+      icon: L.divIcon({
+        className: "hike-car", iconSize: [30, 30], iconAnchor: [15, 15],
+        html: '<svg viewBox="0 0 30 30" width="30" height="30">' +
+              '<circle cx="15" cy="15" r="13" fill="#0d1117" opacity="0.6"/>' +
+              '<path d="M8 18v-3l2-4h10l2 4v3M9 18h2M19 18h2" stroke="#d29922" ' +
+              'stroke-width="2" fill="none" stroke-linecap="round"/></svg>'
+      })
+    }).addTo(map);
+  }
+  if (hike.last) {
+    var ll = [hike.last.lat, hike.last.lon];
+    if (!hike.marker) {
+      hike.marker = L.circleMarker(ll, { radius: 7, color: "#0d1117", weight: 2,
+                                         fillColor: "#58a6ff", fillOpacity: 1 }).addTo(map);
+    } else {
+      hike.marker.setLatLng(ll);
+    }
+    if (hike.follow) map.setView(ll, Math.max(map.getZoom(), 15), { animate: false });
+  }
+}
+
+// Time alone is the wrong trigger: a fast walk down an open ridge produces
+// points quicker than the clock, and a save that only fires every 5 s loses
+// whatever came after the last one. Whichever bound is hit first wins.
+function hikePersist(force) {
+  if (!force && Date.now() - hike.savedAt < HIKE_SAVE_MS
+      && hike.track.length - hike.savedCount < 10) return;
+  hike.savedAt = Date.now();
+  hike.savedCount = hike.track.length;
+  var ok = sessionSave(HIKE_KEY, {
+    car: hike.car, track: hike.track, startedAt: hike.startedAt,
+    walked_m: hike.walked_m
+  });
+  // A full quota is the one failure a hiker must hear about: everything after
+  // it is unrecorded, and the screen would otherwise look identical.
+  if (!ok) document.getElementById("hikeNote").textContent =
+    "storage full -- save the GPX now";
+}
+
+function hikeOnFix(lat, lon, acc, t) {
+  if (!hike.on) return;
+  t = t || Date.now();
+  hike.fixes++;
+  var prev = hike.last;
+  hike.last = { lat: lat, lon: lon, acc: acc, t: t };
+  if (prev) hike.walked_m += haversineM(prev.lat, prev.lon, lat, lon);
+
+  var keep = acc == null || acc <= HIKE_MAX_ACC_M;
+  if (keep && hike.kept) {
+    keep = haversineM(hike.kept[0], hike.kept[1], lat, lon) >= HIKE_MIN_MOVE_M
+        || t - hike.kept[2] >= HIKE_MIN_GAP_MS;
+  }
+  if (keep && hike.track.length < HIKE_MAX_POINTS) {
+    var pt = [Number(lat.toFixed(6)), Number(lon.toFixed(6)), t,
+              acc == null ? null : Math.round(acc)];
+    hike.track.push(pt);
+    hike.kept = pt;
+    hikePersist(false);
+  }
+  hikeRender();
+  hikeDrawMap();
+}
+
+// GPX 1.1: one waypoint for the car, one track for the walk. Written by hand
+// because the whole file is six tags and a loop -- an XML builder would be
+// more code than the format.
+function hikeGpx() {
+  var head = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<gpx version="1.1" creator="PTILES" xmlns="http://www.topografix.com/GPX/1/1">\n';
+  var out = head;
+  if (hike.car) {
+    out += '  <wpt lat="' + hike.car.lat + '" lon="' + hike.car.lon + '">' +
+           '<name>Parked</name><sym>Car</sym></wpt>\n';
+  }
+  out += '  <trk><name>' + esc(new Date(hike.startedAt).toISOString()) +
+         '</name><trkseg>\n';
+  for (var i = 0; i < hike.track.length; i++) {
+    var p = hike.track[i];
+    out += '    <trkpt lat="' + p[0] + '" lon="' + p[1] + '"><time>' +
+           new Date(p[2]).toISOString() + '</time></trkpt>\n';
+  }
+  return out + '  </trkseg></trk>\n</gpx>\n';
+}
+
+function hikeDownloadGpx() {
+  var blob = new Blob([hikeGpx()], { type: "application/gpx+xml" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "hike-" + new Date(hike.startedAt).toISOString().slice(0, 16)
+    .replace(/[:T]/g, "") + ".gpx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function() { URL.revokeObjectURL(a.href); }, 10000);
+}
+
+// The compass. `deviceorientationabsolute` is the one that means anything
+// outdoors; iOS instead puts true heading on webkitCompassHeading and needs
+// permission asked from inside a tap, which is why hikeStart does the asking.
+function hikeOrientation(e) {
+  var h = null;
+  if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;
+  else if (e.absolute && typeof e.alpha === "number") h = 360 - e.alpha;
+  if (h == null) return;
+  hike.heading = ((h % 360) + 360) % 360;
+}
+
+// The accelerometer is not a position sensor and is not treated as one. It
+// answers one question the GPS answers badly: is this person walking, or is
+// the phone lying on a rock producing 8 m of drift per minute?
+function hikeMotion(e) {
+  var a = e.accelerationIncludingGravity || e.acceleration;
+  if (!a) return;
+  var mag = Math.sqrt((a.x || 0) * (a.x || 0) + (a.y || 0) * (a.y || 0) +
+                      (a.z || 0) * (a.z || 0));
+  // A device with no real accelerometer still fires the event, with nulls; a
+  // zero magnitude is that, not freefall, and reading it as motion would light
+  // "moving" on a phone sitting on a rock.
+  if (!(mag > 0.5)) return;
+  // Gravity alone is ~9.8; a walking phone swings well past 1 m/s^2 either way.
+  if (Math.abs(mag - 9.81) > 1.2) hike.motionAt = Date.now();
+  hike.moving = Date.now() - hike.motionAt < 4000;
+}
+
+async function hikeStart(car, resumed) {
+  hike.on = true;
+  hike.car = car;
+  document.body.classList.add("hiking");
+  document.body.classList.remove("driving");
+  if (!resumed) {
+    hike.track = [];
+    hike.kept = null;
+    hike.walked_m = 0;
+    hike.startedAt = Date.now();
+  }
+  hike.follow = true;
+  document.getElementById("hikeNote").textContent =
+    resumed ? "resumed" : "recording";
+
+  // iOS hands out motion and orientation only on request, and only from a
+  // gesture; both are optional, so a refusal costs the compass and nothing else.
+  var DOE = window.DeviceOrientationEvent, DME = window.DeviceMotionEvent;
+  if (DOE && typeof DOE.requestPermission === "function") {
+    try { await DOE.requestPermission(); } catch (e) {}
+  }
+  if (DME && typeof DME.requestPermission === "function") {
+    try { await DME.requestPermission(); } catch (e) {}
+  }
+  window.addEventListener("deviceorientationabsolute", hikeOrientation, true);
+  window.addEventListener("deviceorientation", hikeOrientation, true);
+  window.addEventListener("devicemotion", hikeMotion, true);
+
+  if (navigator.wakeLock && !hike.wakeLock) {
+    try { hike.wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+  }
+  if (navigator.geolocation && window.isSecureContext) {
+    hike.watchId = navigator.geolocation.watchPosition(function(pos) {
+      hikeOnFix(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+    }, function(err) {
+      console.warn("[hike] geolocation", gpsErrorText(err));
+      document.getElementById("hikeNote").textContent =
+        err && err.code === 1 ? "GPS blocked" : "no GPS";
+    }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 30000 });
+  }
+  // The clock and the compass move while the GPS says nothing for a minute at
+  // a time under tree cover; a screen frozen on the last fix looks broken.
+  hike.tick = setInterval(hikeRender, 1000);
+  hikePersist(true);
+  hikeRender();
+  hikeDrawMap();
+  setTimeout(function() { map.invalidateSize(); }, 60);
+  return true;
+}
+
+function hikeStop(save) {
+  if (save && hike.track.length) hikeDownloadGpx();
+  hike.on = false;
+  if (hike.watchId != null) { navigator.geolocation.clearWatch(hike.watchId); hike.watchId = null; }
+  if (hike.tick) { clearInterval(hike.tick); hike.tick = null; }
+  if (hike.wakeLock) { try { hike.wakeLock.release(); } catch (e) {} hike.wakeLock = null; }
+  window.removeEventListener("deviceorientationabsolute", hikeOrientation, true);
+  window.removeEventListener("deviceorientation", hikeOrientation, true);
+  window.removeEventListener("devicemotion", hikeMotion, true);
+  [hike.marker, hike.carMarker, hike.line].forEach(function(l) {
+    if (l) map.removeLayer(l);
+  });
+  hike.marker = hike.carMarker = hike.line = null;
+  sessionClear(HIKE_KEY);
+  document.body.classList.remove("hiking");
+  setTimeout(function() { map.invalidateSize(); }, 60);
+}
+
+// Where did you park? The GPS answer is right nearly every time -- you are
+// standing at the car when you press the button -- so that is the default, and
+// the fallback is tapping the trailhead on the map for the times it is not
+// (starting the app late, or a shuttle drop).
+function hikeAsk() {
+  if (!navigator.geolocation || !window.isSecureContext) {
+    hikeAskByTap();
+    return;
+  }
+  setStatus("Trail: waiting for GPS…");
+  navigator.geolocation.getCurrentPosition(function(pos) {
+    var c = pos.coords;
+    var where = c.latitude.toFixed(5) + ", " + c.longitude.toFixed(5) +
+                " (±" + Math.round(c.accuracy) + " m)";
+    if (confirm("Parked here?\n" + where + "\n\nOK: start from this spot.\n" +
+                "Cancel: tap the map where you parked.")) {
+      hikeStart({ lat: c.latitude, lon: c.longitude }, false);
+      hikeOnFix(c.latitude, c.longitude, c.accuracy);
+    } else {
+      hikeAskByTap();
+    }
+  }, function(err) {
+    setStatus("Trail: " + gpsErrorText(err), true);
+    hikeAskByTap();
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+}
+
+function hikeAskByTap() {
+  setStatus("Tap the map where you parked", false);
+  map.once("click", function(e) {
+    hikeStart({ lat: e.latlng.lat, lon: e.latlng.lng }, false);
+  });
+}
+
+document.getElementById("btnTrail").addEventListener("click", function() {
+  if (hike.on) return;
+  hikeAsk();
+});
+document.getElementById("hikeEnd").addEventListener("click", function() {
+  if (hike.track.length && !confirm("End the hike and download the GPX?")) return;
+  hikeStop(true);
+});
+document.getElementById("hikeSaveGpx").addEventListener("click", hikeDownloadGpx);
+document.getElementById("hikeCenter").addEventListener("click", function() {
+  hike.follow = true;
+  hikeDrawMap();
+});
+map.on("dragstart", function() { if (hike.on) hike.follow = false; });
+
+// Resume whatever was running when the page went away. The hike comes back
+// whole -- track, car, elapsed clock. The drive comes back as a destination
+// and rebuilds its route from the first fix, which is what it does at the
+// start of every drive anyway.
+async function resumeSessions() {
+  var h = sessionLoad(HIKE_KEY);
+  if (h && h.car && h.startedAt) {
+    hike.track = Array.isArray(h.track) ? h.track : [];
+    hike.kept = hike.track.length ? hike.track[hike.track.length - 1] : null;
+    hike.startedAt = h.startedAt;
+    hike.walked_m = h.walked_m || 0;
+    await hikeStart(h.car, true);
+    return;
+  }
+  var d = sessionLoad(DRIVE_KEY);
+  if (!d || !d.dest || !navigator.geolocation || !window.isSecureContext) return;
+  if (!confirm("Resume navigating to your destination?")) { sessionClear(DRIVE_KEY); return; }
+  navigator.geolocation.getCurrentPosition(async function(pos) {
+    try {
+      var r = await runRoute({ lat: pos.coords.latitude, lon: pos.coords.longitude }, d.dest);
+      if (!r || !r.path || r.path.length < 2) { setStatus("Could not rebuild the route", true); return; }
+      lastRouteResult = r;
+      drive.muted = !!d.muted;
+      drive.northUp = !!d.northUp;
+      await driveStart(d.dest);
+    } catch (e) {
+      setStatus("Resume failed: " + (e.message || e), true);
+    }
+  }, function() {}, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+}
+
 document.getElementById("driveMute").addEventListener("click", function() {
   drive.muted = !drive.muted;
   this.classList.toggle("on", !drive.muted);
@@ -6048,6 +6543,34 @@ window.__ptiles = {
     return window.__ptiles.driveState();
   },
 
+  // --- Trail mode, without a mountain ---------------------------------------
+  hikeStart: function(lat, lon) { return hikeStart({ lat: lat, lon: lon }, false); },
+  hikeFix: function(lat, lon, accuracy_m, t) {
+    hikeOnFix(lat, lon, accuracy_m == null ? 8 : accuracy_m, t);
+    return window.__ptiles.hikeState();
+  },
+  hikeState: function() {
+    return {
+      on: hike.on,
+      car: hike.car,
+      points: hike.track.length,
+      fixes: hike.fixes,
+      walked_m: Math.round(hike.walked_m),
+      startedAt: hike.startedAt,
+      back: document.getElementById("hikeBack").textContent,
+      heading: document.getElementById("hikeHeading").textContent,
+      note: document.getElementById("hikeNote").textContent,
+      needle: document.getElementById("hikeNeedle").style.transform,
+      stored: !!sessionLoad(HIKE_KEY),
+      visible: document.body.classList.contains("hiking")
+    };
+  },
+  hikeGpx: function() { return hikeGpx(); },
+  hikeStop: function() { hikeStop(false); return window.__ptiles.hikeState(); },
+  // Resume without the reload, so a test can check the restore path directly.
+  hikeResume: async function() { hike.on = false; await resumeSessions(); return window.__ptiles.hikeState(); },
+  driveSession: function() { return sessionLoad(DRIVE_KEY); },
+
   losAt: async function(lat, lon) {
     losMode = true;
     await runLos(lat, lon);
@@ -6120,6 +6643,9 @@ window.__ptiles = {
   }
 };
 
+// A hike or a drive that was running when the tab died comes back here.
+resumeSessions();
+
   </script>
 <div id="driveUi">
   <div id="driveBanner">
@@ -6166,6 +6692,38 @@ window.__ptiles = {
       <button id="driveSheetClose" title="Close">✕</button>
     </div>
     <div id="driveSheetBody"></div>
+  </div>
+</div>
+<div id="hikeUi">
+  <div id="hikeTop">
+    <div id="hikeDial">
+      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor">
+        <circle cx="50" cy="50" r="44" stroke="#30363d" stroke-width="2"/>
+        <text x="50" y="16" fill="#6e7681" stroke="none" font-size="11" text-anchor="middle">N</text>
+        <g id="hikeNeedle">
+          <path d="M50 14 L62 62 L50 54 L38 62 Z" fill="#2ea043" stroke="none"/>
+        </g>
+      </svg>
+    </div>
+    <div style="min-width:0">
+      <div id="hikeBack">—</div>
+      <div id="hikeBackLabel">to the car</div>
+      <div id="hikeHeading"></div>
+    </div>
+  </div>
+  <div id="hikeBottom">
+    <div id="hikeStats">
+      <div><b id="hikeWalked">0</b><span>WALKED</span></div>
+      <div><b id="hikeElapsed">0:00</b><span>ELAPSED</span></div>
+      <div><b id="hikePoints">0</b><span>POINTS</span></div>
+      <div><b id="hikeAcc">—</b><span>GPS</span></div>
+    </div>
+    <div id="hikeButtons">
+      <button id="hikeSaveGpx">Save GPX</button>
+      <button id="hikeCenter">Recenter</button>
+      <button id="hikeEnd" class="end">End hike</button>
+    </div>
+    <div id="hikeNote"></div>
   </div>
 </div>
 </body>
