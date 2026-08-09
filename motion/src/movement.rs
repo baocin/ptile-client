@@ -470,18 +470,32 @@ pub fn classify_with_history(
     // to Stationary at every stop -- turns one journey into a string of false
     // arrivals. A genuine walking cadence breaks it immediately rather than
     // waiting the speed out, which is what makes driving->walking responsive.
-    if previous_stable == MovementType::Driving {
-        let step_cadence = (1.0..=3.0).contains(&accel.dominant_frequency)
-            && accel.step_count > 3
-            && accel.variance > 0.01;
-        if inst_speed_mps.is_some_and(|s| s > 0.3) && !step_cadence {
-            return Vote { movement: MovementType::Driving, confidence: 0.75 };
-        }
+    // A gait, as opposed to a vehicle's vibration. Computed once: both the
+    // driving-sticky and the ambiguous speed band below turn on it.
+    let step_cadence = (1.0..=3.0).contains(&accel.dominant_frequency)
+        && accel.step_count > 3
+        && accel.variance > 0.01;
+
+    if previous_stable == MovementType::Driving
+        && inst_speed_mps.is_some_and(|s| s > 0.3)
+        && !step_cadence
+    {
+        return Vote { movement: MovementType::Driving, confidence: 0.75 };
     }
 
     if let Some(speed) = inst_speed_mps {
         if speed > DRIVING_FLOOR_MPS {
             return Vote { movement: MovementType::Driving, confidence: 0.90 };
+        }
+        // 5 m/s to the driving floor is the band that used to be misread as
+        // Walking outright -- 8 m/s is 18 mph, which nobody walks. It is also
+        // the band a fast runner or a cyclist occupies, so speed alone cannot
+        // settle it: require an accelerometer that is actually reporting and is
+        // NOT showing a gait. With no accelerometer at all this falls through
+        // rather than guessing, which is what stops a GPX replay promoting every
+        // fast fix to Driving.
+        if speed > 5.0 && accel.window_duration_s.is_some_and(|d| d > 0.0) && !step_cadence {
+            return Vote { movement: MovementType::Driving, confidence: 0.80 };
         }
         if speed > WALKING_CEILING_MPS {
             return Vote { movement: MovementType::Walking, confidence: 0.85 };
@@ -1016,6 +1030,35 @@ mod tests {
         // 50 s of Stationary majority against a 15 s latency: if the cleared sticky
         // still blocked it, this is where it would show.
         assert_eq!(d.current(), MovementType::Stationary, "cleared sticky should not block the transition");
+    }
+
+    #[test]
+    fn eighteen_miles_an_hour_is_not_walking() {
+        // The hole this closes. 8 m/s sits below the driving floor, so it used
+        // to fall straight to "above the walking ceiling -> Walking" with no
+        // upper guard, and a real city-drive recording produced two windows of
+        // Walking at 18 mph.
+        let idle = AccelStats { variance: 1.2, mean_magnitude: Some(9.8), dominant_frequency: 0.3, step_count: 0, window_duration_s: Some(4.0) };
+        let v = classify(Some(8.0), Some(4.0), None, Some(&idle));
+        assert_eq!(v.movement, MovementType::Driving);
+    }
+
+    #[test]
+    fn a_fast_runner_is_not_promoted_to_driving() {
+        // The same band belongs to a sprinter, so a genuine gait keeps it.
+        let running = accel_window(2.6, 2.0, 9.8, 60, 4.0);
+        let v = classify(Some(6.0), Some(4.0), None, Some(&running));
+        assert_ne!(v.movement, MovementType::Driving);
+    }
+
+    #[test]
+    fn without_an_accelerometer_the_band_does_not_guess() {
+        // A GPX replay carries fixes and no samples. Promoting every fast fix to
+        // Driving there would invent a vehicle from a single noisy speed.
+        let v = classify(Some(6.0), Some(4.0), None, None);
+        assert_ne!(v.movement, MovementType::Driving);
+        // EMPTY is the same fact stated explicitly.
+        assert_ne!(classify(Some(6.0), Some(4.0), None, Some(&AccelStats::EMPTY)).movement, MovementType::Driving);
     }
 
     #[test]
