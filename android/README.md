@@ -12,14 +12,23 @@ product is in development.
 - `ptiles-ffi` UniFFI bindings for decoding local layers, nearby road context,
   adaptive motion classification, and bounded driving/foot routing.
 - A sticky location foreground service records in Drive, Trail, and background
-  states. The notification switches modes without opening the app.
+  states. It holds a partial wake lock while active, refreshes movement
+  classification every two seconds, and the notification switches modes or
+  stops recording without opening the app.
 - `filesDir/traces/YYYY-MM-DD.gpx`, one valid GPX 1.1 file per local day, using
   the Rook extension namespaces and one track per debounced movement run.
 - `filesDir/ptiles/` for installed packs. Imports are written to a pending file
   and renamed into place so a partial layer is never opened as complete.
-- A tiny western Tennessee conformance pack ships only so a fresh install can exercise
-  real PTiles decoding without connectivity. Install full state/region layers
-  for useful coverage.
+- State packs come from the dated snapshot configured in `MapPackDownloader`.
+  Decoder conformance slices are test fixtures, not map downloads, and are
+  deliberately excluded from the app because their statewide headers cover
+  only a small prefix of real cells.
+- The first-download action resolves the device's current state, downloads
+  that state's versioned layers plus the national layers, and routes against
+  the state layer covering the route origin.
+- Drive and Trail maps render downloaded cameras. The developer map adds
+  layer toggles and diagnostics over roads, trails, water, parks, buildings,
+  rail, cameras, and nearby businesses.
 
 The app does not upload traces and route computation does not call a service.
 `android:allowBackup` remains enabled deliberately, matching the Rook durability

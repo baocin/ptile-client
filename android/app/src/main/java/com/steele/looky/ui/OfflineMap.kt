@@ -32,6 +32,9 @@ private val Park = Color(0xFF91AE83)
 private val Building = Color(0xFFB68E73)
 private val Route = Color(0xFF173F35)
 private val Track = Color(0xFFD67246)
+private val Camera = Color(0xFFB72F3E)
+private val Rail = Color(0xFF6D4C7D)
+private val Business = Color(0xFFD67246)
 
 @Composable
 fun OfflineMap(
@@ -94,8 +97,26 @@ fun OfflineMap(
             drawLine(Color(0xFF6B756D).copy(alpha = alpha), Offset(0f, size.height * i / 5f), Offset(size.width, size.height * i / 5f), 1f)
         }
         features.forEach { feature ->
-            if (feature.points.size == 1 && feature.kind == "building") {
-                drawCircle(Building, 3.5f, project(feature.points.first()))
+            if (feature.points.size == 1) {
+                val point = project(feature.points.first())
+                when {
+                    feature.kind == "building" -> drawCircle(Building, 3.5f, point)
+                    feature.kind.startsWith("camera") -> {
+                        drawCircle(Color.White, 9f, point)
+                        drawCircle(Camera, 7f, point)
+                        drawCircle(MapPaper, 2.5f, point)
+                        drawLine(Camera, point, point + Offset(8f, -6f), 3f, StrokeCap.Round)
+                    }
+                    feature.kind == "station" -> {
+                        drawCircle(Color.White, 7f, point)
+                        drawCircle(Rail, 5f, point)
+                    }
+                    feature.kind.startsWith("business") -> {
+                        drawCircle(Color.White, 5f, point)
+                        drawCircle(Business, 3.5f, point)
+                    }
+                    else -> drawCircle(Road, 3.5f, point)
+                }
                 return@forEach
             }
             val isTrail = feature.kind.startsWith("trail") || feature.kind in setOf("path", "footway", "track", "steps")
@@ -103,6 +124,7 @@ fun OfflineMap(
             val color = when {
                 feature.kind == "water" -> Water
                 feature.kind == "park" -> Park
+                feature.kind.startsWith("rail") -> Rail
                 isTrail -> Trail
                 major -> MajorRoad
                 else -> Road

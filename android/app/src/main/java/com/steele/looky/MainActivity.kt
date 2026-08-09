@@ -21,6 +21,10 @@ import com.steele.looky.ui.LookyTheme
 import com.steele.looky.ui.Onboarding
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
+import com.steele.looky.offline.StateResolver
 
 class MainActivity : ComponentActivity() {
     private lateinit var settings: AppSettings
@@ -28,6 +32,7 @@ class MainActivity : ComponentActivity() {
     private var mapDownload by mutableStateOf<MapDownloadProgress?>(null)
     private var mapDownloadRunning by mutableStateOf(false)
     private var mapDownloadError by mutableStateOf<String?>(null)
+    private var currentStateCode by mutableStateOf<String?>(null)
 
     private val backgroundPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -63,6 +68,7 @@ class MainActivity : ComponentActivity() {
                         mapDownload = mapDownload,
                         mapDownloadRunning = mapDownloadRunning,
                         mapDownloadError = mapDownloadError,
+                        currentStateName = StateResolver.name(currentStateCode),
                         onDownloadMaps = ::downloadMaps,
                         onComplete = {
                             settings.onboardingComplete = true
@@ -78,7 +84,7 @@ class MainActivity : ComponentActivity() {
                             TraceService.start(this@MainActivity, settings.activeMode)
                         }
                     }
-                    LookyApp(settings, ::requestLookyPermissions)
+                    LookyApp(settings, ::requestLookyPermissions, currentStateCode)
                 }
             }
         }
@@ -86,10 +92,16 @@ class MainActivity : ComponentActivity() {
 
     private fun downloadMaps() {
         if (mapDownloadRunning) return
+        val state = currentStateCode
+        if (state == null) {
+            mapDownloadError = "Waiting for a location fix so Looky can choose your state"
+            resolveCurrentState()
+            return
+        }
         mapDownloadRunning = true
         mapDownloadError = null
         lifecycleScope.launch {
-            MapPackDownloader.downloadCurrentState(this@MainActivity) { progress ->
+            MapPackDownloader.downloadCurrentState(this@MainActivity, state) { progress ->
                 runOnUiThread { mapDownload = progress }
             }
                 .onFailure { mapDownloadError = it.message ?: "Map download failed" }
@@ -102,7 +114,7 @@ class MainActivity : ComponentActivity() {
                 if (permissionsGranted && settings.continuousRecording) TraceService.start(this@MainActivity, settings.activeMode)
                 // Compose observes onboardingComplete only through this local state.
                 setContent {
-                    LookyTheme { LookyApp(settings, ::requestLookyPermissions) }
+                    LookyTheme { LookyApp(settings, ::requestLookyPermissions, currentStateCode) }
                 }
             }
         }
@@ -122,5 +134,27 @@ class MainActivity : ComponentActivity() {
         permissionsGranted = ContextCompat.checkSelfPermission(
             this, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
+        if (permissionsGranted) resolveCurrentState()
+    }
+
+    private fun resolveCurrentState() {
+        if (!permissionsGranted) return
+        val client = LocationServices.getFusedLocationProviderClient(this)
+        try {
+            client.lastLocation.addOnSuccessListener { last ->
+                if (last != null) {
+                    currentStateCode = StateResolver.stateAt(last.latitude, last.longitude, currentStateCode)
+                } else {
+                    val token = CancellationTokenSource()
+                    client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, token.token)
+                        .addOnSuccessListener { fix ->
+                            if (fix != null) currentStateCode =
+                                StateResolver.stateAt(fix.latitude, fix.longitude, currentStateCode)
+                        }
+                }
+            }
+        } catch (_: SecurityException) {
+            currentStateCode = null
+        }
     }
 }

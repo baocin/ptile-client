@@ -10,7 +10,6 @@ data class MapDownloadProgress(val completed: Int, val total: Int, val layer: St
 
 object MapPackDownloader {
     const val CURRENT_DATE = "2026-08-07"
-    const val CURRENT_STATE = "TN"
     private const val BASE = "https://maps.mydatatimeline.com/maps/"
     // Navigation-first pack: roads plus highway overlay and the surrounding natural/transit layers.
     val STATE_LAYERS = listOf(
@@ -22,8 +21,14 @@ object MapPackDownloader {
     val US_STATES = "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC".split(' ')
     val US_LAYERS = listOf("admin", "camera", "signals")
 
-    suspend fun downloadCurrentState(context: Context, onProgress: (MapDownloadProgress) -> Unit): Result<Int> =
-        downloadStates(context, listOf(CURRENT_STATE, "MT"), onProgress, includeUsLayers = true)
+    suspend fun downloadCurrentState(
+        context: Context,
+        state: String,
+        onProgress: (MapDownloadProgress) -> Unit,
+    ): Result<Int> {
+        require(state in US_STATES) { "Unknown US state: $state" }
+        return downloadStates(context, listOf(state), onProgress, includeUsLayers = true)
+    }
 
     suspend fun downloadStates(context: Context, states: List<String>, onProgress: (MapDownloadProgress) -> Unit, includeUsLayers: Boolean = false): Result<Int> = withContext(Dispatchers.IO) {
         val dir = PackManager(context).packsDir
