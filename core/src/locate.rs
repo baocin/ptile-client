@@ -122,6 +122,45 @@ pub fn nearest_road_way(lat: f64, lon: f64, roads: &[RoadSegment]) -> Option<Nea
         .min_by(|a, b| a.distance_m.total_cmp(&b.distance_m))
 }
 
+/// How much further a road may be and still win on being the one a person
+/// would name. A click or a GPS fix is good to roughly this much, so within
+/// the band "closest" is not evidence of anything.
+pub const ROAD_TIE_BREAK_M: f64 = 15.0;
+
+/// Lower is better. An unnamed alley, driveway or parking aisle is almost
+/// never the answer to "what road am I on" when a named street is the same
+/// distance away, and pure nearest-centreline picked the alley every time.
+fn road_rank(w: &NearbyWay) -> u8 {
+    let minor = matches!(
+        w.class.as_str(),
+        "service" | "track" | "footway" | "cycleway" | "path" | "pedestrian"
+    );
+    let unnamed = w.name.as_deref().map_or(true, |n| n.trim().is_empty());
+    (unnamed as u8) * 2 + (minor as u8)
+}
+
+/// The road a point is most likely *on*: nearest, but a better-ranked road
+/// within [`ROAD_TIE_BREAK_M`] of the nearest wins. Distances reported are
+/// still the true ones.
+pub fn best_road_way(lat: f64, lon: f64, roads: &[RoadSegment]) -> Option<NearbyWay> {
+    let ways: Vec<NearbyWay> = roads
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| way_from_road(i, r, lat, lon))
+        .collect();
+    let best = ways
+        .iter()
+        .map(|w| w.distance_m)
+        .fold(f64::INFINITY, f64::min);
+    ways.into_iter()
+        .filter(|w| w.distance_m <= best + ROAD_TIE_BREAK_M)
+        .min_by(|a, b| {
+            road_rank(a)
+                .cmp(&road_rank(b))
+                .then(a.distance_m.total_cmp(&b.distance_m))
+        })
+}
+
 /// The nearest trail to a point. Trailhead points are skipped: this answers
 /// "which trail am I walking on".
 pub fn nearest_trail(lat: f64, lon: f64, trails: &[TrailFeature]) -> Option<NearbyWay> {
@@ -379,7 +418,7 @@ pub fn locate(
     trails: &[TrailFeature],
     addresses: &[AddressRecord],
 ) -> Located {
-    let road = nearest_road_way(lat, lon, roads);
+    let road = best_road_way(lat, lon, roads);
     let trail = nearest_trail(lat, lon, trails);
 
     let nearest_way = match (road, trail) {
@@ -493,6 +532,7 @@ mod tests {
             street: street.to_string(),
             lat: Some(lat),
             lon: Some(lon),
+            source: Default::default(),
         }
     }
 
@@ -502,6 +542,29 @@ mod tests {
             vec![road("Broadway", "residential", vec![[-86.80, 36.0], [-86.79, 36.0]])],
             vec![trail("Greenway", "path", vec![[-86.80, 36.0009], [-86.79, 36.0009]])],
         )
+    }
+
+    #[test]
+    fn a_named_street_beats_a_nearer_unnamed_alley() {
+        // Alley 5 m north of the click, named street 12 m south of it: within
+        // the tie-break band, so the street wins even though the alley is nearer.
+        let mut alley = road("x", "service", vec![[-86.80, 36.00011], [-86.79, 36.00011]]);
+        alley.name = None;
+        let street = road("Broadway", "residential", vec![[-86.80, 35.99989], [-86.79, 35.99989]]);
+        let got = locate(36.0, -86.795, &[alley, street], &[], &[]);
+        let on = got.on_way.expect("on something");
+        assert_eq!(on.name.as_deref(), Some("Broadway"));
+        assert!(on.distance_m > 10.0, "true distance kept: {}", on.distance_m);
+    }
+
+    #[test]
+    fn a_far_enough_named_street_does_not_steal_the_alley() {
+        let mut alley = road("x", "service", vec![[-86.80, 36.00001], [-86.79, 36.00001]]);
+        alley.name = None;
+        // 40 m south -- outside the band, so nearest still wins.
+        let street = road("Broadway", "residential", vec![[-86.80, 35.99964], [-86.79, 35.99964]]);
+        let got = locate(36.0, -86.795, &[alley, street], &[], &[]);
+        assert_eq!(got.on_way.expect("on something").name, None);
     }
 
     #[test]
@@ -683,6 +746,7 @@ mod tests {
             street: "Nowhere".into(),
             lat: None,
             lon: None,
+            source: Default::default(),
         };
         assert!(nearest_address(36.0, -86.795, &[v1], ADDRESS_THRESHOLD_M).is_none());
     }

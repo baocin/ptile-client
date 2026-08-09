@@ -93,6 +93,12 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
         notes: "US.admin.ptiles (real sample inspected) AND {STATE}.address.ptiles both land on 7-byte magic PTILESA v1 -- the address encoder's PTILESA2 truncates to PTILESA via write_header's magic[:7]. Disambiguated by structure (admin: block_count 0, aux_length>0) and filename, not magic",
     },
     FormatEntry {
+        magic: b"PTILESD",
+        file_kind: "address",
+        versions: &[1, 2],
+        notes: "{STATE}.address_v2.ptiles as published since the builder stopped truncating PTILESA2 to the admin magic. v2 records carry i16 cell-relative coordinates; v1 has none. Older published address files still say PTILESA and are accepted under that entry",
+    },
+    FormatEntry {
         magic: b"PTILESX",
         file_kind: "business_name_index",
         versions: &[1],
@@ -298,7 +304,9 @@ mod tests {
     fn versions_for_distinguishes_unknown_magic_from_wrong_version() {
         assert_eq!(versions_for(b"PTILESR"), Some(&[2u8][..]));
         assert_eq!(versions_for(b"PTILESA"), Some(&[1u8][..]));
-        assert!(versions_for(b"PTILESD").is_none());
+        // PTILESD is the address magic and is supported now that the builder
+        // stopped truncating it to PTILESA; PTILESU (routing) still is not.
+        assert_eq!(versions_for(b"PTILESD"), Some(&[1u8, 2][..]));
         assert!(versions_for(b"PTILESU").is_none());
         assert!(versions_for(b"XXXXXXX").is_none());
     }

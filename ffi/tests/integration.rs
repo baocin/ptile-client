@@ -6,7 +6,7 @@
 
 use ptiles_ffi::{
     intersection_holds_traffic, intersection_type_name, AddressLayer, AdminLayer, CandidateKind,
-    Fix, LatLon, PtilesError, PtilesLayer, PtilesStack,
+    Fix, LatLon, OfflineRouteMode, PtilesError, PtilesLayer, PtilesStack,
 };
 
 const DATA_DIR: &str = "/home/aoi/kino/data/ptiles";
@@ -123,6 +123,31 @@ fn roads_query_rejects_ring_greater_than_one() {
     let layer = PtilesLayer::open(roads_path()).expect("open roads layer");
     let err = layer.roads(NASHVILLE_LAT, NASHVILLE_LON, 2);
     assert!(err.is_err(), "ring=2 must be rejected, matching CLI semantics");
+}
+
+#[test]
+fn offline_route_matches_the_browser_smoke_route() {
+    skip_if_absent!(roads_path());
+    let roads = PtilesLayer::open(roads_path()).expect("open roads layer");
+    let stack = PtilesStack::new(Some(roads), None, None);
+
+    // The same downtown-Nashville -> Percy Warner Park pair exercised by
+    // web-demo/test/route_check.py. Keeping the pair shared makes a native
+    // regression directly comparable with the working browser route.
+    let route = stack
+        .offline_route(
+            36.1627,
+            -86.7816,
+            36.0836,
+            -86.8925,
+            OfflineRouteMode::Driving,
+            false,
+            false,
+        )
+        .expect("native offline route");
+    assert!(route.path.len() >= 2, "route has a drawable path");
+    assert!(route.decoded_segments > 0, "route decoded road segments");
+    assert!(route.distance_m > 10_000.0 && route.distance_m < 40_000.0);
 }
 
 #[test]

@@ -3019,12 +3019,15 @@ document.getElementById("btnCloseCam").addEventListener("click", function() {
 
 // The lookup/intersection panel had no way out: it opened on a map click and
 // then covered a third of the map until the next click happened to land
-// somewhere that produced a different result. clearOverlays drops the marker
-// and the highlighted geometry with it, so closing leaves nothing behind.
+// somewhere that produced a different result.
+//
+// Close hides the panel and nothing else. On a phone the panel covers most of
+// the map, so closing it is how you *look* at the result you just asked for --
+// clearing the marker and the highlighted geometry made Close and "throw the
+// answer away" the same button. The next lookup calls clearOverlays anyway,
+// and Reset layers still wipes everything.
 document.getElementById("btnCloseInfo").addEventListener("click", function() {
   infoPanel.classList.remove("show");
-  clearOverlays();
-  setStatus("");
 });
 
 function signalColor(t) {
@@ -5181,8 +5184,16 @@ var hike = {
   savedCount: 0,
   follow: true,
   marker: null, carMarker: null, line: null, tick: null,
-  fixes: 0
+  fixes: 0,
+  // Invalidates an async start when the hike is ended while sensor or wake
+  // lock permission is still settling. Without this, the tail of hikeStart
+  // can recreate the saved session after hikeStop has deliberately cleared it.
+  lifecycle: 0
 };
+
+function hikeStartIsCurrent(lifecycle) {
+  return hike.on && hike.lifecycle === lifecycle;
+}
 
 function hikeDistText(m) {
   // Feet under a quarter mile: on a trail "0.04 mi" is not a distance anyone
@@ -5357,6 +5368,7 @@ function hikeMotion(e) {
 }
 
 async function hikeStart(car, resumed) {
+  var lifecycle = ++hike.lifecycle;
   hike.on = true;
   hike.car = car;
   document.body.classList.add("hiking");
@@ -5376,17 +5388,26 @@ async function hikeStart(car, resumed) {
   var DOE = window.DeviceOrientationEvent, DME = window.DeviceMotionEvent;
   if (DOE && typeof DOE.requestPermission === "function") {
     try { await DOE.requestPermission(); } catch (e) {}
+    if (!hikeStartIsCurrent(lifecycle)) return false;
   }
   if (DME && typeof DME.requestPermission === "function") {
     try { await DME.requestPermission(); } catch (e) {}
+    if (!hikeStartIsCurrent(lifecycle)) return false;
   }
   window.addEventListener("deviceorientationabsolute", hikeOrientation, true);
   window.addEventListener("deviceorientation", hikeOrientation, true);
   window.addEventListener("devicemotion", hikeMotion, true);
 
   if (navigator.wakeLock && !hike.wakeLock) {
-    try { hike.wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+    var lock = null;
+    try { lock = await navigator.wakeLock.request("screen"); } catch (e) {}
+    if (!hikeStartIsCurrent(lifecycle)) {
+      if (lock) { try { await lock.release(); } catch (e) {} }
+      return false;
+    }
+    hike.wakeLock = lock;
   }
+  if (!hikeStartIsCurrent(lifecycle)) return false;
   if (navigator.geolocation && window.isSecureContext) {
     hike.watchId = navigator.geolocation.watchPosition(function(pos) {
       hikeOnFix(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
@@ -5408,6 +5429,9 @@ async function hikeStart(car, resumed) {
 
 function hikeStop(save) {
   if (save && hike.track.length) hikeDownloadGpx();
+  // Do this before clearing resources: every continuation of hikeStart sees a
+  // stale lifecycle and must leave the ended hike ended.
+  hike.lifecycle++;
   hike.on = false;
   if (hike.watchId != null) { navigator.geolocation.clearWatch(hike.watchId); hike.watchId = null; }
   if (hike.tick) { clearInterval(hike.tick); hike.tick = null; }
