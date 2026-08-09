@@ -491,6 +491,66 @@ pub struct Fix {
     pub speed_mps: Option<f64>,
 }
 
+/// Indoor/outdoor estimate exposed to Swift/Kotlin/Python. `Uncertain` is a
+/// first-class result: a building-edge GPS fix or missing map coverage is not
+/// forced into a binary answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum IndoorOutdoorState {
+    Indoor,
+    Outdoor,
+    Uncertain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum IndoorOutdoorReason {
+    InsideBuilding,
+    InsideOpenStructure,
+    AccuracyOverlapsBuilding,
+    ClearOfBuildings,
+    NoBuildingsNearby,
+    IncompleteCoverage,
+    InvalidFix,
+    PoorAccuracy,
+}
+
+/// Explainable result from [`PtilesLayer::indoor_outdoor`].
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct IndoorOutdoorEstimate {
+    pub state: IndoorOutdoorState,
+    pub confidence: f64,
+    pub reason: IndoorOutdoorReason,
+    pub building_osm_id: Option<i64>,
+    /// Depth inside or clearance outside the relevant footprint.
+    pub distance_to_boundary_m: Option<f64>,
+}
+
+impl From<ptiles_core::IndoorOutdoorEstimate> for IndoorOutdoorEstimate {
+    fn from(e: ptiles_core::IndoorOutdoorEstimate) -> Self {
+        let state = match e.classification {
+            ptiles_core::IndoorOutdoor::Indoor => IndoorOutdoorState::Indoor,
+            ptiles_core::IndoorOutdoor::Outdoor => IndoorOutdoorState::Outdoor,
+            ptiles_core::IndoorOutdoor::Uncertain => IndoorOutdoorState::Uncertain,
+        };
+        let reason = match e.reason {
+            ptiles_core::IndoorOutdoorReason::InsideBuilding => IndoorOutdoorReason::InsideBuilding,
+            ptiles_core::IndoorOutdoorReason::InsideOpenStructure => IndoorOutdoorReason::InsideOpenStructure,
+            ptiles_core::IndoorOutdoorReason::AccuracyOverlapsBuilding => IndoorOutdoorReason::AccuracyOverlapsBuilding,
+            ptiles_core::IndoorOutdoorReason::ClearOfBuildings => IndoorOutdoorReason::ClearOfBuildings,
+            ptiles_core::IndoorOutdoorReason::NoBuildingsNearby => IndoorOutdoorReason::NoBuildingsNearby,
+            ptiles_core::IndoorOutdoorReason::IncompleteCoverage => IndoorOutdoorReason::IncompleteCoverage,
+            ptiles_core::IndoorOutdoorReason::InvalidFix => IndoorOutdoorReason::InvalidFix,
+            ptiles_core::IndoorOutdoorReason::PoorAccuracy => IndoorOutdoorReason::PoorAccuracy,
+        };
+        IndoorOutdoorEstimate {
+            state,
+            confidence: e.confidence,
+            reason,
+            building_osm_id: e.building_osm_id,
+            distance_to_boundary_m: e.distance_to_boundary_m,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum CandidateKind {
     Road,
@@ -851,6 +911,27 @@ impl PtilesLayer {
             cells.extend(neighbor_cells(center));
         }
         cells
+    }
+
+    /// Whether the whole positional-uncertainty circle lies inside the layer's
+    /// declared coverage. At a state edge the adjacent state's building layer
+    /// is missing, so `covers(point)` alone is not enough evidence for an
+    /// outdoor classification.
+    fn covers_radius(&self, lat: f64, lon: f64, radius_m: f64) -> bool {
+        if !(lat.is_finite()
+            && lon.is_finite()
+            && radius_m.is_finite()
+            && radius_m >= 0.0
+            && (-90.0..=90.0).contains(&lat)
+            && (-180.0..=180.0).contains(&lon))
+        {
+            return false;
+        }
+        let lat_delta = radius_m / 111_320.0;
+        let lon_scale = (lat.to_radians().cos().abs() * 111_320.0).max(1.0);
+        let lon_delta = radius_m / lon_scale;
+        self.covers(lat - lat_delta, lon - lon_delta)
+            && self.covers(lat + lat_delta, lon + lon_delta)
     }
 
     /// One cell's decompressed block, memoized -- including the *absence* of a
@@ -1457,6 +1538,50 @@ impl PtilesLayer {
         Ok(pick_building(&buildings, lat, lon))
     }
 
+    /// Estimate whether a GPS fix is indoors or outdoors from building
+    /// footprints, with an explicit uncertainty result and evidence.
+    ///
+    /// The containing H3 cell plus ring 1 are read so a footprint assigned to
+    /// a neighboring cell is not missed. A fix worse than 50 m, a point whose
+    /// accuracy circle overlaps a wall, an open-sided `roof`/`carport`/`canopy`,
+    /// or incomplete layer coverage returns `Uncertain`. This is map inference,
+    /// not room/floor positioning or proof of physical occupancy.
+    pub fn indoor_outdoor(
+        &self,
+        lat: f64,
+        lon: f64,
+        horizontal_accuracy_m: f64,
+    ) -> Result<IndoorOutdoorEstimate, PtilesError> {
+        if self.kind != LayerKind::BuildingsV8 {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        let params = ptiles_core::IndoorOutdoorParams::default();
+        let coverage_complete = self.covers_radius(
+            lat,
+            lon,
+            horizontal_accuracy_m.max(0.0) + params.outdoor_clearance_m,
+        );
+        let buildings = if self.covers(lat, lon) {
+            self.decoded_buildings(lat, lon, 1)?
+        } else {
+            Vec::new()
+        };
+        let fix = CoreFix {
+            lat,
+            lon,
+            horizontal_accuracy_m,
+            speed_mps: None,
+        };
+        Ok(ptiles_core::estimate_indoor_outdoor(
+            &fix,
+            &buildings,
+            coverage_complete,
+            &params,
+        ).into())
+    }
+
     /// Businesses within `radius_m` of `(lat, lon)`, searching the
     /// containing cell (plus ring-1 neighbors when `ring == 1`).
     /// Business-layer only.
@@ -1905,6 +2030,31 @@ impl PtilesStack {
             camera,
             addresses,
         })
+    }
+
+    /// Indoor/outdoor estimate using this stack's building layer. A stack with
+    /// no building layer returns `Uncertain/IncompleteCoverage`, not `Outdoor`.
+    pub fn indoor_outdoor(
+        &self,
+        lat: f64,
+        lon: f64,
+        horizontal_accuracy_m: f64,
+    ) -> Result<IndoorOutdoorEstimate, PtilesError> {
+        if let Some(layer) = &self.buildings {
+            return layer.indoor_outdoor(lat, lon, horizontal_accuracy_m);
+        }
+        let fix = CoreFix {
+            lat,
+            lon,
+            horizontal_accuracy_m,
+            speed_mps: None,
+        };
+        Ok(ptiles_core::estimate_indoor_outdoor(
+            &fix,
+            &[],
+            false,
+            &ptiles_core::IndoorOutdoorParams::default(),
+        ).into())
     }
 
     /// Which cameras can see `(lat, lon)`, nearest first -- "is anything

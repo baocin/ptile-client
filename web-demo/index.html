@@ -3519,11 +3519,18 @@ async function planCharging(a, b, result) {
     return result;
   }
   var plan = wasm.plan_charge_stops(pathLonLat, ev.features, rangeM, null);
+  lastChargePlan = { chargersFound: ev.features.length, cells: ev.cellCount, states: ev.states };
   if (plan instanceof Map) { var o = {}; plan.forEach(function(v, k) { o[k] = v; }); plan = o; }
   var stops = plan.stops || [];
   if (stops instanceof Map) stops = Array.from(stops.values());
+  lastChargePlan.reachable = !!plan.reachable;
+  lastChargePlan.usableM = plan.usable_range_m;
+  lastChargePlan.routeM = plan.route_m;
+  lastChargePlan.shortfallM = plan.shortfall_m;
+  lastChargePlan.stops = stops.length;
 
   clearChargeLayer();
+  lastEvNote = null;
   chargeLayer.addTo(map);
   var picked = [];
   stops.forEach(function(stop, i) {
@@ -3539,15 +3546,20 @@ async function planCharging(a, b, result) {
   });
 
   var usableMi = (plan.usable_range_m / MILE_M).toFixed(0);
-  if (!plan.reachable) {
-    setStatus("EV: " + (plan.shortfall_m / MILE_M).toFixed(0) + " mi with no charger in reach — " +
-              "route drawn without stops (" + usableMi + " mi usable per leg)", true);
-    return result;
-  }
+  var shortMi = (plan.shortfall_m / MILE_M).toFixed(0);
   if (!picked.length) {
-    setStatus("EV: within range, no stop needed (" + usableMi + " mi usable)");
+    // Nothing to route through. Either the leg fits in one charge, or no
+    // charger is reachable at all -- opposite situations, and a driver needs
+    // to know which.
+    lastEvNote = plan.reachable
+      ? "EV: within range, no stop needed (" + usableMi + " mi usable)"
+      : "EV: no charger within " + usableMi + " mi — " + shortMi + " mi unreachable";
     return result;
   }
+  // A plan that gets part of the way is still worth drawing: the stops it did
+  // find are real, and "you can get this far, then you are " + shortMi + " mi
+  // short" is the answer a driver acts on. Dropping them because the last leg
+  // does not close would leave the map looking like nothing was planned.
 
   // Re-route A -> stops -> B so the line goes through them.
   setStatus("EV: routing via " + picked.length + " stop" + (picked.length > 1 ? "s" : "") + "…");
@@ -3570,8 +3582,9 @@ async function planCharging(a, b, result) {
     // Skip each leg's first point: it is the previous leg's last.
     joined.path = joined.path.concat(joined.path.length ? l.path.slice(1) : l.path);
   });
-  setStatus("EV: " + picked.length + " stop" + (picked.length > 1 ? "s" : "") + " · " +
-            (joined.distance_m / MILE_M).toFixed(0) + " mi · " + usableMi + " mi usable per leg");
+  lastEvNote = "EV: " + picked.length + " stop" + (picked.length > 1 ? "s" : "") + " · " +
+    usableMi + " mi usable per leg" +
+    (plan.reachable ? "" : " · last " + shortMi + " mi has no charger in reach");
   return joined;
 }
 
@@ -3688,9 +3701,6 @@ async function loadRouteCorridorLoose(lat1, lon1, lat2, lon2, width) {
 
 function clearRouteLayer() {
   if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
-  // Charge stops belong to the route that planned them: leaving them on the
-  // map after the line goes reads as "stop here" for a drive nobody is making.
-  clearChargeLayer();
 }
 
 function ensureRouteLayer() {
@@ -4303,6 +4313,18 @@ async function handleRouteClick(lat, lon) {
  * Route a leg, draw it, and report it. Also records the leg as `lastLeg` so a
  * preference toggle can re-run exactly this one.
  */
+// The last route drawn, for the browser harness: a drawn polyline says a line
+// exists, not how long it is or whether it went through the stops.
+var lastRouteResult = null;
+// The last charge plan, for the harness: "no stops" has three very different
+// causes -- no chargers fetched, no charger in reach, or the leg fitting in
+// one charge -- and the drawn map cannot tell them apart.
+var lastChargePlan = null;
+// What the charge planner concluded, kept because routeAndDraw sets the status
+// line *after* planning and would otherwise erase it -- the stops would be on
+// the map with nothing saying why.
+var lastEvNote = null;
+
 async function routeAndDraw(a, b) {
   // Counted for the browser test: "toggling a preference re-runs routing" is a
   // claim about how many times the router ran, and nothing else on the page
@@ -4310,6 +4332,10 @@ async function routeAndDraw(a, b) {
   // real re-run on a leg with no motorway on it.
   window.__routeRuns = (window.__routeRuns || 0) + 1;
   clearRouteLayer();
+  // Stops belong to the route that planned them, so the old ones go here --
+  // once, before planning -- and not inside clearRouteLayer, which runs again
+  // after the plan and would erase the markers it had just drawn.
+  clearChargeLayer();
   drawRouteEndpoints(a, b);
   routeBusy = true;
   // Remembered even when no path was found: "no path with these preferences" is
@@ -4318,6 +4344,7 @@ async function routeAndDraw(a, b) {
   try {
     var result = trailsOnly() ? await runTrailRoute(a, b) : await runRoute(a, b);
     if (!trailsOnly()) result = await planCharging(a, b, result);
+    lastRouteResult = result;
     clearRouteLayer();
     drawRouteEndpoints(a, b);
     if (!result || !result.path || result.path.length < 2) {
@@ -4325,7 +4352,7 @@ async function routeAndDraw(a, b) {
     } else {
       var n = drawRoutePath(result.path);
       if (n < 2) setStatus("Route path empty after normalize", true);
-      else setStatus(formatRouteStatus(result, n));
+      else setStatus(formatRouteStatus(result, n) + (lastEvNote ? " · " + lastEvNote : ""));
     }
   } catch (e) {
     setStatus("Route error: " + (e.message || e), true);
@@ -4614,6 +4641,31 @@ window.__ptiles = {
   },
   // Drives the line-of-sight mode the way a click does, and reports what it
   // concluded -- the harness cannot read colours off polygons.
+  // Drive a route the way the buttons do, and report what came back. The map
+  // shows a line either way; only the numbers distinguish a walk over paths
+  // from a drive down the parallel road, or a route through charging stops
+  // from one that ignored them.
+  routeAt: async function(a, b, opts) {
+    opts = opts || {};
+    var trails = document.getElementById("chkTrailsOnly");
+    var ev = document.getElementById("evRange");
+    trails.checked = !!opts.trailsOnly;
+    ev.value = opts.evRangeMi != null ? String(opts.evRangeMi) : "";
+    lastRouteResult = null;
+    lastChargePlan = null;
+    await routeAndDraw({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] });
+    var r = lastRouteResult;
+    return {
+      status: document.getElementById("statusBar").textContent,
+      found: !!(r && r.path && r.path.length > 1),
+      distanceM: r ? Math.round(r.distance_m) : 0,
+      durationS: r ? Math.round(r.duration_s) : 0,
+      points: r && r.path ? r.path.length : 0,
+      chargeStops: chargeLayer && chargeLayer.getLayers ? chargeLayer.getLayers().length : 0,
+      plan: lastChargePlan
+    };
+  },
+
   losAt: async function(lat, lon) {
     losMode = true;
     await runLos(lat, lon);

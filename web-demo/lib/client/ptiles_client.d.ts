@@ -83,6 +83,35 @@ export function accel_stats(x: Float32Array, y: Float32Array, z: Float32Array, s
 export function address_cell(block_bytes: Uint8Array, cell_hex: string, version: number): any;
 
 /**
+ * Bearing from one point to another, degrees clockwise from north -- the
+ * convention a camera's own `direction` tag uses, so the two are directly
+ * comparable.
+ */
+export function bearing_to(from_lat: number, from_lon: number, to_lat: number, to_lon: number): number;
+
+/**
+ * Which cameras can see `(lat, lon)`, nearest first -- "is anything pointed
+ * at me right now".
+ *
+ * `cameras_js` is what `decode_cameras` returned; `buildings_js` is a
+ * `ViewBuilding` array (`{coords, height_m, building_type}`), the same input
+ * `viewshed` takes, and may be null when the caller has no buildings loaded.
+ * `range_m` defaults to `ptiles_core::CAMERA_RANGE_M` (50 m).
+ *
+ * Each answer carries `sees` plus the three reasons behind it
+ * (`aimed_at_you`, `aim_assumed`, `line_of_sight`, `blocked_by`). Every
+ * assumption leans toward reporting a camera rather than omitting one: an
+ * untagged aim is assumed to point at you, a dome rotates, and an unmeasured
+ * building is credited with the low end of its height range. Passing no
+ * buildings therefore gives every in-range camera a clear sight line.
+ *
+ * `index` and `blocked_by` arrive as BigInt -- they are `usize` in Rust, and
+ * serde carries 64-bit integers across as BigInt rather than silently
+ * narrowing them to a Number.
+ */
+export function cameras_seeing(lat: number, lon: number, cameras_js: any, buildings_js: any, range_m?: number | null): any;
+
+/**
  * `[lat, lon]` center of an H3 res-7 cell (hex string). Demo/browser
  * boundary for `ptiles_core::cell_center` -- replaces `h3-js`'s
  * `cellToLatLng`.
@@ -118,6 +147,11 @@ export function cell_for_coord(lat: number, lon: number): string;
  * box would cover more than `ptiles_core::MAX_BOUNDS_CELLS` cells.
  */
 export function cells_for_bounds(min_lat: number, min_lon: number, max_lat: number, max_lon: number): any[];
+
+/**
+ * The fraction of range the charge planner holds back (0.2).
+ */
+export function charge_reserve(): number;
 
 /**
  * The run of index entries that may contain `cell_hex`, as a byte range to
@@ -182,6 +216,14 @@ export function decode_business_versioned(block_bytes: Uint8Array, version: numb
  * `decode_signals`.
  */
 export function decode_cameras(data: Uint8Array): any;
+
+/**
+ * Decode an EV charging block (`{ST}.ev_v1.ptiles`, PTILESE v1).
+ *
+ * `power_kw` and `connectors` are null/empty when OSM does not say, which is
+ * most of them -- that is an unknown, not a zero.
+ */
+export function decode_chargers(data: Uint8Array): any;
 
 export function decode_parks(data: Uint8Array): any;
 
@@ -375,6 +417,12 @@ export function nearest_address_to(lat: number, lon: number, addresses_js: any, 
 export function nearest_intersection(block_bytes: Uint8Array, lat: number, lon: number, threshold_m?: number | null): any;
 
 /**
+ * The rail track under a point, or null. Station points are skipped; use
+ * `nearest_station` for those. `rail_js` is what `decode_rail` returned.
+ */
+export function nearest_rail(lat: number, lon: number, rail_js: any): any;
+
+/**
  * Decode a roads block and return the single nearest road segment to
  * `(lat, lon)`, per plan addendum item 1: `{osm_id, name, road_class,
  * snapped, distance_m, geometry}`. `threshold_m` is optional; omit (pass
@@ -385,6 +433,28 @@ export function nearest_intersection(block_bytes: Uint8Array, lat: number, lon: 
  * `null` if no road is within the threshold.
  */
 export function nearest_road(block_bytes: Uint8Array, lat: number, lon: number, threshold_m?: number | null): any;
+
+/**
+ * The nearest station or halt point, or null.
+ */
+export function nearest_station(lat: number, lon: number, rail_js: any): any;
+
+/**
+ * The trail under a point, or null: "which path am I walking on".
+ *
+ * `trails_js` is what `decode_trails` returned. Trailhead points are skipped
+ * -- a point has no centreline to be on -- so ask `nearest_trailhead` for
+ * those. Returns a `NearbyWay`: `{kind, name, class, distance_m, snapped,
+ * on_it}`, with `on_it` true within 25 m.
+ */
+export function nearest_trail(lat: number, lon: number, trails_js: any): any;
+
+/**
+ * The nearest trailhead -- where a trail network is entered, which is what a
+ * caller planning to *start* a walk wants. Returns a `NearbyPoint`:
+ * `{kind, name, class, lat, lon, distance_m}`, or null.
+ */
+export function nearest_trailhead(lat: number, lon: number, trails_js: any): any;
 
 /**
  * Ring-1 (6 cells) H3 neighbors of `cell_hex`, as lowercase hex strings.
@@ -399,6 +469,14 @@ export function neighbor_cells(cell_hex: string): any[];
  * compare equal. The mask is a property of the id layout, not of any caller.
  */
 export function normalize_cell(cell: bigint): bigint;
+
+/**
+ * The park at a point: the polygon containing it, else the nearest park
+ * boundary. Returns a `NearbyArea`: `{kind, name, class, distance_m,
+ * inside}`, or null. Check `inside` before telling a user they are in it --
+ * `distance_m` is 0 exactly when they are.
+ */
+export function park_at(lat: number, lon: number, parks_js: any): any;
 
 /**
  * Parse the PTCI sampled index from a file's `aux` region.
@@ -474,6 +552,31 @@ export function parse_index_entries(data: Uint8Array): any;
 export function parse_index_layout(header_bytes: Uint8Array, index_bytes: Uint8Array): any;
 
 /**
+ * Plan the charging stops a drive needs.
+ *
+ * `path_js` is the route as `[lon, lat]` pairs, `chargers_js` is what
+ * `decode_chargers` returned for the corridor, and `range_m` is what the car
+ * says it has *now*. The plan drives only
+ * `range_m * (1 - CHARGE_RESERVE)` -- 80% -- so the driver reaches each stop
+ * with something in reserve, and prefers a stop in the far half of each leg
+ * so one stop does not become three. Returns
+ * `{stops, reachable, shortfall_m, usable_range_m, route_m}`; `stops[].index`
+ * points back into the chargers array.
+ */
+export function plan_charge_stops(path_js: any, chargers_js: any, range_m: number, max_detour_m?: number | null): any;
+
+/**
+ * Whether a point falls inside a closed ring. `coords` is a flat
+ * `[lon, lat, lon, lat, ...]` array -- the decoders' coordinate order,
+ * flattened because a nested array costs a full serde round-trip per vertex.
+ *
+ * Exposed because the demo hand-rolled ray casting in JavaScript, where an
+ * off-by-one in the wrap-around index silently mis-answers points near the
+ * first vertex.
+ */
+export function point_in_polygon(lat: number, lon: number, coords: Float64Array): boolean;
+
+/**
  * The height to draw a building at: the published one, or this crate's guess
  * when none was published.
  *
@@ -504,6 +607,24 @@ export function roads_in_block(block_bytes: Uint8Array): any;
  * Returns `{distance_m, duration_s, path:[[lat,lon],...]}` or null.
  */
 export function route_from_segments(segments_js: any, zone_middle: any, lat1: number, lon1: number, lat2: number, lon2: number, snap_m?: number | null, avoid_highways?: boolean | null, avoid_intersections?: boolean | null): any;
+
+/**
+ * Route on foot over decoded trails: "get me there on paths, not roads".
+ *
+ * `trails_js` is what `decode_trails` returned. Trails are converted to the
+ * router's segment shape by `core::trail_segments` -- a trail and a road are
+ * both a named linestring with a class, so one graph builder serves both --
+ * and routed under the foot profile: paths, tracks, footways, steps and the
+ * quiet street classes a walker actually uses are routable, motorways and
+ * trunk roads are not, one-way tags do not apply, and speeds are walking
+ * speeds rather than posted limits.
+ *
+ * Pass `roads_js` as well to let the walk use quiet streets between paths;
+ * the trails layer alone is a set of disconnected fragments in most places,
+ * because the path through the park does not touch the path in the next
+ * park. Null when no walkable route exists within `snap_m` of both ends.
+ */
+export function route_trails(trails_js: any, roads_js: any, lat1: number, lon1: number, lat2: number, lon2: number, snap_m?: number | null): any;
 
 /**
  * Rank road/building/business candidates for a GPS fix (plan addendum
@@ -579,6 +700,14 @@ export function viewshed(buildings: any, lat: number, lon: number, eye_m: number
  */
 export function viewshed_multi(buildings: any, origins: any, eye_m: number, radius_m: number): any;
 
+/**
+ * The water at a point: the polygon containing it, else the nearest water
+ * feature. A river centreline is a linestring and never reports `inside`;
+ * reference geometries (`geom_type == 2`, coordinates held elsewhere in the
+ * file) are skipped rather than reported at a position they do not carry.
+ */
+export function water_at(lat: number, lon: number, water_js: any): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -589,10 +718,12 @@ export interface InitOutput {
     readonly address_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
     readonly adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly cameras_seeing: (a: number, b: number, c: any, d: any, e: number, f: number) => [number, number, number];
     readonly cell_center: (a: number, b: number) => [number, number, number, number];
     readonly cell_filler_mask: () => bigint;
     readonly cell_for_coord: (a: number, b: number) => [number, number];
     readonly cells_for_bounds: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly charge_reserve: () => number;
     readonly coarse_bracket: (a: number, b: number, c: number, d: number, e: bigint, f: number) => [number, number, number];
     readonly decode_buildings: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly decode_buildings_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
@@ -600,6 +731,7 @@ export interface InitOutput {
     readonly decode_business_for_cell: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly decode_business_versioned: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly decode_cameras: (a: number, b: number) => [number, number, number];
+    readonly decode_chargers: (a: number, b: number) => [number, number, number];
     readonly decode_parks: (a: number, b: number) => [number, number, number];
     readonly decode_rail: (a: number, b: number) => [number, number, number];
     readonly decode_roads: (a: number, b: number) => [number, number, number];
@@ -624,22 +756,32 @@ export interface InitOutput {
     readonly movementtracker_smoothedSpeedMps: (a: number) => [number, number];
     readonly nearest_address_to: (a: number, b: number, c: any, d: number, e: number) => [number, number, number];
     readonly nearest_intersection: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly nearest_rail: (a: number, b: number, c: any) => [number, number, number];
     readonly nearest_road: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly nearest_station: (a: number, b: number, c: any) => [number, number, number];
+    readonly nearest_trail: (a: number, b: number, c: any) => [number, number, number];
+    readonly nearest_trailhead: (a: number, b: number, c: any) => [number, number, number];
     readonly neighbor_cells: (a: number, b: number) => [number, number, number, number];
     readonly normalize_cell: (a: bigint) => bigint;
+    readonly park_at: (a: number, b: number, c: any) => [number, number, number];
     readonly parse_coarse_index: (a: number, b: number) => [number, number, number];
     readonly parse_entry_run: (a: number, b: number, c: number) => [number, number, number];
     readonly parse_header: (a: number, b: number) => [number, number, number];
     readonly parse_index_entries: (a: number, b: number) => [number, number, number];
     readonly parse_index_layout: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly plan_charge_stops: (a: any, b: any, c: number, d: number, e: number) => [number, number, number];
+    readonly point_in_polygon: (a: number, b: number, c: number, d: number) => number;
     readonly resolved_height: (a: number, b: number, c: number, d: number) => number;
     readonly route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+    readonly route_trails: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly score_candidates: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly significant_shifts: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly speed_band: (a: number) => [number, number];
     readonly trail_is_developed: (a: number, b: number) => number;
     readonly viewshed: (a: any, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly viewshed_multi: (a: any, b: any, c: number, d: number) => [number, number, number];
+    readonly water_at: (a: number, b: number, c: any) => [number, number, number];
+    readonly bearing_to: (a: number, b: number, c: number, d: number) => number;
     readonly distance_m: (a: number, b: number, c: number, d: number) => number;
     readonly roads_in_block: (a: number, b: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;

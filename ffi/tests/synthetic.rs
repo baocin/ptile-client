@@ -12,7 +12,9 @@ use std::sync::Arc;
 
 use ptiles_core::cell_for_coord;
 use ptiles_core::fixtures::{camera_record, park_record, ptiles_v1, ptiles_v2_merged, trail_record};
-use ptiles_ffi::{PtilesError, PtilesLayer, PtilesStack};
+use ptiles_ffi::{
+    IndoorOutdoorReason, IndoorOutdoorState, PtilesError, PtilesLayer, PtilesStack,
+};
 
 const LAT: f64 = 36.16;
 const LON: f64 = -86.78;
@@ -182,6 +184,22 @@ fn a_trails_file_refuses_park_and_rail_questions() {
     assert!(matches!(
         layer.nearest_trail(LAT, LON, 2),
         Err(PtilesError::InvalidRing { ring: 2 })
+    ));
+}
+
+#[test]
+fn indoor_outdoor_keeps_missing_building_coverage_uncertain() {
+    let stack = PtilesStack::new(None, None, None);
+    let got = stack
+        .indoor_outdoor(LAT, LON, 5.0)
+        .expect("a missing optional layer is an uncertain answer, not an error");
+    assert_eq!(got.state, IndoorOutdoorState::Uncertain);
+    assert_eq!(got.reason, IndoorOutdoorReason::IncompleteCoverage);
+    assert_eq!(got.building_osm_id, None);
+
+    assert!(matches!(
+        trails_layer("indoor_wrong_layer").indoor_outdoor(LAT, LON, 5.0),
+        Err(PtilesError::UnsupportedForLayer { .. })
     ));
 }
 

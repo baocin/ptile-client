@@ -602,10 +602,34 @@ pub fn route_trails(
     lon2: f64,
     snap_m: Option<f64>,
 ) -> Result<JsValue, JsValue> {
+    // Roads arrive as the corridor loader's lightweight shape -- coords, class
+    // and the two fields that affect cost -- not as a full decoded
+    // `RoadSegment`. Deserialising into the decoder's struct would demand an
+    // `osm_id` the page never sends, which is exactly how this failed first.
+    #[derive(serde::Deserialize)]
+    struct SegIn {
+        coords: Vec<[f64; 2]>,
+        road_class: String,
+        #[serde(default)]
+        oneway: Option<String>,
+        #[serde(default)]
+        speed_limit_kmh: Option<u8>,
+    }
     let trails: Vec<ptiles_core::TrailFeature> = from_js_or_empty(trails_js, "trails")?;
-    let roads: Vec<ptiles_core::RoadSegment> = from_js_or_empty(roads_js, "roads")?;
+    let roads_in: Vec<SegIn> = from_js_or_empty(roads_js, "roads")?;
     let mut segments = ptiles_core::trail_segments(&trails);
-    segments.extend(roads);
+    segments.extend(roads_in.into_iter().map(|s| RoadSegment {
+        osm_id: 0,
+        road_class: s.road_class,
+        coords: s.coords,
+        name: None,
+        ref_tag: None,
+        oneway: s.oneway,
+        speed_limit_kmh: s.speed_limit_kmh,
+        lanes: None,
+        surface: None,
+        bridge_tunnel: None,
+    }));
     let middle = vec![false; segments.len()];
     let prefs = RoutePrefs {
         profile: ptiles_core::RouteProfile::Foot,

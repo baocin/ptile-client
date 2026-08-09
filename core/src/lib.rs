@@ -30,6 +30,7 @@ pub mod business;
 pub mod business_search;
 pub mod camera;
 pub mod ev;
+pub mod environment;
 pub mod math;
 pub mod locate;
 pub mod merged;
@@ -66,6 +67,10 @@ pub use business_search::{
 pub use ev::{
     CHARGE_RESERVE, CONNECTORS, ChargePlan, ChargeStop, Charger, DEFAULT_MAX_DETOUR_M,
     decode_chargers, is_fast_connector, is_public, plan_charge_stops,
+};
+pub use environment::{
+    IndoorOutdoor, IndoorOutdoorEstimate, IndoorOutdoorParams, IndoorOutdoorReason,
+    building_type_is_open_air, estimate_indoor_outdoor,
 };
 pub use camera::{
     CAMERA_MOUNT_M, CAMERA_RANGE_M, Camera, CameraView, DEFAULT_FOV_DEG, SUBJECT_M, bearing_to,

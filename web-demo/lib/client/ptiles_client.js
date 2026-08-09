@@ -194,6 +194,55 @@ export function address_cell(block_bytes, cell_hex, version) {
 }
 
 /**
+ * Bearing from one point to another, degrees clockwise from north -- the
+ * convention a camera's own `direction` tag uses, so the two are directly
+ * comparable.
+ * @param {number} from_lat
+ * @param {number} from_lon
+ * @param {number} to_lat
+ * @param {number} to_lon
+ * @returns {number}
+ */
+export function bearing_to(from_lat, from_lon, to_lat, to_lon) {
+    const ret = wasm.bearing_to(from_lat, from_lon, to_lat, to_lon);
+    return ret;
+}
+
+/**
+ * Which cameras can see `(lat, lon)`, nearest first -- "is anything pointed
+ * at me right now".
+ *
+ * `cameras_js` is what `decode_cameras` returned; `buildings_js` is a
+ * `ViewBuilding` array (`{coords, height_m, building_type}`), the same input
+ * `viewshed` takes, and may be null when the caller has no buildings loaded.
+ * `range_m` defaults to `ptiles_core::CAMERA_RANGE_M` (50 m).
+ *
+ * Each answer carries `sees` plus the three reasons behind it
+ * (`aimed_at_you`, `aim_assumed`, `line_of_sight`, `blocked_by`). Every
+ * assumption leans toward reporting a camera rather than omitting one: an
+ * untagged aim is assumed to point at you, a dome rotates, and an unmeasured
+ * building is credited with the low end of its height range. Passing no
+ * buildings therefore gives every in-range camera a clear sight line.
+ *
+ * `index` and `blocked_by` arrive as BigInt -- they are `usize` in Rust, and
+ * serde carries 64-bit integers across as BigInt rather than silently
+ * narrowing them to a Number.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {any} cameras_js
+ * @param {any} buildings_js
+ * @param {number | null} [range_m]
+ * @returns {any}
+ */
+export function cameras_seeing(lat, lon, cameras_js, buildings_js, range_m) {
+    const ret = wasm.cameras_seeing(lat, lon, cameras_js, buildings_js, !isLikeNone(range_m), isLikeNone(range_m) ? 0 : range_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `[lat, lon]` center of an H3 res-7 cell (hex string). Demo/browser
  * boundary for `ptiles_core::cell_center` -- replaces `h3-js`'s
  * `cellToLatLng`.
@@ -271,6 +320,15 @@ export function cells_for_bounds(min_lat, min_lon, max_lat, max_lon) {
     var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v1;
+}
+
+/**
+ * The fraction of range the charge planner holds back (0.2).
+ * @returns {number}
+ */
+export function charge_reserve() {
+    const ret = wasm.charge_reserve();
+    return ret;
 }
 
 /**
@@ -420,6 +478,24 @@ export function decode_cameras(data) {
     const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.decode_cameras(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Decode an EV charging block (`{ST}.ev_v1.ptiles`, PTILESE v1).
+ *
+ * `power_kw` and `connectors` are null/empty when OSM does not say, which is
+ * most of them -- that is an unknown, not a zero.
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_chargers(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_chargers(ptr0, len0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -856,6 +932,22 @@ export function nearest_intersection(block_bytes, lat, lon, threshold_m) {
 }
 
 /**
+ * The rail track under a point, or null. Station points are skipped; use
+ * `nearest_station` for those. `rail_js` is what `decode_rail` returned.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {any} rail_js
+ * @returns {any}
+ */
+export function nearest_rail(lat, lon, rail_js) {
+    const ret = wasm.nearest_rail(lat, lon, rail_js);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Decode a roads block and return the single nearest road segment to
  * `(lat, lon)`, per plan addendum item 1: `{osm_id, name, road_class,
  * snapped, distance_m, geometry}`. `threshold_m` is optional; omit (pass
@@ -874,6 +966,58 @@ export function nearest_road(block_bytes, lat, lon, threshold_m) {
     const ptr0 = passArray8ToWasm0(block_bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.nearest_road(ptr0, len0, lat, lon, !isLikeNone(threshold_m), isLikeNone(threshold_m) ? 0 : threshold_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * The nearest station or halt point, or null.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {any} rail_js
+ * @returns {any}
+ */
+export function nearest_station(lat, lon, rail_js) {
+    const ret = wasm.nearest_station(lat, lon, rail_js);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * The trail under a point, or null: "which path am I walking on".
+ *
+ * `trails_js` is what `decode_trails` returned. Trailhead points are skipped
+ * -- a point has no centreline to be on -- so ask `nearest_trailhead` for
+ * those. Returns a `NearbyWay`: `{kind, name, class, distance_m, snapped,
+ * on_it}`, with `on_it` true within 25 m.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {any} trails_js
+ * @returns {any}
+ */
+export function nearest_trail(lat, lon, trails_js) {
+    const ret = wasm.nearest_trail(lat, lon, trails_js);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * The nearest trailhead -- where a trail network is entered, which is what a
+ * caller planning to *start* a walk wants. Returns a `NearbyPoint`:
+ * `{kind, name, class, lat, lon, distance_m}`, or null.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {any} trails_js
+ * @returns {any}
+ */
+export function nearest_trailhead(lat, lon, trails_js) {
+    const ret = wasm.nearest_trailhead(lat, lon, trails_js);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -909,6 +1053,24 @@ export function neighbor_cells(cell_hex) {
 export function normalize_cell(cell) {
     const ret = wasm.normalize_cell(cell);
     return BigInt.asUintN(64, ret);
+}
+
+/**
+ * The park at a point: the polygon containing it, else the nearest park
+ * boundary. Returns a `NearbyArea`: `{kind, name, class, distance_m,
+ * inside}`, or null. Check `inside` before telling a user they are in it --
+ * `distance_m` is 0 exactly when they are.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {any} parks_js
+ * @returns {any}
+ */
+export function park_at(lat, lon, parks_js) {
+    const ret = wasm.park_at(lat, lon, parks_js);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
 }
 
 /**
@@ -1039,6 +1201,51 @@ export function parse_index_layout(header_bytes, index_bytes) {
 }
 
 /**
+ * Plan the charging stops a drive needs.
+ *
+ * `path_js` is the route as `[lon, lat]` pairs, `chargers_js` is what
+ * `decode_chargers` returned for the corridor, and `range_m` is what the car
+ * says it has *now*. The plan drives only
+ * `range_m * (1 - CHARGE_RESERVE)` -- 80% -- so the driver reaches each stop
+ * with something in reserve, and prefers a stop in the far half of each leg
+ * so one stop does not become three. Returns
+ * `{stops, reachable, shortfall_m, usable_range_m, route_m}`; `stops[].index`
+ * points back into the chargers array.
+ * @param {any} path_js
+ * @param {any} chargers_js
+ * @param {number} range_m
+ * @param {number | null} [max_detour_m]
+ * @returns {any}
+ */
+export function plan_charge_stops(path_js, chargers_js, range_m, max_detour_m) {
+    const ret = wasm.plan_charge_stops(path_js, chargers_js, range_m, !isLikeNone(max_detour_m), isLikeNone(max_detour_m) ? 0 : max_detour_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Whether a point falls inside a closed ring. `coords` is a flat
+ * `[lon, lat, lon, lat, ...]` array -- the decoders' coordinate order,
+ * flattened because a nested array costs a full serde round-trip per vertex.
+ *
+ * Exposed because the demo hand-rolled ray casting in JavaScript, where an
+ * off-by-one in the wrap-around index silently mis-answers points near the
+ * first vertex.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {Float64Array} coords
+ * @returns {boolean}
+ */
+export function point_in_polygon(lat, lon, coords) {
+    const ptr0 = passArrayF64ToWasm0(coords, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.point_in_polygon(lat, lon, ptr0, len0);
+    return ret !== 0;
+}
+
+/**
  * The height to draw a building at: the published one, or this crate's guess
  * when none was published.
  *
@@ -1098,6 +1305,38 @@ export function roads_in_block(block_bytes) {
  */
 export function route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, snap_m, avoid_highways, avoid_intersections) {
     const ret = wasm.route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, !isLikeNone(snap_m), isLikeNone(snap_m) ? 0 : snap_m, isLikeNone(avoid_highways) ? 0xFFFFFF : avoid_highways ? 1 : 0, isLikeNone(avoid_intersections) ? 0xFFFFFF : avoid_intersections ? 1 : 0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Route on foot over decoded trails: "get me there on paths, not roads".
+ *
+ * `trails_js` is what `decode_trails` returned. Trails are converted to the
+ * router's segment shape by `core::trail_segments` -- a trail and a road are
+ * both a named linestring with a class, so one graph builder serves both --
+ * and routed under the foot profile: paths, tracks, footways, steps and the
+ * quiet street classes a walker actually uses are routable, motorways and
+ * trunk roads are not, one-way tags do not apply, and speeds are walking
+ * speeds rather than posted limits.
+ *
+ * Pass `roads_js` as well to let the walk use quiet streets between paths;
+ * the trails layer alone is a set of disconnected fragments in most places,
+ * because the path through the park does not touch the path in the next
+ * park. Null when no walkable route exists within `snap_m` of both ends.
+ * @param {any} trails_js
+ * @param {any} roads_js
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {number | null} [snap_m]
+ * @returns {any}
+ */
+export function route_trails(trails_js, roads_js, lat1, lon1, lat2, lon2, snap_m) {
+    const ret = wasm.route_trails(trails_js, roads_js, lat1, lon1, lat2, lon2, !isLikeNone(snap_m), isLikeNone(snap_m) ? 0 : snap_m);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -1252,6 +1491,24 @@ export function viewshed(buildings, lat, lon, eye_m, radius_m) {
  */
 export function viewshed_multi(buildings, origins, eye_m, radius_m) {
     const ret = wasm.viewshed_multi(buildings, origins, eye_m, radius_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * The water at a point: the polygon containing it, else the nearest water
+ * feature. A river centreline is a linestring and never reports `inside`;
+ * reference geometries (`geom_type == 2`, coordinates held elsewhere in the
+ * file) are skipped rather than reported at a position they do not carry.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {any} water_js
+ * @returns {any}
+ */
+export function water_at(lat, lon, water_js) {
+    const ret = wasm.water_at(lat, lon, water_js);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
