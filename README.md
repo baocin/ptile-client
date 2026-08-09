@@ -3,9 +3,6 @@
 Rust workspace for the [PTiles binary geospatial format](https://github.com/baocin/ptiles).
 `no_std` decoder core, WASM browser bridge, native CLI, fuzz harness.
 
-> Two remotes, both kept current: `origin` →
-> `github.com/baocin/ptile-client` and `gitea` → `gitea:kino/ptile-client.git`.
-
 ## Crates
 
 | Crate    | What                                                                              |
@@ -46,7 +43,7 @@ index:
 | width | layers |
 | --- | --- |
 | 19 B | roads, water, business, buildings_v8 |
-| 38 B | parks, rail, places, signals, camera |
+| 38 B | parks, rail, trails, ev, places, signals, camera |
 
 Offsets are absolute, relative to `blocks_offset` (buildings_v8), or absolute
 with a correction when `blocks_offset` overshoots where the index really ends.
@@ -68,6 +65,47 @@ its magic, there is no release-wide version, and a new kind starts at 1. See
 [`SUPPORTED_FORMATS.md`](SUPPORTED_FORMATS.md), which is generated from
 `ptiles_core::SUPPORTED_FORMATS` and asserted against it by a test.
 
+## Queries
+
+Decoding is the floor. `core` also answers the questions the layers exist for,
+so a caller does not re-derive them per platform:
+
+| | |
+| --- | --- |
+| `locate` | the road or trail under a point, the nearest address, and whether you are *on* it or merely near it |
+| `park_at` / `water_at` | the park or water body you are in, else the nearest boundary |
+| `nearest_trail` / `nearest_trailhead` | which path you are walking, and where a network is entered — separate questions, so separate answers |
+| `nearest_rail` / `nearest_station` | the track under you, and the platform you would board at |
+| `cameras_seeing` | which surveillance cameras can see a point: in range, aimed at it, and not blocked by a building |
+| `plan_charge_stops` | the charging stops a drive needs, given the range left |
+| `viewshed` | what is visible from a point at a given eye height |
+
+Surfaces differ, and the table above is `core`. `locate`, the park/water/trail/
+rail lookups and `cameras_seeing` reach all three of the CLI, the wasm bridge
+and the FFI. `viewshed` and `plan_charge_stops` are wasm-only today: both were
+written for the browser demo, and neither has a CLI subcommand or a UniFFI
+record yet.
+
+Two of those lean their uncertainty in opposite directions, on purpose.
+`viewshed` assumes an unmeasured building is tall, so a marginal sight line
+comes out blocked and it under-reports what can be seen. `cameras_seeing`
+inverts that: "blocked" is the reassuring answer there, and telling someone
+they are unobserved on the strength of a guessed height is the mistake worth
+avoiding. Every flag it returns says which parts are inference.
+
+`plan_charge_stops` drives 80% of the range it is given
+(`ptiles_core::CHARGE_RESERVE`), because a driver arriving at a charger on 0%
+has already been stranded once by a queue, a broken unit or a headwind. It
+prefers a stop in the far half of each leg, and the most powerful charger among
+those; a leg with nothing in reach reports the shortfall rather than inventing
+a plan.
+
+Routing has two profiles. `RouteProfile::Driving` is the road graph;
+`RouteProfile::Foot` routes trails, tracks, footways and steps at walking
+speed, ignores posted limits and one-way tags (both describe vehicles), and
+excludes motorways. `trail_segments` feeds the trails layer into the same graph
+builder, so a walk down a path and along a residential street is one route.
+
 ## Tests
 
 ```bash
@@ -78,6 +116,12 @@ node --test "demo/test/*.test.mjs"          # the legacy JS reader
 # The page itself, in chromium. Serves web-demo/ on its own port; tiles come
 # from the live host, so this needs network.
 python3 web-demo/test/render_check.py
+
+# The routing modes, in chromium against the live tiles. A walk must come out
+# slower than the drive over the same pair of points, and an EV leg with too
+# little range must produce stops and a longer route -- the assertions a page
+# that silently ignores the controls cannot pass.
+python3 web-demo/test/route_check.py
 
 # Legacy page checks
 python3 demo/test/intersection_check.py  # junction panel
@@ -105,8 +149,17 @@ Click any building in the US: https://steele.red/ptiles
 
 `web-demo/` is the source for that page; `demo/`, which hand-decodes the format
 in JavaScript, is kept at https://steele.red/ptiles-legacy for comparison.
-Both URLs are symlinks that steele.red's `build.py` dereferences into its
-output, so changes are not live until that build runs and the output is synced.
+Both URLs are symlinks that the site's `build.py` dereferences into its output,
+so editing `web-demo/` changes nothing until a deploy runs:
+
+```bash
+./web-demo/deploy.sh            # dry run: what would change
+./web-demo/deploy.sh --apply    # build the site, sync, verify the live headers
+```
+
+Rebuild the wasm first. The page loads `web-demo/lib/client/`, which is a
+*different* bundle from the `wasm-pkg/` the node tests use — building one and
+not the other leaves the page calling exports that are not there.
 
 It opens files over HTTP Range requests, never downloading a whole layer, and
 caches each layer's header, dictionary and index in the Cache API keyed by
@@ -117,14 +170,17 @@ Beyond drawing the layers, the page answers questions off the same bytes:
 | | |
 | --- | --- |
 | Click a point | nearest building, the businesses in it, the street (class, one-way, speed limit, lanes, surface, bridge/tunnel), the junction and its controls, and — after an opt-in load — county, ZIP and timezone |
+| Layers | roads, water, parks, rail, trails, buildings (2D or extruded), EV chargers, cameras and signals, each drawn straight from its own file |
+| EV | every public charging station in view, filled when it charges fast; click one for power, bays, connectors, access and network |
 | Line of sight | what is visible from a point at a given eye height, and which nearby cameras have a clear line back to you |
 | View finder | the reverse: which buildings can see a river, a park, a railway or a named business |
 | Route | A* over the road graph, within a corridor of cells |
 | Trails only | the same A* under core's foot profile: paths, tracks, footways and steps, walking speeds, one-way tags ignored, motorways excluded. Quiet streets link the fragments, because the path through one park does not touch the path through the next |
 | EV range | type the miles left on the dash and the route plans charging stops from the `ev` layer, driving only 80% of that range per leg and re-routing through each stop |
 
-Line of sight is reciprocal, which is why the last two need no geometry of
-their own: both run `viewshed` from the far end and read the answer back.
+Line of sight is reciprocal, which is why it and the view finder need no
+geometry of their own: both run `viewshed` from the far end and read the answer
+back.
 
 ## Live Tiles
 
