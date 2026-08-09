@@ -1831,6 +1831,15 @@ public func FfiConverterTypePtilesStack_lower(_ value: PtilesStack) -> UnsafeMut
 public protocol VoteDebouncerProtocol: AnyObject, Sendable {
     
     /**
+     * Drop the vehicle-sticky guard so the next Stationary majority commits
+     * without waiting the sticky window out.
+     *
+     * For a caller holding evidence the sticky no longer applies -- the fix is
+     * inside a known place, say. A red light is not inside your house.
+     */
+    func clearVehicleSticky() 
+    
+    /**
      * The tuning this debouncer was built with.
      */
     func config()  -> DebounceConfig
@@ -1927,6 +1936,19 @@ public convenience init(config: DebounceConfig) {
 
     
 
+    
+    /**
+     * Drop the vehicle-sticky guard so the next Stationary majority commits
+     * without waiting the sticky window out.
+     *
+     * For a caller holding evidence the sticky no longer applies -- the fix is
+     * inside a known place, say. A red light is not inside your house.
+     */
+open func clearVehicleSticky()  {try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky(self.uniffiClonePointer(),$0
+    )
+}
+}
     
     /**
      * The tuning this debouncer was built with.
@@ -4299,6 +4321,12 @@ public struct RoadContext {
      * Fix to nearest road, meters.
      */
     public var distanceM: Double
+    /**
+     * Bearing of the road at the snapped point, degrees. `None` when the caller
+     * cannot compute it -- which is a different fact from a road running due
+     * north, so it is not defaulted to zero.
+     */
+    public var bearing: Double?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -4308,9 +4336,15 @@ public struct RoadContext {
          */roadClass: String, 
         /**
          * Fix to nearest road, meters.
-         */distanceM: Double) {
+         */distanceM: Double, 
+        /**
+         * Bearing of the road at the snapped point, degrees. `None` when the caller
+         * cannot compute it -- which is a different fact from a road running due
+         * north, so it is not defaulted to zero.
+         */bearing: Double?) {
         self.roadClass = roadClass
         self.distanceM = distanceM
+        self.bearing = bearing
     }
 }
 
@@ -4327,12 +4361,16 @@ extension RoadContext: Equatable, Hashable {
         if lhs.distanceM != rhs.distanceM {
             return false
         }
+        if lhs.bearing != rhs.bearing {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(roadClass)
         hasher.combine(distanceM)
+        hasher.combine(bearing)
     }
 }
 
@@ -4346,13 +4384,15 @@ public struct FfiConverterTypeRoadContext: FfiConverterRustBuffer {
         return
             try RoadContext(
                 roadClass: FfiConverterString.read(from: &buf), 
-                distanceM: FfiConverterDouble.read(from: &buf)
+                distanceM: FfiConverterDouble.read(from: &buf), 
+                bearing: FfiConverterOptionDouble.read(from: &buf)
         )
     }
 
     public static func write(_ value: RoadContext, into buf: inout [UInt8]) {
         FfiConverterString.write(value.roadClass, into: &buf)
         FfiConverterDouble.write(value.distanceM, into: &buf)
+        FfiConverterOptionDouble.write(value.bearing, into: &buf)
     }
 }
 
@@ -6257,6 +6297,26 @@ public func classifyMovementAccelOnly(accel: AccelStats) -> Vote  {
 })
 }
 /**
+ * [`classify_movement`] plus the two inputs only a caller tracking a sequence
+ * can supply: which way the fix is travelling, and the last committed state.
+ *
+ * Separate from `classify_movement` so a one-shot caller keeps the shorter
+ * call and identical behaviour -- a `None` bearing makes the alignment test
+ * inert and an `Unknown` previous state makes the driving-sticky inert.
+ */
+public func classifyMovementWithHistory(instSpeedMps: Double?, gpsAccuracyM: Double?, nearestRoad: RoadContext?, accel: AccelStats?, gpsBearing: Double?, previousStable: MovementType) -> Vote  {
+    return try!  FfiConverterTypeVote_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_classify_movement_with_history(
+        FfiConverterOptionDouble.lower(instSpeedMps),
+        FfiConverterOptionDouble.lower(gpsAccuracyM),
+        FfiConverterOptionTypeRoadContext.lower(nearestRoad),
+        FfiConverterOptionTypeAccelStats.lower(accel),
+        FfiConverterOptionDouble.lower(gpsBearing),
+        FfiConverterTypeMovementType_lower(previousStable),$0
+    )
+})
+}
+/**
  * The library's default debounce tuning.
  */
 public func defaultDebounceConfig() -> DebounceConfig  {
@@ -6342,6 +6402,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only() != 6610) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_func_classify_movement_with_history() != 28399) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_func_default_debounce_config() != 57572) {
@@ -6444,6 +6507,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_votedebouncer_clear_vehicle_sticky() != 31562) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_votedebouncer_config() != 59168) {

@@ -125,11 +125,15 @@ pub struct RoadContext {
     pub road_class: String,
     /// Fix to nearest road, meters.
     pub distance_m: f64,
+    /// Bearing of the road at the snapped point, degrees. `None` when the caller
+    /// cannot compute it -- which is a different fact from a road running due
+    /// north, so it is not defaulted to zero.
+    pub bearing: Option<f64>,
 }
 
 impl From<RoadContext> for CoreRoadContext {
     fn from(v: RoadContext) -> Self {
-        CoreRoadContext { road_class: v.road_class, distance_m: v.distance_m }
+        CoreRoadContext { road_class: v.road_class, distance_m: v.distance_m, bearing: v.bearing }
     }
 }
 
@@ -209,6 +213,34 @@ pub fn classify_movement(
     let road = nearest_road.map(CoreRoadContext::from);
     let accel = accel.map(CoreAccelStats::from);
     movement::classify(inst_speed_mps, gps_accuracy_m, road.as_ref(), accel.as_ref()).into()
+}
+
+/// [`classify_movement`] plus the two inputs only a caller tracking a sequence
+/// can supply: which way the fix is travelling, and the last committed state.
+///
+/// Separate from `classify_movement` so a one-shot caller keeps the shorter
+/// call and identical behaviour -- a `None` bearing makes the alignment test
+/// inert and an `Unknown` previous state makes the driving-sticky inert.
+#[uniffi::export]
+pub fn classify_movement_with_history(
+    inst_speed_mps: Option<f64>,
+    gps_accuracy_m: Option<f64>,
+    nearest_road: Option<RoadContext>,
+    accel: Option<AccelStats>,
+    gps_bearing: Option<f64>,
+    previous_stable: MovementType,
+) -> Vote {
+    let road = nearest_road.map(CoreRoadContext::from);
+    let accel = accel.map(CoreAccelStats::from);
+    movement::classify_with_history(
+        inst_speed_mps,
+        gps_accuracy_m,
+        road.as_ref(),
+        accel.as_ref(),
+        gps_bearing,
+        previous_stable.into(),
+    )
+    .into()
 }
 
 /// Classification from the accelerometer alone, ignoring GPS entirely.
@@ -324,6 +356,15 @@ impl VoteDebouncer {
     /// The committed state, without feeding anything.
     pub fn current(&self) -> MovementType {
         self.inner.lock().expect("debouncer lock").current().into()
+    }
+
+    /// Drop the vehicle-sticky guard so the next Stationary majority commits
+    /// without waiting the sticky window out.
+    ///
+    /// For a caller holding evidence the sticky no longer applies -- the fix is
+    /// inside a known place, say. A red light is not inside your house.
+    pub fn clear_vehicle_sticky(&self) {
+        self.inner.lock().expect("debouncer lock").clear_vehicle_sticky();
     }
 
     /// The tuning this debouncer was built with.

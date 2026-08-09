@@ -466,6 +466,8 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only() != 6610:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_classify_movement_with_history() != 28399:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_func_default_debounce_config() != 57572:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 37639:
@@ -533,6 +535,8 @@ def _uniffi_check_api_checksums(lib):
     if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_clear_vehicle_sticky() != 31562:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_config() != 59168:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -965,6 +969,11 @@ _UniffiLib.uniffi_ptiles_ffi_fn_constructor_votedebouncer_new.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_constructor_votedebouncer_new.restype = ctypes.c_void_p
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky.restype = None
 _UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_config.argtypes = (
     ctypes.c_void_p,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -1011,6 +1020,16 @@ _UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_accel_only.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_accel_only.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_with_history.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_with_history.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_func_default_debounce_config.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
@@ -1311,6 +1330,9 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement.restype = ctypes.c_
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement_with_history.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement_with_history.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_default_debounce_config.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_default_debounce_config.restype = ctypes.c_uint16
@@ -1413,6 +1435,9 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate.restype = ctypes
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_clear_vehicle_sticky.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_clear_vehicle_sticky.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_config.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_config.restype = ctypes.c_uint16
@@ -3049,17 +3074,27 @@ class RoadContext:
     Fix to nearest road, meters.
     """
 
-    def __init__(self, *, road_class: "str", distance_m: "float"):
+    bearing: "typing.Optional[float]"
+    """
+    Bearing of the road at the snapped point, degrees. `None` when the caller
+    cannot compute it -- which is a different fact from a road running due
+    north, so it is not defaulted to zero.
+    """
+
+    def __init__(self, *, road_class: "str", distance_m: "float", bearing: "typing.Optional[float]"):
         self.road_class = road_class
         self.distance_m = distance_m
+        self.bearing = bearing
 
     def __str__(self):
-        return "RoadContext(road_class={}, distance_m={})".format(self.road_class, self.distance_m)
+        return "RoadContext(road_class={}, distance_m={}, bearing={})".format(self.road_class, self.distance_m, self.bearing)
 
     def __eq__(self, other):
         if self.road_class != other.road_class:
             return False
         if self.distance_m != other.distance_m:
+            return False
+        if self.bearing != other.bearing:
             return False
         return True
 
@@ -3069,17 +3104,20 @@ class _UniffiConverterTypeRoadContext(_UniffiConverterRustBuffer):
         return RoadContext(
             road_class=_UniffiConverterString.read(buf),
             distance_m=_UniffiConverterDouble.read(buf),
+            bearing=_UniffiConverterOptionalDouble.read(buf),
         )
 
     @staticmethod
     def check_lower(value):
         _UniffiConverterString.check_lower(value.road_class)
         _UniffiConverterDouble.check_lower(value.distance_m)
+        _UniffiConverterOptionalDouble.check_lower(value.bearing)
 
     @staticmethod
     def write(value, buf):
         _UniffiConverterString.write(value.road_class, buf)
         _UniffiConverterDouble.write(value.distance_m, buf)
+        _UniffiConverterOptionalDouble.write(value.bearing, buf)
 
 
 class RoadInfo:
@@ -6009,6 +6047,16 @@ class VoteDebouncerProtocol(typing.Protocol):
     from whichever thread its location callback arrives on.
     """
 
+    def clear_vehicle_sticky(self, ):
+        """
+        Drop the vehicle-sticky guard so the next Stationary majority commits
+        without waiting the sticky window out.
+
+        For a caller holding evidence the sticky no longer applies -- the fix is
+        inside a known place, say. A red light is not inside your house.
+        """
+
+        raise NotImplementedError
     def config(self, ):
         """
         The tuning this debouncer was built with.
@@ -6077,6 +6125,22 @@ class VoteDebouncer():
         inst = cls.__new__(cls)
         inst._pointer = pointer
         return inst
+
+
+    def clear_vehicle_sticky(self, ) -> None:
+        """
+        Drop the vehicle-sticky guard so the next Stationary majority commits
+        without waiting the sticky window out.
+
+        For a caller holding evidence the sticky no longer applies -- the fix is
+        inside a known place, say. A red light is not inside your house.
+        """
+
+        _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky,self._uniffi_clone_pointer(),)
+
+
+
+
 
 
     def config(self, ) -> "DebounceConfig":
@@ -6245,6 +6309,37 @@ def classify_movement_accel_only(accel: "AccelStats") -> "Vote":
         _UniffiConverterTypeAccelStats.lower(accel)))
 
 
+def classify_movement_with_history(inst_speed_mps: "typing.Optional[float]",gps_accuracy_m: "typing.Optional[float]",nearest_road: "typing.Optional[RoadContext]",accel: "typing.Optional[AccelStats]",gps_bearing: "typing.Optional[float]",previous_stable: "MovementType") -> "Vote":
+    """
+    [`classify_movement`] plus the two inputs only a caller tracking a sequence
+    can supply: which way the fix is travelling, and the last committed state.
+
+    Separate from `classify_movement` so a one-shot caller keeps the shorter
+    call and identical behaviour -- a `None` bearing makes the alignment test
+    inert and an `Unknown` previous state makes the driving-sticky inert.
+    """
+
+    _UniffiConverterOptionalDouble.check_lower(inst_speed_mps)
+    
+    _UniffiConverterOptionalDouble.check_lower(gps_accuracy_m)
+    
+    _UniffiConverterOptionalTypeRoadContext.check_lower(nearest_road)
+    
+    _UniffiConverterOptionalTypeAccelStats.check_lower(accel)
+    
+    _UniffiConverterOptionalDouble.check_lower(gps_bearing)
+    
+    _UniffiConverterTypeMovementType.check_lower(previous_stable)
+    
+    return _UniffiConverterTypeVote.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_with_history,
+        _UniffiConverterOptionalDouble.lower(inst_speed_mps),
+        _UniffiConverterOptionalDouble.lower(gps_accuracy_m),
+        _UniffiConverterOptionalTypeRoadContext.lower(nearest_road),
+        _UniffiConverterOptionalTypeAccelStats.lower(accel),
+        _UniffiConverterOptionalDouble.lower(gps_bearing),
+        _UniffiConverterTypeMovementType.lower(previous_stable)))
+
+
 def default_debounce_config() -> "DebounceConfig":
     """
     The library's default debounce tuning.
@@ -6343,6 +6438,7 @@ __all__ = [
     "accel_stats_from_samples",
     "classify_movement",
     "classify_movement_accel_only",
+    "classify_movement_with_history",
     "default_debounce_config",
     "intersection_holds_traffic",
     "intersection_type_name",
