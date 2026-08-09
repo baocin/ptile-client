@@ -491,6 +491,11 @@ void uniffi_ptiles_ffi_fn_free_votedebouncer(void*_Nonnull ptr, RustCallStatus *
 void*_Nonnull uniffi_ptiles_ffi_fn_constructor_votedebouncer_new(RustBuffer config, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_CLEAR_VEHICLE_STICKY
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_CLEAR_VEHICLE_STICKY
+void uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_CONFIG
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_VOTEDEBOUNCER_CONFIG
 RustBuffer uniffi_ptiles_ffi_fn_method_votedebouncer_config(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
@@ -524,6 +529,11 @@ RustBuffer uniffi_ptiles_ffi_fn_func_classify_movement(RustBuffer inst_speed_mps
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_CLASSIFY_MOVEMENT_ACCEL_ONLY
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_CLASSIFY_MOVEMENT_ACCEL_ONLY
 RustBuffer uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(RustBuffer accel, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_CLASSIFY_MOVEMENT_WITH_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_CLASSIFY_MOVEMENT_WITH_HISTORY
+RustBuffer uniffi_ptiles_ffi_fn_func_classify_movement_with_history(RustBuffer inst_speed_mps, RustBuffer gps_accuracy_m, RustBuffer nearest_road, RustBuffer accel, RustBuffer gps_bearing, RustBuffer previous_stable, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_DEFAULT_DEBOUNCE_CONFIG
@@ -851,6 +861,12 @@ uint16_t uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_CLASSIFY_MOVEMENT_WITH_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_CLASSIFY_MOVEMENT_WITH_HISTORY
+uint16_t uniffi_ptiles_ffi_checksum_func_classify_movement_with_history(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_DEBOUNCE_CONFIG
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_DEBOUNCE_CONFIG
 uint16_t uniffi_ptiles_ffi_checksum_func_default_debounce_config(void
@@ -1070,6 +1086,12 @@ uint16_t uniffi_ptiles_ffi_checksum_method_ptilesstack_locate(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_SCORE
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_SCORE
 uint16_t uniffi_ptiles_ffi_checksum_method_ptilesstack_score(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_CLEAR_VEHICLE_STICKY
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_CLEAR_VEHICLE_STICKY
+uint16_t uniffi_ptiles_ffi_checksum_method_votedebouncer_clear_vehicle_sticky(void
     
 );
 #endif

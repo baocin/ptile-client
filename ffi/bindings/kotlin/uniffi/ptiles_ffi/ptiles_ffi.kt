@@ -822,6 +822,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -842,6 +846,8 @@ internal interface IntegrityCheckingUniffiLib : Library {
 fun uniffi_ptiles_ffi_checksum_func_classify_movement(
 ): Short
 fun uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only(
+): Short
+fun uniffi_ptiles_ffi_checksum_func_classify_movement_with_history(
 ): Short
 fun uniffi_ptiles_ffi_checksum_func_default_debounce_config(
 ): Short
@@ -916,6 +922,8 @@ fun uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing(
 fun uniffi_ptiles_ffi_checksum_method_ptilesstack_locate(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptilesstack_score(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_votedebouncer_clear_vehicle_sticky(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_votedebouncer_config(
 ): Short
@@ -1082,6 +1090,8 @@ fun uniffi_ptiles_ffi_fn_free_votedebouncer(`ptr`: Pointer,uniffi_out_err: Uniff
 ): Unit
 fun uniffi_ptiles_ffi_fn_constructor_votedebouncer_new(`config`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_ptiles_ffi_fn_method_votedebouncer_config(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_votedebouncer_current(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1095,6 +1105,8 @@ fun uniffi_ptiles_ffi_fn_func_accel_stats_from_samples(`x`: RustBuffer.ByValue,`
 fun uniffi_ptiles_ffi_fn_func_classify_movement(`instSpeedMps`: RustBuffer.ByValue,`gpsAccuracyM`: RustBuffer.ByValue,`nearestRoad`: RustBuffer.ByValue,`accel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(`accel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_classify_movement_with_history(`instSpeedMps`: RustBuffer.ByValue,`gpsAccuracyM`: RustBuffer.ByValue,`nearestRoad`: RustBuffer.ByValue,`accel`: RustBuffer.ByValue,`gpsBearing`: RustBuffer.ByValue,`previousStable`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_func_default_debounce_config(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1241,6 +1253,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only() != 6610.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_func_classify_movement_with_history() != 28399.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_func_default_debounce_config() != 57572.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1350,6 +1365,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_clear_vehicle_sticky() != 31562.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_config() != 59168.toShort()) {
@@ -3751,6 +3769,15 @@ public object FfiConverterTypePtilesStack: FfiConverter<PtilesStack, Pointer> {
 public interface VoteDebouncerInterface {
     
     /**
+     * Drop the vehicle-sticky guard so the next Stationary majority commits
+     * without waiting the sticky window out.
+     *
+     * For a caller holding evidence the sticky no longer applies -- the fix is
+     * inside a known place, say. A red light is not inside your house.
+     */
+    fun `clearVehicleSticky`()
+    
+    /**
      * The tuning this debouncer was built with.
      */
     fun `config`(): DebounceConfig
@@ -3878,6 +3905,24 @@ open class VoteDebouncer: Disposable, AutoCloseable, VoteDebouncerInterface
             UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_clone_votedebouncer(pointer!!, status)
         }
     }
+
+    
+    /**
+     * Drop the vehicle-sticky guard so the next Stationary majority commits
+     * without waiting the sticky window out.
+     *
+     * For a caller holding evidence the sticky no longer applies -- the fix is
+     * inside a known place, say. A red light is not inside your house.
+     */override fun `clearVehicleSticky`()
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky(
+        it, _status)
+}
+    }
+    
+    
 
     
     /**
@@ -5267,7 +5312,13 @@ data class RoadContext (
     /**
      * Fix to nearest road, meters.
      */
-    var `distanceM`: kotlin.Double
+    var `distanceM`: kotlin.Double, 
+    /**
+     * Bearing of the road at the snapped point, degrees. `None` when the caller
+     * cannot compute it -- which is a different fact from a road running due
+     * north, so it is not defaulted to zero.
+     */
+    var `bearing`: kotlin.Double?
 ) {
     
     companion object
@@ -5281,17 +5332,20 @@ public object FfiConverterTypeRoadContext: FfiConverterRustBuffer<RoadContext> {
         return RoadContext(
             FfiConverterString.read(buf),
             FfiConverterDouble.read(buf),
+            FfiConverterOptionalDouble.read(buf),
         )
     }
 
     override fun allocationSize(value: RoadContext) = (
             FfiConverterString.allocationSize(value.`roadClass`) +
-            FfiConverterDouble.allocationSize(value.`distanceM`)
+            FfiConverterDouble.allocationSize(value.`distanceM`) +
+            FfiConverterOptionalDouble.allocationSize(value.`bearing`)
     )
 
     override fun write(value: RoadContext, buf: ByteBuffer) {
             FfiConverterString.write(value.`roadClass`, buf)
             FfiConverterDouble.write(value.`distanceM`, buf)
+            FfiConverterOptionalDouble.write(value.`bearing`, buf)
     }
 }
 
@@ -6952,6 +7006,23 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(
         FfiConverterTypeAccelStats.lower(`accel`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * [`classify_movement`] plus the two inputs only a caller tracking a sequence
+         * can supply: which way the fix is travelling, and the last committed state.
+         *
+         * Separate from `classify_movement` so a one-shot caller keeps the shorter
+         * call and identical behaviour -- a `None` bearing makes the alignment test
+         * inert and an `Unknown` previous state makes the driving-sticky inert.
+         */ fun `classifyMovementWithHistory`(`instSpeedMps`: kotlin.Double?, `gpsAccuracyM`: kotlin.Double?, `nearestRoad`: RoadContext?, `accel`: AccelStats?, `gpsBearing`: kotlin.Double?, `previousStable`: MovementType): Vote {
+            return FfiConverterTypeVote.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_classify_movement_with_history(
+        FfiConverterOptionalDouble.lower(`instSpeedMps`),FfiConverterOptionalDouble.lower(`gpsAccuracyM`),FfiConverterOptionalTypeRoadContext.lower(`nearestRoad`),FfiConverterOptionalTypeAccelStats.lower(`accel`),FfiConverterOptionalDouble.lower(`gpsBearing`),FfiConverterTypeMovementType.lower(`previousStable`),_status)
 }
     )
     }

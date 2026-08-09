@@ -23,7 +23,14 @@
 use alloc::collections::VecDeque;
 use alloc::string::String;
 
-use ptiles_core::math::sqrt;
+/// `f64::abs` is core, but naming it once keeps the no_std intent obvious.
+#[inline]
+fn libm_fabs(x: f64) -> f64 {
+    if x < 0.0 { -x } else { x }
+}
+
+use ptiles_core::haversine_distance_m;
+use ptiles_core::math::{atan2, cos, sin, sqrt};
 use ptiles_core::{NearestIntersection, NearestRoad, RoadSegment};
 
 /// Coarse movement state. `Unknown` is the initial state only.
@@ -69,6 +76,43 @@ pub struct RoadContext {
     pub road_class: String,
     /// Fix to nearest road, meters.
     pub distance_m: f64,
+    /// Bearing of the road at the snapped point, degrees. `None` when the
+    /// caller cannot compute it -- which is different from a road running due
+    /// north, so it is not defaulted to zero.
+    pub bearing: Option<f64>,
+}
+
+/// Heading of the polyline at the point nearest `snapped`, in degrees.
+///
+/// Uses the segment whose endpoint is closest to the snap rather than the whole
+/// way's end-to-end heading: a road that curves through 90 degrees has no single
+/// bearing, and the one that matters is where the fix actually is.
+fn bearing_at(coords: &[[f64; 2]], snapped: (f64, f64)) -> Option<f64> {
+    if coords.len() < 2 {
+        return None;
+    }
+    let (slat, slon) = snapped;
+    let mut best = 0usize;
+    let mut best_d = f64::MAX;
+    for (i, c) in coords.iter().enumerate() {
+        let d = haversine_distance_m(slat, slon, c[1], c[0]);
+        if d < best_d {
+            best_d = d;
+            best = i;
+        }
+    }
+    let (a, b) = if best + 1 < coords.len() {
+        (coords[best], coords[best + 1])
+    } else {
+        (coords[best - 1], coords[best])
+    };
+    let (lat1, lon1) = (a[1].to_radians(), a[0].to_radians());
+    let (lat2, lon2) = (b[1].to_radians(), b[0].to_radians());
+    let dlon = lon2 - lon1;
+    let y = sin(dlon) * cos(lat2);
+    let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dlon);
+    let deg = atan2(y, x).to_degrees();
+    Some((deg + 360.0) % 360.0)
 }
 
 impl RoadContext {
@@ -79,6 +123,10 @@ impl RoadContext {
         Some(RoadContext {
             road_class: road.road_class.clone(),
             distance_m: near.distance_m,
+            // The snapped segment's heading. `nearest_road` reports which
+            // segment was hit but not its direction, so this is derived from
+            // the two vertices bracketing the snap.
+            bearing: bearing_at(&road.coords, near.snapped),
         })
     }
 }
@@ -208,35 +256,77 @@ impl AccelStats {
 // autocorrelation of MDT's step_detection.rs. Cadence = peaks / seconds. Good
 // enough for a fallback (GPS speed is the primary signal); upgrade to
 // autocorrelation only if accel-only misclassification is actually observed.
+/// Step cadence by AUTOCORRELATION, not peak counting.
+///
+/// Peak counting thresholds the magnitude series and counts crossings with a
+/// refractory gap. At rest that is not a cadence detector, it is a jitter
+/// detector: random resting noise produces maxima above `mean + 0.5*sd` often
+/// enough that roughly a third of stationary windows reported a walking
+/// cadence, and the accel-only table reads a cadence as Walking. A phone on a
+/// desk was Walking.
+///
+/// Autocorrelation asks a different question -- is this signal PERIODIC -- and
+/// noise is not. Detrend by the mean to drop the ~9.8 m/s^2 gravity DC term,
+/// then take the strongest normalised peak in the 0.5-4 Hz stride band. A real
+/// gait peaks sharply (r ~ 0.4-0.9) at its stride period; jitter has no peak at
+/// all (r ~ 0), so it returns 0 Hz and the table reads Stationary, which is the
+/// truth.
+///
+/// Biased normalisation and integer-lag resolution, deliberately: no parabolic
+/// interpolation, no FIR band-pass. Good to about +/-0.2 Hz over a 4 s window,
+/// which is far inside the gaps between the walk/run/stationary thresholds.
 fn detect_steps(
     magnitudes: &VecDeque<f64>,
     mean: f64,
-    variance: f64,
+    _variance: f64,
     sample_rate_hz: u32,
 ) -> (u32, f64) {
+    const MIN_SAMPLES: usize = 8;
+    const ENERGY_EPSILON: f64 = 1e-4;
+    /// Slowest stride treated as periodic.
+    const MIN_CADENCE_HZ: f64 = 0.5;
+    /// Fastest plausible step cadence.
+    const MAX_CADENCE_HZ: f64 = 4.0;
+    /// Minimum normalised autocorrelation before this counts as a cadence.
+    const PERIODICITY_MIN: f64 = 0.4;
+
     let n = magnitudes.len();
-    if n < 3 {
+    if n < MIN_SAMPLES {
         return (0, 0.0);
     }
-    let threshold = mean + 0.5 * sqrt(variance);
-    // Refractory: no two steps within ~0.25 s (max plausible cadence ~4 Hz).
-    let min_gap = (sample_rate_hz / 4).max(1) as isize;
-    let mut steps: u32 = 0;
-    let mut last_peak: isize = -min_gap;
-    for i in 1..n - 1 {
-        let m = magnitudes[i];
-        let is_peak = m > magnitudes[i - 1] && m >= magnitudes[i + 1] && m > threshold;
-        if is_peak && i as isize - last_peak >= min_gap {
-            steps += 1;
-            last_peak = i as isize;
+    let detrended: alloc::vec::Vec<f64> = magnitudes.iter().map(|m| m - mean).collect();
+    let energy: f64 = detrended.iter().map(|v| v * v).sum();
+    if energy < ENERGY_EPSILON {
+        return (0, 0.0); // flat: no motion at all
+    }
+
+    let rate = sample_rate_hz as f64;
+    let min_lag = ((rate / MAX_CADENCE_HZ).round() as usize).max(2);
+    let max_lag = ((rate / MIN_CADENCE_HZ).round() as usize).min(n - 1);
+    if max_lag <= min_lag {
+        return (0, 0.0);
+    }
+
+    let mut best_lag = 0usize;
+    let mut best_r = 0.0f64;
+    for lag in min_lag..=max_lag {
+        let mut acc = 0.0;
+        for i in 0..(n - lag) {
+            acc += detrended[i] * detrended[i + lag];
+        }
+        let r = acc / energy; // normalised, r(0) = 1
+        if r > best_r {
+            best_r = r;
+            best_lag = lag;
         }
     }
-    let seconds = n as f64 / sample_rate_hz as f64;
-    let frequency = if seconds > 0.0 {
-        steps as f64 / seconds
-    } else {
-        0.0
-    };
+    if best_lag == 0 || best_r < PERIODICITY_MIN {
+        return (0, 0.0); // periodic enough to be a gait? no.
+    }
+
+    let frequency = rate / best_lag as f64;
+    let window_seconds = n as f64 / rate;
+    let steps = (frequency * window_seconds).round().max(0.0) as u32;
     (steps, frequency)
 }
 
@@ -276,6 +366,36 @@ pub fn classify(
     nearest_road: Option<&RoadContext>,
     accel: Option<&AccelStats>,
 ) -> Vote {
+    classify_with_history(
+        inst_speed_mps,
+        gps_accuracy_m,
+        nearest_road,
+        accel,
+        None,
+        MovementType::Unknown,
+    )
+}
+
+/// [`classify`] plus the two inputs a caller can only supply if it is tracking
+/// a sequence: which way the fix is travelling, and what the last committed
+/// state was.
+///
+/// Split from `classify` rather than added to it so a one-shot caller -- a GPX
+/// replay, a single-point query -- keeps a four-argument call and gets exactly
+/// the old behaviour: `None` bearing makes the alignment test inert, and an
+/// `Unknown` previous state makes the driving-sticky inert.
+///
+/// Both branches exist because distance to a road cannot separate a car from a
+/// pedestrian on the pavement, and a single sample cannot tell a car at a red
+/// light from a parked one. Direction and history can.
+pub fn classify_with_history(
+    inst_speed_mps: Option<f64>,
+    gps_accuracy_m: Option<f64>,
+    nearest_road: Option<&RoadContext>,
+    accel: Option<&AccelStats>,
+    gps_bearing: Option<f64>,
+    previous_stable: MovementType,
+) -> Vote {
     let accel = accel.unwrap_or(&AccelStats::EMPTY);
     // Poor GPS: the POSITION is uncertain. That is not a reason to throw away a
     // speed that no pedestrian can produce.
@@ -299,6 +419,32 @@ pub fn classify(
         return classify_accel_only(accel);
     }
 
+    // Travelling along a road, rather than merely beside one.
+    //
+    // Distance alone cannot separate a car from a pedestrian on the pavement --
+    // both are within a few metres of the centreline. Direction can: a fix
+    // moving parallel to a vehicular way at speed is in a vehicle, and one
+    // crossing it perpendicular at speed is too (a car on an intersecting
+    // street), while a walker's heading wanders relative to the road.
+    if let (Some(road), Some(bearing), Some(speed), Some(gps_bearing)) =
+        (nearest_road, nearest_road.and_then(|r| r.bearing), inst_speed_mps, gps_bearing)
+    {
+        if speed > 2.0 && road.distance_m < 15.0 {
+            // Modulo 180: a road has an axis, not a direction. Travelling
+            // "backwards" along it is the same alignment.
+            let diff = libm_fabs(road.bearing.unwrap_or(bearing) - gps_bearing) % 180.0;
+            let aligned = diff < 25.0 || diff > 155.0;
+            let perpendicular = (70.0..=110.0).contains(&diff);
+            let cls = road.road_class.as_str();
+            if aligned && (is_highway(cls) || is_vehicular(cls)) {
+                return Vote { movement: MovementType::Driving, confidence: 0.95 };
+            }
+            if perpendicular && speed > 5.0 && (is_highway(cls) || is_vehicular(cls)) {
+                return Vote { movement: MovementType::Driving, confidence: 0.90 };
+            }
+        }
+    }
+
     if let (Some(road), Some(speed)) = (nearest_road, inst_speed_mps) {
         let d = road.distance_m;
         let cls = road.road_class.as_str();
@@ -319,9 +465,37 @@ pub fn classify(
         }
     }
 
+    // Still moving, just off Driving, and no walking cadence: a drive-thru, a
+    // car park, a red light. Held as Driving because the alternative -- flipping
+    // to Stationary at every stop -- turns one journey into a string of false
+    // arrivals. A genuine walking cadence breaks it immediately rather than
+    // waiting the speed out, which is what makes driving->walking responsive.
+    // A gait, as opposed to a vehicle's vibration. Computed once: both the
+    // driving-sticky and the ambiguous speed band below turn on it.
+    let step_cadence = (1.0..=3.0).contains(&accel.dominant_frequency)
+        && accel.step_count > 3
+        && accel.variance > 0.01;
+
+    if previous_stable == MovementType::Driving
+        && inst_speed_mps.is_some_and(|s| s > 0.3)
+        && !step_cadence
+    {
+        return Vote { movement: MovementType::Driving, confidence: 0.75 };
+    }
+
     if let Some(speed) = inst_speed_mps {
         if speed > DRIVING_FLOOR_MPS {
             return Vote { movement: MovementType::Driving, confidence: 0.90 };
+        }
+        // 5 m/s to the driving floor is the band that used to be misread as
+        // Walking outright -- 8 m/s is 18 mph, which nobody walks. It is also
+        // the band a fast runner or a cyclist occupies, so speed alone cannot
+        // settle it: require an accelerometer that is actually reporting and is
+        // NOT showing a gait. With no accelerometer at all this falls through
+        // rather than guessing, which is what stops a GPX replay promoting every
+        // fast fix to Driving.
+        if speed > 5.0 && accel.window_duration_s.is_some_and(|d| d > 0.0) && !step_cadence {
+            return Vote { movement: MovementType::Driving, confidence: 0.80 };
         }
         if speed > WALKING_CEILING_MPS {
             return Vote { movement: MovementType::Walking, confidence: 0.85 };
@@ -451,6 +625,16 @@ impl VoteDebouncer {
     /// It never suppresses a transition the plain [`tick`] would have allowed.
     ///
     /// [`tick`]: VoteDebouncer::tick
+    /// Drop the vehicle-sticky guard so the next Stationary majority commits
+    /// without waiting `vehicle_sticky_ms` out.
+    ///
+    /// For a caller holding evidence the sticky no longer applies -- the fix is
+    /// inside a known place, say. A red light is not inside your house, so
+    /// waiting 90 s there buys nothing and delays the arrival that matters.
+    pub fn clear_vehicle_sticky(&mut self) {
+        self.last_driving_vote_ms = None;
+    }
+
     pub fn tick_at(
         &mut self,
         vote: &Vote,
@@ -536,7 +720,7 @@ mod tests {
     use alloc::vec::Vec;
 
     fn road(class: &str, distance_m: f64) -> RoadContext {
-        RoadContext { road_class: class.to_string(), distance_m }
+        RoadContext { road_class: class.to_string(), distance_m, bearing: None }
     }
 
     /// Synthetic accel window: constant `dc` magnitude plus a sine of
@@ -575,9 +759,17 @@ mod tests {
             snapped: (36.16, -86.79),
             distance_m: 3.0,
         };
-        assert_eq!(
-            RoadContext::from_nearest(&roads, &near),
-            Some(road("footway", 3.0))
+        let ctx = RoadContext::from_nearest(&roads, &near).expect("in-range index");
+        assert_eq!(ctx.road_class, "footway");
+        assert_eq!(ctx.distance_m, 3.0);
+        // The segment runs north-east, so the bearing is derived rather than
+        // absent -- that is the whole point of carrying it: a fix travelling
+        // ALONG a road is far more likely to be in a vehicle than one crossing
+        // it, and only a bearing can tell those apart.
+        let bearing = ctx.bearing.expect("a two-vertex segment has a heading");
+        assert!(
+            (30.0..50.0).contains(&bearing),
+            "north-east segment should bear ~39 deg, got {bearing}"
         );
         // Out-of-range index yields None instead of panicking.
         let bogus = NearestRoad { road_index: 7, ..near };
@@ -726,6 +918,147 @@ mod tests {
         // No speed at all is the same situation with less information.
         let v = classify(None, Some(100.0), None, Some(&walking));
         assert_eq!(v.movement, MovementType::Walking);
+    }
+
+    fn road_with_bearing(class: &str, distance_m: f64, bearing: f64) -> RoadContext {
+        RoadContext { road_class: class.to_string(), distance_m, bearing: Some(bearing) }
+    }
+
+    #[test]
+    fn travelling_along_a_road_reads_as_driving() {
+        // Distance alone cannot separate a car from someone on the pavement --
+        // both sit metres from the centreline. Heading can.
+        let e = AccelStats::EMPTY;
+        // `residential`, not `primary`: is_vehicular covers residential/unclassified/
+        // service and is_highway covers motorway/trunk/_link, so the major-road
+        // classes fall through both. That gap is pre-existing and shared with the
+        // Kotlin original, so it is not silently changed here.
+        let road = road_with_bearing("residential", 8.0, 90.0);
+        let v = classify_with_history(Some(6.0), Some(5.0), Some(&road), Some(&e), Some(92.0), MovementType::Unknown);
+        assert_eq!(v.movement, MovementType::Driving);
+
+        // A road is an axis, not a direction: travelling "backwards" along it is
+        // the same alignment.
+        let v = classify_with_history(Some(6.0), Some(5.0), Some(&road), Some(&e), Some(271.0), MovementType::Unknown);
+        assert_eq!(v.movement, MovementType::Driving);
+    }
+
+    #[test]
+    fn crossing_a_road_at_speed_is_also_driving() {
+        // A car on an intersecting street, not a pedestrian on a crossing --
+        // hence the higher speed bar for the perpendicular case.
+        let e = AccelStats::EMPTY;
+        let road = road_with_bearing("residential", 8.0, 0.0);
+        let v = classify_with_history(Some(7.0), Some(5.0), Some(&road), Some(&e), Some(90.0), MovementType::Unknown);
+        assert_eq!(v.movement, MovementType::Driving);
+    }
+
+    #[test]
+    fn a_bearing_without_a_road_bearing_changes_nothing() {
+        // The four-argument classify must keep its old behaviour exactly, which
+        // is what lets one-shot callers stay on it.
+        let e = AccelStats::EMPTY;
+        let road = RoadContext { road_class: "residential".to_string(), distance_m: 8.0, bearing: None };
+        assert_eq!(
+            classify_with_history(Some(3.0), Some(5.0), Some(&road), Some(&e), Some(90.0), MovementType::Unknown),
+            classify(Some(3.0), Some(5.0), Some(&road), Some(&e)),
+        );
+    }
+
+    #[test]
+    fn driving_is_held_through_a_stop_but_released_by_a_walking_cadence() {
+        // A car at a light looks identical to a parked one in a single sample.
+        // Flipping to Stationary at every red turns one journey into a string of
+        // false arrivals.
+        let still = AccelStats::EMPTY;
+        let v = classify_with_history(Some(1.0), Some(5.0), None, Some(&still), None, MovementType::Driving);
+        assert_eq!(v.movement, MovementType::Driving);
+
+        // But a real gait breaks out immediately rather than waiting the speed
+        // out -- that is what makes driving -> walking responsive.
+        let walking = accel_window(2.0, 1.5, 9.8, 50, 4.0);
+        let v = classify_with_history(Some(1.0), Some(5.0), None, Some(&walking), None, MovementType::Driving);
+        assert_ne!(v.movement, MovementType::Driving);
+
+        // And a genuinely stopped vehicle is not held forever.
+        let v = classify_with_history(Some(0.1), Some(5.0), None, Some(&still), None, MovementType::Driving);
+        assert_ne!(v.movement, MovementType::Driving);
+    }
+
+    #[test]
+    fn resting_jitter_is_not_a_cadence() {
+        // The reason for autocorrelation over peak counting: a phone at rest
+        // produces maxima above mean + 0.5*sd often enough that the old counter
+        // called roughly a third of stationary windows Walking.
+        let mut x = alloc::vec::Vec::new();
+        let (mut y, mut z) = (alloc::vec::Vec::new(), alloc::vec::Vec::new());
+        // A modular sequence is itself periodic -- i*7919 % 97 repeats every 97
+        // samples, which at 50 Hz is 0.51 Hz and lands squarely inside the
+        // cadence band. Use an LCG instead, whose period is far longer than the
+        // window.
+        let mut seed: u32 = 12345;
+        for _ in 0..200 {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            let n = ((seed >> 16) as f32 / 65535.0 - 0.5) / 30.0;
+            x.push(n);
+            y.push(-n * 0.7);
+            z.push(9.8 + n * 0.5);
+        }
+        let s = AccelStats::calculate(&x, &y, &z, 50);
+        assert_eq!(s.step_count, 0, "aperiodic jitter is not steps");
+        assert_eq!(s.dominant_frequency, 0.0);
+        assert_eq!(classify_accel_only(&s).movement, MovementType::Stationary);
+    }
+
+    #[test]
+    fn clearing_the_sticky_lets_stationary_commit() {
+        // Explicit config, not defaults: default_latency_ms is 60 s here and the
+        // Kotlin original deliberately runs 15 s ("too slow for walking"), so a
+        // test on defaults would be measuring the wrong tuning and take a
+        // simulated minute to say so.
+        let cfg = DebounceConfig { default_latency_ms: 15_000, ..DebounceConfig::default() };
+        let mut d = VoteDebouncer::new(cfg);
+        let driving = Vote { movement: MovementType::Driving, confidence: 0.9 };
+        let stationary = Vote { movement: MovementType::Stationary, confidence: 0.9 };
+        let mut t = 0u64;
+        // Steps must clear rapid_latency_ms (15 s) as well as min_continuous,
+        // or the transition never commits and the test measures nothing.
+        for _ in 0..10 { d.tick(&driving, t); t += 5_000; }
+        assert_eq!(d.current(), MovementType::Driving);
+        d.clear_vehicle_sticky();
+        for _ in 0..10 { d.tick(&stationary, t); t += 5_000; }
+        // 50 s of Stationary majority against a 15 s latency: if the cleared sticky
+        // still blocked it, this is where it would show.
+        assert_eq!(d.current(), MovementType::Stationary, "cleared sticky should not block the transition");
+    }
+
+    #[test]
+    fn eighteen_miles_an_hour_is_not_walking() {
+        // The hole this closes. 8 m/s sits below the driving floor, so it used
+        // to fall straight to "above the walking ceiling -> Walking" with no
+        // upper guard, and a real city-drive recording produced two windows of
+        // Walking at 18 mph.
+        let idle = AccelStats { variance: 1.2, mean_magnitude: Some(9.8), dominant_frequency: 0.3, step_count: 0, window_duration_s: Some(4.0) };
+        let v = classify(Some(8.0), Some(4.0), None, Some(&idle));
+        assert_eq!(v.movement, MovementType::Driving);
+    }
+
+    #[test]
+    fn a_fast_runner_is_not_promoted_to_driving() {
+        // The same band belongs to a sprinter, so a genuine gait keeps it.
+        let running = accel_window(2.6, 2.0, 9.8, 60, 4.0);
+        let v = classify(Some(6.0), Some(4.0), None, Some(&running));
+        assert_ne!(v.movement, MovementType::Driving);
+    }
+
+    #[test]
+    fn without_an_accelerometer_the_band_does_not_guess() {
+        // A GPX replay carries fixes and no samples. Promoting every fast fix to
+        // Driving there would invent a vehicle from a single noisy speed.
+        let v = classify(Some(6.0), Some(4.0), None, None);
+        assert_ne!(v.movement, MovementType::Driving);
+        // EMPTY is the same fact stated explicitly.
+        assert_ne!(classify(Some(6.0), Some(4.0), None, Some(&AccelStats::EMPTY)).movement, MovementType::Driving);
     }
 
     #[test]
