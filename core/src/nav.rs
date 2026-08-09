@@ -47,7 +47,15 @@ pub const OFF_ROUTE_M: f64 = 35.0;
 /// phrasing, the icon and the voice line all key off the name, and each would
 /// otherwise re-derive the thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    // Matches `as_str`, so a JS caller keying an icon or a phrase off the
+    // wire format and one keying off `as_str` cannot disagree. Without this
+    // the variants cross as `"Left"`, every lookup misses, and every turn
+    // silently degrades to "continue" -- wrong arrow and wrong words.
+    serde(rename_all = "snake_case")
+)]
 pub enum Maneuver {
     Depart,
     Continue,

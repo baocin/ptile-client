@@ -787,6 +787,23 @@ export function decode_chargers(data) {
 }
 
 /**
+ * Decode a `{ST}.highways_v2.ptiles` block. The file shares the roads magic
+ * and index shape but has its own legacy record body; see
+ * `ptiles_core::decode_highways`.
+ * @param {Uint8Array} data
+ * @returns {any}
+ */
+export function decode_highways(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_highways(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {Uint8Array} data
  * @returns {any}
  */
@@ -1604,6 +1621,29 @@ export function roads_in_block(block_bytes) {
  */
 export function route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, snap_m, avoid_highways, avoid_intersections) {
     const ret = wasm.route_from_segments(segments_js, zone_middle, lat1, lon1, lat2, lon2, !isLikeNone(snap_m), isLikeNone(snap_m) ? 0 : snap_m, isLikeNone(avoid_highways) ? 0xFFFFFF : avoid_highways ? 1 : 0, isLikeNone(avoid_intersections) ? 0xFFFFFF : avoid_intersections ? 1 : 0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Diagnostic form of [`route_from_segments`]. It always returns an object:
+ * `{result, failure}` with exactly one field non-null. The nullable export
+ * remains intact for existing callers.
+ * @param {any} segments_js
+ * @param {any} zone_middle
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {number | null} [snap_m]
+ * @param {boolean | null} [avoid_highways]
+ * @param {boolean | null} [avoid_intersections]
+ * @returns {any}
+ */
+export function route_from_segments_diagnostic(segments_js, zone_middle, lat1, lon1, lat2, lon2, snap_m, avoid_highways, avoid_intersections) {
+    const ret = wasm.route_from_segments_diagnostic(segments_js, zone_middle, lat1, lon1, lat2, lon2, !isLikeNone(snap_m), isLikeNone(snap_m) ? 0 : snap_m, isLikeNone(avoid_highways) ? 0xFFFFFF : avoid_highways ? 1 : 0, isLikeNone(avoid_intersections) ? 0xFFFFFF : avoid_intersections ? 1 : 0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

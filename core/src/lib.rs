@@ -81,7 +81,8 @@ pub use merged::{cell_ids as merged_cell_ids, cell_slice as merged_cell_slice};
 pub use parks::{ParkFeature, decode_parks};
 pub use rail::{RailFeature, decode_rail};
 pub use roads::{
-    Intersection, RoadSegment, decode_road_block, decode_roads, intersection_type_name,
+    Intersection, RoadSegment, decode_highways, decode_road_block, decode_roads,
+    intersection_type_name,
 };
 pub use signals::{Signal, decode_signals};
 pub use trails::{TrailFeature, decode_trails, trail_is_developed};
@@ -106,8 +107,9 @@ pub use query::{
     try_cell_center,
 };
 pub use route_graph::{
-    RoutePrefs, RouteProfile, RouteResult, keep_road_class, profile_allows, profile_allows_driving,
-    profile_allows_foot, route_roads, route_roads_with, trail_segments,
+    RouteFailure, RoutePrefs, RouteProfile, RouteResult, keep_road_class, profile_allows,
+    profile_allows_driving, profile_allows_foot, route_roads, route_roads_diagnostic,
+    route_roads_with, trail_segments,
 };
 pub use scoring::{Candidate, CandidateKind, Fix, ScoringParams, score_candidates};
 pub use viewshed::{ViewBuilding, Visibility, estimate_height, height_or_estimate, viewshed};

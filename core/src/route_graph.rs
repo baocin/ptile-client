@@ -24,6 +24,26 @@ const MERGE_THRESH: i32 = 5;
 const NODE_CAP: usize = 250_000;
 const BI_ASTAR_MIN_NODES: usize = 50_000;
 
+/// Why a graph route could not be produced.
+///
+/// The original API returned only `None`, which made a disconnected corridor
+/// indistinguishable from a bad endpoint snap or the browser safety cap.  The
+/// browser needs the distinction: widening is useful only for a disconnected
+/// graph, and repeating a node-budget failure just does more work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
+pub enum RouteFailure {
+    EmptyGraph,
+    StartNotSnapped,
+    EndNotSnapped,
+    Disconnected,
+    NodeBudgetExceeded,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RouteResult {
@@ -266,7 +286,11 @@ struct Graph {
     edge_geom: BTreeMap<(u32, u32), Vec<[f64; 2]>>,
 }
 
-fn build_graph(roads: &[RoadSegment], zone_middle: &[bool], prefs: RoutePrefs) -> Option<Graph> {
+fn build_graph(
+    roads: &[RoadSegment],
+    zone_middle: &[bool],
+    prefs: RoutePrefs,
+) -> Result<Graph, RouteFailure> {
     let mut coord_to_node: BTreeMap<[i32; 2], u32> = BTreeMap::new();
     let mut node_micro: Vec<[i32; 2]> = Vec::new();
     let mut node_geo: Vec<[f64; 2]> = Vec::new();
@@ -303,7 +327,7 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool], prefs: RoutePrefs) -
             } else {
                 let id = node_micro.len() as u32;
                 if node_micro.len() >= NODE_CAP {
-                    return None;
+                    return Err(RouteFailure::NodeBudgetExceeded);
                 }
                 coord_to_node.insert(k, id);
                 node_micro.push(k);
@@ -357,7 +381,7 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool], prefs: RoutePrefs) -
     }
 
     if node_micro.is_empty() {
-        return Some(Graph {
+        return Ok(Graph {
             adj: Vec::new(),
             coords_geo: Vec::new(),
             edge_geom: BTreeMap::new(),
@@ -502,13 +526,13 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool], prefs: RoutePrefs) -
 
     let final_n = new_id as usize;
     if final_n > NODE_CAP {
-        return None;
+        return Err(RouteFailure::NodeBudgetExceeded);
     }
     let mut adj = vec![Vec::new(); final_n];
     for ((f, t), w) in adj_map {
         adj[f as usize].push((t, w));
     }
-    Some(Graph {
+    Ok(Graph {
         adj,
         coords_geo: new_geo,
         edge_geom: geom_map,
@@ -746,17 +770,35 @@ pub fn route_roads_with(
     snap_m: f64,
     prefs: RoutePrefs,
 ) -> Option<RouteResult> {
+    route_roads_diagnostic(roads, zone_middle, lat1, lon1, lat2, lon2, snap_m, prefs).ok()
+}
+
+/// [`route_roads_with`] with a structured failure instead of an ambiguous
+/// `None`. Existing callers keep the nullable API; corridor loaders can use
+/// this form to decide whether widening can actually help.
+#[allow(clippy::too_many_arguments)]
+pub fn route_roads_diagnostic(
+    roads: &[RoadSegment],
+    zone_middle: &[bool],
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+    snap_m: f64,
+    prefs: RoutePrefs,
+) -> Result<RouteResult, RouteFailure> {
     let g = build_graph(roads, zone_middle, prefs)?;
     if g.adj.is_empty() {
-        return None;
+        return Err(RouteFailure::EmptyGraph);
     }
-    let src = nearest_node(&g, lat1, lon1, snap_m)?;
-    let dst = nearest_node(&g, lat2, lon2, snap_m)?;
+    let src = nearest_node(&g, lat1, lon1, snap_m).ok_or(RouteFailure::StartNotSnapped)?;
+    let dst = nearest_node(&g, lat2, lon2, snap_m).ok_or(RouteFailure::EndNotSnapped)?;
     let (nodes, w) = if g.adj.len() > BI_ASTAR_MIN_NODES {
-        bi_astar(&g.adj, &g.coords_geo, src, dst, lat1, lon1, lat2, lon2)?
+        bi_astar(&g.adj, &g.coords_geo, src, dst, lat1, lon1, lat2, lon2)
     } else {
-        astar(&g.adj, &g.coords_geo, src, dst, lat2, lon2)?
-    };
+        astar(&g.adj, &g.coords_geo, src, dst, lat2, lon2)
+    }
+    .ok_or(RouteFailure::Disconnected)?;
     // stitch edge geometries so path follows road centerline, not node chords
     let mut path: Vec<[f64; 2]> = Vec::new();
     let mut dist_m = 0.0_f64;
@@ -782,7 +824,7 @@ pub fn route_roads_with(
             path.push([c[1], c[0]]);
         }
     }
-    Some(RouteResult {
+    Ok(RouteResult {
         distance_m: dist_m,
         duration_s: weight_to_seconds(w),
         path,
@@ -1047,5 +1089,36 @@ mod tests {
     #[test]
     fn empty_roads_none() {
         assert!(route_roads(&[], &[], 36.0, -86.0, 36.1, -86.1, 50.0).is_none());
+    }
+
+    #[test]
+    fn diagnostic_distinguishes_empty_snap_and_disconnected_graphs() {
+        let prefs = RoutePrefs::default();
+        assert_eq!(
+            route_roads_diagnostic(&[], &[], 36.0, -86.0, 36.1, -86.1, 50.0, prefs),
+            Err(RouteFailure::EmptyGraph)
+        );
+
+        let near_a = seg("residential", vec![[-86.0, 36.0], [-85.999, 36.0]], None);
+        assert_eq!(
+            route_roads_diagnostic(
+                &[near_a.clone()], &[], 37.0, -87.0, 36.0, -85.999, 50.0, prefs,
+            ),
+            Err(RouteFailure::StartNotSnapped)
+        );
+        assert_eq!(
+            route_roads_diagnostic(
+                &[near_a.clone()], &[], 36.0, -86.0, 37.0, -87.0, 50.0, prefs,
+            ),
+            Err(RouteFailure::EndNotSnapped)
+        );
+
+        let island = seg("residential", vec![[-85.9, 36.0], [-85.899, 36.0]], None);
+        assert_eq!(
+            route_roads_diagnostic(
+                &[near_a, island], &[], 36.0, -86.0, 36.0, -85.899, 50.0, prefs,
+            ),
+            Err(RouteFailure::Disconnected)
+        );
     }
 }

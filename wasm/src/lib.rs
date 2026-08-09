@@ -20,8 +20,9 @@ use ptiles_core::{decode_buildings as core_decode_buildings, decode_business as 
 use ptiles_core::{
     decode_road_block as core_decode_road_block,
     nearest_intersection as core_nearest_intersection, nearest_road as core_nearest_road,
+    route_roads_diagnostic as core_route_roads_diagnostic,
     route_roads_with as core_route_roads_with, score_candidates as core_score_candidates,
-    Fix, RoadSegment, RoutePrefs,
+    Fix, RoadSegment, RouteFailure, RoutePrefs,
     ScoringParams, DEFAULT_THRESHOLD_M,
 };
 use ptiles_motion::{
@@ -520,6 +521,54 @@ pub fn nearest_road(block_bytes: &[u8], lat: f64, lon: f64, threshold_m: Option<
 }
 
 
+#[derive(serde::Deserialize)]
+struct RouteSegIn {
+    coords: Vec<[f64; 2]>,
+    road_class: String,
+    #[serde(default)]
+    oneway: Option<String>,
+    #[serde(default)]
+    speed_limit_kmh: Option<u8>,
+}
+
+fn route_inputs(
+    segments_js: JsValue,
+    zone_middle: JsValue,
+) -> Result<(Vec<RoadSegment>, Vec<bool>), JsValue> {
+    let segs_in: Vec<RouteSegIn> = serde_wasm_bindgen::from_value(segments_js)
+        .map_err(|e| JsValue::from_str(&format!("segments: {e}")))?;
+    let roads = segs_in
+        .into_iter()
+        .map(|s| RoadSegment {
+            osm_id: 0,
+            road_class: s.road_class,
+            coords: s.coords,
+            name: None,
+            ref_tag: None,
+            oneway: s.oneway,
+            speed_limit_kmh: s.speed_limit_kmh,
+            lanes: None,
+            surface: None,
+            bridge_tunnel: None,
+        })
+        .collect();
+    let middle = if zone_middle.is_null() || zone_middle.is_undefined() {
+        Vec::new()
+    } else {
+        serde_wasm_bindgen::from_value(zone_middle)
+            .map_err(|e| JsValue::from_str(&format!("zone_middle: {e}")))?
+    };
+    Ok((roads, middle))
+}
+
+fn driving_prefs(avoid_highways: Option<bool>, avoid_intersections: Option<bool>) -> RoutePrefs {
+    RoutePrefs {
+        profile: ptiles_core::RouteProfile::Driving,
+        avoid_highways: avoid_highways.unwrap_or(false),
+        avoid_intersections: avoid_intersections.unwrap_or(false),
+    }
+}
+
 /// Route on pre-decoded road segments (JS owns fetch + zstd + corridor).
 /// `segments_js`: `[{coords:[[lon,lat],...], road_class, oneway?, speed_limit_kmh?}, ...]`
 /// `zone_middle`: bool[] same length (true = arterial-only middle); empty/null = all end-cap.
@@ -536,48 +585,61 @@ pub fn route_from_segments(
     avoid_highways: Option<bool>,
     avoid_intersections: Option<bool>,
 ) -> Result<JsValue, JsValue> {
-    #[derive(serde::Deserialize)]
-    struct SegIn {
-        coords: Vec<[f64; 2]>,
-        road_class: String,
-        #[serde(default)]
-        oneway: Option<String>,
-        #[serde(default)]
-        speed_limit_kmh: Option<u8>,
-    }
-    let segs_in: Vec<SegIn> = serde_wasm_bindgen::from_value(segments_js)
-        .map_err(|e| JsValue::from_str(&format!("segments: {e}")))?;
-    let roads: Vec<RoadSegment> = segs_in
-        .into_iter()
-        .map(|s| RoadSegment {
-            osm_id: 0,
-            road_class: s.road_class,
-            coords: s.coords,
-            name: None,
-            ref_tag: None,
-            oneway: s.oneway,
-            speed_limit_kmh: s.speed_limit_kmh,
-            lanes: None,
-            surface: None,
-            bridge_tunnel: None,
-        })
-        .collect();
-    let middle: Vec<bool> = if zone_middle.is_null() || zone_middle.is_undefined() {
-        Vec::new()
-    } else {
-        serde_wasm_bindgen::from_value(zone_middle)
-            .map_err(|e| JsValue::from_str(&format!("zone_middle: {e}")))?
-    };
+    let (roads, middle) = route_inputs(segments_js, zone_middle)?;
     let snap = snap_m.unwrap_or(100.0);
-    let prefs = RoutePrefs {
-        profile: ptiles_core::RouteProfile::Driving,
-        avoid_highways: avoid_highways.unwrap_or(false),
-        avoid_intersections: avoid_intersections.unwrap_or(false),
-    };
+    let prefs = driving_prefs(avoid_highways, avoid_intersections);
     match core_route_roads_with(&roads, &middle, lat1, lon1, lat2, lon2, snap, prefs) {
         Some(r) => to_js(&r),
         None => Ok(JsValue::NULL),
     }
+}
+
+/// Diagnostic form of [`route_from_segments`]. It always returns an object:
+/// `{result, failure}` with exactly one field non-null. The nullable export
+/// remains intact for existing callers.
+#[wasm_bindgen]
+pub fn route_from_segments_diagnostic(
+    segments_js: JsValue,
+    zone_middle: JsValue,
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+    snap_m: Option<f64>,
+    avoid_highways: Option<bool>,
+    avoid_intersections: Option<bool>,
+) -> Result<JsValue, JsValue> {
+    #[derive(serde::Serialize)]
+    struct Response {
+        result: Option<ptiles_core::RouteResult>,
+        failure: Option<RouteFailure>,
+    }
+
+    let (roads, middle) = route_inputs(segments_js, zone_middle)?;
+    let response = match core_route_roads_diagnostic(
+        &roads,
+        &middle,
+        lat1,
+        lon1,
+        lat2,
+        lon2,
+        snap_m.unwrap_or(100.0),
+        driving_prefs(avoid_highways, avoid_intersections),
+    ) {
+        Ok(result) => Response { result: Some(result), failure: None },
+        Err(failure) => Response { result: None, failure: Some(failure) },
+    };
+    to_js(&response)
+}
+
+/// Decode a `{ST}.highways_v2.ptiles` block. The file shares the roads magic
+/// and index shape but has its own legacy record body; see
+/// `ptiles_core::decode_highways`.
+#[wasm_bindgen]
+pub fn decode_highways(data: &[u8]) -> Result<JsValue, JsValue> {
+    let roads = ptiles_core::decode_highways(data)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&roads)
 }
 
 /// Route on foot over decoded trails: "get me there on paths, not roads".

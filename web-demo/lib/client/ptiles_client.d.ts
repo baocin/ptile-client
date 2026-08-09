@@ -347,6 +347,13 @@ export function decode_cameras(data: Uint8Array): any;
  */
 export function decode_chargers(data: Uint8Array): any;
 
+/**
+ * Decode a `{ST}.highways_v2.ptiles` block. The file shares the roads magic
+ * and index shape but has its own legacy record body; see
+ * `ptiles_core::decode_highways`.
+ */
+export function decode_highways(data: Uint8Array): any;
+
 export function decode_parks(data: Uint8Array): any;
 
 export function decode_rail(data: Uint8Array): any;
@@ -739,6 +746,13 @@ export function roads_in_block(block_bytes: Uint8Array): any;
 export function route_from_segments(segments_js: any, zone_middle: any, lat1: number, lon1: number, lat2: number, lon2: number, snap_m?: number | null, avoid_highways?: boolean | null, avoid_intersections?: boolean | null): any;
 
 /**
+ * Diagnostic form of [`route_from_segments`]. It always returns an object:
+ * `{result, failure}` with exactly one field non-null. The nullable export
+ * remains intact for existing callers.
+ */
+export function route_from_segments_diagnostic(segments_js: any, zone_middle: any, lat1: number, lon1: number, lat2: number, lon2: number, snap_m?: number | null, avoid_highways?: boolean | null, avoid_intersections?: boolean | null): any;
+
+/**
  * Route on foot over decoded trails: "get me there on paths, not roads".
  *
  * `trails_js` is what `decode_trails` returned. Trails are converted to the
@@ -875,6 +889,7 @@ export interface InitOutput {
     readonly decode_business_versioned: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly decode_cameras: (a: number, b: number) => [number, number, number];
     readonly decode_chargers: (a: number, b: number) => [number, number, number];
+    readonly decode_highways: (a: number, b: number) => [number, number, number];
     readonly decode_parks: (a: number, b: number) => [number, number, number];
     readonly decode_rail: (a: number, b: number) => [number, number, number];
     readonly decode_roads: (a: number, b: number) => [number, number, number];
@@ -923,6 +938,7 @@ export interface InitOutput {
     readonly point_in_polygon: (a: number, b: number, c: number, d: number) => number;
     readonly resolved_height: (a: number, b: number, c: number, d: number) => number;
     readonly route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+    readonly route_from_segments_diagnostic: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly route_trails: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly score_candidates: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly significant_shifts: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];

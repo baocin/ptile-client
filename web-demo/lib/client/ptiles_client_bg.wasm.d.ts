@@ -34,6 +34,7 @@ export const decode_business_for_cell: (a: number, b: number, c: number, d: numb
 export const decode_business_versioned: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const decode_cameras: (a: number, b: number) => [number, number, number];
 export const decode_chargers: (a: number, b: number) => [number, number, number];
+export const decode_highways: (a: number, b: number) => [number, number, number];
 export const decode_parks: (a: number, b: number) => [number, number, number];
 export const decode_rail: (a: number, b: number) => [number, number, number];
 export const decode_roads: (a: number, b: number) => [number, number, number];
@@ -82,6 +83,7 @@ export const plan_charge_stops: (a: any, b: any, c: number, d: number, e: number
 export const point_in_polygon: (a: number, b: number, c: number, d: number) => number;
 export const resolved_height: (a: number, b: number, c: number, d: number) => number;
 export const route_from_segments: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+export const route_from_segments_diagnostic: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
 export const route_trails: (a: any, b: any, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
 export const score_candidates: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
 export const significant_shifts: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];

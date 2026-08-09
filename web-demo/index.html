@@ -117,6 +117,89 @@
   }
   .cam-panel .links a:hover { background: #21262d; }
   .cam-panel .legend { color: #484f58; font-size: 0.68rem; margin-top: 10px; }
+  /* The vehicle marker sits in the rotated pane, so it rotates with the map.
+     Heading-up means forward is always up the screen, which is exactly what
+     the chevron already points at -- no counter-rotation needed. */
+  .drive-me { background: none; border: none; }
+  /* --- Drive mode ---------------------------------------------------------
+     Full-screen, one thumb, sunlight, moving vehicle. Every number is either
+     large or absent. The map underneath is the same Leaflet instance the rest
+     of the page uses -- a second map would re-fetch every header and index
+     this format exists to avoid paying for twice. */
+  body.driving .topbar, body.driving .layer-bar, body.driving .info-panel,
+  body.driving .cam-panel, body.driving .leaflet-control-container { display: none !important; }
+  /* #map was the flex child; the rotation wrapper is now, so it inherits the
+     job of filling what is left and #map fills it in turn. */
+  #mapRot { flex: 1; display: flex; min-height: 0; }
+  #mapRot > #map { flex: 1; }
+  body.driving #map { height: 100%; width: 100%; }
+  /* Rotating the map means rotating its corners off screen, so it is scaled
+     up to cover them. 1.45 is sqrt(2) with margin: enough at any angle. */
+  #mapRot { transform-origin: 50% 50%; transition: transform 240ms linear; }
+  /* A rotated rectangle only covers the screen if it is at least as wide as
+     the screen's diagonal -- 150% of the width is not enough at 45 degrees,
+     which showed as white wedges in the corners. A centred square of
+     140vmax covers any viewport at any angle. */
+  body.driving #mapRot {
+    /* `inset: auto` first, then left/top: as a shorthand for all four sides,
+       inset would otherwise reset the two set before it and leave the square
+       centred on the viewport's origin instead of its middle. */
+    position: fixed; inset: auto; left: 50%; top: 50%;
+    width: 120vmax; height: 120vmax; margin-left: -60vmax; margin-top: -60vmax;
+    display: block;
+  }
+  #driveUi { display: none; }
+  body.driving #driveUi { display: block; }
+  #driveBanner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1200;
+    background: #0d1117; border-bottom: 1px solid #21262d;
+    padding: 14px 16px calc(14px + env(safe-area-inset-top)) 16px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  #driveBanner.close { background: #3d2b0d; border-bottom-color: #9e6a03; }
+  #driveBanner.now { background: #0f3620; border-bottom-color: #2ea043; }
+  #driveArrow { width: 54px; height: 54px; flex: 0 0 54px; color: #e6edf3; }
+  #driveArrow svg { width: 100%; height: 100%; display: block; }
+  #driveDist { font-size: 2rem; font-weight: 700; line-height: 1.05; color: #e6edf3; }
+  #driveRoad { font-size: 1.05rem; color: #8b949e; margin-top: 2px;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #driveThen { font-size: 0.8rem; color: #6e7681; margin-top: 4px; }
+  #driveBottom {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 1200;
+    background: #0d1117; border-top: 1px solid #21262d;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #drivePois { display: flex; border-bottom: 1px solid #21262d; }
+  #drivePois button {
+    flex: 1; background: none; border: none; color: #8b949e;
+    padding: 10px 0 8px; min-height: 44px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 0.68rem; font-family: inherit;
+  }
+  #drivePois button svg { width: 26px; height: 26px; }
+  #drivePois button.on { color: #2ea043; }
+  #drivePois button.end { color: #f85149; }
+  #driveEta { display: flex; align-items: baseline; gap: 14px; padding: 10px 16px 12px; }
+  #driveArrive { font-size: 1.5rem; font-weight: 700; color: #e6edf3; }
+  #driveRest { font-size: 0.95rem; color: #8b949e; }
+  #driveNote { margin-left: auto; font-size: 0.75rem; color: #6e7681;
+               max-width: 45%; text-align: right; }
+  #driveSheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 1300; max-height: 62vh;
+    overflow-y: auto; background: #0d1117; border-top: 1px solid #30363d;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: none;
+  }
+  #driveSheet.show { display: block; }
+  #driveSheet h4 { margin: 0 0 8px; font-size: 0.8rem; color: #8b949e; font-weight: 600; }
+  .poi-row { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid #21262d;
+             align-items: center; cursor: pointer; }
+  .poi-row .n { color: #e6edf3; flex: 1; overflow: hidden; text-overflow: ellipsis;
+                white-space: nowrap; }
+  .poi-row .d { color: #6e7681; font-size: 0.8rem; white-space: nowrap; }
+  .poi-row .add { border: 1px solid #30363d; border-radius: 6px; background: none;
+                  color: #2ea043; padding: 6px 10px; font-size: 0.75rem; cursor: pointer;
+                  font-family: inherit; }
+  @media (prefers-color-scheme: light) { /* the road is bright; the screen is not */ }
 </style>
 </head>
 <body>
@@ -136,6 +219,7 @@
       <label title="Route on paths, tracks and footways instead of roads, at walking speed. Quiet streets are used to link fragments; motorways never are."><input type="checkbox" id="chkTrailsOnly"> trails only</label>
       <label title="Electric range remaining, in miles. Set it and the route plans charging stops, driving only 80% of it between them."><input type="number" id="evRange" min="0" step="10" placeholder="EV range (mi)" style="width:110px"></label>
     </span>
+    <button id="btnDrive" title="Follow the route you just found, turn by turn">Drive</button>
     <button id="btnGeo" class="toggle-off" title="Click the map for the road or trail you are on and the nearest address; or type an address to find it">Geocode</button>
     <span id="geoOpts" style="display:none">
       <input type="text" id="geoInput" placeholder="400 Broadway" style="width:130px" />
@@ -163,7 +247,7 @@
     </label>
     <span id="layerStatus"></span>
   </div>
-  <div id="map"></div>
+  <div id="mapRot"><div id="map"></div></div>
 
   <div class="info-panel" id="infoPanel">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -348,7 +432,7 @@
   <script src="lib/corp-safe-tiles.js"></script>
   <script src="lib/h3-js.umd.js"></script>
   <script type="module">
-import init_wasm, * as wasm from "./lib/client/ptiles_client.js?v=1";
+import init_wasm, * as wasm from "./lib/client/ptiles_client.js?v=2";
 import { createPtiles } from "./js/ptiles.js";
 
 // Every question of the form "what do these bytes mean" goes through here.
@@ -370,6 +454,7 @@ function timedDecode(fn) {
 }
 
 var wasm_decode_roads = timedDecode(function(b) { return wasm.decode_roads(b); });
+var wasm_decode_highways = timedDecode(function(b) { return wasm.decode_highways(b); });
 var wasm_decode_water = timedDecode(function(b) { return wasm.decode_water(b); });
 var wasm_decode_parks = timedDecode(function(b) { return wasm.decode_parks(b); });
 var wasm_decode_rail = timedDecode(function(b) { return wasm.decode_rail(b); });
@@ -379,6 +464,7 @@ var wasm_decode_cameras = timedDecode(function(b) { return wasm.decode_cameras(b
 var wasm_decode_signals = timedDecode(function(b) { return wasm.decode_signals(b); });
 var wasm_nearest_road = function(b, la, lo, t) { return wasm.nearest_road(b, la, lo, t); };
 var wasm_route_from_segments = function() { return wasm.route_from_segments.apply(null, arguments); };
+var wasm_route_from_segments_diagnostic = function() { return wasm.route_from_segments_diagnostic.apply(null, arguments); };
 var wasm_route_trails = function() { return wasm.route_trails.apply(null, arguments); };
 var wasm_decode_chargers = timedDecode(function(b) { return wasm.decode_chargers(b); });
 
@@ -1878,6 +1964,8 @@ var currentState = "TN";
 var bldgReaderPromise = null;
 var bizReaderPromise = null;
 var roadsByState = {}; // abbr -> LayerReader (route may use 2 states)
+var highwaysByState = {};
+var highwayBackbones = {};
 
 // Everything is served from one dated snapshot prefix. The date names the
 // build; the version in each filename names the wire format, which moves per
@@ -2696,6 +2784,14 @@ stateSelect.addEventListener("change", function() { switchState(this.value); });
 // I/O + corridor in JS; graph/search only in ptiles-core via route_from_segments
 // ponytail: hard abort was 800; long routes hit ~2k with fat disks — sparse + thin
 var ROUTE_MAX_CELLS = 400;
+// One failed long route may pay for a denser arterial-only retry. Kept
+// separate from the ordinary phone budget so widening cannot silently turn
+// every route into a 900-cell load.
+var ROUTE_RETRY_MAX_CELLS = 900;
+// The prefiltered state backbone has many sparse H3 entries but little data
+// (TN is ~1.7 MB compressed). Bound the aggregate explicitly so a multi-state
+// request cannot accidentally load the country.
+var ROUTE_HIGHWAY_MAX_CELLS = 10000;
 var ROUTE_END_CAP_K = 2;
 var routeMode = false;
 var routeA = null, routeB = null, routeLayer = null, routeBusy = false;
@@ -3059,45 +3155,78 @@ function sampleLine(lat1, lon1, lat2, lon2, intervalM) {
   return pts;
 }
 
+// Append the complete H3 path between two nearby samples. `gridPathCells`
+// occasionally cannot cross an H3 local-IJ boundary; split that short leg at
+// its geographic midpoint rather than reverting to the old pair of isolated
+// disks. At res 7 and the sampling intervals above, four splits are far more
+// than normal routes need.
+function appendCorridorLeg(spine, seen, a, b, depth) {
+  var ca = h3.latLngToCell(a.lat, a.lon, 7);
+  var cb = h3.latLngToCell(b.lat, b.lon, 7);
+  var path = null;
+  try { path = h3.gridPathCells(ca, cb); } catch (e) {}
+  if (!path && depth < 4) {
+    var mid = { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 };
+    appendCorridorLeg(spine, seen, a, mid, depth + 1);
+    appendCorridorLeg(spine, seen, mid, b, depth + 1);
+    return;
+  }
+  (path || [ca, cb]).forEach(function(c) {
+    if (!seen.has(c)) { seen.add(c); spine.push(c); }
+  });
+}
+
+function corridorSpine(lat1, lon1, lat2, lon2, intervalM) {
+  var pts = sampleLine(lat1, lon1, lat2, lon2, intervalM);
+  var spine = [], seen = new Set();
+  for (var i = 0; i + 1 < pts.length; i++) {
+    appendCorridorLeg(spine, seen, pts[i], pts[i + 1], 0);
+  }
+  if (!spine.length) spine.push(h3.latLngToCell(lat1, lon1, 7));
+  return spine;
+}
+
+// Construct complete bands around a continuous spine. The old implementation
+// sampled a disk every 8-20 km, leaving holes between disks, then arbitrarily
+// thinned the result to 400 cells. That guaranteed a small input but could
+// hand A* a disconnected road graph. The spine and endpoint caps are now
+// mandatory; optional outer bands are accepted only whole, so budgeting can
+// reduce width but can never punch holes in the route's centreline.
+function corridorCellPlan(lat1, lon1, lat2, lon2, width, intervalM, maxCells) {
+  maxCells = maxCells == null ? ROUTE_MAX_CELLS : maxCells;
+  var spine = corridorSpine(lat1, lon1, lat2, lon2, intervalM);
+  var cells = new Set(spine);
+  var addDisk = function(lat, lon, k, into) {
+    try { h3.gridDisk(h3.latLngToCell(lat, lon, 7), k).forEach(function(c) { into.add(c); }); }
+    catch (e) {}
+  };
+  // Endpoint caps carry the local streets that connect each click to the
+  // arterial-only middle.
+  addDisk(lat1, lon1, ROUTE_END_CAP_K, cells);
+  addDisk(lat2, lon2, ROUTE_END_CAP_K, cells);
+  if (cells.size > maxCells) {
+    throw new Error("route spine needs " + cells.size + " cells; budget is " + maxCells);
+  }
+
+  var appliedWidth = 0, budgetLimited = false;
+  for (var ring = 1; ring <= width; ring++) {
+    var candidate = new Set(cells);
+    for (var si = 0; si < spine.length; si++) {
+      try { h3.gridDisk(spine[si], ring).forEach(function(c) { candidate.add(c); }); }
+      catch (e) {}
+    }
+    if (candidate.size > maxCells) { budgetLimited = true; break; }
+    cells = candidate;
+    appliedWidth = ring;
+  }
+  return {
+    cells: Array.from(cells), spine: spine, requestedWidth: width,
+    appliedWidth: appliedWidth, budgetLimited: budgetLimited, maxCells: maxCells
+  };
+}
+
 function corridorCells(lat1, lon1, lat2, lon2, width, intervalM) {
-  var dist = haversineM(lat1, lon1, lat2, lon2);
-  var n = Math.max(1, Math.ceil(dist / intervalM));
-  var pathCells = []; // ordered spine for thinning
-  var set = new Set();
-  for (var i = 0; i <= n; i++) {
-    var t = i / n;
-    var lat = lat1 + (lat2 - lat1) * t;
-    var lon = lon1 + (lon2 - lon1) * t;
-    var c = h3.latLngToCell(lat, lon, 7);
-    if (!set.has(c)) pathCells.push(c);
-    set.add(c);
-    try {
-      var disk = h3.gridDisk(c, width);
-      for (var j = 0; j < disk.length; j++) set.add(disk[j]);
-    } catch (e) {}
-  }
-  // end caps k=2 for residential connect (even if middle width=1)
-  try {
-    h3.gridDisk(h3.latLngToCell(lat1, lon1, 7), 2).forEach(function(c) { set.add(c); });
-    h3.gridDisk(h3.latLngToCell(lat2, lon2, 7), 2).forEach(function(c) { set.add(c); });
-  } catch (e) {}
-  var cells = Array.from(set);
-  // thin: keep spine samples + end caps first (never random hex sort)
-  if (cells.length > ROUTE_MAX_CELLS) {
-    var keep = new Set();
-    var step = Math.max(1, Math.ceil(pathCells.length / Math.floor(ROUTE_MAX_CELLS * 0.6)));
-    for (var k = 0; k < pathCells.length; k += step) keep.add(pathCells[k]);
-    keep.add(h3.latLngToCell(lat1, lon1, 7));
-    keep.add(h3.latLngToCell(lat2, lon2, 7));
-    try {
-      h3.gridDisk(h3.latLngToCell(lat1, lon1, 7), 2).forEach(function(c) { keep.add(c); });
-      h3.gridDisk(h3.latLngToCell(lat2, lon2, 7), 2).forEach(function(c) { keep.add(c); });
-    } catch (e) {}
-    // fill remaining budget with near-spine cells
-    for (var ci = 0; ci < cells.length && keep.size < ROUTE_MAX_CELLS; ci++) keep.add(cells[ci]);
-    cells = Array.from(keep);
-  }
-  return cells;
+  return corridorCellPlan(lat1, lon1, lat2, lon2, width, intervalM).cells;
 }
 
 // All states whose bbox the line crosses (not just endpoints)
@@ -3152,6 +3281,71 @@ async function roadsReaderFor(state) {
   var rdr = await LayerReader.fromUrl(stateUrl(state, "roads"));
   roadsByState[state] = rdr;
   return rdr;
+}
+
+async function highwaysReaderFor(state) {
+  if (highwaysByState[state]) return highwaysByState[state];
+  var rdr = await LayerReader.fromUrl(stateUrl(state, "highways"));
+  highwaysByState[state] = rdr;
+  return rdr;
+}
+
+// Decode one state's complete prefiltered highway graph once. Coalesced
+// prefetch turns its contiguous blocks into a handful of range reads instead
+// of one request per indexed H3 cell.
+function highwayBackboneFor(state) {
+  if (highwayBackbones[state]) return highwayBackbones[state];
+  highwayBackbones[state] = (async function() {
+    setStatus("Route: open " + state + " highway backbone…");
+    var rdr = await highwaysReaderFor(state);
+    var cells = rdr.file.entries.map(function(e) { return e.h3Cell & CELL_MASK; });
+    if (cells.length > ROUTE_HIGHWAY_MAX_CELLS) {
+      throw new Error(state + " highway backbone has " + cells.length
+        + " cells; budget is " + ROUTE_HIGHWAY_MAX_CELLS);
+    }
+    await rdr.file.layer.prefetch(cells, { maxGap: 65536 });
+    var segments = [];
+    for (var n = 0; n < cells.length; n++) {
+      if (n % 256 === 0) {
+        setStatus("Route: highway " + state + " " + Math.min(n + 256, cells.length)
+          + "/" + cells.length + " cells · " + segments.length + " segs");
+      }
+      var raw = await rdr.decompressCell(cells[n]);
+      if (!raw) continue;
+      var decoded;
+      try { decoded = wasm_decode_highways(raw); } catch (e) { continue; }
+      for (var i = 0; decoded && i < decoded.length; i++) {
+        var seg = decoded[i];
+        if (!seg.coords || seg.coords.length < 2) continue;
+        segments.push({
+          coords: seg.coords,
+          road_class: seg.road_class || "primary",
+          oneway: seg.oneway != null ? seg.oneway : null,
+          speed_limit_kmh: seg.speed_limit_kmh != null ? seg.speed_limit_kmh : null
+        });
+      }
+    }
+    return { segments: segments, cells: cells.length, states: [state] };
+  })().catch(function(e) {
+    highwayBackbones[state] = null;
+    throw e;
+  });
+  return highwayBackbones[state];
+}
+
+async function loadHighwayBackbone(states) {
+  var all = [], cells = 0, loaded = [];
+  for (var i = 0; i < states.length; i++) {
+    var one = await highwayBackboneFor(states[i]);
+    if (cells + one.cells > ROUTE_HIGHWAY_MAX_CELLS) {
+      throw new Error("highway backbone needs " + (cells + one.cells)
+        + " cells; budget is " + ROUTE_HIGHWAY_MAX_CELLS);
+    }
+    all = all.concat(one.segments);
+    cells += one.cells;
+    loaded.push(states[i]);
+  }
+  return { segments: all, cells: cells, states: loaded };
 }
 
 async function ensureRoadsReader() {
@@ -3345,7 +3539,7 @@ async function nearestRoadAt(lat, lon) {
 
 
 // Load + decode corridor roads. arterialMiddle: middle cells keep arterial classes only.
-async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle) {
+async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle, maxCells) {
   var distM = haversineM(lat1, lon1, lat2, lon2);
   var p = corridorParams(distM);
   var useArterial = arterialMiddle != null ? arterialMiddle : !!p.arterial;
@@ -3362,7 +3556,8 @@ async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle) 
   }
   if (!readers.length) throw new Error("roads layer unavailable (" + states.join(",") + ")");
 
-  var cells = corridorCells(lat1, lon1, lat2, lon2, w, p.interval);
+  var cellPlan = corridorCellPlan(lat1, lon1, lat2, lon2, w, p.interval, maxCells);
+  var cells = cellPlan.cells;
   var caps = null;
   if (useArterial) {
     caps = endCapCells(lat1, lon1, ROUTE_END_CAP_K);
@@ -3418,7 +3613,10 @@ async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle) 
   }
   return {
     segments: segments, zoneMiddle: zoneMiddle, cellCount: cells.length,
-    width: w, distM: distM, arterial: useArterial, states: states
+    width: cellPlan.appliedWidth, requestedWidth: w,
+    budgetLimited: cellPlan.budgetLimited, spineCount: cellPlan.spine.length,
+    maxCells: cellPlan.maxCells,
+    distM: distM, arterial: useArterial, states: states
   };
 }
 
@@ -3635,15 +3833,22 @@ function routePrefs() {
 }
 
 function tryRouteWasm(pack, a, b, snapM) {
-  if (!pack.segments.length) return null;
+  if (!pack.segments.length) return { result: null, failure: "empty_graph" };
   try {
     var pr = routePrefs();
-    return wasm_route_from_segments(
+    var diagnostic = wasm_route_from_segments_diagnostic(
       pack.segments, pack.zoneMiddle, a.lat, a.lon, b.lat, b.lon, snapM, pr[0], pr[1]
     );
+    if (diagnostic instanceof Map) {
+      var obj = {}; diagnostic.forEach(function(v, k) { obj[k] = v; }); diagnostic = obj;
+    }
+    return {
+      result: plainRoute(diagnostic && diagnostic.result),
+      failure: diagnostic && diagnostic.failure ? String(diagnostic.failure) : null
+    };
   } catch (e) {
     console.error("route_from_segments", e);
-    return null;
+    return { result: null, failure: "wasm_error" };
   }
 }
 
@@ -3675,19 +3880,52 @@ async function runRoute(a, b) {
   var pack = await loadRouteCorridor(a.lat, a.lon, b.lat, b.lon, null, p0.arterial);
   if (!pack.segments.length) throw new Error("no road segments in corridor (" + (pack.states || []).join(",") + ")");
   setStatus("Route: A* " + pack.segments.length + " segs / " + pack.cellCount + " cells · " + (pack.states || []).join(","));
-  var result = plainRoute(tryRouteWasm(pack, a, b, 500));
+  var attempt = tryRouteWasm(pack, a, b, 500);
+  var result = attempt.result;
+  lastRouteFailure = attempt.failure;
   // short-only: one widen with full classes
-  if (!result && distM < 80000) {
+  if (!result && attempt.failure === "disconnected" && distM < 80000) {
     setStatus("Route: widen full…");
     pack = await loadRouteCorridor(a.lat, a.lon, b.lat, b.lon, (pack.width || 1) + 1, false);
-    result = plainRoute(tryRouteWasm(pack, a, b, 500));
+    attempt = tryRouteWasm(pack, a, b, 500);
+    result = attempt.result;
+    lastRouteFailure = attempt.failure;
   }
   // long miss: one wider arterial spine only (not full residential)
-  if (!result && distM >= 40000) {
+  if (!result && attempt.failure === "disconnected" && distM >= 40000) {
     setStatus("Route: wider arterial…");
-    pack = await loadRouteCorridor(a.lat, a.lon, b.lat, b.lon, 2, true);
-    result = plainRoute(tryRouteWasm(pack, a, b, 600));
+    pack = await loadRouteCorridor(
+      a.lat, a.lon, b.lat, b.lon, 4, true, ROUTE_RETRY_MAX_CELLS
+    );
+    attempt = tryRouteWasm(pack, a, b, 600);
+    result = attempt.result;
+    lastRouteFailure = attempt.failure;
   }
+  // A geometric band still cannot see a highway that bends well away from
+  // the crow-flight line (I-24 through Monteagle is the regression). For long
+  // legs, join the local endpoint/corridor roads already in `pack` to the
+  // published state-wide `highways_v2` graph and search once more.
+  var backbone = null;
+  if (!result && attempt.failure === "disconnected" && distM >= 80000) {
+    setStatus("Route: state highway backbone…");
+    backbone = await loadHighwayBackbone(
+      pack.states || statesAlong(a.lat, a.lon, b.lat, b.lon)
+    );
+    var joined = {
+      segments: pack.segments.concat(backbone.segments),
+      zoneMiddle: pack.zoneMiddle.concat(new Array(backbone.segments.length).fill(true))
+    };
+    attempt = tryRouteWasm(joined, a, b, 600);
+    result = attempt.result;
+    lastRouteFailure = attempt.failure;
+  }
+  lastRouteCorridor = {
+    cells: pack.cellCount, spine: pack.spineCount, width: pack.width,
+    requestedWidth: pack.requestedWidth, budgetLimited: pack.budgetLimited,
+    maxCells: pack.maxCells,
+    highwayCells: backbone ? backbone.cells : 0,
+    highwaySegments: backbone ? backbone.segments.length : 0
+  };
   return result;
 }
 
@@ -3802,6 +4040,444 @@ function drawRoutePath(path) {
   if (g.bringToFront) g.bringToFront();
   return latlngs.length;
 }
+
+
+// --- Drive mode ------------------------------------------------------------
+//
+// Turn-by-turn over the route the Route mode just found. Everything that
+// decides something -- where you are on the line, which way you are pointed,
+// what the next turn is, whether you have left the route -- is core's
+// `Navigator`; this code draws it, says it out loud, and decides when
+// "off route" has been true for long enough to mean it.
+
+var drive = {
+  on: false,
+  nav: null,            // wasm Navigator
+  dest: null,           // {lat, lon}
+  route: null,          // the RouteResult being followed
+  watchId: null,
+  wakeLock: null,
+  muted: false,
+  named: {},            // turn index -> true once named
+  spoken: {},           // "index:band" -> true, so each call happens once
+  offCount: 0,          // consecutive off-route fixes
+  lastReroute: 0,
+  rerouting: false,
+  startedAt: 0,
+  fixes: 0,
+  poi: null,            // "fuel" | "ev" | null
+  marker: null,
+  simTimer: null
+};
+
+// Announce at these distances. Below 25 mph the 800 m call is noise; above
+// 55 mph the 200 m call is already too late, so the set scales with speed.
+function driveBands(speedMps) {
+  if (speedMps > 24) return [1600, 500, 100];   // ~55 mph+
+  if (speedMps > 11) return [800, 200, 60];     // ~25-55
+  return [300, 100, 30];
+}
+
+var MANEUVER_SVG = {
+  left:        "M15 5 L15 12 Q15 16 11 16 L6 16 M6 16 L10 12 M6 16 L10 20",
+  slight_left: "M16 5 L16 10 Q16 13 13 15 L8 18 M8 18 L13 17 M8 18 L9 13",
+  sharp_left:  "M14 4 L14 11 Q14 15 10 15 L5 15 M5 15 L10 10 M5 15 L10 20",
+  right:       "M9 5 L9 12 Q9 16 13 16 L18 16 M18 16 L14 12 M18 16 L14 20",
+  slight_right:"M8 5 L8 10 Q8 13 11 15 L16 18 M16 18 L11 17 M16 18 L15 13",
+  sharp_right: "M10 4 L10 11 Q10 15 14 15 L19 15 M19 15 L14 10 M19 15 L14 20",
+  u_turn:      "M8 20 L8 10 Q8 5 12.5 5 Q17 5 17 10 L17 15 M17 15 L14 12 M17 15 L20 12",
+  continue:    "M12 20 L12 5 M12 5 L8 9 M12 5 L16 9",
+  depart:      "M12 20 L12 5 M12 5 L8 9 M12 5 L16 9",
+  arrive:      "M12 3 C8 3 5 6 5 10 c0 5 7 11 7 11 s7-6 7-11 c0-4-3-7-7-7z M12 10 m-2 0 a2 2 0 1 0 4 0 a2 2 0 1 0 -4 0"
+};
+
+function driveArrow(maneuver) {
+  var d = MANEUVER_SVG[maneuver] || MANEUVER_SVG.continue;
+  document.getElementById("driveArrow").innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>';
+}
+
+// Spoken and written distances round the way people say them. "In 483 metres"
+// is a number nobody has ever said out loud.
+function driveDistText(m) {
+  var mi = m / 1609.344;
+  if (mi >= 0.2) return (mi >= 10 ? Math.round(mi) : mi.toFixed(1)) + " mi";
+  var ft = Math.round(m * 3.28084 / 50) * 50;
+  return Math.max(ft, 50) + " ft";
+}
+
+function driveSay(text) {
+  if (drive.muted || !window.speechSynthesis) return;
+  try {
+    var u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    window.speechSynthesis.speak(u);
+  } catch (e) {}
+}
+
+function turnPhrase(turn, distText) {
+  var m = turn.maneuver;
+  if (m === "arrive") return distText ? "In " + distText + ", you arrive" : "You have arrived";
+  var dir = {
+    left: "turn left", right: "turn right",
+    slight_left: "bear left", slight_right: "bear right",
+    sharp_left: "sharp left", sharp_right: "sharp right",
+    u_turn: "make a U-turn", continue: "continue"
+  }[m] || "continue";
+  var onto = turn.road_name ? " onto " + turn.road_name
+           : (turn.road_ref ? " onto " + turn.road_ref : "");
+  return (distText ? "In " + distText + ", " : "") + dir + onto;
+}
+
+// Name the upcoming turn from the one cell that holds it. This is the lazy
+// half of core's turn queue: the route is built with no roads at all, and each
+// turn is named as it comes up, from a block the route drives through and the
+// reader has usually cached already.
+async function driveNameTurn(idx) {
+  if (drive.named[idx]) return;
+  drive.named[idx] = true; // once per turn, even if it comes back empty
+  var probe = drive.nav.probe(idx);
+  if (!probe) return;
+  try {
+    var st = stateAt(probe[0], probe[1]) || currentState;
+    var rdr = await roadsReaderFor(st);
+    var cellHex = wasm.cell_for_coord(probe[0], probe[1]);
+    var raw = await rdr.decompressCell(BigInt("0x" + cellHex) & CELL_MASK);
+    if (!raw) return;
+    var segs = wasm_decode_roads(raw).map(function(r) {
+      return { coords: r.coords, road_class: r.road_class || "residential",
+               name: r.name || null, ref_tag: r.ref_tag || null };
+    });
+    drive.nav.name_turn(idx, segs, null);
+  } catch (e) { /* an unnamed turn is still a turn */ }
+}
+
+function driveRenderTurn(st) {
+  var turns = drive.turns || [];
+  var idx = st.next_turn != null ? Number(st.next_turn) : null;
+  var banner = document.getElementById("driveBanner");
+  if (idx == null || !turns[idx]) {
+    document.getElementById("driveDist").textContent = "Arriving";
+    document.getElementById("driveRoad").textContent = "";
+    document.getElementById("driveThen").textContent = "";
+    driveArrow("arrive");
+    return;
+  }
+  var turn = turns[idx];
+  var d = st.distance_to_turn_m;
+  driveArrow(turn.maneuver);
+  document.getElementById("driveDist").textContent = driveDistText(d);
+  document.getElementById("driveRoad").textContent =
+    turn.road_name || turn.road_ref || (turn.maneuver === "arrive" ? "destination" : "");
+  // The second turn matters exactly when it lands on top of the first.
+  var next = turns[idx + 1];
+  document.getElementById("driveThen").textContent =
+    (next && next.along_m - turn.along_m < 400)
+      ? "then " + turnPhrase(next, null) : "";
+  banner.className = d < 60 ? "now" : (d < 200 ? "close" : "");
+}
+
+function driveRenderEta(st, speedMps) {
+  // Free-flow from the route's own duration, corrected by how fast this drive
+  // is actually going. No traffic data exists in these files, so the number is
+  // optimistic in rush hour and says so in the docs rather than in the UI.
+  var total = drive.route ? drive.route.distance_m : st.remaining_m;
+  var frac = total > 0 ? st.remaining_m / total : 0;
+  var planned = drive.route ? drive.route.duration_s * frac : 0;
+  var observed = speedMps > 2 ? st.remaining_m / speedMps : null;
+  var secs = observed != null ? (planned * 0.4 + observed * 0.6) : planned;
+  var eta = new Date(Date.now() + secs * 1000);
+  document.getElementById("driveArrive").textContent =
+    eta.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  document.getElementById("driveRest").textContent =
+    Math.max(1, Math.round(secs / 60)) + " min · " + driveDistText(st.remaining_m);
+}
+
+function driveRenderMap(st) {
+  var ll = [st.lat, st.lon];
+  if (!drive.marker) {
+    // A chevron, not a dot. The map is heading-up, so the vehicle always
+    // points up the screen -- and a shape that says which way is forward is
+    // the difference between "you are here" and "you are going that way".
+    drive.marker = L.marker(ll, {
+      interactive: false,
+      icon: L.divIcon({
+        className: "drive-me", iconSize: [34, 34], iconAnchor: [17, 17],
+        html: '<svg viewBox="0 0 34 34" width="34" height="34">' +
+              '<circle cx="17" cy="17" r="15" fill="#0d1117" opacity="0.55"/>' +
+              '<path d="M17 5 L27 27 L17 21 L7 27 Z" fill="#2ea043" stroke="#0d1117" stroke-width="1.5" stroke-linejoin="round"/>' +
+              '</svg>'
+      })
+    }).addTo(map);
+  } else {
+    drive.marker.setLatLng(ll);
+  }
+  // Position at the lower third: most of the screen should be where you are
+  // going, not where you have been.
+  //
+  // The offset has to be applied in *pane* space while being specified in
+  // *screen* space, because the pane is rotated under the viewport. "Up the
+  // screen" is (0, -d) to the driver; the pane sees that vector rotated by
+  // the heading. Applying the screen vector directly -- which is the obvious
+  // wrong thing -- swings the car to a different edge at every bearing.
+  var p = map.latLngToContainerPoint(ll);
+  var d = window.innerHeight * 0.18;
+  var b = st.bearing_deg * Math.PI / 180;
+  var target = map.containerPointToLatLng([
+    p.x + d * Math.sin(b),
+    p.y - d * Math.cos(b)
+  ]);
+  map.setView(target, Math.max(map.getZoom(), 16), { animate: false });
+  // Heading-up. Leaflet has no rotation, so the wrapper is rotated and the
+  // map is oversized to keep its corners off screen.
+  document.getElementById("mapRot").style.transform = "rotate(" + (-st.bearing_deg) + "deg)";
+}
+
+async function driveOnFix(lat, lon, accuracy_m, speedMps) {
+  if (!drive.on || !drive.nav) return;
+  drive.fixes++;
+  var st = drive.nav.update(lat, lon, accuracy_m == null ? 10 : accuracy_m);
+  if (!st) return;
+  drive.last = st;
+
+  var idx = st.next_turn != null ? Number(st.next_turn) : null;
+  if (idx != null) {
+    // Name it before the first announcement: a turn called "turn left" at
+    // 1.6 km and "turn left onto Broadway" at 100 m reads as two turns.
+    if (st.distance_to_turn_m < 2000) await driveNameTurn(idx);
+    drive.turns = drive.nav.turns();
+    var turn = drive.turns[idx];
+    var bands = driveBands(speedMps || 0);
+    for (var b = 0; b < bands.length; b++) {
+      var key = idx + ":" + bands[b];
+      if (!drive.spoken[key] && st.distance_to_turn_m <= bands[b]) {
+        drive.spoken[key] = true;
+        driveSay(turnPhrase(turn, b === bands.length - 1 ? null : driveDistText(bands[b])));
+        break;
+      }
+    }
+  }
+
+  driveRenderTurn(st);
+  driveRenderEta(st, speedMps || 0);
+  driveRenderMap(st);
+
+  // Off-route is a property of one fix. Three in a row is a wrong turn; one is
+  // a parking garage. The debounce stops a bad stretch of sky from queuing a
+  // reroute per second.
+  if (st.off_route) {
+    drive.offCount++;
+    if (drive.offCount >= 3 && !drive.rerouting && Date.now() - drive.lastReroute > 10000) {
+      drive.lastReroute = Date.now();
+      driveReroute(lat, lon);
+    } else if (!drive.rerouting) {
+      document.getElementById("driveNote").textContent = "off route";
+    }
+  } else if (!drive.rerouting) {
+    drive.offCount = 0;
+    document.getElementById("driveNote").textContent = "";
+  }
+}
+
+async function driveReroute(lat, lon) {
+  drive.rerouting = true;
+  document.getElementById("driveNote").textContent = "rerouting…";
+  driveSay("Rerouting");
+  try {
+    var r = await runRoute({ lat: lat, lon: lon }, drive.dest);
+    if (!r || !r.path || r.path.length < 2) {
+      document.getElementById("driveNote").textContent = "no new route";
+      return;
+    }
+    driveSetRoute(r);
+    drive.offCount = 0;
+    document.getElementById("driveNote").textContent = "";
+  } catch (e) {
+    console.warn("[drive] reroute failed", e);
+    document.getElementById("driveNote").textContent = "reroute failed";
+  } finally {
+    drive.rerouting = false;
+  }
+}
+
+// Point the navigator at a route: build it with no roads, so every turn is
+// named later from its own cell.
+function driveSetRoute(result) {
+  drive.route = result;
+  drive.named = {};
+  drive.spoken = {};
+  drive.offCount = 0;
+  clearRouteLayer();
+  drawRoutePath(result.path);
+  var lonLat = result.path.map(function(p) { return [p[1], p[0]]; });
+  drive.nav = new wasm.Navigator(lonLat, null, null);
+  drive.turns = drive.nav.turns();
+  window.__driveReroutes = (window.__driveReroutes || 0) + 1;
+}
+
+async function driveStart(dest) {
+  if (!lastRouteResult || !lastRouteResult.path) {
+    setStatus("Route somewhere first, then press Drive", true);
+    return false;
+  }
+  await wasmInit;
+  drive.on = true;
+  drive.dest = dest || { lat: lastRouteResult.path[lastRouteResult.path.length - 1][0],
+                         lon: lastRouteResult.path[lastRouteResult.path.length - 1][1] };
+  drive.startedAt = Date.now();
+  drive.fixes = 0;
+  document.body.classList.add("driving");
+  window.__driveReroutes = 0;
+  driveSetRoute(lastRouteResult);
+
+  // The screen going to sleep mid-route is what makes a phone navigator
+  // useless, so this is not optional dressing.
+  if (navigator.wakeLock && !drive.wakeLock) {
+    try { drive.wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+  }
+  if (navigator.geolocation && window.isSecureContext) {
+    drive.watchId = navigator.geolocation.watchPosition(function(pos) {
+      driveOnFix(pos.coords.latitude, pos.coords.longitude,
+                 pos.coords.accuracy, pos.coords.speed || 0);
+    }, function(err) {
+      document.getElementById("driveNote").textContent = gpsErrorText(err);
+    }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+  }
+  map.dragging.disable();
+  map.scrollWheelZoom.disable();
+  setTimeout(function() { map.invalidateSize(); }, 60);
+  return true;
+}
+
+function driveStop() {
+  drive.on = false;
+  if (drive.watchId != null) { navigator.geolocation.clearWatch(drive.watchId); drive.watchId = null; }
+  if (drive.simTimer) { clearInterval(drive.simTimer); drive.simTimer = null; }
+  if (drive.wakeLock) { try { drive.wakeLock.release(); } catch (e) {} drive.wakeLock = null; }
+  if (drive.marker) { map.removeLayer(drive.marker); drive.marker = null; }
+  if (window.speechSynthesis) { try { window.speechSynthesis.cancel(); } catch (e) {} }
+  drive.nav = null;
+  document.body.classList.remove("driving");
+  document.getElementById("mapRot").style.transform = "";
+  document.getElementById("driveSheet").classList.remove("show");
+  map.dragging.enable();
+  map.scrollWheelZoom.enable();
+  setTimeout(function() { map.invalidateSize(); }, 60);
+}
+
+// Fuel and charging ahead on the route, not around the map: what is behind you
+// is not a stop. Ordered by how far along the route they are.
+async function drivePoiSearch(kind) {
+  var sheet = document.getElementById("driveSheet");
+  var body = document.getElementById("driveSheetBody");
+  document.getElementById("driveSheetTitle").textContent =
+    kind === "ev" ? "Charging ahead" : "Fuel ahead";
+  body.innerHTML = "<div class='poi-row'><span class='n'>searching…</span></div>";
+  sheet.classList.add("show");
+
+  var st = drive.last;
+  var here = st ? { lat: st.lat, lon: st.lon } : null;
+  if (!here) { body.innerHTML = "<div class='poi-row'><span class='n'>no position yet</span></div>"; return; }
+
+  try {
+    var found = [];
+    if (kind === "ev") {
+      var ev = await loadCorridorFeatures("chargers", evReaderFor, wasm_decode_chargers,
+        here.lat, here.lon, drive.dest.lat, drive.dest.lon, null);
+      found = ev.features.map(function(c) {
+        return { lat: c.lat, lon: c.lon,
+                 name: c.name || c.network || "Charging station",
+                 note: (c.power_kw != null ? c.power_kw + " kW" : "power not tagged") };
+      });
+    } else {
+      var biz = await loadCorridorFeatures("fuel", businessReaderFor, wasm_decode_business,
+        here.lat, here.lon, drive.dest.lat, drive.dest.lon, null);
+      found = biz.features
+        .filter(function(b) { return FUEL_CATEGORIES[b.category_idx]; })
+        .map(function(b) { return { lat: b.lat, lon: b.lon, name: b.name || "Fuel", note: "" }; });
+    }
+    // Distance along the route, not straight line: a station across a divided
+    // highway is 200 m away and a four-kilometre detour.
+    found.forEach(function(f) {
+      f.dist = haversineM(here.lat, here.lon, f.lat, f.lon);
+    });
+    found.sort(function(a, b) { return a.dist - b.dist; });
+    found = found.slice(0, 12);
+    if (!found.length) { body.innerHTML = "<div class='poi-row'><span class='n'>nothing found ahead</span></div>"; return; }
+    body.innerHTML = "";
+    found.forEach(function(f) {
+      var row = document.createElement("div");
+      row.className = "poi-row";
+      row.innerHTML = "<span class='n'>" + escapeHtml(f.name) + "</span>" +
+        "<span class='d'>" + driveDistText(f.dist) + (f.note ? " · " + escapeHtml(f.note) : "") + "</span>";
+      var add = document.createElement("button");
+      add.className = "add";
+      add.textContent = "Add stop";
+      add.addEventListener("click", async function(e) {
+        e.stopPropagation();
+        add.textContent = "…";
+        var leg1 = await runRoute({ lat: st.lat, lon: st.lon }, { lat: f.lat, lon: f.lon });
+        var leg2 = leg1 ? await runRoute({ lat: f.lat, lon: f.lon }, drive.dest) : null;
+        if (!leg1 || !leg2) { add.textContent = "no route"; return; }
+        var joined = {
+          distance_m: leg1.distance_m + leg2.distance_m,
+          duration_s: leg1.duration_s + leg2.duration_s,
+          path: leg1.path.concat(leg2.path.slice(1))
+        };
+        driveSetRoute(joined);
+        sheet.classList.remove("show");
+        driveSay("Stop added");
+      });
+      row.appendChild(add);
+      body.appendChild(row);
+    });
+  } catch (e) {
+    body.innerHTML = "<div class='poi-row'><span class='n'>" + escapeHtml(String(e.message || e)) + "</span></div>";
+  }
+}
+
+// Overture categories that mean "you can buy fuel here".
+var FUEL_CATEGORIES = { 11: 1, 18: 1 };
+
+var businessByState = {};
+async function businessReaderFor(state) {
+  if (businessByState[state]) return businessByState[state];
+  var rdr = await LayerReader.fromUrl(stateUrl(state, "business"));
+  businessByState[state] = rdr;
+  return rdr;
+}
+
+document.getElementById("btnDrive").addEventListener("click", function() {
+  // Speech on iOS needs a user gesture to unlock; this button is that gesture,
+  // so an empty utterance is spoken here rather than at the first turn, where
+  // there is no gesture and the call is silently dropped.
+  if (window.speechSynthesis) { try { window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch (e) {} }
+  driveStart(null);
+});
+document.getElementById("driveEnd").addEventListener("click", driveStop);
+document.getElementById("driveMute").addEventListener("click", function() {
+  drive.muted = !drive.muted;
+  this.classList.toggle("on", !drive.muted);
+  if (drive.muted && window.speechSynthesis) window.speechSynthesis.cancel();
+});
+document.getElementById("driveMute").classList.add("on");
+["fuel", "ev"].forEach(function(kind) {
+  document.getElementById(kind === "ev" ? "drivePoiEv" : "drivePoiFuel")
+    .addEventListener("click", function() {
+      var sheet = document.getElementById("driveSheet");
+      if (drive.poi === kind && sheet.classList.contains("show")) {
+        sheet.classList.remove("show");
+        drive.poi = null;
+        this.classList.remove("on");
+        return;
+      }
+      drive.poi = kind;
+      document.getElementById("drivePoiFuel").classList.toggle("on", kind === "fuel");
+      document.getElementById("drivePoiEv").classList.toggle("on", kind === "ev");
+      drivePoiSearch(kind);
+    });
+});
 
 function formatRouteStatus(result, nPts) {
   var km = (result.distance_m / 1000).toFixed(2);
@@ -4356,6 +5032,11 @@ async function handleRouteClick(lat, lon) {
 // The last route drawn, for the browser harness: a drawn polyline says a line
 // exists, not how long it is or whether it went through the stops.
 var lastRouteResult = null;
+// Structured core failure and the final corridor shape, exposed to the route
+// harness so a regression says whether the graph disconnected or the budget
+// rejected it instead of collapsing both into "no path".
+var lastRouteFailure = null;
+var lastRouteCorridor = null;
 // The last charge plan, for the harness: "no stops" has three very different
 // causes -- no chargers fetched, no charger in reach, or the leg fitting in
 // one charge -- and the drawn map cannot tell them apart.
@@ -4382,13 +5063,16 @@ async function routeAndDraw(a, b) {
   // exactly the state where you want to untick a box and try again.
   lastLeg = { a: a, b: b };
   try {
+    lastRouteFailure = null;
+    lastRouteCorridor = null;
     var result = trailsOnly() ? await runTrailRoute(a, b) : await runRoute(a, b);
     if (!trailsOnly()) result = await planCharging(a, b, result);
     lastRouteResult = result;
     clearRouteLayer();
     drawRouteEndpoints(a, b);
     if (!result || !result.path || result.path.length < 2) {
-      setStatus("No path — try closer to named roads", true);
+      var why = lastRouteFailure ? " (" + lastRouteFailure.replaceAll("_", " ") + ")" : "";
+      setStatus("No path" + why + " — try closer to named roads", true);
     } else {
       var n = drawRoutePath(result.path);
       if (n < 2) setStatus("Route path empty after normalize", true);
@@ -4702,8 +5386,86 @@ window.__ptiles = {
       durationS: r ? Math.round(r.duration_s) : 0,
       points: r && r.path ? r.path.length : 0,
       chargeStops: chargeLayer && chargeLayer.getLayers ? chargeLayer.getLayers().length : 0,
-      plan: lastChargePlan
+      plan: lastChargePlan,
+      failure: lastRouteFailure,
+      corridor: lastRouteCorridor
     };
+  },
+
+  // Pure corridor diagnostics for browser tests: no tile fetch and no graph
+  // build, just the invariant that the mandatory spine is continuous and no
+  // budget operation removes it.
+  corridorPlan: function(a, b, width, maxCells) {
+    var dist = haversineM(a[0], a[1], b[0], b[1]);
+    var p = corridorParams(dist);
+    var plan = corridorCellPlan(
+      a[0], a[1], b[0], b[1], width == null ? p.width : width, p.interval, maxCells
+    );
+    var adjacent = true;
+    for (var i = 1; i < plan.spine.length; i++) {
+      try { if (!h3.areNeighborCells(plan.spine[i - 1], plan.spine[i])) adjacent = false; }
+      catch (e) { adjacent = false; }
+    }
+    var loaded = new Set(plan.cells);
+    return {
+      cells: plan.cells.length, spine: plan.spine.length,
+      adjacent: adjacent, spineKept: plan.spine.every(function(c) { return loaded.has(c); }),
+      requestedWidth: plan.requestedWidth, appliedWidth: plan.appliedWidth,
+      budgetLimited: plan.budgetLimited, maxCells: plan.maxCells
+    };
+  },
+
+  // Drive mode, for the browser harness. A real drive needs a car; a
+  // simulated one needs a path and a clock, and every claim the mode makes --
+  // banner text, announcement timing, reroute counts, the predicted heading --
+  // is a function of the fixes it is fed.
+  driveStart: async function(dest) { return await driveStart(dest); },
+  driveStop: function() { driveStop(); },
+  driveState: function() {
+    var st = drive.last;
+    return {
+      on: drive.on,
+      fixes: drive.fixes,
+      reroutes: Math.max(0, (window.__driveReroutes || 0) - 1), // the first is the initial route
+      offCount: drive.offCount,
+      rerouting: drive.rerouting,
+      banner: {
+        dist: document.getElementById("driveDist").textContent,
+        road: document.getElementById("driveRoad").textContent,
+        then: document.getElementById("driveThen").textContent,
+        cls: document.getElementById("driveBanner").className
+      },
+      eta: document.getElementById("driveArrive").textContent,
+      rest: document.getElementById("driveRest").textContent,
+      note: document.getElementById("driveNote").textContent,
+      rotation: document.getElementById("mapRot").style.transform,
+      mapSize: [map.getSize().x, map.getSize().y],
+      screenPos: (function() {
+        if (!drive.last) return null;
+        var pt = map.latLngToContainerPoint([drive.last.lat, drive.last.lon]);
+        return [Math.round(pt.x), Math.round(pt.y)];
+      })(),
+      viewport: [window.innerWidth, window.innerHeight],
+      turns: (drive.turns || []).map(function(t) {
+        return { maneuver: t.maneuver, road: t.road_name || null,
+                 along_m: Math.round(t.along_m) };
+      }),
+      nav: st ? { along_m: Math.round(st.along_m), remaining_m: Math.round(st.remaining_m),
+                  bearing_deg: Math.round(st.bearing_deg), offset_m: Math.round(st.offset_m),
+                  off_route: st.off_route, next_turn: st.next_turn == null ? null : Number(st.next_turn),
+                  to_turn_m: Math.round(st.distance_to_turn_m) } : null
+    };
+  },
+  // The path being followed, for a harness that wants to simulate driving it.
+  __routePath: function() {
+    return drive.route && drive.route.path ? drive.route.path.map(function(p) {
+      return [p[0], p[1]];
+    }) : null;
+  },
+  // Feed one synthetic fix, as watchPosition would.
+  driveFix: async function(lat, lon, accuracy_m, speedMps) {
+    await driveOnFix(lat, lon, accuracy_m == null ? 5 : accuracy_m, speedMps == null ? 20 : speedMps);
+    return window.__ptiles.driveState();
   },
 
   losAt: async function(lat, lon) {
@@ -4779,5 +5541,41 @@ window.__ptiles = {
 };
 
   </script>
+<div id="driveUi">
+  <div id="driveBanner">
+    <div id="driveArrow"></div>
+    <div style="min-width:0">
+      <div id="driveDist">—</div>
+      <div id="driveRoad"></div>
+      <div id="driveThen"></div>
+    </div>
+  </div>
+  <div id="driveBottom">
+    <div id="drivePois">
+      <button id="drivePoiFuel" title="Fuel ahead on this route">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15"/><path d="M3 20h12"/><path d="M6 9h6"/><path d="M17 8l2.5 2.5V17a1.5 1.5 0 0 0 3 0v-6l-2-2"/></svg>
+        Fuel
+      </button>
+      <button id="drivePoiEv" title="Charging ahead on this route">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 7v4a5 5 0 0 0 10 0V7"/><path d="M9 3v4M15 3v4"/><path d="M12 16v3a2 2 0 0 0 2 2h2"/><path d="m13 10-2.5 3.5H13L11.5 17"/></svg>
+        Charge
+      </button>
+      <button id="driveMute" title="Spoken guidance">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>
+        Voice
+      </button>
+      <button id="driveEnd" class="end" title="End navigation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        End
+      </button>
+    </div>
+    <div id="driveEta">
+      <span id="driveArrive">—</span>
+      <span id="driveRest"></span>
+      <span id="driveNote"></span>
+    </div>
+  </div>
+  <div id="driveSheet"><h4 id="driveSheetTitle"></h4><div id="driveSheetBody"></div></div>
+</div>
 </body>
 </html>

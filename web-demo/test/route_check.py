@@ -36,14 +36,15 @@ B = (36.0836, -86.8925)
 
 # Nashville to Manchester down I-24: ~103 km, and 40 miles of range covers
 # only 51 km of that once the 20% reserve is taken off, so it needs a stop.
-#
-# Not Chattanooga, which would be the better demo: the corridor router already
-# fails to find *any* road route over ~180 km, with no EV range set and on a
-# build with none of this in it. That is a pre-existing limit, and pointing an
-# EV test at it would only re-report it.
 EV_A = (36.1627, -86.7816)
 EV_B = (35.4817, -86.0886)
 EV_RANGE_MI = 40
+
+# The old sparse corridor failed here: one isolated H3 disk every 12 km did
+# not make a connected graph. This is deliberately a plain drive, independent
+# of EV planning, so a regression identifies the corridor rather than stops.
+LONG_A = EV_A
+LONG_B = (35.0456, -85.3097)  # downtown Chattanooga, ~182 km crow distance
 
 
 def haversine_m(lat1, lon1, lat2, lon2):
@@ -98,6 +99,30 @@ def main():
                 "async ([a, b, opts]) => await window.__ptiles.routeAt(a, b, opts)",
                 [list(a), list(b), opts])
 
+        corridor = page.evaluate(
+            "([a, b]) => window.__ptiles.corridorPlan(a, b, 2)",
+            [list(LONG_A), list(LONG_B)])
+        print(f"  corridor    {corridor['spine']:4d} spine / {corridor['cells']:4d} cells  "
+              f"width {corridor['appliedWidth']}/{corridor['requestedWidth']}")
+        if not corridor["adjacent"]:
+            failures.append("corridor: consecutive spine cells are not adjacent")
+        if not corridor["spineKept"]:
+            failures.append("corridor: the cell budget removed mandatory spine cells")
+        if corridor["cells"] > 400:
+            failures.append(f"corridor: {corridor['cells']} cells exceeds the 400-cell budget")
+
+        retry_corridor = page.evaluate(
+            "([a, b]) => window.__ptiles.corridorPlan(a, b, 4, 900)",
+            [list(LONG_A), list(LONG_B)])
+        print(f"  retry band {retry_corridor['spine']:4d} spine / "
+              f"{retry_corridor['cells']:4d} cells  width "
+              f"{retry_corridor['appliedWidth']}/{retry_corridor['requestedWidth']}")
+        if not retry_corridor["adjacent"] or not retry_corridor["spineKept"]:
+            failures.append("retry corridor: widening broke the mandatory spine")
+        if retry_corridor["cells"] > 900:
+            failures.append(
+                f"retry corridor: {retry_corridor['cells']} cells exceeds the 900-cell budget")
+
         crow = haversine_m(*A, *B)
 
         drive = route(A, B)
@@ -123,6 +148,15 @@ def main():
             print(f"               drive {drive_speed*3.6:.0f} km/h vs walk {walk_speed*3.6:.0f} km/h")
             if walk_speed > 2.5:  # 9 km/h -- faster than anyone walks
                 failures.append(f"trails only: {walk_speed*3.6:.0f} km/h is not walking speed")
+
+        long_drive = route(LONG_A, LONG_B)
+        print(f"  long drive   {long_drive['distanceM']/1000:7.1f} km  "
+              f"{long_drive['durationS']/60:6.1f} min  {long_drive['points']:5d} pts")
+        print(f"               {long_drive['status']} · {long_drive.get('corridor')}")
+        if not long_drive["found"]:
+            failures.append(
+                f"long driving: no Nashville-Chattanooga route "
+                f"({long_drive.get('failure')}; {long_drive['status']})")
 
         ev_crow = haversine_m(*EV_A, *EV_B)
         plain = route(EV_A, EV_B)
