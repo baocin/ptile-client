@@ -83,6 +83,12 @@ def main():
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("console",
                 lambda m: errors.append(f"console.error: {m.text}") if m.type == "error" else None)
+        # A trailhead has no signal, so the page's own code and styling must come
+        # from the same origin. A CDN <script> creeping back in is invisible at a
+        # desk and fatal in the park.
+        cdn = []
+        page.on("request", lambda r: cdn.append(r.url)
+                if any(h in r.url for h in ("unpkg.com", "cdn.", "jsdelivr", "cdnjs")) else None)
 
         page.goto(f"{base}#lat={CAR[0]}&lon={CAR[1]}&zoom=14", wait_until="load", timeout=90_000)
         page.wait_for_function("() => !!window.__ptiles && !!window.__ptiles.hikeStart",
@@ -165,6 +171,10 @@ def main():
         page.wait_for_timeout(1000)
         if page.evaluate("() => window.__ptiles.hikeState().on"):
             failures.append("an ended hike came back after a refresh")
+
+        print(f"  cdn requests   {len(cdn)}")
+        if cdn:
+            failures.append(f"the page still loads from a CDN: {cdn[:3]}")
 
         browser.close()
 
