@@ -110,6 +110,12 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
         versions: &[1],
         notes: "NEW -- {ST}.camera.ptiles, surveillance cameras / ALPR from OSM man_made=surveillance",
     },
+    FormatEntry {
+        magic: b"PTILESE",
+        file_kind: "ev",
+        versions: &[1],
+        notes: "{STATE}.ev_v1.ptiles, EV charging stations from OSM amenity=charging_station (scripts/build_ev.py). Merged v2 blocks like trails/rail; records decode via core::ev",
+    },
 ];
 
 /// Error returned when a header's magic/version pair is not in

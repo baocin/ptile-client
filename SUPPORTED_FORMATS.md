@@ -65,4 +65,5 @@ real file, not the (apparently stale) doc.
 | business_name_index | `PTILESX\x00` | 1 | sidecar {STATE}.business_name_index.ptiles from scripts/build_business_name_index.py; not in SPEC.md's file table, but matches the real bytes the reference builder produced from TN.business.ptiles during this task (magic PTILESX v1, no dict) |
 | signals | `PTILESS\x00` | 1 | NEW -- {ST}.signals.ptiles, traffic stops/give_ways from OSM highway=* nodes |
 | camera | `PTILESC\x00` | 1 | NEW -- {ST}.camera.ptiles, surveillance cameras / ALPR from OSM man_made=surveillance |
+| ev | `PTILESE\x00` | 1 | {STATE}.ev_v1.ptiles, EV charging stations from OSM amenity=charging_station (scripts/build_ev.py). Merged v2 blocks like trails/rail; records decode via core::ev |
 <!-- END GENERATED SUPPORTED_FORMATS TABLE -->

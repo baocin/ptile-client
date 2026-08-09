@@ -568,6 +568,7 @@ pub fn route_from_segments(
     };
     let snap = snap_m.unwrap_or(100.0);
     let prefs = RoutePrefs {
+        profile: ptiles_core::RouteProfile::Driving,
         avoid_highways: avoid_highways.unwrap_or(false),
         avoid_intersections: avoid_intersections.unwrap_or(false),
     };
@@ -575,6 +576,98 @@ pub fn route_from_segments(
         Some(r) => to_js(&r),
         None => Ok(JsValue::NULL),
     }
+}
+
+/// Route on foot over decoded trails: "get me there on paths, not roads".
+///
+/// `trails_js` is what `decode_trails` returned. Trails are converted to the
+/// router's segment shape by `core::trail_segments` -- a trail and a road are
+/// both a named linestring with a class, so one graph builder serves both --
+/// and routed under the foot profile: paths, tracks, footways, steps and the
+/// quiet street classes a walker actually uses are routable, motorways and
+/// trunk roads are not, one-way tags do not apply, and speeds are walking
+/// speeds rather than posted limits.
+///
+/// Pass `roads_js` as well to let the walk use quiet streets between paths;
+/// the trails layer alone is a set of disconnected fragments in most places,
+/// because the path through the park does not touch the path in the next
+/// park. Null when no walkable route exists within `snap_m` of both ends.
+#[wasm_bindgen]
+pub fn route_trails(
+    trails_js: JsValue,
+    roads_js: JsValue,
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+    snap_m: Option<f64>,
+) -> Result<JsValue, JsValue> {
+    let trails: Vec<ptiles_core::TrailFeature> = from_js_or_empty(trails_js, "trails")?;
+    let roads: Vec<ptiles_core::RoadSegment> = from_js_or_empty(roads_js, "roads")?;
+    let mut segments = ptiles_core::trail_segments(&trails);
+    segments.extend(roads);
+    let middle = vec![false; segments.len()];
+    let prefs = RoutePrefs {
+        profile: ptiles_core::RouteProfile::Foot,
+        ..Default::default()
+    };
+    match core_route_roads_with(
+        &segments,
+        &middle,
+        lat1,
+        lon1,
+        lat2,
+        lon2,
+        snap_m.unwrap_or(100.0),
+        prefs,
+    ) {
+        Some(r) => to_js(&r),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// Decode an EV charging block (`{ST}.ev_v1.ptiles`, PTILESE v1).
+///
+/// `power_kw` and `connectors` are null/empty when OSM does not say, which is
+/// most of them -- that is an unknown, not a zero.
+#[wasm_bindgen]
+pub fn decode_chargers(data: &[u8]) -> Result<JsValue, JsValue> {
+    let chargers =
+        ptiles_core::decode_chargers(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&chargers)
+}
+
+/// Plan the charging stops a drive needs.
+///
+/// `path_js` is the route as `[lon, lat]` pairs, `chargers_js` is what
+/// `decode_chargers` returned for the corridor, and `range_m` is what the car
+/// says it has *now*. The plan drives only
+/// `range_m * (1 - CHARGE_RESERVE)` -- 80% -- so the driver reaches each stop
+/// with something in reserve, and prefers a stop in the far half of each leg
+/// so one stop does not become three. Returns
+/// `{stops, reachable, shortfall_m, usable_range_m, route_m}`; `stops[].index`
+/// points back into the chargers array.
+#[wasm_bindgen]
+pub fn plan_charge_stops(
+    path_js: JsValue,
+    chargers_js: JsValue,
+    range_m: f64,
+    max_detour_m: Option<f64>,
+) -> Result<JsValue, JsValue> {
+    let path: Vec<[f64; 2]> = from_js_or_empty(path_js, "path")?;
+    let chargers: Vec<ptiles_core::Charger> = from_js_or_empty(chargers_js, "chargers")?;
+    to_js(&ptiles_core::plan_charge_stops(
+        &path,
+        &chargers,
+        range_m,
+        max_detour_m.unwrap_or(ptiles_core::DEFAULT_MAX_DETOUR_M),
+    ))
+}
+
+/// The fraction of range the charge planner holds back (0.2).
+#[wasm_bindgen]
+pub fn charge_reserve() -> f64 {
+    ptiles_core::CHARGE_RESERVE
 }
 
 /// Nearest-intersection response shape: `{lat, lon, distance_m,

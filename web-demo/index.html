@@ -133,6 +133,8 @@
     <span id="routeOpts" style="display:none">
       <label title="Penalise motorway and trunk roads; still used when nothing else connects"><input type="checkbox" id="chkAvoidHwy"> avoid highways</label>
       <label title="Charge time for each junction passed through, favouring fewer turns"><input type="checkbox" id="chkAvoidInt"> avoid intersections</label>
+      <label title="Route on paths, tracks and footways instead of roads, at walking speed. Quiet streets are used to link fragments; motorways never are."><input type="checkbox" id="chkTrailsOnly"> trails only</label>
+      <label title="Electric range remaining, in miles. Set it and the route plans charging stops, driving only 80% of it between them."><input type="number" id="evRange" min="0" step="10" placeholder="EV range (mi)" style="width:110px"></label>
     </span>
     <button id="btnGeo" class="toggle-off" title="Click the map for the road or trail you are on and the nearest address; or type an address to find it">Geocode</button>
     <span id="geoOpts" style="display:none">
@@ -376,6 +378,8 @@ var wasm_decode_cameras = timedDecode(function(b) { return wasm.decode_cameras(b
 var wasm_decode_signals = timedDecode(function(b) { return wasm.decode_signals(b); });
 var wasm_nearest_road = function(b, la, lo, t) { return wasm.nearest_road(b, la, lo, t); };
 var wasm_route_from_segments = function() { return wasm.route_from_segments.apply(null, arguments); };
+var wasm_route_trails = function() { return wasm.route_trails.apply(null, arguments); };
+var wasm_decode_chargers = timedDecode(function(b) { return wasm.decode_chargers(b); });
 
 // Init WASM in background
 // H3 res-7 ids carry filler digits in their low 21 bits. The mask that clears
@@ -1862,6 +1866,7 @@ var LAYER_FILES = {
   admin: "admin",
   camera: "camera",
   signals: "signals",
+  ev: "ev_v1",
 };
 
 function layerFile(layer) {
@@ -3377,6 +3382,199 @@ async function loadRouteCorridor(lat1, lon1, lat2, lon2, width, arterialMiddle) 
   };
 }
 
+// --- Trails-only routing ---------------------------------------------------
+//
+// The same corridor machinery as the road router, reading the trails layer
+// instead. Roads come along for the walk because the trails layer alone is a
+// set of disconnected fragments: the path through one park does not touch the
+// path through the next, and the street between them is how a walker actually
+// gets from one to the other. Core's foot profile decides which street
+// classes count -- motorways never do.
+var trailsByState = {};
+async function trailsReaderFor(state) {
+  if (trailsByState[state]) return trailsByState[state];
+  var layer = ptilesLayers.trails;
+  if (layer.reader && layer.state === state) {
+    trailsByState[state] = layer.reader;
+    return layer.reader;
+  }
+  setStatus("Opening " + state + ".trails…");
+  var rdr = await LayerReader.fromUrl(stateUrl(state, "trails"));
+  trailsByState[state] = rdr;
+  return rdr;
+}
+
+function trailsOnly() {
+  var c = document.getElementById("chkTrailsOnly");
+  return !!(c && c.checked);
+}
+
+// Every feature in a corridor's cells from one layer, decoded. Used for
+// trails and for chargers, which want the same cells the route runs through
+// and none of the road router's class filtering.
+async function loadCorridorFeatures(layerName, readerFor, decode, lat1, lon1, lat2, lon2, width) {
+  var p = corridorParams(haversineM(lat1, lon1, lat2, lon2));
+  var w = width != null ? width : p.width;
+  var states = statesAlong(lat1, lon1, lat2, lon2);
+  if (!states.length) states = [currentState];
+  var readers = [];
+  for (var si = 0; si < states.length; si++) {
+    try { readers.push(await readerFor(states[si])); } catch (e) {
+      console.warn(layerName + " open failed", states[si], e);
+    }
+  }
+  if (!readers.length) throw new Error(layerName + " layer unavailable (" + states.join(",") + ")");
+
+  var cells = corridorCells(lat1, lon1, lat2, lon2, w, p.interval);
+  var out = [];
+  var batch = 24;
+  for (var n = 0; n < cells.length; n += batch) {
+    setStatus(layerName + ": " + Math.min(n + batch, cells.length) + "/" + cells.length + " cells · " + out.length + " features");
+    var chunk = cells.slice(n, n + batch);
+    var raws = await Promise.all(chunk.map(async function(hex) {
+      var cellInt = BigInt("0x" + hex) & CELL_MASK;
+      for (var ri = 0; ri < readers.length; ri++) {
+        try {
+          var raw = await readers[ri].decompressCell(cellInt);
+          if (raw) return raw;
+        } catch (e) {}
+      }
+      return null;
+    }));
+    for (var i = 0; i < raws.length; i++) {
+      if (!raws[i]) continue;
+      var feats;
+      try { feats = decode(raws[i]); } catch (e) { continue; }
+      if (feats && feats.length) out = out.concat(feats);
+    }
+  }
+  return { features: out, states: states, cellCount: cells.length, width: w };
+}
+
+// A walk from A to B over paths. Falls back to a wider corridor once, the
+// same shape as the road router's widen pass: trails are sparse, and a
+// too-narrow corridor is the usual reason a walkable route is not found.
+async function runTrailRoute(a, b) {
+  await wasmInit;
+  var distM = haversineM(a.lat, a.lon, b.lat, b.lon);
+  setStatus("Trail route: " + (distM / 1000).toFixed(1) + "km…");
+  var trails = await loadCorridorFeatures("trails", trailsReaderFor, wasm_decode_trails,
+    a.lat, a.lon, b.lat, b.lon, null);
+  var roadPack = await loadRouteCorridor(a.lat, a.lon, b.lat, b.lon, null, false);
+  setStatus("Trail route: " + trails.features.length + " trails + " + roadPack.segments.length + " streets…");
+  var result = plainRoute(wasm_route_trails(trails.features, roadPack.segments, a.lat, a.lon, b.lat, b.lon, 400));
+  if (!result) {
+    setStatus("Trail route: widen…");
+    var wider = await loadCorridorFeatures("trails", trailsReaderFor, wasm_decode_trails,
+      a.lat, a.lon, b.lat, b.lon, trails.width + 2);
+    result = plainRoute(wasm_route_trails(wider.features, roadPack.segments, a.lat, a.lon, b.lat, b.lon, 600));
+  }
+  return result;
+}
+
+// --- EV charging stops -----------------------------------------------------
+
+var evByState = {};
+async function evReaderFor(state) {
+  if (evByState[state]) return evByState[state];
+  setStatus("Opening " + state + ".ev…");
+  var rdr = await LayerReader.fromUrl(stateUrl(state, "ev"));
+  evByState[state] = rdr;
+  return rdr;
+}
+
+// Miles in the box, metres everywhere else: the field is what a US driver
+// reads off the dash, and every distance below this line is SI.
+var MILE_M = 1609.344;
+function evRangeM() {
+  var el = document.getElementById("evRange");
+  if (!el || !el.value) return 0;
+  var mi = parseFloat(el.value);
+  return isFinite(mi) && mi > 0 ? mi * MILE_M : 0;
+}
+
+var chargeLayer = L.layerGroup();
+function clearChargeLayer() { chargeLayer.clearLayers(); }
+
+// Plan the stops for a finished route and redraw it through them.
+//
+// Two passes on purpose: the first route says where the drive actually goes,
+// which is what decides which chargers are on the way; the second re-routes
+// through the stops so the drawn line passes them rather than implying a
+// teleport. `plan_charge_stops` drives only 80% of the range between stops --
+// core's reserve, not this page's.
+async function planCharging(a, b, result) {
+  var rangeM = evRangeM();
+  if (!rangeM || !result || !result.path || result.path.length < 2) return result;
+
+  // RouteResult.path is [lat, lon]; the planner takes [lon, lat], the order
+  // every decoder uses.
+  var pathLonLat = result.path.map(function(p) { return [p[1], p[0]]; });
+  var ev;
+  try {
+    ev = await loadCorridorFeatures("chargers", evReaderFor, wasm_decode_chargers,
+      a.lat, a.lon, b.lat, b.lon, null);
+  } catch (e) {
+    setStatus("EV: " + (e.message || e) + " — routed without charging stops", true);
+    return result;
+  }
+  var plan = wasm.plan_charge_stops(pathLonLat, ev.features, rangeM, null);
+  if (plan instanceof Map) { var o = {}; plan.forEach(function(v, k) { o[k] = v; }); plan = o; }
+  var stops = plan.stops || [];
+  if (stops instanceof Map) stops = Array.from(stops.values());
+
+  clearChargeLayer();
+  chargeLayer.addTo(map);
+  var picked = [];
+  stops.forEach(function(stop, i) {
+    var c = ev.features[Number(stop.index)];
+    if (!c) return;
+    picked.push(c);
+    var kw = c.power_kw != null ? c.power_kw + " kW" : "power unknown";
+    L.circleMarker([c.lat, c.lon], {radius: 7, color: "#2ea043", fillColor: "#2ea043", fillOpacity: 0.9, weight: 2})
+      .bindPopup("Stop " + (i + 1) + ": " + (c.name || c.network || "charging station") +
+                 "<br>" + kw + " · " + (stop.leg_m / MILE_M).toFixed(0) + " mi into the leg" +
+                 (stop.detour_m > 50 ? "<br>" + (stop.detour_m / MILE_M).toFixed(1) + " mi off route" : ""))
+      .addTo(chargeLayer);
+  });
+
+  var usableMi = (plan.usable_range_m / MILE_M).toFixed(0);
+  if (!plan.reachable) {
+    setStatus("EV: " + (plan.shortfall_m / MILE_M).toFixed(0) + " mi with no charger in reach — " +
+              "route drawn without stops (" + usableMi + " mi usable per leg)", true);
+    return result;
+  }
+  if (!picked.length) {
+    setStatus("EV: within range, no stop needed (" + usableMi + " mi usable)");
+    return result;
+  }
+
+  // Re-route A -> stops -> B so the line goes through them.
+  setStatus("EV: routing via " + picked.length + " stop" + (picked.length > 1 ? "s" : "") + "…");
+  var legs = [];
+  var from = a;
+  for (var i = 0; i < picked.length; i++) {
+    var to = { lat: picked[i].lat, lon: picked[i].lon };
+    legs.push(await runRoute(from, to));
+    from = to;
+  }
+  legs.push(await runRoute(from, b));
+  if (legs.some(function(l) { return !l || !l.path || l.path.length < 2; })) {
+    setStatus("EV: stops found, but no road route through them — showing the direct route", true);
+    return result;
+  }
+  var joined = { distance_m: 0, duration_s: 0, path: [] };
+  legs.forEach(function(l) {
+    joined.distance_m += l.distance_m;
+    joined.duration_s += l.duration_s;
+    // Skip each leg's first point: it is the previous leg's last.
+    joined.path = joined.path.concat(joined.path.length ? l.path.slice(1) : l.path);
+  });
+  setStatus("EV: " + picked.length + " stop" + (picked.length > 1 ? "s" : "") + " · " +
+            (joined.distance_m / MILE_M).toFixed(0) + " mi · " + usableMi + " mi usable per leg");
+  return joined;
+}
+
 function routePrefs() {
   var h = document.getElementById("chkAvoidHwy");
   var i = document.getElementById("chkAvoidInt");
@@ -3490,6 +3688,9 @@ async function loadRouteCorridorLoose(lat1, lon1, lat2, lon2, width) {
 
 function clearRouteLayer() {
   if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+  // Charge stops belong to the route that planned them: leaving them on the
+  // map after the line goes reads as "stop here" for a drive nobody is making.
+  clearChargeLayer();
 }
 
 function ensureRouteLayer() {
@@ -3575,7 +3776,7 @@ document.getElementById("btnRoute").addEventListener("click", function() {
 
 // Changing a preference re-runs the leg already on screen, so the effect of the
 // toggle is visible without re-picking both endpoints.
-["chkAvoidHwy", "chkAvoidInt"].forEach(function(id) {
+["chkAvoidHwy", "chkAvoidInt", "chkTrailsOnly", "evRange"].forEach(function(id) {
   document.getElementById(id).addEventListener("change", function() {
     // `lastLeg`, not routeA/routeB: those are cleared as soon as a route is
     // drawn. And `routeAndDraw`, not `runRoute`: computing a new path without
@@ -4115,7 +4316,8 @@ async function routeAndDraw(a, b) {
   // exactly the state where you want to untick a box and try again.
   lastLeg = { a: a, b: b };
   try {
-    var result = await runRoute(a, b);
+    var result = trailsOnly() ? await runTrailRoute(a, b) : await runRoute(a, b);
+    if (!trailsOnly()) result = await planCharging(a, b, result);
     clearRouteLayer();
     drawRouteEndpoints(a, b);
     if (!result || !result.path || result.path.length < 2) {

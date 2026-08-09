@@ -46,11 +46,45 @@ pub struct RouteResult {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RoutePrefs {
+    /// What is doing the travelling. Decides which classes are routable at
+    /// all and how fast they are; the two flags below are driving concerns
+    /// and do nothing on foot.
+    pub profile: RouteProfile,
     /// Multiply motorway/trunk edge time so the route prefers arterials.
     pub avoid_highways: bool,
     /// Charge time for passing through junctions, so the route prefers fewer
     /// of them even when that means a slightly longer road.
     pub avoid_intersections: bool,
+}
+
+/// Who the route is for.
+///
+/// The trails layer decodes into the same shape roads do (see
+/// [`trail_segments`]), so the graph builder needs no second implementation --
+/// but a footpath is not a road with a low speed limit. It is routable where
+/// a car is not, forbidden where a car is fine, and a staircase costs more
+/// per metre than flat ground rather than less.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum RouteProfile {
+    #[default]
+    Driving,
+    /// Walking: trails, tracks, footways and steps, plus the quiet street
+    /// classes a pedestrian legitimately uses. Motorways and trunk roads are
+    /// excluded -- they are the one place walking is actually prohibited.
+    Foot,
+}
+
+/// Walking speeds, km/h. Flat ground is the usual 5 km/h; steps and rough
+/// alpine paths are slower, and a cycleway is not faster on foot -- it is
+/// just smoother, which the surface field already says.
+fn foot_speed_kmh(class: &str) -> f64 {
+    match class {
+        "steps" => 1.5,
+        "path" | "bridleway" => 4.5,
+        "track" => 4.5,
+        _ => 5.0,
+    }
 }
 
 /// Cost multiplier for a highway edge under `avoid_highways`. Chosen so a
@@ -84,6 +118,74 @@ fn weight_to_seconds(w: Weight) -> f64 {
 /// Driving profile filter (daemon `profile_allows("driving")`).
 /// ponytail: drop `service` — parking aisles explode node count; local A→B
 /// works on residential+arterial alone.
+/// Whether a class is routable on foot.
+///
+/// Trail classes plus the street classes a pedestrian uses in practice: OSM
+/// tags most American sidewalks as part of the road, so excluding residential
+/// and service streets would disconnect every trailhead from every street it
+/// meets. Motorway and trunk are the genuine exclusions.
+pub fn profile_allows_foot(class: &str) -> bool {
+    matches!(
+        class,
+        "path"
+            | "footway"
+            | "steps"
+            | "bridleway"
+            | "cycleway"
+            | "track"
+            | "pedestrian"
+            | "living_street"
+            | "residential"
+            | "unclassified"
+            | "service"
+            | "tertiary"
+            | "tertiary_link"
+            | "secondary"
+            | "secondary_link"
+    )
+}
+
+/// Trails as router input.
+///
+/// `TrailFeature` and `RoadSegment` carry the same thing -- a named linestring
+/// with a class -- so the graph builder needs no second implementation and a
+/// mixed walk down a path and along a residential street works without the
+/// two halves ever meeting a conversion. The trail type lands in
+/// `road_class`, which is what [`profile_allows_foot`] and the foot speeds
+/// read.
+///
+/// Trailhead points are skipped: a point is not an edge, and one with a
+/// single coordinate would be dropped by the builder anyway.
+pub fn trail_segments(trails: &[crate::trails::TrailFeature]) -> Vec<RoadSegment> {
+    trails
+        .iter()
+        .filter(|t| t.geom_type == 0 && t.coords.len() >= 2)
+        .map(|t| RoadSegment {
+            osm_id: t.osm_id as u64,
+            road_class: t.trail_type.clone(),
+            coords: t.coords.clone(),
+            name: t.name.clone(),
+            ref_tag: None,
+            // A trail has no posted limit, no direction of travel for a
+            // walker, and no lane count. Left empty rather than invented:
+            // the foot profile ignores all three.
+            oneway: None,
+            speed_limit_kmh: None,
+            lanes: None,
+            surface: if t.surface.is_empty() { None } else { Some(t.surface.clone()) },
+            bridge_tunnel: None,
+        })
+        .collect()
+}
+
+/// Whether `class` is routable under `profile`.
+pub fn profile_allows(class: &str, profile: RouteProfile) -> bool {
+    match profile {
+        RouteProfile::Driving => profile_allows_driving(class),
+        RouteProfile::Foot => profile_allows_foot(class),
+    }
+}
+
 pub fn profile_allows_driving(class: &str) -> bool {
     matches!(
         class,
@@ -105,6 +207,7 @@ pub fn profile_allows_driving(class: &str) -> bool {
 }
 
 /// End-cap = all driving; middle = arterial spine only (no highway sidecar).
+/// Driving only -- see the `RouteProfile::Foot` arm in `build_graph`.
 pub fn keep_road_class(class: &str, middle: bool) -> bool {
     if !profile_allows_driving(class) {
         return false;
@@ -179,7 +282,15 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool], prefs: RoutePrefs) -
 
     for (si, seg) in roads.iter().enumerate() {
         let middle = zone_middle.get(si).copied().unwrap_or(false);
-        if !keep_road_class(&seg.road_class, middle) || seg.coords.len() < 2 {
+        // The middle-of-corridor arterial pruning is a driving optimisation
+        // -- it drops residential streets from the long middle of a route so
+        // the graph stays small. On foot there is no arterial spine to prune
+        // to, and dropping the paths would leave nothing.
+        let keep = match prefs.profile {
+            RouteProfile::Foot => profile_allows_foot(&seg.road_class),
+            RouteProfile::Driving => keep_road_class(&seg.road_class, middle),
+        };
+        if !keep || seg.coords.len() < 2 {
             continue;
         }
         let mut cm = Vec::with_capacity(seg.coords.len());
@@ -201,10 +312,15 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool], prefs: RoutePrefs) -
             }
         }
         segs_for_geom.push((ids.clone(), seg.coords.clone()));
-        let speed = seg
-            .speed_limit_kmh
-            .map(|s| s as f64)
-            .unwrap_or_else(|| default_speed_kmh(&seg.road_class));
+        // On foot the posted limit describes the traffic, not the walker, so
+        // it is ignored outright rather than used as a fallback.
+        let speed = match prefs.profile {
+            RouteProfile::Foot => foot_speed_kmh(&seg.road_class),
+            RouteProfile::Driving => seg
+                .speed_limit_kmh
+                .map(|s| s as f64)
+                .unwrap_or_else(|| default_speed_kmh(&seg.road_class)),
+        };
         for i in 0..cm.len().saturating_sub(1) {
             let from = ids[i];
             let to = ids[i + 1];
@@ -225,7 +341,12 @@ fn build_graph(roads: &[RoadSegment], zone_middle: &[bool], prefs: RoutePrefs) -
                 }
                 weight_from_seconds(secs)
             };
-            let ow = seg.oneway.as_deref();
+            // A one-way street is one-way for vehicles; a walker may go
+            // either way along it, and along every trail.
+            let ow = match prefs.profile {
+                RouteProfile::Foot => None,
+                RouteProfile::Driving => seg.oneway.as_deref(),
+            };
             if ow != Some("reverse") {
                 edges.push((from, to, w));
             }
@@ -689,6 +810,97 @@ mod tests {
         }
     }
 
+    fn foot() -> RoutePrefs {
+        RoutePrefs { profile: RouteProfile::Foot, ..Default::default() }
+    }
+
+    // A path running east, and a motorway alongside it 100 m north. Both
+    // reach the same longitudes, so whichever the profile allows is the one
+    // that can carry a route.
+    fn path_and_motorway() -> Vec<RoadSegment> {
+        vec![
+            seg("path", vec![[-86.80, 36.0], [-86.79, 36.0]], None),
+            seg("motorway", vec![[-86.80, 36.0009], [-86.79, 36.0009]], None),
+        ]
+    }
+
+    #[test]
+    fn a_walker_routes_along_a_path_a_driver_cannot_use() {
+        let roads = path_and_motorway();
+        let zm = vec![false; roads.len()];
+        let on_foot = route_roads_with(&roads, &zm, 36.0, -86.7995, 36.0, -86.7905, 60.0, foot())
+            .expect("the path carries a walk");
+        assert!(on_foot.distance_m > 700.0, "distance {}", on_foot.distance_m);
+        // ~800 m at 5 km/h, before the 0.85 factor: minutes, not seconds.
+        assert!(on_foot.duration_s > 400.0, "duration {}", on_foot.duration_s);
+
+        // Driving cannot snap to the path at all -- only the motorway 100 m
+        // north is routable, and that is past the snap radius.
+        assert!(
+            route_roads_with(&roads, &zm, 36.0, -86.7995, 36.0, -86.7905, 60.0, RoutePrefs::default())
+                .is_none(),
+            "a car has no business on a footpath"
+        );
+    }
+
+    #[test]
+    fn a_walker_is_kept_off_the_motorway() {
+        let roads = vec![seg("motorway", vec![[-86.80, 36.0], [-86.79, 36.0]], None)];
+        let zm = vec![false];
+        assert!(
+            route_roads_with(&roads, &zm, 36.0, -86.7995, 36.0, -86.7905, 60.0, foot()).is_none(),
+            "motorway is the one class walking is actually prohibited on"
+        );
+    }
+
+    #[test]
+    fn oneway_and_speed_limits_are_driving_concerns_only() {
+        // A one-way path, tagged 50 km/h, walked against its direction.
+        let roads = vec![seg("footway", vec![[-86.80, 36.0], [-86.79, 36.0]], Some("yes"))];
+        let zm = vec![false];
+        let back = route_roads_with(&roads, &zm, 36.0, -86.7905, 36.0, -86.7995, 60.0, foot())
+            .expect("a walker may go either way");
+        // If the 50 km/h tag had been used, this would take about a minute.
+        assert!(back.duration_s > 400.0, "walked at driving speed: {}", back.duration_s);
+    }
+
+    #[test]
+    fn trails_convert_to_segments_and_trailheads_are_dropped() {
+        use crate::trails::TrailFeature;
+        let trails = vec![
+            TrailFeature {
+                osm_id: 7,
+                trail_type: String::from("path"),
+                geom_type: 0,
+                coords: vec![[-86.80, 36.0], [-86.79, 36.0]],
+                surface: String::from("compacted"),
+                sac_scale: String::from("hiking"),
+                name: Some(String::from("Greenway")),
+            },
+            TrailFeature {
+                osm_id: 8,
+                trail_type: String::from("trailhead"),
+                geom_type: 1,
+                coords: vec![[-86.795, 36.0]],
+                surface: String::new(),
+                sac_scale: String::new(),
+                name: Some(String::from("North Gate")),
+            },
+        ];
+        let segs = trail_segments(&trails);
+        assert_eq!(segs.len(), 1, "a point is not an edge");
+        assert_eq!(segs[0].road_class, "path", "trail type is what the profile reads");
+        assert_eq!(segs[0].name.as_deref(), Some("Greenway"));
+        assert_eq!(segs[0].surface.as_deref(), Some("compacted"));
+        assert!(segs[0].speed_limit_kmh.is_none(), "a trail has no posted limit");
+
+        let zm = vec![false; segs.len()];
+        assert!(
+            route_roads_with(&segs, &zm, 36.0, -86.7995, 36.0, -86.7905, 60.0, foot()).is_some(),
+            "converted trails route on foot"
+        );
+    }
+
     // --- RoutePrefs ---------------------------------------------------
     //
     // Layout for both: A --- B, reachable two ways.
@@ -721,7 +933,7 @@ mod tests {
     #[test]
     fn avoid_highways_takes_the_slower_surface_street() {
         let roads = two_route_choices();
-        let prefs = RoutePrefs { avoid_highways: true, avoid_intersections: false };
+        let prefs = RoutePrefs { avoid_highways: true, ..Default::default() };
         let r = route_roads_with(&roads, &[], 36.0, -86.0, 36.0, -85.96, 500.0, prefs).unwrap();
         assert!(
             max_detour_lat(&r) > 36.003,
@@ -734,7 +946,7 @@ mod tests {
     fn avoid_highways_still_routes_when_the_highway_is_the_only_link() {
         // Penalty, not prohibition: with no alternative a route must still exist.
         let roads = vec![seg("motorway", vec![[-86.0, 36.0], [-85.98, 36.0]], None)];
-        let prefs = RoutePrefs { avoid_highways: true, avoid_intersections: false };
+        let prefs = RoutePrefs { avoid_highways: true, ..Default::default() };
         let r = route_roads_with(&roads, &[], 36.0, -86.0, 36.0, -85.98, 500.0, prefs);
         assert!(r.is_some(), "a penalty must not make the only road unusable");
     }
@@ -752,7 +964,7 @@ mod tests {
         let plain = route_roads(&roads, &[], 36.0, -86.0, 36.0, -85.98, 500.0).unwrap();
         let avoid = route_roads_with(
             &roads, &[], 36.0, -86.0, 36.0, -85.98, 500.0,
-            RoutePrefs { avoid_highways: false, avoid_intersections: true },
+            RoutePrefs { avoid_intersections: true, ..Default::default() },
         )
         .unwrap();
         // Same geometry either way -- there is no detour available -- but the

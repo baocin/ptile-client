@@ -29,6 +29,7 @@ pub mod buildings;
 pub mod business;
 pub mod business_search;
 pub mod camera;
+pub mod ev;
 pub mod math;
 pub mod locate;
 pub mod merged;
@@ -62,6 +63,10 @@ pub use business_search::{
     BusinessHit, match_business_name_block, name_to_key, search_business_brute_force,
     search_business_indexed,
 };
+pub use ev::{
+    CHARGE_RESERVE, CONNECTORS, ChargePlan, ChargeStop, Charger, DEFAULT_MAX_DETOUR_M,
+    decode_chargers, is_fast_connector, is_public, plan_charge_stops,
+};
 pub use camera::{
     CAMERA_MOUNT_M, CAMERA_RANGE_M, Camera, CameraView, DEFAULT_FOV_DEG, SUBJECT_M, bearing_to,
     cameras_near_road, cameras_seeing, decode_cameras,
@@ -91,8 +96,8 @@ pub use query::{
     try_cell_center,
 };
 pub use route_graph::{
-    RoutePrefs, RouteResult, keep_road_class, profile_allows_driving, route_roads,
-    route_roads_with,
+    RoutePrefs, RouteProfile, RouteResult, keep_road_class, profile_allows, profile_allows_driving,
+    profile_allows_foot, route_roads, route_roads_with, trail_segments,
 };
 pub use scoring::{Candidate, CandidateKind, Fix, ScoringParams, score_candidates};
 pub use viewshed::{ViewBuilding, Visibility, estimate_height, height_or_estimate, viewshed};

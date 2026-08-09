@@ -120,6 +120,8 @@ Beyond drawing the layers, the page answers questions off the same bytes:
 | Line of sight | what is visible from a point at a given eye height, and which nearby cameras have a clear line back to you |
 | View finder | the reverse: which buildings can see a river, a park, a railway or a named business |
 | Route | A* over the road graph, within a corridor of cells |
+| Trails only | the same A* under core's foot profile: paths, tracks, footways and steps, walking speeds, one-way tags ignored, motorways excluded. Quiet streets link the fragments, because the path through one park does not touch the path through the next |
+| EV range | type the miles left on the dash and the route plans charging stops from the `ev` layer, driving only 80% of that range per leg and re-routing through each stop |
 
 Line of sight is reciprocal, which is why the last two need no geometry of
 their own: both run `viewshed` from the far end and read the answer back.
@@ -127,12 +129,24 @@ their own: both run `viewshed` from the far end and read the answer back.
 ## Live Tiles
 
 ```
-https://maps.mydatatimeline.com/maps/{ST}.{layer}.ptiles
+https://maps.mydatatimeline.com/maps/2026-08-07/{ST}.{layer}.ptiles
 https://maps.mydatatimeline.com/maps/US.{admin,signals,camera}.ptiles
 ```
 
-Per-state: `buildings_v8`, `business`, `roads`, `water`, `parks`, `rail`,
-`places`, `address`. US-wide: `admin`, `signals`, `camera`.
+Per-state, in the dated snapshot the demo reads: `buildings_v9`,
+`business_v4`, `roads_v2`, `water_v1`, `parks_v1`, `rail_v1`, `trails_v1`,
+`places_v1`, `address_v2`, `ev_v1`. US-wide, at the flat `/maps/` root:
+`admin`, `signals`, `camera`.
+
+The older flat `/maps/{ST}.{layer}.ptiles` layout is still served and is what
+`SUPPORTED_FORMATS.md`'s notes were written against; the dated directory is
+the current build and the one `web-demo`'s `PTILES_BASE` points at.
+
+`ev_v1` is the newest layer: 13,443 charging stations across the 51 files,
+built by `scripts/build_ev.py` in the [ptiles
+repo](https://github.com/baocin/ptiles) from OSM `amenity=charging_station`.
+Power and connector are tagged on roughly a third of them, and decode to an
+explicit unknown on the rest rather than to a zero.
 
 `buildings_v8` is the only filename carrying a version, and it is part of the
 name rather than a claim about the contents — the version lives in the header.
