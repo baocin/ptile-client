@@ -690,6 +690,116 @@ pub fn plan_charge_stops(
     ))
 }
 
+/// A route being followed. Holds the path, its cumulative distances and its
+/// turn queue on the Rust side so a position update costs one small call
+/// rather than re-serialising the whole route at every GPS fix -- which, at
+/// 1 Hz on a 600-point route, is the difference between free and not.
+///
+/// ```js
+/// const nav = Navigator.new(route.path.map(p => [p[1], p[0]]), corridorRoads);
+/// const turns = nav.turns();            // the queue, once
+/// const st = nav.update(lat, lon, acc);  // every fix
+/// map.setBearing(st.bearing_deg);        // the predicted heading
+/// ```
+#[wasm_bindgen]
+pub struct Navigator {
+    path: Vec<[f64; 2]>,
+    cum: Vec<f64>,
+    turns: Vec<ptiles_core::Turn>,
+    last_index: usize,
+}
+
+#[wasm_bindgen]
+impl Navigator {
+    /// `path` is `[lon, lat]` pairs -- the decoders' order. `RouteResult.path`
+    /// is `[lat, lon]` for Leaflet, so flip it on the way in.
+    ///
+    /// `roads` is the corridor the route was found in, used only to name the
+    /// turns; pass null for an unnamed queue. `name_radius_m` defaults to 30.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        path_js: JsValue,
+        roads_js: JsValue,
+        name_radius_m: Option<f64>,
+    ) -> Result<Navigator, JsValue> {
+        #[derive(serde::Deserialize)]
+        struct SegIn {
+            coords: Vec<[f64; 2]>,
+            road_class: String,
+            #[serde(default)]
+            name: Option<String>,
+            #[serde(default)]
+            ref_tag: Option<String>,
+        }
+        let path: Vec<[f64; 2]> = from_js_or_empty(path_js, "path")?;
+        let roads_in: Vec<SegIn> = from_js_or_empty(roads_js, "roads")?;
+        let roads: Vec<RoadSegment> = roads_in
+            .into_iter()
+            .map(|s| RoadSegment {
+                osm_id: 0,
+                road_class: s.road_class,
+                coords: s.coords,
+                name: s.name,
+                ref_tag: s.ref_tag,
+                oneway: None,
+                speed_limit_kmh: None,
+                lanes: None,
+                surface: None,
+                bridge_tunnel: None,
+            })
+            .collect();
+        let cum = ptiles_core::cumulative_m(&path);
+        let turns = ptiles_core::turn_queue(&path, &roads, name_radius_m.unwrap_or(30.0));
+        Ok(Navigator { path, cum, turns, last_index: 0 })
+    }
+
+    /// The turn queue: `Depart`, every manoeuvre, `Arrive`. Each carries the
+    /// manoeuvre, the signed bearing change, where it is, how far along the
+    /// route, and the road it turns onto when one could be named.
+    pub fn turns(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.turns)
+    }
+
+    /// Where a fix puts you: snapped position, distance along and remaining,
+    /// the predicted heading, the next turn and how far to it, and whether
+    /// this fix is off the route.
+    ///
+    /// `off_route` describes one fix, not a decision. Require it on several
+    /// consecutive fixes before rerouting -- a single bad fix in a parking
+    /// garage is not a wrong turn.
+    ///
+    /// Null when the route is too short to follow.
+    pub fn update(&mut self, lat: f64, lon: f64, accuracy_m: f64) -> Result<JsValue, JsValue> {
+        match ptiles_core::navigate(
+            &self.path,
+            &self.cum,
+            &self.turns,
+            lat,
+            lon,
+            accuracy_m,
+            self.last_index,
+        ) {
+            Some(st) => {
+                self.last_index = st.index;
+                to_js(&st)
+            }
+            None => Ok(JsValue::NULL),
+        }
+    }
+
+    /// Total route length in metres.
+    #[wasm_bindgen(getter)]
+    pub fn length_m(&self) -> f64 {
+        self.cum.last().copied().unwrap_or(0.0)
+    }
+}
+
+/// Signed difference between two bearings, degrees, positive to the right.
+#[wasm_bindgen]
+pub fn bearing_delta(from_deg: f64, to_deg: f64) -> f64 {
+    ptiles_core::bearing_delta(from_deg, to_deg)
+}
+
 /// Whether a connector charges at DC speed in North America (CCS1, CCS2,
 /// CHAdeMO, Tesla). The difference between a twenty-minute stop and an
 /// afternoon, and a property of the format's own connector vocabulary, so it

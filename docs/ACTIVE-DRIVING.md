@@ -29,19 +29,48 @@ What is already true, verified rather than assumed:
 | Real GPS traces for replay | `test-fixtures/gpx/`, 6 traces |
 | Range-request reads, ETag-keyed cache | `LayerReader`, Cache API |
 
-What is missing, in the order that decides whether this is possible at all:
+What is missing. This list was longer in the first draft of this document, and
+three of its five entries were wrong: they described work that the existing
+primitives already did. `point_to_linestring_distance_m` reports which segment
+a point snapped to and how far off it was, which *is* snapping and *is*
+off-route detection; and a turn is a bearing change along a polyline that the
+router already returns. Those are now built (`core::nav`, below). What is
+actually left:
 
-1. **The router returns no maneuvers.** `RouteResult` is
-   `{distance_m, duration_s, path}`. There are no steps, no street names, no
-   "turn left". The graph knows all of it and throws it away at the boundary.
-   Everything below depends on fixing this first.
-2. **Position is one-shot.** The GPS button calls `getCurrentPosition` once.
-   Navigation needs `watchPosition`, snapping to the route, and a heading.
-3. **Nothing detects being off-route**, so nothing can reroute.
-4. **Long routes fail.** The corridor router finds no path beyond roughly
+1. **Long routes fail.** The corridor router finds no path beyond roughly
    180 km — Nashville to Chattanooga returns nothing, with no EV or trails
-   involved. A navigator that cannot cross a state is not a navigator.
-5. **There is no driving UI.** The page is a desktop map with a toolbar.
+   involved. A navigator that cannot cross a state is not a navigator. This is
+   the real blocker.
+2. **Position is one-shot.** The GPS button calls `getCurrentPosition` once.
+   Navigation needs `watchPosition` feeding the navigator, and
+   `motion::MovementTracker` smoothing the speed.
+3. **Rerouting is a policy, not a primitive.** `off_route` is answered per fix;
+   deciding *when* that means re-route (consecutive fixes, debounce, from the
+   snapped position or the raw one) is page-side work.
+4. **There is no driving UI.**
+
+### Already built: `core::nav`
+
+- `turn_queue(path, roads, radius)` → `Depart`, every manoeuvre, `Arrive`.
+  Bearing changes measured across a 25 m window, so a curve is not a sequence
+  of turns; consecutive same-direction turns within 20 m merge into one
+  junction; each is named after the road it turns *onto*, sampled 15 m past
+  the corner, preferring a named road over a nearer unnamed stub.
+- `navigate(path, cum, turns, lat, lon, accuracy, last_index)` → snapped
+  position, distance along and remaining, next turn and distance to it, and
+  `off_route`.
+- **The predicted heading.** `NavState::bearing_deg` is the bearing of the next
+  60 m of route from the snapped point — not `coords.heading`, which is absent
+  when stationary and noise below walking speed. It leads into a corner before
+  the vehicle does, which is what a heading-up map needs and what a GPS
+  heading cannot give.
+- Snapping is windowed (forward 500 m, back 100 m around the last index) so a
+  route that doubles back cannot snap to the wrong leg, with a full-scan
+  fallback that recovers after a tunnel.
+- `off_route` scales with the fix: `max(35 m, 3 × accuracy)`. A 60 m error on a
+  5 m fix is a wrong turn; the same error on a 30 m urban-canyon fix is not.
+- `wasm.Navigator` holds path, cumulative distances and turns on the Rust side,
+  so a fix costs one small call instead of re-serialising the route at 1 Hz.
 
 ## Architecture
 
@@ -285,19 +314,21 @@ declines:
 
 Each ends in something demonstrable and a test that fails if it breaks.
 
-**M1 — Maneuvers and long routes.** `RouteStep` in core with segmentation and
-naming; hierarchical routing over `highways_v2` for legs over 80 km. Test:
-Nashville → Chattanooga routes at all (the current failure), and its step list
-names I-24 and its exits. *This is the milestone that decides the rest.*
+**M1 — Turn queue and snapping.** *Done.* `core::nav` and `wasm.Navigator`,
+13 unit tests. Verified from JS: a 2 km L-shaped route yields
+Depart/Left/Arrive named Broadway → 4th Avenue, and the heading reads 17°
+30 m short of the corner where a GPS heading still says 90°.
 
-**M2 — Live position.** `watchPosition`, `snap_to_route`, motion-smoothed
-speed, ETA that updates. Test: replay `tn-middle-tennessee-3605997.gpx`
-through the snapper and assert the along-route distance is monotonic and the
-step index never goes backwards.
+**M2 — Long routes.** Hierarchical routing over `highways_v2` for legs beyond
+80 km. Test: Nashville → Chattanooga routes at all, and its turn queue names
+I-24 and its exits. *This is now the milestone that decides the rest — the
+rest of navigation works on routes that exist.*
 
-**M3 — Off-route and reroute.** Detection thresholds, debounce, reroute from
-snapped position. Test: replay a trace with a deliberate wrong turn spliced in;
-assert exactly one reroute fires, within 3 fixes of the divergence.
+**M3 — Live position and reroute.** `watchPosition` into `Navigator.update`,
+motion-smoothed speed, reroute policy on top of the per-fix `off_route`. Test:
+replay `tn-middle-tennessee-3605997.gpx` and assert along-route distance is
+monotonic and the turn index never goes backwards; splice in a wrong turn and
+assert exactly one reroute fires within 3 fixes.
 
 **M4 — The screen.** Full-screen mode, banner, heading-up map, ETA bar, wake
 lock, night mode, voice. Test: the existing chromium harness drives a simulated
