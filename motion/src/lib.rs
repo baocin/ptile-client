@@ -29,11 +29,17 @@ use ptiles_core::{haversine_distance_m, Fix};
 pub use ptiles_core::Fix as CoreFix;
 
 pub mod movement;
+pub mod sampling;
 pub mod shifts;
+pub use sampling::{
+    AdaptiveMotionConfig, AdaptiveMotionSession, AdaptiveMotionUpdate, AdaptiveSampler,
+    AppliedSampling, LocationSample, MotionObservation, SamplingAdvice, SamplingCapabilities,
+    SamplingConfig, SamplingIntent, SamplingLevel, SamplingReason,
+};
 pub use shifts::{significant_shifts, Shift, ShiftConfig};
 pub use movement::{
     AccelStats, DebounceConfig, MovementType, RoadContext, TrafficControl, Vote, VoteDebouncer,
-    classify, classify_accel_only, DRIVING_FLOOR_MPS, GPS_ACCURACY_GATE_M,
+    classify, classify_accel_only, classify_with_history, DRIVING_FLOOR_MPS, GPS_ACCURACY_GATE_M,
     RUNNING_SPEED_HINT_MPS, WALKING_CEILING_MPS,
 };
 
@@ -57,6 +63,8 @@ impl TimedFix {
 
 /// Tunable thresholds for [`MotionClassifier`].
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct MotionConfig {
     /// Smoothed speed at or below this (m/s) is `Stationary`. Default 0.5.
     pub stationary_max_mps: f64,

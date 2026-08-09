@@ -251,6 +251,66 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CLONE_ADAPTIVEMOTIONSESSION
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CLONE_ADAPTIVEMOTIONSESSION
+void*_Nonnull uniffi_ptiles_ffi_fn_clone_adaptivemotionsession(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FREE_ADAPTIVEMOTIONSESSION
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FREE_ADAPTIVEMOTIONSESSION
+void uniffi_ptiles_ffi_fn_free_adaptivemotionsession(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_ADAPTIVEMOTIONSESSION_NEW
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CONSTRUCTOR_ADAPTIVEMOTIONSESSION_NEW
+void*_Nonnull uniffi_ptiles_ffi_fn_constructor_adaptivemotionsession_new(RustBuffer config, RustBuffer capabilities, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_CURRENT_ADVICE
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_CURRENT_ADVICE
+RustBuffer uniffi_ptiles_ffi_fn_method_adaptivemotionsession_current_advice(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_LAST_APPLIED_SAMPLING
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_LAST_APPLIED_SAMPLING
+RustBuffer uniffi_ptiles_ffi_fn_method_adaptivemotionsession_last_applied_sampling(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_MOVEMENT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_MOVEMENT
+RustBuffer uniffi_ptiles_ffi_fn_method_adaptivemotionsession_movement(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_OBSERVE
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_OBSERVE
+RustBuffer uniffi_ptiles_ffi_fn_method_adaptivemotionsession_observe(void*_Nonnull ptr, RustBuffer observation, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_REPORT_APPLIED_SAMPLING
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_REPORT_APPLIED_SAMPLING
+void uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling(void*_Nonnull ptr, RustBuffer applied, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_RESET
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_RESET
+void uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_SET_CAPABILITIES
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_SET_CAPABILITIES
+int8_t uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_capabilities(void*_Nonnull ptr, RustBuffer capabilities, uint64_t now_ms, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_SET_INTENT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_SET_INTENT
+int8_t uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_intent(void*_Nonnull ptr, RustBuffer intent, uint64_t now_ms, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_TICK
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_ADAPTIVEMOTIONSESSION_TICK
+RustBuffer uniffi_ptiles_ffi_fn_method_adaptivemotionsession_tick(void*_Nonnull ptr, uint64_t now_ms, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CLONE_ADDRESSLAYER
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_CLONE_ADDRESSLAYER
 void*_Nonnull uniffi_ptiles_ffi_fn_clone_addresslayer(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
@@ -349,6 +409,11 @@ void uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(void*_Nonnull ptr, Rust
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_COVERS
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_COVERS
 int8_t uniffi_ptiles_ffi_fn_method_ptileslayer_covers(void*_Nonnull ptr, double lat, double lon, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_INDOOR_OUTDOOR
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_INDOOR_OUTDOOR
+RustBuffer uniffi_ptiles_ffi_fn_method_ptileslayer_indoor_outdoor(void*_Nonnull ptr, double lat, double lon, double horizontal_accuracy_m, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESLAYER_METADATA
@@ -466,6 +531,11 @@ void*_Nonnull uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(RustBuffe
 RustBuffer uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing(void*_Nonnull ptr, double lat, double lon, uint8_t ring, double range_m, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_INDOOR_OUTDOOR
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_INDOOR_OUTDOOR
+RustBuffer uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor(void*_Nonnull ptr, double lat, double lon, double horizontal_accuracy_m, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_LOCATE
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_METHOD_PTILESSTACK_LOCATE
 RustBuffer uniffi_ptiles_ffi_fn_method_ptilesstack_locate(void*_Nonnull ptr, double lat, double lon, uint8_t ring, RustCallStatus *_Nonnull out_status
@@ -536,9 +606,21 @@ RustBuffer uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(RustBuffer acc
 RustBuffer uniffi_ptiles_ffi_fn_func_classify_movement_with_history(RustBuffer inst_speed_mps, RustBuffer gps_accuracy_m, RustBuffer nearest_road, RustBuffer accel, RustBuffer gps_bearing, RustBuffer previous_stable, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_DEFAULT_ADAPTIVE_MOTION_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_DEFAULT_ADAPTIVE_MOTION_CONFIG
+RustBuffer uniffi_ptiles_ffi_fn_func_default_adaptive_motion_config(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_DEFAULT_DEBOUNCE_CONFIG
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_DEFAULT_DEBOUNCE_CONFIG
 RustBuffer uniffi_ptiles_ffi_fn_func_default_debounce_config(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_DEFAULT_SAMPLING_CAPABILITIES
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_FN_FUNC_DEFAULT_SAMPLING_CAPABILITIES
+RustBuffer uniffi_ptiles_ffi_fn_func_default_sampling_capabilities(RustCallStatus *_Nonnull out_status
     
 );
 #endif
@@ -867,9 +949,21 @@ uint16_t uniffi_ptiles_ffi_checksum_func_classify_movement_with_history(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_ADAPTIVE_MOTION_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_ADAPTIVE_MOTION_CONFIG
+uint16_t uniffi_ptiles_ffi_checksum_func_default_adaptive_motion_config(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_DEBOUNCE_CONFIG
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_DEBOUNCE_CONFIG
 uint16_t uniffi_ptiles_ffi_checksum_func_default_debounce_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_SAMPLING_CAPABILITIES
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_DEFAULT_SAMPLING_CAPABILITIES
+uint16_t uniffi_ptiles_ffi_checksum_func_default_sampling_capabilities(void
     
 );
 #endif
@@ -894,6 +988,60 @@ uint16_t uniffi_ptiles_ffi_checksum_func_movement_thresholds(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_TRAIL_IS_DEVELOPED
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_FUNC_TRAIL_IS_DEVELOPED
 uint16_t uniffi_ptiles_ffi_checksum_func_trail_is_developed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_CURRENT_ADVICE
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_CURRENT_ADVICE
+uint16_t uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_current_advice(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_LAST_APPLIED_SAMPLING
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_LAST_APPLIED_SAMPLING
+uint16_t uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_last_applied_sampling(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_MOVEMENT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_MOVEMENT
+uint16_t uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_movement(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_OBSERVE
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_OBSERVE
+uint16_t uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_observe(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_REPORT_APPLIED_SAMPLING
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_REPORT_APPLIED_SAMPLING
+uint16_t uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_report_applied_sampling(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_RESET
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_RESET
+uint16_t uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_reset(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_SET_CAPABILITIES
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_SET_CAPABILITIES
+uint16_t uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_capabilities(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_SET_INTENT
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_SET_INTENT
+uint16_t uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_intent(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_TICK
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_ADAPTIVEMOTIONSESSION_TICK
+uint16_t uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_tick(void
     
 );
 #endif
@@ -960,6 +1108,12 @@ uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_COVERS
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_COVERS
 uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_covers(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_INDOOR_OUTDOOR
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESLAYER_INDOOR_OUTDOOR
+uint16_t uniffi_ptiles_ffi_checksum_method_ptileslayer_indoor_outdoor(void
     
 );
 #endif
@@ -1077,6 +1231,12 @@ uint16_t uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_INDOOR_OUTDOOR
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_INDOOR_OUTDOOR
+uint16_t uniffi_ptiles_ffi_checksum_method_ptilesstack_indoor_outdoor(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_LOCATE
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_PTILESSTACK_LOCATE
 uint16_t uniffi_ptiles_ffi_checksum_method_ptilesstack_locate(void
@@ -1116,6 +1276,12 @@ uint16_t uniffi_ptiles_ffi_checksum_method_votedebouncer_tick(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_TICK_AT
 #define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_METHOD_VOTEDEBOUNCER_TICK_AT
 uint16_t uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_ADAPTIVEMOTIONSESSION_NEW
+#define UNIFFI_FFIDEF_UNIFFI_PTILES_FFI_CHECKSUM_CONSTRUCTOR_ADAPTIVEMOTIONSESSION_NEW
+uint16_t uniffi_ptiles_ffi_checksum_constructor_adaptivemotionsession_new(void
     
 );
 #endif

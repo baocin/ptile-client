@@ -1,9 +1,20 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_adaptivemotionsession_free: (a: number, b: number) => void;
 export const __wbg_adminreader_free: (a: number, b: number) => void;
 export const __wbg_movementtracker_free: (a: number, b: number) => void;
 export const accel_stats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+export const adaptivemotionsession_currentAdvice: (a: number) => [number, number, number];
+export const adaptivemotionsession_lastAppliedSampling: (a: number) => [number, number, number];
+export const adaptivemotionsession_movement: (a: number) => [number, number];
+export const adaptivemotionsession_new: (a: any, b: any) => [number, number, number];
+export const adaptivemotionsession_observe: (a: number, b: any) => [number, number, number];
+export const adaptivemotionsession_reportAppliedSampling: (a: number, b: any) => [number, number];
+export const adaptivemotionsession_reset: (a: number) => void;
+export const adaptivemotionsession_setCapabilities: (a: number, b: any, c: number) => [number, number, number];
+export const adaptivemotionsession_setIntent: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const adaptivemotionsession_tick: (a: number, b: number) => [number, number, number];
 export const address_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
 export const adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];

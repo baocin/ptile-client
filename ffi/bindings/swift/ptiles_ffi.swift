@@ -578,6 +578,224 @@ fileprivate struct FfiConverterString: FfiConverter {
 
 
 /**
+ * Stateful, hardware-neutral pipeline. Calls return sampling advice; Kotlin,
+ * Swift, desktop, or other adapters decide how to apply it and may emit their
+ * own native callback/stream after `sampling_changed` becomes true.
+ */
+public protocol AdaptiveMotionSessionProtocol: AnyObject, Sendable {
+    
+    func currentAdvice()  -> SamplingAdvice
+    
+    func lastAppliedSampling()  -> AppliedSampling?
+    
+    func movement()  -> MovementType
+    
+    func observe(observation: MotionObservation)  -> AdaptiveMotionUpdate
+    
+    func reportAppliedSampling(applied: AppliedSampling) 
+    
+    func reset() 
+    
+    func setCapabilities(capabilities: SamplingCapabilities, nowMs: UInt64)  -> Bool
+    
+    func setIntent(intent: SamplingIntent, nowMs: UInt64)  -> Bool
+    
+    func tick(nowMs: UInt64)  -> AdaptiveMotionUpdate
+    
+}
+/**
+ * Stateful, hardware-neutral pipeline. Calls return sampling advice; Kotlin,
+ * Swift, desktop, or other adapters decide how to apply it and may emit their
+ * own native callback/stream after `sampling_changed` becomes true.
+ */
+open class AdaptiveMotionSession: AdaptiveMotionSessionProtocol, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_ptiles_ffi_fn_clone_adaptivemotionsession(self.pointer, $0) }
+    }
+public convenience init(config: AdaptiveMotionConfig, capabilities: SamplingCapabilities) {
+    let pointer =
+        try! rustCall() {
+    uniffi_ptiles_ffi_fn_constructor_adaptivemotionsession_new(
+        FfiConverterTypeAdaptiveMotionConfig_lower(config),
+        FfiConverterTypeSamplingCapabilities_lower(capabilities),$0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_ptiles_ffi_fn_free_adaptivemotionsession(pointer, $0) }
+    }
+
+    
+
+    
+open func currentAdvice() -> SamplingAdvice  {
+    return try!  FfiConverterTypeSamplingAdvice_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adaptivemotionsession_current_advice(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func lastAppliedSampling() -> AppliedSampling?  {
+    return try!  FfiConverterOptionTypeAppliedSampling.lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adaptivemotionsession_last_applied_sampling(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func movement() -> MovementType  {
+    return try!  FfiConverterTypeMovementType_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adaptivemotionsession_movement(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func observe(observation: MotionObservation) -> AdaptiveMotionUpdate  {
+    return try!  FfiConverterTypeAdaptiveMotionUpdate_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adaptivemotionsession_observe(self.uniffiClonePointer(),
+        FfiConverterTypeMotionObservation_lower(observation),$0
+    )
+})
+}
+    
+open func reportAppliedSampling(applied: AppliedSampling)  {try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling(self.uniffiClonePointer(),
+        FfiConverterTypeAppliedSampling_lower(applied),$0
+    )
+}
+}
+    
+open func reset()  {try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func setCapabilities(capabilities: SamplingCapabilities, nowMs: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_capabilities(self.uniffiClonePointer(),
+        FfiConverterTypeSamplingCapabilities_lower(capabilities),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+open func setIntent(intent: SamplingIntent, nowMs: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_intent(self.uniffiClonePointer(),
+        FfiConverterTypeSamplingIntent_lower(intent),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+open func tick(nowMs: UInt64) -> AdaptiveMotionUpdate  {
+    return try!  FfiConverterTypeAdaptiveMotionUpdate_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_method_adaptivemotionsession_tick(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAdaptiveMotionSession: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = AdaptiveMotionSession
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> AdaptiveMotionSession {
+        return AdaptiveMotionSession(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: AdaptiveMotionSession) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AdaptiveMotionSession {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: AdaptiveMotionSession, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdaptiveMotionSession_lift(_ pointer: UnsafeMutableRawPointer) throws -> AdaptiveMotionSession {
+    return try FfiConverterTypeAdaptiveMotionSession.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdaptiveMotionSession_lower(_ value: AdaptiveMotionSession) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeAdaptiveMotionSession.lower(value)
+}
+
+
+
+
+
+
+/**
  * An opened `.address.ptiles` file. Separate from `PtilesLayer` because
  * address uses a v2 merged-block index, not the v1 block reader.
  */
@@ -972,6 +1190,18 @@ public protocol PtilesLayerProtocol: AnyObject, Sendable {
     func covers(lat: Double, lon: Double)  -> Bool
     
     /**
+     * Estimate whether a GPS fix is indoors or outdoors from building
+     * footprints, with an explicit uncertainty result and evidence.
+     *
+     * The containing H3 cell plus ring 1 are read so a footprint assigned to
+     * a neighboring cell is not missed. A fix worse than 50 m, a point whose
+     * accuracy circle overlaps a wall, an open-sided `roof`/`carport`/`canopy`,
+     * or incomplete layer coverage returns `Uncertain`. This is map inference,
+     * not room/floor positioning or proof of physical occupancy.
+     */
+    func indoorOutdoor(lat: Double, lon: Double, horizontalAccuracyM: Double) throws  -> IndoorOutdoorEstimate
+    
+    /**
      * What this layer covers, how big it is, and when it was built -- as far as
      * that can be known. See [`LayerMetadata`], especially the caveat on
      * `feature_count`.
@@ -1297,6 +1527,26 @@ open func covers(lat: Double, lon: Double) -> Bool  {
     uniffi_ptiles_ffi_fn_method_ptileslayer_covers(self.uniffiClonePointer(),
         FfiConverterDouble.lower(lat),
         FfiConverterDouble.lower(lon),$0
+    )
+})
+}
+    
+    /**
+     * Estimate whether a GPS fix is indoors or outdoors from building
+     * footprints, with an explicit uncertainty result and evidence.
+     *
+     * The containing H3 cell plus ring 1 are read so a footprint assigned to
+     * a neighboring cell is not missed. A fix worse than 50 m, a point whose
+     * accuracy circle overlaps a wall, an open-sided `roof`/`carport`/`canopy`,
+     * or incomplete layer coverage returns `Uncertain`. This is map inference,
+     * not room/floor positioning or proof of physical occupancy.
+     */
+open func indoorOutdoor(lat: Double, lon: Double, horizontalAccuracyM: Double)throws  -> IndoorOutdoorEstimate  {
+    return try  FfiConverterTypeIndoorOutdoorEstimate_lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptileslayer_indoor_outdoor(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterDouble.lower(horizontalAccuracyM),$0
     )
 })
 }
@@ -1667,6 +1917,12 @@ public protocol PtilesStackProtocol: AnyObject, Sendable {
     func camerasSeeing(lat: Double, lon: Double, ring: UInt8, rangeM: Double) throws  -> [CameraViewInfo]
     
     /**
+     * Indoor/outdoor estimate using this stack's building layer. A stack with
+     * no building layer returns `Uncertain/IncompleteCoverage`, not `Outdoor`.
+     */
+    func indoorOutdoor(lat: Double, lon: Double, horizontalAccuracyM: Double) throws  -> IndoorOutdoorEstimate
+    
+    /**
      * Reverse geocode across the stack: the way under the point (road and
      * trail compete on distance alone — see `core::locate`), the nearest
      * address, and the park/water the point falls in.
@@ -1806,6 +2062,20 @@ open func camerasSeeing(lat: Double, lon: Double, ring: UInt8, rangeM: Double)th
         FfiConverterDouble.lower(lon),
         FfiConverterUInt8.lower(ring),
         FfiConverterDouble.lower(rangeM),$0
+    )
+})
+}
+    
+    /**
+     * Indoor/outdoor estimate using this stack's building layer. A stack with
+     * no building layer returns `Uncertain/IncompleteCoverage`, not `Outdoor`.
+     */
+open func indoorOutdoor(lat: Double, lon: Double, horizontalAccuracyM: Double)throws  -> IndoorOutdoorEstimate  {
+    return try  FfiConverterTypeIndoorOutdoorEstimate_lift(try rustCallWithError(FfiConverterTypePtilesError_lift) {
+    uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(lat),
+        FfiConverterDouble.lower(lon),
+        FfiConverterDouble.lower(horizontalAccuracyM),$0
     )
 })
 }
@@ -2270,6 +2540,186 @@ public func FfiConverterTypeAccelStats_lower(_ value: AccelStats) -> RustBuffer 
 }
 
 
+public struct AdaptiveMotionConfig {
+    public var motion: MotionConfig
+    public var debounce: DebounceConfig
+    public var sampling: SamplingConfig
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(motion: MotionConfig, debounce: DebounceConfig, sampling: SamplingConfig) {
+        self.motion = motion
+        self.debounce = debounce
+        self.sampling = sampling
+    }
+}
+
+#if compiler(>=6)
+extension AdaptiveMotionConfig: Sendable {}
+#endif
+
+
+extension AdaptiveMotionConfig: Equatable, Hashable {
+    public static func ==(lhs: AdaptiveMotionConfig, rhs: AdaptiveMotionConfig) -> Bool {
+        if lhs.motion != rhs.motion {
+            return false
+        }
+        if lhs.debounce != rhs.debounce {
+            return false
+        }
+        if lhs.sampling != rhs.sampling {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(motion)
+        hasher.combine(debounce)
+        hasher.combine(sampling)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAdaptiveMotionConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AdaptiveMotionConfig {
+        return
+            try AdaptiveMotionConfig(
+                motion: FfiConverterTypeMotionConfig.read(from: &buf), 
+                debounce: FfiConverterTypeDebounceConfig.read(from: &buf), 
+                sampling: FfiConverterTypeSamplingConfig.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AdaptiveMotionConfig, into buf: inout [UInt8]) {
+        FfiConverterTypeMotionConfig.write(value.motion, into: &buf)
+        FfiConverterTypeDebounceConfig.write(value.debounce, into: &buf)
+        FfiConverterTypeSamplingConfig.write(value.sampling, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdaptiveMotionConfig_lift(_ buf: RustBuffer) throws -> AdaptiveMotionConfig {
+    return try FfiConverterTypeAdaptiveMotionConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdaptiveMotionConfig_lower(_ value: AdaptiveMotionConfig) -> RustBuffer {
+    return FfiConverterTypeAdaptiveMotionConfig.lower(value)
+}
+
+
+public struct AdaptiveMotionUpdate {
+    public var movement: MovementType
+    public var vote: Vote
+    public var smoothedSpeedMps: Double?
+    public var atTrafficControl: Bool
+    public var sampling: SamplingAdvice
+    public var samplingChanged: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(movement: MovementType, vote: Vote, smoothedSpeedMps: Double?, atTrafficControl: Bool, sampling: SamplingAdvice, samplingChanged: Bool) {
+        self.movement = movement
+        self.vote = vote
+        self.smoothedSpeedMps = smoothedSpeedMps
+        self.atTrafficControl = atTrafficControl
+        self.sampling = sampling
+        self.samplingChanged = samplingChanged
+    }
+}
+
+#if compiler(>=6)
+extension AdaptiveMotionUpdate: Sendable {}
+#endif
+
+
+extension AdaptiveMotionUpdate: Equatable, Hashable {
+    public static func ==(lhs: AdaptiveMotionUpdate, rhs: AdaptiveMotionUpdate) -> Bool {
+        if lhs.movement != rhs.movement {
+            return false
+        }
+        if lhs.vote != rhs.vote {
+            return false
+        }
+        if lhs.smoothedSpeedMps != rhs.smoothedSpeedMps {
+            return false
+        }
+        if lhs.atTrafficControl != rhs.atTrafficControl {
+            return false
+        }
+        if lhs.sampling != rhs.sampling {
+            return false
+        }
+        if lhs.samplingChanged != rhs.samplingChanged {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(movement)
+        hasher.combine(vote)
+        hasher.combine(smoothedSpeedMps)
+        hasher.combine(atTrafficControl)
+        hasher.combine(sampling)
+        hasher.combine(samplingChanged)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAdaptiveMotionUpdate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AdaptiveMotionUpdate {
+        return
+            try AdaptiveMotionUpdate(
+                movement: FfiConverterTypeMovementType.read(from: &buf), 
+                vote: FfiConverterTypeVote.read(from: &buf), 
+                smoothedSpeedMps: FfiConverterOptionDouble.read(from: &buf), 
+                atTrafficControl: FfiConverterBool.read(from: &buf), 
+                sampling: FfiConverterTypeSamplingAdvice.read(from: &buf), 
+                samplingChanged: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AdaptiveMotionUpdate, into buf: inout [UInt8]) {
+        FfiConverterTypeMovementType.write(value.movement, into: &buf)
+        FfiConverterTypeVote.write(value.vote, into: &buf)
+        FfiConverterOptionDouble.write(value.smoothedSpeedMps, into: &buf)
+        FfiConverterBool.write(value.atTrafficControl, into: &buf)
+        FfiConverterTypeSamplingAdvice.write(value.sampling, into: &buf)
+        FfiConverterBool.write(value.samplingChanged, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdaptiveMotionUpdate_lift(_ buf: RustBuffer) throws -> AdaptiveMotionUpdate {
+    return try FfiConverterTypeAdaptiveMotionUpdate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAdaptiveMotionUpdate_lower(_ value: AdaptiveMotionUpdate) -> RustBuffer {
+    return FfiConverterTypeAdaptiveMotionUpdate.lower(value)
+}
+
+
 /**
  * One decoded address (`{osm_id, housenumber, street}`; location is the cell).
  */
@@ -2453,6 +2903,100 @@ public func FfiConverterTypeAdminInfo_lift(_ buf: RustBuffer) throws -> AdminInf
 #endif
 public func FfiConverterTypeAdminInfo_lower(_ value: AdminInfo) -> RustBuffer {
     return FfiConverterTypeAdminInfo.lower(value)
+}
+
+
+public struct AppliedSampling {
+    public var locationLevel: SamplingLevel
+    public var locationIntervalMs: UInt32?
+    public var accelerometerLevel: SamplingLevel
+    public var accelerometerHz: UInt32?
+    public var generation: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(locationLevel: SamplingLevel, locationIntervalMs: UInt32?, accelerometerLevel: SamplingLevel, accelerometerHz: UInt32?, generation: UInt32) {
+        self.locationLevel = locationLevel
+        self.locationIntervalMs = locationIntervalMs
+        self.accelerometerLevel = accelerometerLevel
+        self.accelerometerHz = accelerometerHz
+        self.generation = generation
+    }
+}
+
+#if compiler(>=6)
+extension AppliedSampling: Sendable {}
+#endif
+
+
+extension AppliedSampling: Equatable, Hashable {
+    public static func ==(lhs: AppliedSampling, rhs: AppliedSampling) -> Bool {
+        if lhs.locationLevel != rhs.locationLevel {
+            return false
+        }
+        if lhs.locationIntervalMs != rhs.locationIntervalMs {
+            return false
+        }
+        if lhs.accelerometerLevel != rhs.accelerometerLevel {
+            return false
+        }
+        if lhs.accelerometerHz != rhs.accelerometerHz {
+            return false
+        }
+        if lhs.generation != rhs.generation {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(locationLevel)
+        hasher.combine(locationIntervalMs)
+        hasher.combine(accelerometerLevel)
+        hasher.combine(accelerometerHz)
+        hasher.combine(generation)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAppliedSampling: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AppliedSampling {
+        return
+            try AppliedSampling(
+                locationLevel: FfiConverterTypeSamplingLevel.read(from: &buf), 
+                locationIntervalMs: FfiConverterOptionUInt32.read(from: &buf), 
+                accelerometerLevel: FfiConverterTypeSamplingLevel.read(from: &buf), 
+                accelerometerHz: FfiConverterOptionUInt32.read(from: &buf), 
+                generation: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AppliedSampling, into buf: inout [UInt8]) {
+        FfiConverterTypeSamplingLevel.write(value.locationLevel, into: &buf)
+        FfiConverterOptionUInt32.write(value.locationIntervalMs, into: &buf)
+        FfiConverterTypeSamplingLevel.write(value.accelerometerLevel, into: &buf)
+        FfiConverterOptionUInt32.write(value.accelerometerHz, into: &buf)
+        FfiConverterUInt32.write(value.generation, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAppliedSampling_lift(_ buf: RustBuffer) throws -> AppliedSampling {
+    return try FfiConverterTypeAppliedSampling.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAppliedSampling_lower(_ value: AppliedSampling) -> RustBuffer {
+    return FfiConverterTypeAppliedSampling.lower(value)
 }
 
 
@@ -3590,6 +4134,109 @@ public func FfiConverterTypeFix_lower(_ value: Fix) -> RustBuffer {
 }
 
 
+/**
+ * Explainable result from [`PtilesLayer::indoor_outdoor`].
+ */
+public struct IndoorOutdoorEstimate {
+    public var state: IndoorOutdoorState
+    public var confidence: Double
+    public var reason: IndoorOutdoorReason
+    public var buildingOsmId: Int64?
+    /**
+     * Depth inside or clearance outside the relevant footprint.
+     */
+    public var distanceToBoundaryM: Double?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(state: IndoorOutdoorState, confidence: Double, reason: IndoorOutdoorReason, buildingOsmId: Int64?, 
+        /**
+         * Depth inside or clearance outside the relevant footprint.
+         */distanceToBoundaryM: Double?) {
+        self.state = state
+        self.confidence = confidence
+        self.reason = reason
+        self.buildingOsmId = buildingOsmId
+        self.distanceToBoundaryM = distanceToBoundaryM
+    }
+}
+
+#if compiler(>=6)
+extension IndoorOutdoorEstimate: Sendable {}
+#endif
+
+
+extension IndoorOutdoorEstimate: Equatable, Hashable {
+    public static func ==(lhs: IndoorOutdoorEstimate, rhs: IndoorOutdoorEstimate) -> Bool {
+        if lhs.state != rhs.state {
+            return false
+        }
+        if lhs.confidence != rhs.confidence {
+            return false
+        }
+        if lhs.reason != rhs.reason {
+            return false
+        }
+        if lhs.buildingOsmId != rhs.buildingOsmId {
+            return false
+        }
+        if lhs.distanceToBoundaryM != rhs.distanceToBoundaryM {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(state)
+        hasher.combine(confidence)
+        hasher.combine(reason)
+        hasher.combine(buildingOsmId)
+        hasher.combine(distanceToBoundaryM)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeIndoorOutdoorEstimate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> IndoorOutdoorEstimate {
+        return
+            try IndoorOutdoorEstimate(
+                state: FfiConverterTypeIndoorOutdoorState.read(from: &buf), 
+                confidence: FfiConverterDouble.read(from: &buf), 
+                reason: FfiConverterTypeIndoorOutdoorReason.read(from: &buf), 
+                buildingOsmId: FfiConverterOptionInt64.read(from: &buf), 
+                distanceToBoundaryM: FfiConverterOptionDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: IndoorOutdoorEstimate, into buf: inout [UInt8]) {
+        FfiConverterTypeIndoorOutdoorState.write(value.state, into: &buf)
+        FfiConverterDouble.write(value.confidence, into: &buf)
+        FfiConverterTypeIndoorOutdoorReason.write(value.reason, into: &buf)
+        FfiConverterOptionInt64.write(value.buildingOsmId, into: &buf)
+        FfiConverterOptionDouble.write(value.distanceToBoundaryM, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIndoorOutdoorEstimate_lift(_ buf: RustBuffer) throws -> IndoorOutdoorEstimate {
+    return try FfiConverterTypeIndoorOutdoorEstimate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIndoorOutdoorEstimate_lower(_ value: IndoorOutdoorEstimate) -> RustBuffer {
+    return FfiConverterTypeIndoorOutdoorEstimate.lower(value)
+}
+
+
 public struct LatLon {
     public var lat: Double
     public var lon: Double
@@ -4016,6 +4663,296 @@ public func FfiConverterTypeLocatedInfo_lift(_ buf: RustBuffer) throws -> Locate
 #endif
 public func FfiConverterTypeLocatedInfo_lower(_ value: LocatedInfo) -> RustBuffer {
     return FfiConverterTypeLocatedInfo.lower(value)
+}
+
+
+public struct LocationSample {
+    public var lat: Double
+    public var lon: Double
+    public var horizontalAccuracyM: Double?
+    public var speedMps: Double?
+    public var bearingDegrees: Double?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(lat: Double, lon: Double, horizontalAccuracyM: Double?, speedMps: Double?, bearingDegrees: Double?) {
+        self.lat = lat
+        self.lon = lon
+        self.horizontalAccuracyM = horizontalAccuracyM
+        self.speedMps = speedMps
+        self.bearingDegrees = bearingDegrees
+    }
+}
+
+#if compiler(>=6)
+extension LocationSample: Sendable {}
+#endif
+
+
+extension LocationSample: Equatable, Hashable {
+    public static func ==(lhs: LocationSample, rhs: LocationSample) -> Bool {
+        if lhs.lat != rhs.lat {
+            return false
+        }
+        if lhs.lon != rhs.lon {
+            return false
+        }
+        if lhs.horizontalAccuracyM != rhs.horizontalAccuracyM {
+            return false
+        }
+        if lhs.speedMps != rhs.speedMps {
+            return false
+        }
+        if lhs.bearingDegrees != rhs.bearingDegrees {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(lat)
+        hasher.combine(lon)
+        hasher.combine(horizontalAccuracyM)
+        hasher.combine(speedMps)
+        hasher.combine(bearingDegrees)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocationSample: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocationSample {
+        return
+            try LocationSample(
+                lat: FfiConverterDouble.read(from: &buf), 
+                lon: FfiConverterDouble.read(from: &buf), 
+                horizontalAccuracyM: FfiConverterOptionDouble.read(from: &buf), 
+                speedMps: FfiConverterOptionDouble.read(from: &buf), 
+                bearingDegrees: FfiConverterOptionDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LocationSample, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.lat, into: &buf)
+        FfiConverterDouble.write(value.lon, into: &buf)
+        FfiConverterOptionDouble.write(value.horizontalAccuracyM, into: &buf)
+        FfiConverterOptionDouble.write(value.speedMps, into: &buf)
+        FfiConverterOptionDouble.write(value.bearingDegrees, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocationSample_lift(_ buf: RustBuffer) throws -> LocationSample {
+    return try FfiConverterTypeLocationSample.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocationSample_lower(_ value: LocationSample) -> RustBuffer {
+    return FfiConverterTypeLocationSample.lower(value)
+}
+
+
+public struct MotionConfig {
+    public var stationaryMaxMps: Double
+    public var drivingMinMps: Double
+    public var smoothingWindow: UInt32
+    public var minDwellSamples: UInt32
+    public var accuracyGateM: Double
+    public var maxGapMs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(stationaryMaxMps: Double, drivingMinMps: Double, smoothingWindow: UInt32, minDwellSamples: UInt32, accuracyGateM: Double, maxGapMs: UInt64) {
+        self.stationaryMaxMps = stationaryMaxMps
+        self.drivingMinMps = drivingMinMps
+        self.smoothingWindow = smoothingWindow
+        self.minDwellSamples = minDwellSamples
+        self.accuracyGateM = accuracyGateM
+        self.maxGapMs = maxGapMs
+    }
+}
+
+#if compiler(>=6)
+extension MotionConfig: Sendable {}
+#endif
+
+
+extension MotionConfig: Equatable, Hashable {
+    public static func ==(lhs: MotionConfig, rhs: MotionConfig) -> Bool {
+        if lhs.stationaryMaxMps != rhs.stationaryMaxMps {
+            return false
+        }
+        if lhs.drivingMinMps != rhs.drivingMinMps {
+            return false
+        }
+        if lhs.smoothingWindow != rhs.smoothingWindow {
+            return false
+        }
+        if lhs.minDwellSamples != rhs.minDwellSamples {
+            return false
+        }
+        if lhs.accuracyGateM != rhs.accuracyGateM {
+            return false
+        }
+        if lhs.maxGapMs != rhs.maxGapMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(stationaryMaxMps)
+        hasher.combine(drivingMinMps)
+        hasher.combine(smoothingWindow)
+        hasher.combine(minDwellSamples)
+        hasher.combine(accuracyGateM)
+        hasher.combine(maxGapMs)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMotionConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MotionConfig {
+        return
+            try MotionConfig(
+                stationaryMaxMps: FfiConverterDouble.read(from: &buf), 
+                drivingMinMps: FfiConverterDouble.read(from: &buf), 
+                smoothingWindow: FfiConverterUInt32.read(from: &buf), 
+                minDwellSamples: FfiConverterUInt32.read(from: &buf), 
+                accuracyGateM: FfiConverterDouble.read(from: &buf), 
+                maxGapMs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MotionConfig, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.stationaryMaxMps, into: &buf)
+        FfiConverterDouble.write(value.drivingMinMps, into: &buf)
+        FfiConverterUInt32.write(value.smoothingWindow, into: &buf)
+        FfiConverterUInt32.write(value.minDwellSamples, into: &buf)
+        FfiConverterDouble.write(value.accuracyGateM, into: &buf)
+        FfiConverterUInt64.write(value.maxGapMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMotionConfig_lift(_ buf: RustBuffer) throws -> MotionConfig {
+    return try FfiConverterTypeMotionConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMotionConfig_lower(_ value: MotionConfig) -> RustBuffer {
+    return FfiConverterTypeMotionConfig.lower(value)
+}
+
+
+public struct MotionObservation {
+    public var tMs: UInt64
+    public var location: LocationSample?
+    public var accelerometer: AccelStats?
+    public var road: RoadContext?
+    public var trafficControl: TrafficControl?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(tMs: UInt64, location: LocationSample?, accelerometer: AccelStats?, road: RoadContext?, trafficControl: TrafficControl?) {
+        self.tMs = tMs
+        self.location = location
+        self.accelerometer = accelerometer
+        self.road = road
+        self.trafficControl = trafficControl
+    }
+}
+
+#if compiler(>=6)
+extension MotionObservation: Sendable {}
+#endif
+
+
+extension MotionObservation: Equatable, Hashable {
+    public static func ==(lhs: MotionObservation, rhs: MotionObservation) -> Bool {
+        if lhs.tMs != rhs.tMs {
+            return false
+        }
+        if lhs.location != rhs.location {
+            return false
+        }
+        if lhs.accelerometer != rhs.accelerometer {
+            return false
+        }
+        if lhs.road != rhs.road {
+            return false
+        }
+        if lhs.trafficControl != rhs.trafficControl {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(tMs)
+        hasher.combine(location)
+        hasher.combine(accelerometer)
+        hasher.combine(road)
+        hasher.combine(trafficControl)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMotionObservation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MotionObservation {
+        return
+            try MotionObservation(
+                tMs: FfiConverterUInt64.read(from: &buf), 
+                location: FfiConverterOptionTypeLocationSample.read(from: &buf), 
+                accelerometer: FfiConverterOptionTypeAccelStats.read(from: &buf), 
+                road: FfiConverterOptionTypeRoadContext.read(from: &buf), 
+                trafficControl: FfiConverterOptionTypeTrafficControl.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MotionObservation, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.tMs, into: &buf)
+        FfiConverterOptionTypeLocationSample.write(value.location, into: &buf)
+        FfiConverterOptionTypeAccelStats.write(value.accelerometer, into: &buf)
+        FfiConverterOptionTypeRoadContext.write(value.road, into: &buf)
+        FfiConverterOptionTypeTrafficControl.write(value.trafficControl, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMotionObservation_lift(_ buf: RustBuffer) throws -> MotionObservation {
+    return try FfiConverterTypeMotionObservation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMotionObservation_lower(_ value: MotionObservation) -> RustBuffer {
+    return FfiConverterTypeMotionObservation.lower(value)
 }
 
 
@@ -4919,6 +5856,456 @@ public func FfiConverterTypeRoadInfo_lower(_ value: RoadInfo) -> RustBuffer {
 }
 
 
+public struct SamplingAdvice {
+    public var locationLevel: SamplingLevel
+    public var locationIntervalMs: UInt32?
+    public var locationMinDistanceM: Double?
+    public var accelerometerLevel: SamplingLevel
+    public var accelerometerHz: UInt32?
+    public var accelerometerWindowMs: UInt32?
+    public var burstDurationMs: UInt32?
+    public var reevaluateAfterMs: UInt32
+    public var reason: SamplingReason
+    public var generation: UInt32
+    public var limitedByCapabilities: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(locationLevel: SamplingLevel, locationIntervalMs: UInt32?, locationMinDistanceM: Double?, accelerometerLevel: SamplingLevel, accelerometerHz: UInt32?, accelerometerWindowMs: UInt32?, burstDurationMs: UInt32?, reevaluateAfterMs: UInt32, reason: SamplingReason, generation: UInt32, limitedByCapabilities: Bool) {
+        self.locationLevel = locationLevel
+        self.locationIntervalMs = locationIntervalMs
+        self.locationMinDistanceM = locationMinDistanceM
+        self.accelerometerLevel = accelerometerLevel
+        self.accelerometerHz = accelerometerHz
+        self.accelerometerWindowMs = accelerometerWindowMs
+        self.burstDurationMs = burstDurationMs
+        self.reevaluateAfterMs = reevaluateAfterMs
+        self.reason = reason
+        self.generation = generation
+        self.limitedByCapabilities = limitedByCapabilities
+    }
+}
+
+#if compiler(>=6)
+extension SamplingAdvice: Sendable {}
+#endif
+
+
+extension SamplingAdvice: Equatable, Hashable {
+    public static func ==(lhs: SamplingAdvice, rhs: SamplingAdvice) -> Bool {
+        if lhs.locationLevel != rhs.locationLevel {
+            return false
+        }
+        if lhs.locationIntervalMs != rhs.locationIntervalMs {
+            return false
+        }
+        if lhs.locationMinDistanceM != rhs.locationMinDistanceM {
+            return false
+        }
+        if lhs.accelerometerLevel != rhs.accelerometerLevel {
+            return false
+        }
+        if lhs.accelerometerHz != rhs.accelerometerHz {
+            return false
+        }
+        if lhs.accelerometerWindowMs != rhs.accelerometerWindowMs {
+            return false
+        }
+        if lhs.burstDurationMs != rhs.burstDurationMs {
+            return false
+        }
+        if lhs.reevaluateAfterMs != rhs.reevaluateAfterMs {
+            return false
+        }
+        if lhs.reason != rhs.reason {
+            return false
+        }
+        if lhs.generation != rhs.generation {
+            return false
+        }
+        if lhs.limitedByCapabilities != rhs.limitedByCapabilities {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(locationLevel)
+        hasher.combine(locationIntervalMs)
+        hasher.combine(locationMinDistanceM)
+        hasher.combine(accelerometerLevel)
+        hasher.combine(accelerometerHz)
+        hasher.combine(accelerometerWindowMs)
+        hasher.combine(burstDurationMs)
+        hasher.combine(reevaluateAfterMs)
+        hasher.combine(reason)
+        hasher.combine(generation)
+        hasher.combine(limitedByCapabilities)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSamplingAdvice: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SamplingAdvice {
+        return
+            try SamplingAdvice(
+                locationLevel: FfiConverterTypeSamplingLevel.read(from: &buf), 
+                locationIntervalMs: FfiConverterOptionUInt32.read(from: &buf), 
+                locationMinDistanceM: FfiConverterOptionDouble.read(from: &buf), 
+                accelerometerLevel: FfiConverterTypeSamplingLevel.read(from: &buf), 
+                accelerometerHz: FfiConverterOptionUInt32.read(from: &buf), 
+                accelerometerWindowMs: FfiConverterOptionUInt32.read(from: &buf), 
+                burstDurationMs: FfiConverterOptionUInt32.read(from: &buf), 
+                reevaluateAfterMs: FfiConverterUInt32.read(from: &buf), 
+                reason: FfiConverterTypeSamplingReason.read(from: &buf), 
+                generation: FfiConverterUInt32.read(from: &buf), 
+                limitedByCapabilities: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SamplingAdvice, into buf: inout [UInt8]) {
+        FfiConverterTypeSamplingLevel.write(value.locationLevel, into: &buf)
+        FfiConverterOptionUInt32.write(value.locationIntervalMs, into: &buf)
+        FfiConverterOptionDouble.write(value.locationMinDistanceM, into: &buf)
+        FfiConverterTypeSamplingLevel.write(value.accelerometerLevel, into: &buf)
+        FfiConverterOptionUInt32.write(value.accelerometerHz, into: &buf)
+        FfiConverterOptionUInt32.write(value.accelerometerWindowMs, into: &buf)
+        FfiConverterOptionUInt32.write(value.burstDurationMs, into: &buf)
+        FfiConverterUInt32.write(value.reevaluateAfterMs, into: &buf)
+        FfiConverterTypeSamplingReason.write(value.reason, into: &buf)
+        FfiConverterUInt32.write(value.generation, into: &buf)
+        FfiConverterBool.write(value.limitedByCapabilities, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingAdvice_lift(_ buf: RustBuffer) throws -> SamplingAdvice {
+    return try FfiConverterTypeSamplingAdvice.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingAdvice_lower(_ value: SamplingAdvice) -> RustBuffer {
+    return FfiConverterTypeSamplingAdvice.lower(value)
+}
+
+
+public struct SamplingCapabilities {
+    public var locationAvailable: Bool
+    public var accelerometerAvailable: Bool
+    public var supportsPassiveLocation: Bool
+    public var supportsMotionWakeup: Bool
+    public var minimumLocationIntervalMs: UInt32?
+    public var maximumAccelerometerHz: UInt32?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(locationAvailable: Bool, accelerometerAvailable: Bool, supportsPassiveLocation: Bool, supportsMotionWakeup: Bool, minimumLocationIntervalMs: UInt32?, maximumAccelerometerHz: UInt32?) {
+        self.locationAvailable = locationAvailable
+        self.accelerometerAvailable = accelerometerAvailable
+        self.supportsPassiveLocation = supportsPassiveLocation
+        self.supportsMotionWakeup = supportsMotionWakeup
+        self.minimumLocationIntervalMs = minimumLocationIntervalMs
+        self.maximumAccelerometerHz = maximumAccelerometerHz
+    }
+}
+
+#if compiler(>=6)
+extension SamplingCapabilities: Sendable {}
+#endif
+
+
+extension SamplingCapabilities: Equatable, Hashable {
+    public static func ==(lhs: SamplingCapabilities, rhs: SamplingCapabilities) -> Bool {
+        if lhs.locationAvailable != rhs.locationAvailable {
+            return false
+        }
+        if lhs.accelerometerAvailable != rhs.accelerometerAvailable {
+            return false
+        }
+        if lhs.supportsPassiveLocation != rhs.supportsPassiveLocation {
+            return false
+        }
+        if lhs.supportsMotionWakeup != rhs.supportsMotionWakeup {
+            return false
+        }
+        if lhs.minimumLocationIntervalMs != rhs.minimumLocationIntervalMs {
+            return false
+        }
+        if lhs.maximumAccelerometerHz != rhs.maximumAccelerometerHz {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(locationAvailable)
+        hasher.combine(accelerometerAvailable)
+        hasher.combine(supportsPassiveLocation)
+        hasher.combine(supportsMotionWakeup)
+        hasher.combine(minimumLocationIntervalMs)
+        hasher.combine(maximumAccelerometerHz)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSamplingCapabilities: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SamplingCapabilities {
+        return
+            try SamplingCapabilities(
+                locationAvailable: FfiConverterBool.read(from: &buf), 
+                accelerometerAvailable: FfiConverterBool.read(from: &buf), 
+                supportsPassiveLocation: FfiConverterBool.read(from: &buf), 
+                supportsMotionWakeup: FfiConverterBool.read(from: &buf), 
+                minimumLocationIntervalMs: FfiConverterOptionUInt32.read(from: &buf), 
+                maximumAccelerometerHz: FfiConverterOptionUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SamplingCapabilities, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.locationAvailable, into: &buf)
+        FfiConverterBool.write(value.accelerometerAvailable, into: &buf)
+        FfiConverterBool.write(value.supportsPassiveLocation, into: &buf)
+        FfiConverterBool.write(value.supportsMotionWakeup, into: &buf)
+        FfiConverterOptionUInt32.write(value.minimumLocationIntervalMs, into: &buf)
+        FfiConverterOptionUInt32.write(value.maximumAccelerometerHz, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingCapabilities_lift(_ buf: RustBuffer) throws -> SamplingCapabilities {
+    return try FfiConverterTypeSamplingCapabilities.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingCapabilities_lower(_ value: SamplingCapabilities) -> RustBuffer {
+    return FfiConverterTypeSamplingCapabilities.lower(value)
+}
+
+
+public struct SamplingConfig {
+    public var uncertainLocationIntervalMs: UInt32
+    public var stationaryLocationIntervalMs: UInt32
+    public var walkingLocationIntervalMs: UInt32
+    public var runningLocationIntervalMs: UInt32
+    public var drivingLocationIntervalMs: UInt32
+    public var stationaryMinDistanceM: Double
+    public var walkingMinDistanceM: Double
+    public var runningMinDistanceM: Double
+    public var drivingMinDistanceM: Double
+    public var uncertainAccelerometerHz: UInt32
+    public var stationaryAccelerometerHz: UInt32
+    public var walkingAccelerometerHz: UInt32
+    public var runningAccelerometerHz: UInt32
+    public var drivingAccelerometerHz: UInt32
+    public var accelerometerWindowMs: UInt32
+    public var transitionBurstMs: UInt32
+    public var downshiftHoldMs: UInt32
+    public var adviceTtlMs: UInt32
+    public var confidenceGate: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(uncertainLocationIntervalMs: UInt32, stationaryLocationIntervalMs: UInt32, walkingLocationIntervalMs: UInt32, runningLocationIntervalMs: UInt32, drivingLocationIntervalMs: UInt32, stationaryMinDistanceM: Double, walkingMinDistanceM: Double, runningMinDistanceM: Double, drivingMinDistanceM: Double, uncertainAccelerometerHz: UInt32, stationaryAccelerometerHz: UInt32, walkingAccelerometerHz: UInt32, runningAccelerometerHz: UInt32, drivingAccelerometerHz: UInt32, accelerometerWindowMs: UInt32, transitionBurstMs: UInt32, downshiftHoldMs: UInt32, adviceTtlMs: UInt32, confidenceGate: Double) {
+        self.uncertainLocationIntervalMs = uncertainLocationIntervalMs
+        self.stationaryLocationIntervalMs = stationaryLocationIntervalMs
+        self.walkingLocationIntervalMs = walkingLocationIntervalMs
+        self.runningLocationIntervalMs = runningLocationIntervalMs
+        self.drivingLocationIntervalMs = drivingLocationIntervalMs
+        self.stationaryMinDistanceM = stationaryMinDistanceM
+        self.walkingMinDistanceM = walkingMinDistanceM
+        self.runningMinDistanceM = runningMinDistanceM
+        self.drivingMinDistanceM = drivingMinDistanceM
+        self.uncertainAccelerometerHz = uncertainAccelerometerHz
+        self.stationaryAccelerometerHz = stationaryAccelerometerHz
+        self.walkingAccelerometerHz = walkingAccelerometerHz
+        self.runningAccelerometerHz = runningAccelerometerHz
+        self.drivingAccelerometerHz = drivingAccelerometerHz
+        self.accelerometerWindowMs = accelerometerWindowMs
+        self.transitionBurstMs = transitionBurstMs
+        self.downshiftHoldMs = downshiftHoldMs
+        self.adviceTtlMs = adviceTtlMs
+        self.confidenceGate = confidenceGate
+    }
+}
+
+#if compiler(>=6)
+extension SamplingConfig: Sendable {}
+#endif
+
+
+extension SamplingConfig: Equatable, Hashable {
+    public static func ==(lhs: SamplingConfig, rhs: SamplingConfig) -> Bool {
+        if lhs.uncertainLocationIntervalMs != rhs.uncertainLocationIntervalMs {
+            return false
+        }
+        if lhs.stationaryLocationIntervalMs != rhs.stationaryLocationIntervalMs {
+            return false
+        }
+        if lhs.walkingLocationIntervalMs != rhs.walkingLocationIntervalMs {
+            return false
+        }
+        if lhs.runningLocationIntervalMs != rhs.runningLocationIntervalMs {
+            return false
+        }
+        if lhs.drivingLocationIntervalMs != rhs.drivingLocationIntervalMs {
+            return false
+        }
+        if lhs.stationaryMinDistanceM != rhs.stationaryMinDistanceM {
+            return false
+        }
+        if lhs.walkingMinDistanceM != rhs.walkingMinDistanceM {
+            return false
+        }
+        if lhs.runningMinDistanceM != rhs.runningMinDistanceM {
+            return false
+        }
+        if lhs.drivingMinDistanceM != rhs.drivingMinDistanceM {
+            return false
+        }
+        if lhs.uncertainAccelerometerHz != rhs.uncertainAccelerometerHz {
+            return false
+        }
+        if lhs.stationaryAccelerometerHz != rhs.stationaryAccelerometerHz {
+            return false
+        }
+        if lhs.walkingAccelerometerHz != rhs.walkingAccelerometerHz {
+            return false
+        }
+        if lhs.runningAccelerometerHz != rhs.runningAccelerometerHz {
+            return false
+        }
+        if lhs.drivingAccelerometerHz != rhs.drivingAccelerometerHz {
+            return false
+        }
+        if lhs.accelerometerWindowMs != rhs.accelerometerWindowMs {
+            return false
+        }
+        if lhs.transitionBurstMs != rhs.transitionBurstMs {
+            return false
+        }
+        if lhs.downshiftHoldMs != rhs.downshiftHoldMs {
+            return false
+        }
+        if lhs.adviceTtlMs != rhs.adviceTtlMs {
+            return false
+        }
+        if lhs.confidenceGate != rhs.confidenceGate {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(uncertainLocationIntervalMs)
+        hasher.combine(stationaryLocationIntervalMs)
+        hasher.combine(walkingLocationIntervalMs)
+        hasher.combine(runningLocationIntervalMs)
+        hasher.combine(drivingLocationIntervalMs)
+        hasher.combine(stationaryMinDistanceM)
+        hasher.combine(walkingMinDistanceM)
+        hasher.combine(runningMinDistanceM)
+        hasher.combine(drivingMinDistanceM)
+        hasher.combine(uncertainAccelerometerHz)
+        hasher.combine(stationaryAccelerometerHz)
+        hasher.combine(walkingAccelerometerHz)
+        hasher.combine(runningAccelerometerHz)
+        hasher.combine(drivingAccelerometerHz)
+        hasher.combine(accelerometerWindowMs)
+        hasher.combine(transitionBurstMs)
+        hasher.combine(downshiftHoldMs)
+        hasher.combine(adviceTtlMs)
+        hasher.combine(confidenceGate)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSamplingConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SamplingConfig {
+        return
+            try SamplingConfig(
+                uncertainLocationIntervalMs: FfiConverterUInt32.read(from: &buf), 
+                stationaryLocationIntervalMs: FfiConverterUInt32.read(from: &buf), 
+                walkingLocationIntervalMs: FfiConverterUInt32.read(from: &buf), 
+                runningLocationIntervalMs: FfiConverterUInt32.read(from: &buf), 
+                drivingLocationIntervalMs: FfiConverterUInt32.read(from: &buf), 
+                stationaryMinDistanceM: FfiConverterDouble.read(from: &buf), 
+                walkingMinDistanceM: FfiConverterDouble.read(from: &buf), 
+                runningMinDistanceM: FfiConverterDouble.read(from: &buf), 
+                drivingMinDistanceM: FfiConverterDouble.read(from: &buf), 
+                uncertainAccelerometerHz: FfiConverterUInt32.read(from: &buf), 
+                stationaryAccelerometerHz: FfiConverterUInt32.read(from: &buf), 
+                walkingAccelerometerHz: FfiConverterUInt32.read(from: &buf), 
+                runningAccelerometerHz: FfiConverterUInt32.read(from: &buf), 
+                drivingAccelerometerHz: FfiConverterUInt32.read(from: &buf), 
+                accelerometerWindowMs: FfiConverterUInt32.read(from: &buf), 
+                transitionBurstMs: FfiConverterUInt32.read(from: &buf), 
+                downshiftHoldMs: FfiConverterUInt32.read(from: &buf), 
+                adviceTtlMs: FfiConverterUInt32.read(from: &buf), 
+                confidenceGate: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SamplingConfig, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.uncertainLocationIntervalMs, into: &buf)
+        FfiConverterUInt32.write(value.stationaryLocationIntervalMs, into: &buf)
+        FfiConverterUInt32.write(value.walkingLocationIntervalMs, into: &buf)
+        FfiConverterUInt32.write(value.runningLocationIntervalMs, into: &buf)
+        FfiConverterUInt32.write(value.drivingLocationIntervalMs, into: &buf)
+        FfiConverterDouble.write(value.stationaryMinDistanceM, into: &buf)
+        FfiConverterDouble.write(value.walkingMinDistanceM, into: &buf)
+        FfiConverterDouble.write(value.runningMinDistanceM, into: &buf)
+        FfiConverterDouble.write(value.drivingMinDistanceM, into: &buf)
+        FfiConverterUInt32.write(value.uncertainAccelerometerHz, into: &buf)
+        FfiConverterUInt32.write(value.stationaryAccelerometerHz, into: &buf)
+        FfiConverterUInt32.write(value.walkingAccelerometerHz, into: &buf)
+        FfiConverterUInt32.write(value.runningAccelerometerHz, into: &buf)
+        FfiConverterUInt32.write(value.drivingAccelerometerHz, into: &buf)
+        FfiConverterUInt32.write(value.accelerometerWindowMs, into: &buf)
+        FfiConverterUInt32.write(value.transitionBurstMs, into: &buf)
+        FfiConverterUInt32.write(value.downshiftHoldMs, into: &buf)
+        FfiConverterUInt32.write(value.adviceTtlMs, into: &buf)
+        FfiConverterDouble.write(value.confidenceGate, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingConfig_lift(_ buf: RustBuffer) throws -> SamplingConfig {
+    return try FfiConverterTypeSamplingConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingConfig_lower(_ value: SamplingConfig) -> RustBuffer {
+    return FfiConverterTypeSamplingConfig.lower(value)
+}
+
+
 /**
  * The nearest mapped node a vehicle might be waiting at.
  *
@@ -5570,6 +6957,200 @@ extension CandidateKind: Equatable, Hashable {}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum IndoorOutdoorReason {
+    
+    case insideBuilding
+    case insideOpenStructure
+    case accuracyOverlapsBuilding
+    case clearOfBuildings
+    case noBuildingsNearby
+    case incompleteCoverage
+    case invalidFix
+    case poorAccuracy
+}
+
+
+#if compiler(>=6)
+extension IndoorOutdoorReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeIndoorOutdoorReason: FfiConverterRustBuffer {
+    typealias SwiftType = IndoorOutdoorReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> IndoorOutdoorReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .insideBuilding
+        
+        case 2: return .insideOpenStructure
+        
+        case 3: return .accuracyOverlapsBuilding
+        
+        case 4: return .clearOfBuildings
+        
+        case 5: return .noBuildingsNearby
+        
+        case 6: return .incompleteCoverage
+        
+        case 7: return .invalidFix
+        
+        case 8: return .poorAccuracy
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: IndoorOutdoorReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .insideBuilding:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .insideOpenStructure:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .accuracyOverlapsBuilding:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .clearOfBuildings:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .noBuildingsNearby:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .incompleteCoverage:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .invalidFix:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .poorAccuracy:
+            writeInt(&buf, Int32(8))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIndoorOutdoorReason_lift(_ buf: RustBuffer) throws -> IndoorOutdoorReason {
+    return try FfiConverterTypeIndoorOutdoorReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIndoorOutdoorReason_lower(_ value: IndoorOutdoorReason) -> RustBuffer {
+    return FfiConverterTypeIndoorOutdoorReason.lower(value)
+}
+
+
+extension IndoorOutdoorReason: Equatable, Hashable {}
+
+
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Indoor/outdoor estimate exposed to Swift/Kotlin/Python. `Uncertain` is a
+ * first-class result: a building-edge GPS fix or missing map coverage is not
+ * forced into a binary answer.
+ */
+
+public enum IndoorOutdoorState {
+    
+    case indoor
+    case outdoor
+    case uncertain
+}
+
+
+#if compiler(>=6)
+extension IndoorOutdoorState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeIndoorOutdoorState: FfiConverterRustBuffer {
+    typealias SwiftType = IndoorOutdoorState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> IndoorOutdoorState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .indoor
+        
+        case 2: return .outdoor
+        
+        case 3: return .uncertain
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: IndoorOutdoorState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .indoor:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .outdoor:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .uncertain:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIndoorOutdoorState_lift(_ buf: RustBuffer) throws -> IndoorOutdoorState {
+    return try FfiConverterTypeIndoorOutdoorState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIndoorOutdoorState_lower(_ value: IndoorOutdoorState) -> RustBuffer {
+    return FfiConverterTypeIndoorOutdoorState.lower(value)
+}
+
+
+extension IndoorOutdoorState: Equatable, Hashable {}
+
+
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * What the classifier thinks is happening.
  */
@@ -5842,6 +7423,318 @@ extension PtilesError: Foundation.LocalizedError {
 
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum SamplingIntent {
+    
+    case background
+    case tracking
+    case navigation
+}
+
+
+#if compiler(>=6)
+extension SamplingIntent: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSamplingIntent: FfiConverterRustBuffer {
+    typealias SwiftType = SamplingIntent
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SamplingIntent {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .background
+        
+        case 2: return .tracking
+        
+        case 3: return .navigation
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SamplingIntent, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .background:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .tracking:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .navigation:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingIntent_lift(_ buf: RustBuffer) throws -> SamplingIntent {
+    return try FfiConverterTypeSamplingIntent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingIntent_lower(_ value: SamplingIntent) -> RustBuffer {
+    return FfiConverterTypeSamplingIntent.lower(value)
+}
+
+
+extension SamplingIntent: Equatable, Hashable {}
+
+
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Relative sensor intensity requested by PTiles Motion. Platform adapters map
+ * this intent onto their own location and sensor services.
+ */
+
+public enum SamplingLevel {
+    
+    case off
+    case passive
+    case low
+    case balanced
+    case high
+    case burst
+}
+
+
+#if compiler(>=6)
+extension SamplingLevel: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSamplingLevel: FfiConverterRustBuffer {
+    typealias SwiftType = SamplingLevel
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SamplingLevel {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .off
+        
+        case 2: return .passive
+        
+        case 3: return .low
+        
+        case 4: return .balanced
+        
+        case 5: return .high
+        
+        case 6: return .burst
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SamplingLevel, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .off:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .passive:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .low:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .balanced:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .high:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .burst:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingLevel_lift(_ buf: RustBuffer) throws -> SamplingLevel {
+    return try FfiConverterTypeSamplingLevel.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingLevel_lower(_ value: SamplingLevel) -> RustBuffer {
+    return FfiConverterTypeSamplingLevel.lower(value)
+}
+
+
+extension SamplingLevel: Equatable, Hashable {}
+
+
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum SamplingReason {
+    
+    case initializing
+    case stableStationary
+    case stableWalking
+    case stableRunning
+    case stableDriving
+    case pendingTransition
+    case lowConfidence
+    case poorLocationAccuracy
+    case missingLocation
+    case missingAccelerometer
+    case capabilityLimited
+}
+
+
+#if compiler(>=6)
+extension SamplingReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSamplingReason: FfiConverterRustBuffer {
+    typealias SwiftType = SamplingReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SamplingReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .initializing
+        
+        case 2: return .stableStationary
+        
+        case 3: return .stableWalking
+        
+        case 4: return .stableRunning
+        
+        case 5: return .stableDriving
+        
+        case 6: return .pendingTransition
+        
+        case 7: return .lowConfidence
+        
+        case 8: return .poorLocationAccuracy
+        
+        case 9: return .missingLocation
+        
+        case 10: return .missingAccelerometer
+        
+        case 11: return .capabilityLimited
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SamplingReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .initializing:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .stableStationary:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .stableWalking:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .stableRunning:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .stableDriving:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .pendingTransition:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .lowConfidence:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .poorLocationAccuracy:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .missingLocation:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .missingAccelerometer:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .capabilityLimited:
+            writeInt(&buf, Int32(11))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingReason_lift(_ buf: RustBuffer) throws -> SamplingReason {
+    return try FfiConverterTypeSamplingReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSamplingReason_lower(_ value: SamplingReason) -> RustBuffer {
+    return FfiConverterTypeSamplingReason.lower(value)
+}
+
+
+extension SamplingReason: Equatable, Hashable {}
+
+
+
+
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -6109,6 +8002,30 @@ fileprivate struct FfiConverterOptionTypeAdminInfo: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeAppliedSampling: FfiConverterRustBuffer {
+    typealias SwiftType = AppliedSampling?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAppliedSampling.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAppliedSampling.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeAreaInfo: FfiConverterRustBuffer {
     typealias SwiftType = AreaInfo?
 
@@ -6149,6 +8066,30 @@ fileprivate struct FfiConverterOptionTypeBuildingInfo: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeBuildingInfo.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeLocationSample: FfiConverterRustBuffer {
+    typealias SwiftType = LocationSample?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLocationSample.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLocationSample.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -6787,12 +8728,24 @@ public func classifyMovementWithHistory(instSpeedMps: Double?, gpsAccuracyM: Dou
     )
 })
 }
+public func defaultAdaptiveMotionConfig() -> AdaptiveMotionConfig  {
+    return try!  FfiConverterTypeAdaptiveMotionConfig_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_default_adaptive_motion_config($0
+    )
+})
+}
 /**
  * The library's default debounce tuning.
  */
 public func defaultDebounceConfig() -> DebounceConfig  {
     return try!  FfiConverterTypeDebounceConfig_lift(try! rustCall() {
     uniffi_ptiles_ffi_fn_func_default_debounce_config($0
+    )
+})
+}
+public func defaultSamplingCapabilities() -> SamplingCapabilities  {
+    return try!  FfiConverterTypeSamplingCapabilities_lift(try! rustCall() {
+    uniffi_ptiles_ffi_fn_func_default_sampling_capabilities($0
     )
 })
 }
@@ -6878,7 +8831,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_func_classify_movement_with_history() != 28399) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_func_default_adaptive_motion_config() != 13236) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_func_default_debounce_config() != 57572) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_func_default_sampling_capabilities() != 23415) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 37639) {
@@ -6891,6 +8850,33 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_func_trail_is_developed() != 44475) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_current_advice() != 14215) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_last_applied_sampling() != 38945) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_movement() != 44965) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_observe() != 43410) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_report_applied_sampling() != 16382) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_reset() != 63091) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_capabilities() != 22701) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_intent() != 59285) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_tick() != 32961) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172) {
@@ -6924,6 +8910,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_covers() != 61769) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_method_ptileslayer_indoor_outdoor() != 53122) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata() != 54913) {
@@ -6983,6 +8972,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing() != 19587) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ptiles_ffi_checksum_method_ptilesstack_indoor_outdoor() != 45793) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7002,6 +8994,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at() != 21118) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ptiles_ffi_checksum_constructor_adaptivemotionsession_new() != 17102) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ptiles_ffi_checksum_constructor_addresslayer_open() != 49623) {

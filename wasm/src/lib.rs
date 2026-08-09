@@ -25,9 +25,11 @@ use ptiles_core::{
     ScoringParams, DEFAULT_THRESHOLD_M,
 };
 use ptiles_motion::{
-    classify, significant_shifts as core_significant_shifts, AccelStats, DebounceConfig,
-    MotionClassifier, MotionConfig, MovementType, RoadContext, ShiftConfig, TimedFix,
-    TrafficControl, Vote, VoteDebouncer,
+    classify, significant_shifts as core_significant_shifts, AccelStats,
+    AdaptiveMotionConfig, AdaptiveMotionSession as CoreAdaptiveMotionSession, AppliedSampling,
+    DebounceConfig, MotionClassifier, MotionConfig, MotionObservation, MovementType, RoadContext,
+    SamplingCapabilities, SamplingIntent, ShiftConfig, TimedFix, TrafficControl, Vote,
+    VoteDebouncer,
 };
 
 use ptiles_core::address::merged_block_cell_slice;
@@ -1679,6 +1681,111 @@ struct MovementUpdate {
     at_traffic_control: bool,
 }
 
+/// Portable adaptive motion and sensor-sampling session.
+///
+/// This class never touches browser hardware. `observe()` and `tick()` return
+/// a `sampling` record plus `sampling_changed`; the JavaScript adapter maps
+/// that advice to Geolocation, DeviceMotion, a desktop bridge, or any other
+/// host service and can emit its preferred callback/event/stream locally.
+#[wasm_bindgen]
+pub struct AdaptiveMotionSession {
+    inner: CoreAdaptiveMotionSession,
+}
+
+#[wasm_bindgen]
+impl AdaptiveMotionSession {
+    /// Both arguments are optional. `config` has the nested
+    /// `{motion, debounce, sampling}` shape returned by the Rust defaults;
+    /// `capabilities` describes what this host can actually collect.
+    #[wasm_bindgen(constructor)]
+    pub fn new(config: JsValue, capabilities: JsValue) -> Result<AdaptiveMotionSession, JsValue> {
+        let config: AdaptiveMotionConfig = if config.is_null() || config.is_undefined() {
+            AdaptiveMotionConfig::default()
+        } else {
+            from_js(config, "adaptive motion config")?
+        };
+        let capabilities: SamplingCapabilities =
+            if capabilities.is_null() || capabilities.is_undefined() {
+                SamplingCapabilities::default()
+            } else {
+                from_js(capabilities, "sampling capabilities")?
+            };
+        Ok(Self { inner: CoreAdaptiveMotionSession::new(config, capabilities) })
+    }
+
+    /// Ingest `{t_ms, location?, accelerometer?, road?, traffic_control?}`.
+    /// The timestamp is monotonic milliseconds supplied by the caller.
+    pub fn observe(&mut self, observation: JsValue) -> Result<JsValue, JsValue> {
+        let observation: MotionObservation = from_js(observation, "motion observation")?;
+        to_js(&self.inner.observe(observation))
+    }
+
+    /// Reevaluate an advice deadline without inventing a sensor sample.
+    pub fn tick(&mut self, now_ms: f64) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.tick(now_ms.max(0.0) as u64))
+    }
+
+    #[wasm_bindgen(getter, js_name = currentAdvice)]
+    pub fn current_advice(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.current_advice())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn movement(&self) -> String {
+        self.inner.movement().as_str().to_string()
+    }
+
+    /// Replace host capabilities. Returns true when hardware may need to be
+    /// reconfigured immediately.
+    #[wasm_bindgen(js_name = setCapabilities)]
+    pub fn set_capabilities(
+        &mut self,
+        capabilities: JsValue,
+        now_ms: f64,
+    ) -> Result<bool, JsValue> {
+        let capabilities: SamplingCapabilities =
+            from_js(capabilities, "sampling capabilities")?;
+        Ok(self.inner.set_capabilities(capabilities, now_ms.max(0.0) as u64))
+    }
+
+    /// `background`, `tracking`, or `navigation`.
+    #[wasm_bindgen(js_name = setIntent)]
+    pub fn set_intent(&mut self, intent: &str, now_ms: f64) -> Result<bool, JsValue> {
+        let intent = match intent {
+            "background" => SamplingIntent::Background,
+            "tracking" => SamplingIntent::Tracking,
+            "navigation" => SamplingIntent::Navigation,
+            _ => {
+                return Err(JsValue::from_str(
+                    "sampling intent must be background, tracking, or navigation",
+                ));
+            }
+        };
+        Ok(self.inner.set_intent(intent, now_ms.max(0.0) as u64))
+    }
+
+    /// Tell the policy what the host actually configured. This is feedback,
+    /// not permission for the library to control hardware.
+    #[wasm_bindgen(js_name = reportAppliedSampling)]
+    pub fn report_applied_sampling(&mut self, applied: JsValue) -> Result<(), JsValue> {
+        let applied: AppliedSampling = from_js(applied, "applied sampling")?;
+        self.inner.report_applied_sampling(applied);
+        Ok(())
+    }
+
+    #[wasm_bindgen(getter, js_name = lastAppliedSampling)]
+    pub fn last_applied_sampling(&self) -> Result<JsValue, JsValue> {
+        match self.inner.last_applied_sampling() {
+            Some(applied) => to_js(&applied),
+            None => Ok(JsValue::NULL),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
 fn try_decode_all(decoder: &mut FrameDecoder, compressed: &[u8]) -> Option<Vec<u8>> {
     let mut input: &[u8] = compressed;
     decoder.reset(&mut input).ok()?;
@@ -2070,5 +2177,51 @@ mod tests {
         assert_eq!(json["vote"]["confidence"], 0.7);
         assert_eq!(json["at_traffic_control"], true);
         assert_eq!(json["smoothed_speed_mps"], 1.5);
+    }
+
+    #[test]
+    fn adaptive_config_and_observation_use_adapter_neutral_shapes() {
+        let cfg: AdaptiveMotionConfig = serde_json::from_value(serde_json::json!({
+            "sampling": {"walking_location_interval_ms": 3000},
+        }))
+        .expect("partial adaptive config");
+        assert_eq!(cfg.sampling.walking_location_interval_ms, 3_000);
+        assert_eq!(
+            cfg.sampling.running_location_interval_ms,
+            ptiles_motion::SamplingConfig::default().running_location_interval_ms,
+        );
+
+        let observation: MotionObservation = serde_json::from_value(serde_json::json!({
+            "t_ms": 1000,
+            "location": {
+                "lat": 36.1627,
+                "lon": -86.7816,
+                "horizontal_accuracy_m": 5.0,
+                "speed_mps": 2.0,
+                "bearing_degrees": 90.0
+            },
+            "accelerometer": null,
+            "road": null,
+            "traffic_control": null
+        }))
+        .expect("portable observation");
+        assert_eq!(observation.t_ms, 1_000);
+        assert_eq!(observation.location.unwrap().speed_mps, Some(2.0));
+    }
+
+    #[test]
+    fn adaptive_update_serializes_sampling_hook_fields() {
+        let mut session = CoreAdaptiveMotionSession::new(
+            AdaptiveMotionConfig::default(),
+            SamplingCapabilities::default(),
+        );
+        let json = serde_json::to_value(session.tick(1_000)).expect("adaptive update");
+        assert_eq!(json["movement"], "unknown");
+        assert_eq!(json["sampling"]["location_level"], "high");
+        assert_eq!(json["sampling"]["accelerometer_level"], "burst");
+        assert_eq!(json["sampling"]["reason"], "initializing");
+        assert!(json.get("sampling_changed").is_some());
+        assert!(json["sampling"].get("reevaluate_after_ms").is_some());
+        assert!(json["sampling"].get("generation").is_some());
     }
 }

@@ -28,6 +28,16 @@ use ptiles_motion::movement::{
     TrafficControl as CoreTrafficControl,
     Vote as CoreVote, VoteDebouncer as CoreVoteDebouncer,
 };
+use ptiles_motion::{
+    AdaptiveMotionConfig as CoreAdaptiveMotionConfig,
+    AdaptiveMotionSession as CoreAdaptiveMotionSession,
+    AdaptiveMotionUpdate as CoreAdaptiveMotionUpdate, AppliedSampling as CoreAppliedSampling,
+    LocationSample as CoreLocationSample, MotionConfig as CoreMotionConfig,
+    MotionObservation as CoreMotionObservation, SamplingAdvice as CoreSamplingAdvice,
+    SamplingCapabilities as CoreSamplingCapabilities, SamplingConfig as CoreSamplingConfig,
+    SamplingIntent as CoreSamplingIntent, SamplingLevel as CoreSamplingLevel,
+    SamplingReason as CoreSamplingReason,
+};
 
 /// What the classifier thinks is happening.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
@@ -373,3 +383,562 @@ impl VoteDebouncer {
     }
 }
 
+// --- Adaptive cross-platform sampling -------------------------------------
+
+/// Relative sensor intensity requested by PTiles Motion. Platform adapters map
+/// this intent onto their own location and sensor services.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum SamplingLevel {
+    Off,
+    Passive,
+    Low,
+    Balanced,
+    High,
+    Burst,
+}
+
+impl From<CoreSamplingLevel> for SamplingLevel {
+    fn from(value: CoreSamplingLevel) -> Self {
+        match value {
+            CoreSamplingLevel::Off => Self::Off,
+            CoreSamplingLevel::Passive => Self::Passive,
+            CoreSamplingLevel::Low => Self::Low,
+            CoreSamplingLevel::Balanced => Self::Balanced,
+            CoreSamplingLevel::High => Self::High,
+            CoreSamplingLevel::Burst => Self::Burst,
+        }
+    }
+}
+
+impl From<SamplingLevel> for CoreSamplingLevel {
+    fn from(value: SamplingLevel) -> Self {
+        match value {
+            SamplingLevel::Off => Self::Off,
+            SamplingLevel::Passive => Self::Passive,
+            SamplingLevel::Low => Self::Low,
+            SamplingLevel::Balanced => Self::Balanced,
+            SamplingLevel::High => Self::High,
+            SamplingLevel::Burst => Self::Burst,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum SamplingReason {
+    Initializing,
+    StableStationary,
+    StableWalking,
+    StableRunning,
+    StableDriving,
+    PendingTransition,
+    LowConfidence,
+    PoorLocationAccuracy,
+    MissingLocation,
+    MissingAccelerometer,
+    CapabilityLimited,
+}
+
+impl From<CoreSamplingReason> for SamplingReason {
+    fn from(value: CoreSamplingReason) -> Self {
+        match value {
+            CoreSamplingReason::Initializing => Self::Initializing,
+            CoreSamplingReason::StableStationary => Self::StableStationary,
+            CoreSamplingReason::StableWalking => Self::StableWalking,
+            CoreSamplingReason::StableRunning => Self::StableRunning,
+            CoreSamplingReason::StableDriving => Self::StableDriving,
+            CoreSamplingReason::PendingTransition => Self::PendingTransition,
+            CoreSamplingReason::LowConfidence => Self::LowConfidence,
+            CoreSamplingReason::PoorLocationAccuracy => Self::PoorLocationAccuracy,
+            CoreSamplingReason::MissingLocation => Self::MissingLocation,
+            CoreSamplingReason::MissingAccelerometer => Self::MissingAccelerometer,
+            CoreSamplingReason::CapabilityLimited => Self::CapabilityLimited,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum SamplingIntent {
+    Background,
+    Tracking,
+    Navigation,
+}
+
+impl From<CoreSamplingIntent> for SamplingIntent {
+    fn from(value: CoreSamplingIntent) -> Self {
+        match value {
+            CoreSamplingIntent::Background => Self::Background,
+            CoreSamplingIntent::Tracking => Self::Tracking,
+            CoreSamplingIntent::Navigation => Self::Navigation,
+        }
+    }
+}
+
+impl From<SamplingIntent> for CoreSamplingIntent {
+    fn from(value: SamplingIntent) -> Self {
+        match value {
+            SamplingIntent::Background => Self::Background,
+            SamplingIntent::Tracking => Self::Tracking,
+            SamplingIntent::Navigation => Self::Navigation,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct SamplingAdvice {
+    pub location_level: SamplingLevel,
+    pub location_interval_ms: Option<u32>,
+    pub location_min_distance_m: Option<f64>,
+    pub accelerometer_level: SamplingLevel,
+    pub accelerometer_hz: Option<u32>,
+    pub accelerometer_window_ms: Option<u32>,
+    pub burst_duration_ms: Option<u32>,
+    pub reevaluate_after_ms: u32,
+    pub reason: SamplingReason,
+    pub generation: u32,
+    pub limited_by_capabilities: bool,
+}
+
+impl From<CoreSamplingAdvice> for SamplingAdvice {
+    fn from(v: CoreSamplingAdvice) -> Self {
+        Self {
+            location_level: v.location_level.into(),
+            location_interval_ms: v.location_interval_ms,
+            location_min_distance_m: v.location_min_distance_m,
+            accelerometer_level: v.accelerometer_level.into(),
+            accelerometer_hz: v.accelerometer_hz,
+            accelerometer_window_ms: v.accelerometer_window_ms,
+            burst_duration_ms: v.burst_duration_ms,
+            reevaluate_after_ms: v.reevaluate_after_ms,
+            reason: v.reason.into(),
+            generation: v.generation,
+            limited_by_capabilities: v.limited_by_capabilities,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct SamplingCapabilities {
+    pub location_available: bool,
+    pub accelerometer_available: bool,
+    pub supports_passive_location: bool,
+    pub supports_motion_wakeup: bool,
+    pub minimum_location_interval_ms: Option<u32>,
+    pub maximum_accelerometer_hz: Option<u32>,
+}
+
+impl Default for SamplingCapabilities {
+    fn default() -> Self {
+        CoreSamplingCapabilities::default().into()
+    }
+}
+
+impl From<CoreSamplingCapabilities> for SamplingCapabilities {
+    fn from(v: CoreSamplingCapabilities) -> Self {
+        Self {
+            location_available: v.location_available,
+            accelerometer_available: v.accelerometer_available,
+            supports_passive_location: v.supports_passive_location,
+            supports_motion_wakeup: v.supports_motion_wakeup,
+            minimum_location_interval_ms: v.minimum_location_interval_ms,
+            maximum_accelerometer_hz: v.maximum_accelerometer_hz,
+        }
+    }
+}
+
+impl From<SamplingCapabilities> for CoreSamplingCapabilities {
+    fn from(v: SamplingCapabilities) -> Self {
+        Self {
+            location_available: v.location_available,
+            accelerometer_available: v.accelerometer_available,
+            supports_passive_location: v.supports_passive_location,
+            supports_motion_wakeup: v.supports_motion_wakeup,
+            minimum_location_interval_ms: v.minimum_location_interval_ms,
+            maximum_accelerometer_hz: v.maximum_accelerometer_hz,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct AppliedSampling {
+    pub location_level: SamplingLevel,
+    pub location_interval_ms: Option<u32>,
+    pub accelerometer_level: SamplingLevel,
+    pub accelerometer_hz: Option<u32>,
+    pub generation: u32,
+}
+
+impl From<AppliedSampling> for CoreAppliedSampling {
+    fn from(v: AppliedSampling) -> Self {
+        Self {
+            location_level: v.location_level.into(),
+            location_interval_ms: v.location_interval_ms,
+            accelerometer_level: v.accelerometer_level.into(),
+            accelerometer_hz: v.accelerometer_hz,
+            generation: v.generation,
+        }
+    }
+}
+
+impl From<CoreAppliedSampling> for AppliedSampling {
+    fn from(v: CoreAppliedSampling) -> Self {
+        Self {
+            location_level: v.location_level.into(),
+            location_interval_ms: v.location_interval_ms,
+            accelerometer_level: v.accelerometer_level.into(),
+            accelerometer_hz: v.accelerometer_hz,
+            generation: v.generation,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct MotionConfig {
+    pub stationary_max_mps: f64,
+    pub driving_min_mps: f64,
+    pub smoothing_window: u32,
+    pub min_dwell_samples: u32,
+    pub accuracy_gate_m: f64,
+    pub max_gap_ms: u64,
+}
+
+impl Default for MotionConfig {
+    fn default() -> Self {
+        CoreMotionConfig::default().into()
+    }
+}
+
+impl From<CoreMotionConfig> for MotionConfig {
+    fn from(v: CoreMotionConfig) -> Self {
+        Self {
+            stationary_max_mps: v.stationary_max_mps,
+            driving_min_mps: v.driving_min_mps,
+            smoothing_window: v.smoothing_window as u32,
+            min_dwell_samples: v.min_dwell_samples,
+            accuracy_gate_m: v.accuracy_gate_m,
+            max_gap_ms: v.max_gap_ms,
+        }
+    }
+}
+
+impl From<MotionConfig> for CoreMotionConfig {
+    fn from(v: MotionConfig) -> Self {
+        Self {
+            stationary_max_mps: v.stationary_max_mps,
+            driving_min_mps: v.driving_min_mps,
+            smoothing_window: v.smoothing_window as usize,
+            min_dwell_samples: v.min_dwell_samples,
+            accuracy_gate_m: v.accuracy_gate_m,
+            max_gap_ms: v.max_gap_ms,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct SamplingConfig {
+    pub uncertain_location_interval_ms: u32,
+    pub stationary_location_interval_ms: u32,
+    pub walking_location_interval_ms: u32,
+    pub running_location_interval_ms: u32,
+    pub driving_location_interval_ms: u32,
+    pub stationary_min_distance_m: f64,
+    pub walking_min_distance_m: f64,
+    pub running_min_distance_m: f64,
+    pub driving_min_distance_m: f64,
+    pub uncertain_accelerometer_hz: u32,
+    pub stationary_accelerometer_hz: u32,
+    pub walking_accelerometer_hz: u32,
+    pub running_accelerometer_hz: u32,
+    pub driving_accelerometer_hz: u32,
+    pub accelerometer_window_ms: u32,
+    pub transition_burst_ms: u32,
+    pub downshift_hold_ms: u32,
+    pub advice_ttl_ms: u32,
+    pub confidence_gate: f64,
+}
+
+impl Default for SamplingConfig {
+    fn default() -> Self {
+        CoreSamplingConfig::default().into()
+    }
+}
+
+impl From<CoreSamplingConfig> for SamplingConfig {
+    fn from(v: CoreSamplingConfig) -> Self {
+        Self {
+            uncertain_location_interval_ms: v.uncertain_location_interval_ms,
+            stationary_location_interval_ms: v.stationary_location_interval_ms,
+            walking_location_interval_ms: v.walking_location_interval_ms,
+            running_location_interval_ms: v.running_location_interval_ms,
+            driving_location_interval_ms: v.driving_location_interval_ms,
+            stationary_min_distance_m: v.stationary_min_distance_m,
+            walking_min_distance_m: v.walking_min_distance_m,
+            running_min_distance_m: v.running_min_distance_m,
+            driving_min_distance_m: v.driving_min_distance_m,
+            uncertain_accelerometer_hz: v.uncertain_accelerometer_hz,
+            stationary_accelerometer_hz: v.stationary_accelerometer_hz,
+            walking_accelerometer_hz: v.walking_accelerometer_hz,
+            running_accelerometer_hz: v.running_accelerometer_hz,
+            driving_accelerometer_hz: v.driving_accelerometer_hz,
+            accelerometer_window_ms: v.accelerometer_window_ms,
+            transition_burst_ms: v.transition_burst_ms,
+            downshift_hold_ms: v.downshift_hold_ms,
+            advice_ttl_ms: v.advice_ttl_ms,
+            confidence_gate: v.confidence_gate,
+        }
+    }
+}
+
+impl From<SamplingConfig> for CoreSamplingConfig {
+    fn from(v: SamplingConfig) -> Self {
+        Self {
+            uncertain_location_interval_ms: v.uncertain_location_interval_ms,
+            stationary_location_interval_ms: v.stationary_location_interval_ms,
+            walking_location_interval_ms: v.walking_location_interval_ms,
+            running_location_interval_ms: v.running_location_interval_ms,
+            driving_location_interval_ms: v.driving_location_interval_ms,
+            stationary_min_distance_m: v.stationary_min_distance_m,
+            walking_min_distance_m: v.walking_min_distance_m,
+            running_min_distance_m: v.running_min_distance_m,
+            driving_min_distance_m: v.driving_min_distance_m,
+            uncertain_accelerometer_hz: v.uncertain_accelerometer_hz,
+            stationary_accelerometer_hz: v.stationary_accelerometer_hz,
+            walking_accelerometer_hz: v.walking_accelerometer_hz,
+            running_accelerometer_hz: v.running_accelerometer_hz,
+            driving_accelerometer_hz: v.driving_accelerometer_hz,
+            accelerometer_window_ms: v.accelerometer_window_ms,
+            transition_burst_ms: v.transition_burst_ms,
+            downshift_hold_ms: v.downshift_hold_ms,
+            advice_ttl_ms: v.advice_ttl_ms,
+            confidence_gate: v.confidence_gate,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct AdaptiveMotionConfig {
+    pub motion: MotionConfig,
+    pub debounce: DebounceConfig,
+    pub sampling: SamplingConfig,
+}
+
+impl Default for AdaptiveMotionConfig {
+    fn default() -> Self {
+        CoreAdaptiveMotionConfig::default().into()
+    }
+}
+
+impl From<CoreAdaptiveMotionConfig> for AdaptiveMotionConfig {
+    fn from(v: CoreAdaptiveMotionConfig) -> Self {
+        Self { motion: v.motion.into(), debounce: v.debounce.into(), sampling: v.sampling.into() }
+    }
+}
+
+impl From<AdaptiveMotionConfig> for CoreAdaptiveMotionConfig {
+    fn from(v: AdaptiveMotionConfig) -> Self {
+        Self { motion: v.motion.into(), debounce: v.debounce.into(), sampling: v.sampling.into() }
+    }
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct LocationSample {
+    pub lat: f64,
+    pub lon: f64,
+    pub horizontal_accuracy_m: Option<f64>,
+    pub speed_mps: Option<f64>,
+    pub bearing_degrees: Option<f64>,
+}
+
+impl From<LocationSample> for CoreLocationSample {
+    fn from(v: LocationSample) -> Self {
+        Self {
+            lat: v.lat,
+            lon: v.lon,
+            horizontal_accuracy_m: v.horizontal_accuracy_m,
+            speed_mps: v.speed_mps,
+            bearing_degrees: v.bearing_degrees,
+        }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct MotionObservation {
+    pub t_ms: u64,
+    pub location: Option<LocationSample>,
+    pub accelerometer: Option<AccelStats>,
+    pub road: Option<RoadContext>,
+    pub traffic_control: Option<TrafficControl>,
+}
+
+impl From<MotionObservation> for CoreMotionObservation {
+    fn from(v: MotionObservation) -> Self {
+        Self {
+            t_ms: v.t_ms,
+            location: v.location.map(Into::into),
+            accelerometer: v.accelerometer.map(Into::into),
+            road: v.road.map(Into::into),
+            traffic_control: v.traffic_control.map(Into::into),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct AdaptiveMotionUpdate {
+    pub movement: MovementType,
+    pub vote: Vote,
+    pub smoothed_speed_mps: Option<f64>,
+    pub at_traffic_control: bool,
+    pub sampling: SamplingAdvice,
+    pub sampling_changed: bool,
+}
+
+impl From<CoreAdaptiveMotionUpdate> for AdaptiveMotionUpdate {
+    fn from(v: CoreAdaptiveMotionUpdate) -> Self {
+        Self {
+            movement: v.movement.into(),
+            vote: v.vote.into(),
+            smoothed_speed_mps: v.smoothed_speed_mps,
+            at_traffic_control: v.at_traffic_control,
+            sampling: v.sampling.into(),
+            sampling_changed: v.sampling_changed,
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn default_adaptive_motion_config() -> AdaptiveMotionConfig {
+    AdaptiveMotionConfig::default()
+}
+
+#[uniffi::export]
+pub fn default_sampling_capabilities() -> SamplingCapabilities {
+    SamplingCapabilities::default()
+}
+
+/// Stateful, hardware-neutral pipeline. Calls return sampling advice; Kotlin,
+/// Swift, desktop, or other adapters decide how to apply it and may emit their
+/// own native callback/stream after `sampling_changed` becomes true.
+#[derive(uniffi::Object)]
+pub struct AdaptiveMotionSession {
+    inner: Mutex<CoreAdaptiveMotionSession>,
+}
+
+#[uniffi::export]
+impl AdaptiveMotionSession {
+    #[uniffi::constructor]
+    pub fn new(config: AdaptiveMotionConfig, capabilities: SamplingCapabilities) -> Arc<Self> {
+        Arc::new(Self {
+            inner: Mutex::new(CoreAdaptiveMotionSession::new(config.into(), capabilities.into())),
+        })
+    }
+
+    pub fn observe(&self, observation: MotionObservation) -> AdaptiveMotionUpdate {
+        self.inner
+            .lock()
+            .expect("adaptive motion lock")
+            .observe(observation.into())
+            .into()
+    }
+
+    pub fn tick(&self, now_ms: u64) -> AdaptiveMotionUpdate {
+        self.inner.lock().expect("adaptive motion lock").tick(now_ms).into()
+    }
+
+    pub fn current_advice(&self) -> SamplingAdvice {
+        self.inner.lock().expect("adaptive motion lock").current_advice().into()
+    }
+
+    pub fn movement(&self) -> MovementType {
+        self.inner.lock().expect("adaptive motion lock").movement().into()
+    }
+
+    pub fn set_capabilities(&self, capabilities: SamplingCapabilities, now_ms: u64) -> bool {
+        self.inner
+            .lock()
+            .expect("adaptive motion lock")
+            .set_capabilities(capabilities.into(), now_ms)
+    }
+
+    pub fn set_intent(&self, intent: SamplingIntent, now_ms: u64) -> bool {
+        self.inner.lock().expect("adaptive motion lock").set_intent(intent.into(), now_ms)
+    }
+
+    pub fn report_applied_sampling(&self, applied: AppliedSampling) {
+        self.inner
+            .lock()
+            .expect("adaptive motion lock")
+            .report_applied_sampling(applied.into());
+    }
+
+    pub fn last_applied_sampling(&self) -> Option<AppliedSampling> {
+        self.inner
+            .lock()
+            .expect("adaptive motion lock")
+            .last_applied_sampling()
+            .map(Into::into)
+    }
+
+    pub fn reset(&self) {
+        self.inner.lock().expect("adaptive motion lock").reset();
+    }
+}
+
+#[cfg(test)]
+mod adaptive_tests {
+    use super::*;
+
+    #[test]
+    fn uniffi_session_returns_actionable_sampling_advice() {
+        let session = AdaptiveMotionSession::new(
+            default_adaptive_motion_config(),
+            default_sampling_capabilities(),
+        );
+        let initial = session.current_advice();
+        assert_eq!(initial.location_level, SamplingLevel::High);
+        assert_eq!(initial.accelerometer_level, SamplingLevel::Burst);
+
+        let update = session.observe(MotionObservation {
+            t_ms: 50_000,
+            location: Some(LocationSample {
+                lat: 36.1627,
+                lon: -86.7816,
+                horizontal_accuracy_m: Some(5.0),
+                speed_mps: Some(15.0),
+                bearing_degrees: Some(90.0),
+            }),
+            accelerometer: None,
+            road: None,
+            traffic_control: None,
+        });
+        assert!(update.sampling.location_interval_ms.is_some());
+        assert!(update.sampling.generation >= initial.generation);
+    }
+
+    #[test]
+    fn uniffi_capability_and_applied_feedback_round_trip() {
+        let session = AdaptiveMotionSession::new(
+            default_adaptive_motion_config(),
+            SamplingCapabilities {
+                location_available: false,
+                accelerometer_available: true,
+                supports_passive_location: false,
+                supports_motion_wakeup: false,
+                minimum_location_interval_ms: None,
+                maximum_accelerometer_hz: Some(12),
+            },
+        );
+        let advice = session.current_advice();
+        assert_eq!(advice.location_level, SamplingLevel::Off);
+        assert_eq!(advice.accelerometer_hz, Some(12));
+        let applied = AppliedSampling {
+            location_level: SamplingLevel::Off,
+            location_interval_ms: None,
+            accelerometer_level: SamplingLevel::Low,
+            accelerometer_hz: Some(10),
+            generation: advice.generation,
+        };
+        session.report_applied_sampling(applied);
+        let stored = session.last_applied_sampling().expect("applied feedback");
+        assert_eq!(stored.generation, advice.generation);
+        assert_eq!(stored.accelerometer_hz, Some(10));
+    }
+}

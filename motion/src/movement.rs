@@ -30,7 +30,7 @@ fn libm_fabs(x: f64) -> f64 {
 }
 
 use ptiles_core::haversine_distance_m;
-use ptiles_core::math::{atan2, cos, sin, sqrt};
+use ptiles_core::math::{atan2, cos, round, sin, sqrt};
 use ptiles_core::{NearestIntersection, NearestRoad, RoadSegment};
 
 /// Coarse movement state. `Unknown` is the initial state only.
@@ -301,8 +301,8 @@ fn detect_steps(
     }
 
     let rate = sample_rate_hz as f64;
-    let min_lag = ((rate / MAX_CADENCE_HZ).round() as usize).max(2);
-    let max_lag = ((rate / MIN_CADENCE_HZ).round() as usize).min(n - 1);
+    let min_lag = (round(rate / MAX_CADENCE_HZ) as usize).max(2);
+    let max_lag = (round(rate / MIN_CADENCE_HZ) as usize).min(n - 1);
     if max_lag <= min_lag {
         return (0, 0.0);
     }
@@ -326,7 +326,7 @@ fn detect_steps(
 
     let frequency = rate / best_lag as f64;
     let window_seconds = n as f64 / rate;
-    let steps = (frequency * window_seconds).round().max(0.0) as u32;
+    let steps = round(frequency * window_seconds).max(0.0) as u32;
     (steps, frequency)
 }
 

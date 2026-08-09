@@ -468,7 +468,11 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_func_classify_movement_with_history() != 28399:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_default_adaptive_motion_config() != 13236:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_func_default_debounce_config() != 57572:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_func_default_sampling_capabilities() != 23415:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 37639:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -477,6 +481,24 @@ def _uniffi_check_api_checksums(lib):
     if lib.uniffi_ptiles_ffi_checksum_func_movement_thresholds() != 54984:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_func_trail_is_developed() != 44475:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_current_advice() != 14215:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_last_applied_sampling() != 38945:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_movement() != 44965:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_observe() != 43410:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_report_applied_sampling() != 16382:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_reset() != 63091:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_capabilities() != 22701:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_intent() != 59285:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_tick() != 32961:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -499,6 +521,8 @@ def _uniffi_check_api_checksums(lib):
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache() != 14397:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_covers() != 61769:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_indoor_outdoor() != 53122:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata() != 54913:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -538,6 +562,8 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing() != 19587:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_indoor_outdoor() != 45793:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403:
@@ -551,6 +577,8 @@ def _uniffi_check_api_checksums(lib):
     if lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick() != 7861:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at() != 21118:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_ptiles_ffi_checksum_constructor_adaptivemotionsession_new() != 17102:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_ptiles_ffi_checksum_constructor_addresslayer_open() != 49623:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -670,6 +698,74 @@ class _UniffiForeignFutureStructVoid(ctypes.Structure):
     ]
 _UNIFFI_FOREIGN_FUTURE_COMPLETE_VOID = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiForeignFutureStructVoid,
 )
+_UniffiLib.uniffi_ptiles_ffi_fn_clone_adaptivemotionsession.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_clone_adaptivemotionsession.restype = ctypes.c_void_p
+_UniffiLib.uniffi_ptiles_ffi_fn_free_adaptivemotionsession.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_free_adaptivemotionsession.restype = None
+_UniffiLib.uniffi_ptiles_ffi_fn_constructor_adaptivemotionsession_new.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_constructor_adaptivemotionsession_new.restype = ctypes.c_void_p
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_current_advice.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_current_advice.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_last_applied_sampling.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_last_applied_sampling.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_movement.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_movement.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_observe.argtypes = (
+    ctypes.c_void_p,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_observe.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling.argtypes = (
+    ctypes.c_void_p,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling.restype = None
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset.argtypes = (
+    ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset.restype = None
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_capabilities.argtypes = (
+    ctypes.c_void_p,
+    _UniffiRustBuffer,
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_capabilities.restype = ctypes.c_int8
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_intent.argtypes = (
+    ctypes.c_void_p,
+    _UniffiRustBuffer,
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_intent.restype = ctypes.c_int8
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_tick.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_tick.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_clone_addresslayer.argtypes = (
     ctypes.c_void_p,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -796,6 +892,14 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_covers.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_covers.restype = ctypes.c_int8
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_indoor_outdoor.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_indoor_outdoor.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_metadata.argtypes = (
     ctypes.c_void_p,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -972,6 +1076,14 @@ _UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.c_double,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_locate.argtypes = (
     ctypes.c_void_p,
     ctypes.c_double,
@@ -1063,10 +1175,18 @@ _UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_with_history.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_func_classify_movement_with_history.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_default_adaptive_motion_config.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_default_adaptive_motion_config.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_func_default_debounce_config.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_ptiles_ffi_fn_func_default_debounce_config.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_ptiles_ffi_fn_func_default_sampling_capabilities.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_ptiles_ffi_fn_func_default_sampling_capabilities.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_ptiles_ffi_fn_func_intersection_holds_traffic.argtypes = (
     ctypes.c_uint8,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -1366,9 +1486,15 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only.restype 
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement_with_history.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_classify_movement_with_history.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_default_adaptive_motion_config.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_default_adaptive_motion_config.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_default_debounce_config.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_default_debounce_config.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_default_sampling_capabilities.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_func_default_sampling_capabilities.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic.restype = ctypes.c_uint16
@@ -1381,6 +1507,33 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_func_movement_thresholds.restype = ctypes.
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_trail_is_developed.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_func_trail_is_developed.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_current_advice.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_current_advice.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_last_applied_sampling.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_last_applied_sampling.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_movement.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_movement.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_observe.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_observe.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_report_applied_sampling.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_report_applied_sampling.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_reset.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_reset.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_capabilities.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_capabilities.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_intent.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_intent.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_tick.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_tick.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at.restype = ctypes.c_uint16
@@ -1414,6 +1567,9 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache.restype = c
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_covers.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_covers.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_indoor_outdoor.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_indoor_outdoor.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata.restype = ctypes.c_uint16
@@ -1471,6 +1627,9 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at.restype = ctyp
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_indoor_outdoor.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_indoor_outdoor.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate.restype = ctypes.c_uint16
@@ -1492,6 +1651,9 @@ _UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick.restype = ctypes
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at.restype = ctypes.c_uint16
+_UniffiLib.uniffi_ptiles_ffi_checksum_constructor_adaptivemotionsession_new.argtypes = (
+)
+_UniffiLib.uniffi_ptiles_ffi_checksum_constructor_adaptivemotionsession_new.restype = ctypes.c_uint16
 _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_addresslayer_open.argtypes = (
 )
 _UniffiLib.uniffi_ptiles_ffi_checksum_constructor_addresslayer_open.restype = ctypes.c_uint16
@@ -1667,6 +1829,8 @@ class _UniffiConverterString:
 
 
 
+
+
 class AccelStats:
     """
     A window of accelerometer statistics.
@@ -1746,6 +1910,113 @@ class _UniffiConverterTypeAccelStats(_UniffiConverterRustBuffer):
         _UniffiConverterDouble.write(value.dominant_frequency, buf)
         _UniffiConverterUInt32.write(value.step_count, buf)
         _UniffiConverterOptionalDouble.write(value.window_duration_s, buf)
+
+
+class AdaptiveMotionConfig:
+    motion: "MotionConfig"
+    debounce: "DebounceConfig"
+    sampling: "SamplingConfig"
+    def __init__(self, *, motion: "MotionConfig", debounce: "DebounceConfig", sampling: "SamplingConfig"):
+        self.motion = motion
+        self.debounce = debounce
+        self.sampling = sampling
+
+    def __str__(self):
+        return "AdaptiveMotionConfig(motion={}, debounce={}, sampling={})".format(self.motion, self.debounce, self.sampling)
+
+    def __eq__(self, other):
+        if self.motion != other.motion:
+            return False
+        if self.debounce != other.debounce:
+            return False
+        if self.sampling != other.sampling:
+            return False
+        return True
+
+class _UniffiConverterTypeAdaptiveMotionConfig(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return AdaptiveMotionConfig(
+            motion=_UniffiConverterTypeMotionConfig.read(buf),
+            debounce=_UniffiConverterTypeDebounceConfig.read(buf),
+            sampling=_UniffiConverterTypeSamplingConfig.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterTypeMotionConfig.check_lower(value.motion)
+        _UniffiConverterTypeDebounceConfig.check_lower(value.debounce)
+        _UniffiConverterTypeSamplingConfig.check_lower(value.sampling)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterTypeMotionConfig.write(value.motion, buf)
+        _UniffiConverterTypeDebounceConfig.write(value.debounce, buf)
+        _UniffiConverterTypeSamplingConfig.write(value.sampling, buf)
+
+
+class AdaptiveMotionUpdate:
+    movement: "MovementType"
+    vote: "Vote"
+    smoothed_speed_mps: "typing.Optional[float]"
+    at_traffic_control: "bool"
+    sampling: "SamplingAdvice"
+    sampling_changed: "bool"
+    def __init__(self, *, movement: "MovementType", vote: "Vote", smoothed_speed_mps: "typing.Optional[float]", at_traffic_control: "bool", sampling: "SamplingAdvice", sampling_changed: "bool"):
+        self.movement = movement
+        self.vote = vote
+        self.smoothed_speed_mps = smoothed_speed_mps
+        self.at_traffic_control = at_traffic_control
+        self.sampling = sampling
+        self.sampling_changed = sampling_changed
+
+    def __str__(self):
+        return "AdaptiveMotionUpdate(movement={}, vote={}, smoothed_speed_mps={}, at_traffic_control={}, sampling={}, sampling_changed={})".format(self.movement, self.vote, self.smoothed_speed_mps, self.at_traffic_control, self.sampling, self.sampling_changed)
+
+    def __eq__(self, other):
+        if self.movement != other.movement:
+            return False
+        if self.vote != other.vote:
+            return False
+        if self.smoothed_speed_mps != other.smoothed_speed_mps:
+            return False
+        if self.at_traffic_control != other.at_traffic_control:
+            return False
+        if self.sampling != other.sampling:
+            return False
+        if self.sampling_changed != other.sampling_changed:
+            return False
+        return True
+
+class _UniffiConverterTypeAdaptiveMotionUpdate(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return AdaptiveMotionUpdate(
+            movement=_UniffiConverterTypeMovementType.read(buf),
+            vote=_UniffiConverterTypeVote.read(buf),
+            smoothed_speed_mps=_UniffiConverterOptionalDouble.read(buf),
+            at_traffic_control=_UniffiConverterBool.read(buf),
+            sampling=_UniffiConverterTypeSamplingAdvice.read(buf),
+            sampling_changed=_UniffiConverterBool.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterTypeMovementType.check_lower(value.movement)
+        _UniffiConverterTypeVote.check_lower(value.vote)
+        _UniffiConverterOptionalDouble.check_lower(value.smoothed_speed_mps)
+        _UniffiConverterBool.check_lower(value.at_traffic_control)
+        _UniffiConverterTypeSamplingAdvice.check_lower(value.sampling)
+        _UniffiConverterBool.check_lower(value.sampling_changed)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterTypeMovementType.write(value.movement, buf)
+        _UniffiConverterTypeVote.write(value.vote, buf)
+        _UniffiConverterOptionalDouble.write(value.smoothed_speed_mps, buf)
+        _UniffiConverterBool.write(value.at_traffic_control, buf)
+        _UniffiConverterTypeSamplingAdvice.write(value.sampling, buf)
+        _UniffiConverterBool.write(value.sampling_changed, buf)
 
 
 class AddressRecord:
@@ -1861,6 +2132,63 @@ class _UniffiConverterTypeAdminInfo(_UniffiConverterRustBuffer):
         _UniffiConverterString.write(value.zip, buf)
         _UniffiConverterString.write(value.timezone, buf)
         _UniffiConverterUInt8.write(value.boundary_flags, buf)
+
+
+class AppliedSampling:
+    location_level: "SamplingLevel"
+    location_interval_ms: "typing.Optional[int]"
+    accelerometer_level: "SamplingLevel"
+    accelerometer_hz: "typing.Optional[int]"
+    generation: "int"
+    def __init__(self, *, location_level: "SamplingLevel", location_interval_ms: "typing.Optional[int]", accelerometer_level: "SamplingLevel", accelerometer_hz: "typing.Optional[int]", generation: "int"):
+        self.location_level = location_level
+        self.location_interval_ms = location_interval_ms
+        self.accelerometer_level = accelerometer_level
+        self.accelerometer_hz = accelerometer_hz
+        self.generation = generation
+
+    def __str__(self):
+        return "AppliedSampling(location_level={}, location_interval_ms={}, accelerometer_level={}, accelerometer_hz={}, generation={})".format(self.location_level, self.location_interval_ms, self.accelerometer_level, self.accelerometer_hz, self.generation)
+
+    def __eq__(self, other):
+        if self.location_level != other.location_level:
+            return False
+        if self.location_interval_ms != other.location_interval_ms:
+            return False
+        if self.accelerometer_level != other.accelerometer_level:
+            return False
+        if self.accelerometer_hz != other.accelerometer_hz:
+            return False
+        if self.generation != other.generation:
+            return False
+        return True
+
+class _UniffiConverterTypeAppliedSampling(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return AppliedSampling(
+            location_level=_UniffiConverterTypeSamplingLevel.read(buf),
+            location_interval_ms=_UniffiConverterOptionalUInt32.read(buf),
+            accelerometer_level=_UniffiConverterTypeSamplingLevel.read(buf),
+            accelerometer_hz=_UniffiConverterOptionalUInt32.read(buf),
+            generation=_UniffiConverterUInt32.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterTypeSamplingLevel.check_lower(value.location_level)
+        _UniffiConverterOptionalUInt32.check_lower(value.location_interval_ms)
+        _UniffiConverterTypeSamplingLevel.check_lower(value.accelerometer_level)
+        _UniffiConverterOptionalUInt32.check_lower(value.accelerometer_hz)
+        _UniffiConverterUInt32.check_lower(value.generation)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterTypeSamplingLevel.write(value.location_level, buf)
+        _UniffiConverterOptionalUInt32.write(value.location_interval_ms, buf)
+        _UniffiConverterTypeSamplingLevel.write(value.accelerometer_level, buf)
+        _UniffiConverterOptionalUInt32.write(value.accelerometer_hz, buf)
+        _UniffiConverterUInt32.write(value.generation, buf)
 
 
 class AreaInfo:
@@ -2611,6 +2939,71 @@ class _UniffiConverterTypeFix(_UniffiConverterRustBuffer):
         _UniffiConverterOptionalDouble.write(value.speed_mps, buf)
 
 
+class IndoorOutdoorEstimate:
+    """
+    Explainable result from [`PtilesLayer::indoor_outdoor`].
+    """
+
+    state: "IndoorOutdoorState"
+    confidence: "float"
+    reason: "IndoorOutdoorReason"
+    building_osm_id: "typing.Optional[int]"
+    distance_to_boundary_m: "typing.Optional[float]"
+    """
+    Depth inside or clearance outside the relevant footprint.
+    """
+
+    def __init__(self, *, state: "IndoorOutdoorState", confidence: "float", reason: "IndoorOutdoorReason", building_osm_id: "typing.Optional[int]", distance_to_boundary_m: "typing.Optional[float]"):
+        self.state = state
+        self.confidence = confidence
+        self.reason = reason
+        self.building_osm_id = building_osm_id
+        self.distance_to_boundary_m = distance_to_boundary_m
+
+    def __str__(self):
+        return "IndoorOutdoorEstimate(state={}, confidence={}, reason={}, building_osm_id={}, distance_to_boundary_m={})".format(self.state, self.confidence, self.reason, self.building_osm_id, self.distance_to_boundary_m)
+
+    def __eq__(self, other):
+        if self.state != other.state:
+            return False
+        if self.confidence != other.confidence:
+            return False
+        if self.reason != other.reason:
+            return False
+        if self.building_osm_id != other.building_osm_id:
+            return False
+        if self.distance_to_boundary_m != other.distance_to_boundary_m:
+            return False
+        return True
+
+class _UniffiConverterTypeIndoorOutdoorEstimate(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return IndoorOutdoorEstimate(
+            state=_UniffiConverterTypeIndoorOutdoorState.read(buf),
+            confidence=_UniffiConverterDouble.read(buf),
+            reason=_UniffiConverterTypeIndoorOutdoorReason.read(buf),
+            building_osm_id=_UniffiConverterOptionalInt64.read(buf),
+            distance_to_boundary_m=_UniffiConverterOptionalDouble.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterTypeIndoorOutdoorState.check_lower(value.state)
+        _UniffiConverterDouble.check_lower(value.confidence)
+        _UniffiConverterTypeIndoorOutdoorReason.check_lower(value.reason)
+        _UniffiConverterOptionalInt64.check_lower(value.building_osm_id)
+        _UniffiConverterOptionalDouble.check_lower(value.distance_to_boundary_m)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterTypeIndoorOutdoorState.write(value.state, buf)
+        _UniffiConverterDouble.write(value.confidence, buf)
+        _UniffiConverterTypeIndoorOutdoorReason.write(value.reason, buf)
+        _UniffiConverterOptionalInt64.write(value.building_osm_id, buf)
+        _UniffiConverterOptionalDouble.write(value.distance_to_boundary_m, buf)
+
+
 class LatLon:
     lat: "float"
     lon: "float"
@@ -2888,6 +3281,184 @@ class _UniffiConverterTypeLocatedInfo(_UniffiConverterRustBuffer):
         _UniffiConverterOptionalTypeNearbyAddressInfo.write(value.address, buf)
         _UniffiConverterOptionalTypeAreaInfo.write(value.park, buf)
         _UniffiConverterOptionalTypeAreaInfo.write(value.water, buf)
+
+
+class LocationSample:
+    lat: "float"
+    lon: "float"
+    horizontal_accuracy_m: "typing.Optional[float]"
+    speed_mps: "typing.Optional[float]"
+    bearing_degrees: "typing.Optional[float]"
+    def __init__(self, *, lat: "float", lon: "float", horizontal_accuracy_m: "typing.Optional[float]", speed_mps: "typing.Optional[float]", bearing_degrees: "typing.Optional[float]"):
+        self.lat = lat
+        self.lon = lon
+        self.horizontal_accuracy_m = horizontal_accuracy_m
+        self.speed_mps = speed_mps
+        self.bearing_degrees = bearing_degrees
+
+    def __str__(self):
+        return "LocationSample(lat={}, lon={}, horizontal_accuracy_m={}, speed_mps={}, bearing_degrees={})".format(self.lat, self.lon, self.horizontal_accuracy_m, self.speed_mps, self.bearing_degrees)
+
+    def __eq__(self, other):
+        if self.lat != other.lat:
+            return False
+        if self.lon != other.lon:
+            return False
+        if self.horizontal_accuracy_m != other.horizontal_accuracy_m:
+            return False
+        if self.speed_mps != other.speed_mps:
+            return False
+        if self.bearing_degrees != other.bearing_degrees:
+            return False
+        return True
+
+class _UniffiConverterTypeLocationSample(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return LocationSample(
+            lat=_UniffiConverterDouble.read(buf),
+            lon=_UniffiConverterDouble.read(buf),
+            horizontal_accuracy_m=_UniffiConverterOptionalDouble.read(buf),
+            speed_mps=_UniffiConverterOptionalDouble.read(buf),
+            bearing_degrees=_UniffiConverterOptionalDouble.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterDouble.check_lower(value.lat)
+        _UniffiConverterDouble.check_lower(value.lon)
+        _UniffiConverterOptionalDouble.check_lower(value.horizontal_accuracy_m)
+        _UniffiConverterOptionalDouble.check_lower(value.speed_mps)
+        _UniffiConverterOptionalDouble.check_lower(value.bearing_degrees)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterDouble.write(value.lat, buf)
+        _UniffiConverterDouble.write(value.lon, buf)
+        _UniffiConverterOptionalDouble.write(value.horizontal_accuracy_m, buf)
+        _UniffiConverterOptionalDouble.write(value.speed_mps, buf)
+        _UniffiConverterOptionalDouble.write(value.bearing_degrees, buf)
+
+
+class MotionConfig:
+    stationary_max_mps: "float"
+    driving_min_mps: "float"
+    smoothing_window: "int"
+    min_dwell_samples: "int"
+    accuracy_gate_m: "float"
+    max_gap_ms: "int"
+    def __init__(self, *, stationary_max_mps: "float", driving_min_mps: "float", smoothing_window: "int", min_dwell_samples: "int", accuracy_gate_m: "float", max_gap_ms: "int"):
+        self.stationary_max_mps = stationary_max_mps
+        self.driving_min_mps = driving_min_mps
+        self.smoothing_window = smoothing_window
+        self.min_dwell_samples = min_dwell_samples
+        self.accuracy_gate_m = accuracy_gate_m
+        self.max_gap_ms = max_gap_ms
+
+    def __str__(self):
+        return "MotionConfig(stationary_max_mps={}, driving_min_mps={}, smoothing_window={}, min_dwell_samples={}, accuracy_gate_m={}, max_gap_ms={})".format(self.stationary_max_mps, self.driving_min_mps, self.smoothing_window, self.min_dwell_samples, self.accuracy_gate_m, self.max_gap_ms)
+
+    def __eq__(self, other):
+        if self.stationary_max_mps != other.stationary_max_mps:
+            return False
+        if self.driving_min_mps != other.driving_min_mps:
+            return False
+        if self.smoothing_window != other.smoothing_window:
+            return False
+        if self.min_dwell_samples != other.min_dwell_samples:
+            return False
+        if self.accuracy_gate_m != other.accuracy_gate_m:
+            return False
+        if self.max_gap_ms != other.max_gap_ms:
+            return False
+        return True
+
+class _UniffiConverterTypeMotionConfig(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return MotionConfig(
+            stationary_max_mps=_UniffiConverterDouble.read(buf),
+            driving_min_mps=_UniffiConverterDouble.read(buf),
+            smoothing_window=_UniffiConverterUInt32.read(buf),
+            min_dwell_samples=_UniffiConverterUInt32.read(buf),
+            accuracy_gate_m=_UniffiConverterDouble.read(buf),
+            max_gap_ms=_UniffiConverterUInt64.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterDouble.check_lower(value.stationary_max_mps)
+        _UniffiConverterDouble.check_lower(value.driving_min_mps)
+        _UniffiConverterUInt32.check_lower(value.smoothing_window)
+        _UniffiConverterUInt32.check_lower(value.min_dwell_samples)
+        _UniffiConverterDouble.check_lower(value.accuracy_gate_m)
+        _UniffiConverterUInt64.check_lower(value.max_gap_ms)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterDouble.write(value.stationary_max_mps, buf)
+        _UniffiConverterDouble.write(value.driving_min_mps, buf)
+        _UniffiConverterUInt32.write(value.smoothing_window, buf)
+        _UniffiConverterUInt32.write(value.min_dwell_samples, buf)
+        _UniffiConverterDouble.write(value.accuracy_gate_m, buf)
+        _UniffiConverterUInt64.write(value.max_gap_ms, buf)
+
+
+class MotionObservation:
+    t_ms: "int"
+    location: "typing.Optional[LocationSample]"
+    accelerometer: "typing.Optional[AccelStats]"
+    road: "typing.Optional[RoadContext]"
+    traffic_control: "typing.Optional[TrafficControl]"
+    def __init__(self, *, t_ms: "int", location: "typing.Optional[LocationSample]", accelerometer: "typing.Optional[AccelStats]", road: "typing.Optional[RoadContext]", traffic_control: "typing.Optional[TrafficControl]"):
+        self.t_ms = t_ms
+        self.location = location
+        self.accelerometer = accelerometer
+        self.road = road
+        self.traffic_control = traffic_control
+
+    def __str__(self):
+        return "MotionObservation(t_ms={}, location={}, accelerometer={}, road={}, traffic_control={})".format(self.t_ms, self.location, self.accelerometer, self.road, self.traffic_control)
+
+    def __eq__(self, other):
+        if self.t_ms != other.t_ms:
+            return False
+        if self.location != other.location:
+            return False
+        if self.accelerometer != other.accelerometer:
+            return False
+        if self.road != other.road:
+            return False
+        if self.traffic_control != other.traffic_control:
+            return False
+        return True
+
+class _UniffiConverterTypeMotionObservation(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return MotionObservation(
+            t_ms=_UniffiConverterUInt64.read(buf),
+            location=_UniffiConverterOptionalTypeLocationSample.read(buf),
+            accelerometer=_UniffiConverterOptionalTypeAccelStats.read(buf),
+            road=_UniffiConverterOptionalTypeRoadContext.read(buf),
+            traffic_control=_UniffiConverterOptionalTypeTrafficControl.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterUInt64.check_lower(value.t_ms)
+        _UniffiConverterOptionalTypeLocationSample.check_lower(value.location)
+        _UniffiConverterOptionalTypeAccelStats.check_lower(value.accelerometer)
+        _UniffiConverterOptionalTypeRoadContext.check_lower(value.road)
+        _UniffiConverterOptionalTypeTrafficControl.check_lower(value.traffic_control)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterUInt64.write(value.t_ms, buf)
+        _UniffiConverterOptionalTypeLocationSample.write(value.location, buf)
+        _UniffiConverterOptionalTypeAccelStats.write(value.accelerometer, buf)
+        _UniffiConverterOptionalTypeRoadContext.write(value.road, buf)
+        _UniffiConverterOptionalTypeTrafficControl.write(value.traffic_control, buf)
 
 
 class MovementThresholds:
@@ -3448,6 +4019,324 @@ class _UniffiConverterTypeRoadInfo(_UniffiConverterRustBuffer):
         _UniffiConverterSequenceTypeLatLon.write(value.geometry, buf)
 
 
+class SamplingAdvice:
+    location_level: "SamplingLevel"
+    location_interval_ms: "typing.Optional[int]"
+    location_min_distance_m: "typing.Optional[float]"
+    accelerometer_level: "SamplingLevel"
+    accelerometer_hz: "typing.Optional[int]"
+    accelerometer_window_ms: "typing.Optional[int]"
+    burst_duration_ms: "typing.Optional[int]"
+    reevaluate_after_ms: "int"
+    reason: "SamplingReason"
+    generation: "int"
+    limited_by_capabilities: "bool"
+    def __init__(self, *, location_level: "SamplingLevel", location_interval_ms: "typing.Optional[int]", location_min_distance_m: "typing.Optional[float]", accelerometer_level: "SamplingLevel", accelerometer_hz: "typing.Optional[int]", accelerometer_window_ms: "typing.Optional[int]", burst_duration_ms: "typing.Optional[int]", reevaluate_after_ms: "int", reason: "SamplingReason", generation: "int", limited_by_capabilities: "bool"):
+        self.location_level = location_level
+        self.location_interval_ms = location_interval_ms
+        self.location_min_distance_m = location_min_distance_m
+        self.accelerometer_level = accelerometer_level
+        self.accelerometer_hz = accelerometer_hz
+        self.accelerometer_window_ms = accelerometer_window_ms
+        self.burst_duration_ms = burst_duration_ms
+        self.reevaluate_after_ms = reevaluate_after_ms
+        self.reason = reason
+        self.generation = generation
+        self.limited_by_capabilities = limited_by_capabilities
+
+    def __str__(self):
+        return "SamplingAdvice(location_level={}, location_interval_ms={}, location_min_distance_m={}, accelerometer_level={}, accelerometer_hz={}, accelerometer_window_ms={}, burst_duration_ms={}, reevaluate_after_ms={}, reason={}, generation={}, limited_by_capabilities={})".format(self.location_level, self.location_interval_ms, self.location_min_distance_m, self.accelerometer_level, self.accelerometer_hz, self.accelerometer_window_ms, self.burst_duration_ms, self.reevaluate_after_ms, self.reason, self.generation, self.limited_by_capabilities)
+
+    def __eq__(self, other):
+        if self.location_level != other.location_level:
+            return False
+        if self.location_interval_ms != other.location_interval_ms:
+            return False
+        if self.location_min_distance_m != other.location_min_distance_m:
+            return False
+        if self.accelerometer_level != other.accelerometer_level:
+            return False
+        if self.accelerometer_hz != other.accelerometer_hz:
+            return False
+        if self.accelerometer_window_ms != other.accelerometer_window_ms:
+            return False
+        if self.burst_duration_ms != other.burst_duration_ms:
+            return False
+        if self.reevaluate_after_ms != other.reevaluate_after_ms:
+            return False
+        if self.reason != other.reason:
+            return False
+        if self.generation != other.generation:
+            return False
+        if self.limited_by_capabilities != other.limited_by_capabilities:
+            return False
+        return True
+
+class _UniffiConverterTypeSamplingAdvice(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return SamplingAdvice(
+            location_level=_UniffiConverterTypeSamplingLevel.read(buf),
+            location_interval_ms=_UniffiConverterOptionalUInt32.read(buf),
+            location_min_distance_m=_UniffiConverterOptionalDouble.read(buf),
+            accelerometer_level=_UniffiConverterTypeSamplingLevel.read(buf),
+            accelerometer_hz=_UniffiConverterOptionalUInt32.read(buf),
+            accelerometer_window_ms=_UniffiConverterOptionalUInt32.read(buf),
+            burst_duration_ms=_UniffiConverterOptionalUInt32.read(buf),
+            reevaluate_after_ms=_UniffiConverterUInt32.read(buf),
+            reason=_UniffiConverterTypeSamplingReason.read(buf),
+            generation=_UniffiConverterUInt32.read(buf),
+            limited_by_capabilities=_UniffiConverterBool.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterTypeSamplingLevel.check_lower(value.location_level)
+        _UniffiConverterOptionalUInt32.check_lower(value.location_interval_ms)
+        _UniffiConverterOptionalDouble.check_lower(value.location_min_distance_m)
+        _UniffiConverterTypeSamplingLevel.check_lower(value.accelerometer_level)
+        _UniffiConverterOptionalUInt32.check_lower(value.accelerometer_hz)
+        _UniffiConverterOptionalUInt32.check_lower(value.accelerometer_window_ms)
+        _UniffiConverterOptionalUInt32.check_lower(value.burst_duration_ms)
+        _UniffiConverterUInt32.check_lower(value.reevaluate_after_ms)
+        _UniffiConverterTypeSamplingReason.check_lower(value.reason)
+        _UniffiConverterUInt32.check_lower(value.generation)
+        _UniffiConverterBool.check_lower(value.limited_by_capabilities)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterTypeSamplingLevel.write(value.location_level, buf)
+        _UniffiConverterOptionalUInt32.write(value.location_interval_ms, buf)
+        _UniffiConverterOptionalDouble.write(value.location_min_distance_m, buf)
+        _UniffiConverterTypeSamplingLevel.write(value.accelerometer_level, buf)
+        _UniffiConverterOptionalUInt32.write(value.accelerometer_hz, buf)
+        _UniffiConverterOptionalUInt32.write(value.accelerometer_window_ms, buf)
+        _UniffiConverterOptionalUInt32.write(value.burst_duration_ms, buf)
+        _UniffiConverterUInt32.write(value.reevaluate_after_ms, buf)
+        _UniffiConverterTypeSamplingReason.write(value.reason, buf)
+        _UniffiConverterUInt32.write(value.generation, buf)
+        _UniffiConverterBool.write(value.limited_by_capabilities, buf)
+
+
+class SamplingCapabilities:
+    location_available: "bool"
+    accelerometer_available: "bool"
+    supports_passive_location: "bool"
+    supports_motion_wakeup: "bool"
+    minimum_location_interval_ms: "typing.Optional[int]"
+    maximum_accelerometer_hz: "typing.Optional[int]"
+    def __init__(self, *, location_available: "bool", accelerometer_available: "bool", supports_passive_location: "bool", supports_motion_wakeup: "bool", minimum_location_interval_ms: "typing.Optional[int]", maximum_accelerometer_hz: "typing.Optional[int]"):
+        self.location_available = location_available
+        self.accelerometer_available = accelerometer_available
+        self.supports_passive_location = supports_passive_location
+        self.supports_motion_wakeup = supports_motion_wakeup
+        self.minimum_location_interval_ms = minimum_location_interval_ms
+        self.maximum_accelerometer_hz = maximum_accelerometer_hz
+
+    def __str__(self):
+        return "SamplingCapabilities(location_available={}, accelerometer_available={}, supports_passive_location={}, supports_motion_wakeup={}, minimum_location_interval_ms={}, maximum_accelerometer_hz={})".format(self.location_available, self.accelerometer_available, self.supports_passive_location, self.supports_motion_wakeup, self.minimum_location_interval_ms, self.maximum_accelerometer_hz)
+
+    def __eq__(self, other):
+        if self.location_available != other.location_available:
+            return False
+        if self.accelerometer_available != other.accelerometer_available:
+            return False
+        if self.supports_passive_location != other.supports_passive_location:
+            return False
+        if self.supports_motion_wakeup != other.supports_motion_wakeup:
+            return False
+        if self.minimum_location_interval_ms != other.minimum_location_interval_ms:
+            return False
+        if self.maximum_accelerometer_hz != other.maximum_accelerometer_hz:
+            return False
+        return True
+
+class _UniffiConverterTypeSamplingCapabilities(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return SamplingCapabilities(
+            location_available=_UniffiConverterBool.read(buf),
+            accelerometer_available=_UniffiConverterBool.read(buf),
+            supports_passive_location=_UniffiConverterBool.read(buf),
+            supports_motion_wakeup=_UniffiConverterBool.read(buf),
+            minimum_location_interval_ms=_UniffiConverterOptionalUInt32.read(buf),
+            maximum_accelerometer_hz=_UniffiConverterOptionalUInt32.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterBool.check_lower(value.location_available)
+        _UniffiConverterBool.check_lower(value.accelerometer_available)
+        _UniffiConverterBool.check_lower(value.supports_passive_location)
+        _UniffiConverterBool.check_lower(value.supports_motion_wakeup)
+        _UniffiConverterOptionalUInt32.check_lower(value.minimum_location_interval_ms)
+        _UniffiConverterOptionalUInt32.check_lower(value.maximum_accelerometer_hz)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterBool.write(value.location_available, buf)
+        _UniffiConverterBool.write(value.accelerometer_available, buf)
+        _UniffiConverterBool.write(value.supports_passive_location, buf)
+        _UniffiConverterBool.write(value.supports_motion_wakeup, buf)
+        _UniffiConverterOptionalUInt32.write(value.minimum_location_interval_ms, buf)
+        _UniffiConverterOptionalUInt32.write(value.maximum_accelerometer_hz, buf)
+
+
+class SamplingConfig:
+    uncertain_location_interval_ms: "int"
+    stationary_location_interval_ms: "int"
+    walking_location_interval_ms: "int"
+    running_location_interval_ms: "int"
+    driving_location_interval_ms: "int"
+    stationary_min_distance_m: "float"
+    walking_min_distance_m: "float"
+    running_min_distance_m: "float"
+    driving_min_distance_m: "float"
+    uncertain_accelerometer_hz: "int"
+    stationary_accelerometer_hz: "int"
+    walking_accelerometer_hz: "int"
+    running_accelerometer_hz: "int"
+    driving_accelerometer_hz: "int"
+    accelerometer_window_ms: "int"
+    transition_burst_ms: "int"
+    downshift_hold_ms: "int"
+    advice_ttl_ms: "int"
+    confidence_gate: "float"
+    def __init__(self, *, uncertain_location_interval_ms: "int", stationary_location_interval_ms: "int", walking_location_interval_ms: "int", running_location_interval_ms: "int", driving_location_interval_ms: "int", stationary_min_distance_m: "float", walking_min_distance_m: "float", running_min_distance_m: "float", driving_min_distance_m: "float", uncertain_accelerometer_hz: "int", stationary_accelerometer_hz: "int", walking_accelerometer_hz: "int", running_accelerometer_hz: "int", driving_accelerometer_hz: "int", accelerometer_window_ms: "int", transition_burst_ms: "int", downshift_hold_ms: "int", advice_ttl_ms: "int", confidence_gate: "float"):
+        self.uncertain_location_interval_ms = uncertain_location_interval_ms
+        self.stationary_location_interval_ms = stationary_location_interval_ms
+        self.walking_location_interval_ms = walking_location_interval_ms
+        self.running_location_interval_ms = running_location_interval_ms
+        self.driving_location_interval_ms = driving_location_interval_ms
+        self.stationary_min_distance_m = stationary_min_distance_m
+        self.walking_min_distance_m = walking_min_distance_m
+        self.running_min_distance_m = running_min_distance_m
+        self.driving_min_distance_m = driving_min_distance_m
+        self.uncertain_accelerometer_hz = uncertain_accelerometer_hz
+        self.stationary_accelerometer_hz = stationary_accelerometer_hz
+        self.walking_accelerometer_hz = walking_accelerometer_hz
+        self.running_accelerometer_hz = running_accelerometer_hz
+        self.driving_accelerometer_hz = driving_accelerometer_hz
+        self.accelerometer_window_ms = accelerometer_window_ms
+        self.transition_burst_ms = transition_burst_ms
+        self.downshift_hold_ms = downshift_hold_ms
+        self.advice_ttl_ms = advice_ttl_ms
+        self.confidence_gate = confidence_gate
+
+    def __str__(self):
+        return "SamplingConfig(uncertain_location_interval_ms={}, stationary_location_interval_ms={}, walking_location_interval_ms={}, running_location_interval_ms={}, driving_location_interval_ms={}, stationary_min_distance_m={}, walking_min_distance_m={}, running_min_distance_m={}, driving_min_distance_m={}, uncertain_accelerometer_hz={}, stationary_accelerometer_hz={}, walking_accelerometer_hz={}, running_accelerometer_hz={}, driving_accelerometer_hz={}, accelerometer_window_ms={}, transition_burst_ms={}, downshift_hold_ms={}, advice_ttl_ms={}, confidence_gate={})".format(self.uncertain_location_interval_ms, self.stationary_location_interval_ms, self.walking_location_interval_ms, self.running_location_interval_ms, self.driving_location_interval_ms, self.stationary_min_distance_m, self.walking_min_distance_m, self.running_min_distance_m, self.driving_min_distance_m, self.uncertain_accelerometer_hz, self.stationary_accelerometer_hz, self.walking_accelerometer_hz, self.running_accelerometer_hz, self.driving_accelerometer_hz, self.accelerometer_window_ms, self.transition_burst_ms, self.downshift_hold_ms, self.advice_ttl_ms, self.confidence_gate)
+
+    def __eq__(self, other):
+        if self.uncertain_location_interval_ms != other.uncertain_location_interval_ms:
+            return False
+        if self.stationary_location_interval_ms != other.stationary_location_interval_ms:
+            return False
+        if self.walking_location_interval_ms != other.walking_location_interval_ms:
+            return False
+        if self.running_location_interval_ms != other.running_location_interval_ms:
+            return False
+        if self.driving_location_interval_ms != other.driving_location_interval_ms:
+            return False
+        if self.stationary_min_distance_m != other.stationary_min_distance_m:
+            return False
+        if self.walking_min_distance_m != other.walking_min_distance_m:
+            return False
+        if self.running_min_distance_m != other.running_min_distance_m:
+            return False
+        if self.driving_min_distance_m != other.driving_min_distance_m:
+            return False
+        if self.uncertain_accelerometer_hz != other.uncertain_accelerometer_hz:
+            return False
+        if self.stationary_accelerometer_hz != other.stationary_accelerometer_hz:
+            return False
+        if self.walking_accelerometer_hz != other.walking_accelerometer_hz:
+            return False
+        if self.running_accelerometer_hz != other.running_accelerometer_hz:
+            return False
+        if self.driving_accelerometer_hz != other.driving_accelerometer_hz:
+            return False
+        if self.accelerometer_window_ms != other.accelerometer_window_ms:
+            return False
+        if self.transition_burst_ms != other.transition_burst_ms:
+            return False
+        if self.downshift_hold_ms != other.downshift_hold_ms:
+            return False
+        if self.advice_ttl_ms != other.advice_ttl_ms:
+            return False
+        if self.confidence_gate != other.confidence_gate:
+            return False
+        return True
+
+class _UniffiConverterTypeSamplingConfig(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return SamplingConfig(
+            uncertain_location_interval_ms=_UniffiConverterUInt32.read(buf),
+            stationary_location_interval_ms=_UniffiConverterUInt32.read(buf),
+            walking_location_interval_ms=_UniffiConverterUInt32.read(buf),
+            running_location_interval_ms=_UniffiConverterUInt32.read(buf),
+            driving_location_interval_ms=_UniffiConverterUInt32.read(buf),
+            stationary_min_distance_m=_UniffiConverterDouble.read(buf),
+            walking_min_distance_m=_UniffiConverterDouble.read(buf),
+            running_min_distance_m=_UniffiConverterDouble.read(buf),
+            driving_min_distance_m=_UniffiConverterDouble.read(buf),
+            uncertain_accelerometer_hz=_UniffiConverterUInt32.read(buf),
+            stationary_accelerometer_hz=_UniffiConverterUInt32.read(buf),
+            walking_accelerometer_hz=_UniffiConverterUInt32.read(buf),
+            running_accelerometer_hz=_UniffiConverterUInt32.read(buf),
+            driving_accelerometer_hz=_UniffiConverterUInt32.read(buf),
+            accelerometer_window_ms=_UniffiConverterUInt32.read(buf),
+            transition_burst_ms=_UniffiConverterUInt32.read(buf),
+            downshift_hold_ms=_UniffiConverterUInt32.read(buf),
+            advice_ttl_ms=_UniffiConverterUInt32.read(buf),
+            confidence_gate=_UniffiConverterDouble.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiConverterUInt32.check_lower(value.uncertain_location_interval_ms)
+        _UniffiConverterUInt32.check_lower(value.stationary_location_interval_ms)
+        _UniffiConverterUInt32.check_lower(value.walking_location_interval_ms)
+        _UniffiConverterUInt32.check_lower(value.running_location_interval_ms)
+        _UniffiConverterUInt32.check_lower(value.driving_location_interval_ms)
+        _UniffiConverterDouble.check_lower(value.stationary_min_distance_m)
+        _UniffiConverterDouble.check_lower(value.walking_min_distance_m)
+        _UniffiConverterDouble.check_lower(value.running_min_distance_m)
+        _UniffiConverterDouble.check_lower(value.driving_min_distance_m)
+        _UniffiConverterUInt32.check_lower(value.uncertain_accelerometer_hz)
+        _UniffiConverterUInt32.check_lower(value.stationary_accelerometer_hz)
+        _UniffiConverterUInt32.check_lower(value.walking_accelerometer_hz)
+        _UniffiConverterUInt32.check_lower(value.running_accelerometer_hz)
+        _UniffiConverterUInt32.check_lower(value.driving_accelerometer_hz)
+        _UniffiConverterUInt32.check_lower(value.accelerometer_window_ms)
+        _UniffiConverterUInt32.check_lower(value.transition_burst_ms)
+        _UniffiConverterUInt32.check_lower(value.downshift_hold_ms)
+        _UniffiConverterUInt32.check_lower(value.advice_ttl_ms)
+        _UniffiConverterDouble.check_lower(value.confidence_gate)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiConverterUInt32.write(value.uncertain_location_interval_ms, buf)
+        _UniffiConverterUInt32.write(value.stationary_location_interval_ms, buf)
+        _UniffiConverterUInt32.write(value.walking_location_interval_ms, buf)
+        _UniffiConverterUInt32.write(value.running_location_interval_ms, buf)
+        _UniffiConverterUInt32.write(value.driving_location_interval_ms, buf)
+        _UniffiConverterDouble.write(value.stationary_min_distance_m, buf)
+        _UniffiConverterDouble.write(value.walking_min_distance_m, buf)
+        _UniffiConverterDouble.write(value.running_min_distance_m, buf)
+        _UniffiConverterDouble.write(value.driving_min_distance_m, buf)
+        _UniffiConverterUInt32.write(value.uncertain_accelerometer_hz, buf)
+        _UniffiConverterUInt32.write(value.stationary_accelerometer_hz, buf)
+        _UniffiConverterUInt32.write(value.walking_accelerometer_hz, buf)
+        _UniffiConverterUInt32.write(value.running_accelerometer_hz, buf)
+        _UniffiConverterUInt32.write(value.driving_accelerometer_hz, buf)
+        _UniffiConverterUInt32.write(value.accelerometer_window_ms, buf)
+        _UniffiConverterUInt32.write(value.transition_burst_ms, buf)
+        _UniffiConverterUInt32.write(value.downshift_hold_ms, buf)
+        _UniffiConverterUInt32.write(value.advice_ttl_ms, buf)
+        _UniffiConverterDouble.write(value.confidence_gate, buf)
+
+
 class TrafficControl:
     """
     The nearest mapped node a vehicle might be waiting at.
@@ -3864,6 +4753,144 @@ class _UniffiConverterTypeCandidateKind(_UniffiConverterRustBuffer):
 
 
 
+class IndoorOutdoorReason(enum.Enum):
+    INSIDE_BUILDING = 0
+    
+    INSIDE_OPEN_STRUCTURE = 1
+    
+    ACCURACY_OVERLAPS_BUILDING = 2
+    
+    CLEAR_OF_BUILDINGS = 3
+    
+    NO_BUILDINGS_NEARBY = 4
+    
+    INCOMPLETE_COVERAGE = 5
+    
+    INVALID_FIX = 6
+    
+    POOR_ACCURACY = 7
+    
+
+
+class _UniffiConverterTypeIndoorOutdoorReason(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return IndoorOutdoorReason.INSIDE_BUILDING
+        if variant == 2:
+            return IndoorOutdoorReason.INSIDE_OPEN_STRUCTURE
+        if variant == 3:
+            return IndoorOutdoorReason.ACCURACY_OVERLAPS_BUILDING
+        if variant == 4:
+            return IndoorOutdoorReason.CLEAR_OF_BUILDINGS
+        if variant == 5:
+            return IndoorOutdoorReason.NO_BUILDINGS_NEARBY
+        if variant == 6:
+            return IndoorOutdoorReason.INCOMPLETE_COVERAGE
+        if variant == 7:
+            return IndoorOutdoorReason.INVALID_FIX
+        if variant == 8:
+            return IndoorOutdoorReason.POOR_ACCURACY
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if value == IndoorOutdoorReason.INSIDE_BUILDING:
+            return
+        if value == IndoorOutdoorReason.INSIDE_OPEN_STRUCTURE:
+            return
+        if value == IndoorOutdoorReason.ACCURACY_OVERLAPS_BUILDING:
+            return
+        if value == IndoorOutdoorReason.CLEAR_OF_BUILDINGS:
+            return
+        if value == IndoorOutdoorReason.NO_BUILDINGS_NEARBY:
+            return
+        if value == IndoorOutdoorReason.INCOMPLETE_COVERAGE:
+            return
+        if value == IndoorOutdoorReason.INVALID_FIX:
+            return
+        if value == IndoorOutdoorReason.POOR_ACCURACY:
+            return
+        raise ValueError(value)
+
+    @staticmethod
+    def write(value, buf):
+        if value == IndoorOutdoorReason.INSIDE_BUILDING:
+            buf.write_i32(1)
+        if value == IndoorOutdoorReason.INSIDE_OPEN_STRUCTURE:
+            buf.write_i32(2)
+        if value == IndoorOutdoorReason.ACCURACY_OVERLAPS_BUILDING:
+            buf.write_i32(3)
+        if value == IndoorOutdoorReason.CLEAR_OF_BUILDINGS:
+            buf.write_i32(4)
+        if value == IndoorOutdoorReason.NO_BUILDINGS_NEARBY:
+            buf.write_i32(5)
+        if value == IndoorOutdoorReason.INCOMPLETE_COVERAGE:
+            buf.write_i32(6)
+        if value == IndoorOutdoorReason.INVALID_FIX:
+            buf.write_i32(7)
+        if value == IndoorOutdoorReason.POOR_ACCURACY:
+            buf.write_i32(8)
+
+
+
+
+
+
+
+class IndoorOutdoorState(enum.Enum):
+    """
+    Indoor/outdoor estimate exposed to Swift/Kotlin/Python. `Uncertain` is a
+    first-class result: a building-edge GPS fix or missing map coverage is not
+    forced into a binary answer.
+    """
+
+    INDOOR = 0
+    
+    OUTDOOR = 1
+    
+    UNCERTAIN = 2
+    
+
+
+class _UniffiConverterTypeIndoorOutdoorState(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return IndoorOutdoorState.INDOOR
+        if variant == 2:
+            return IndoorOutdoorState.OUTDOOR
+        if variant == 3:
+            return IndoorOutdoorState.UNCERTAIN
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if value == IndoorOutdoorState.INDOOR:
+            return
+        if value == IndoorOutdoorState.OUTDOOR:
+            return
+        if value == IndoorOutdoorState.UNCERTAIN:
+            return
+        raise ValueError(value)
+
+    @staticmethod
+    def write(value, buf):
+        if value == IndoorOutdoorState.INDOOR:
+            buf.write_i32(1)
+        if value == IndoorOutdoorState.OUTDOOR:
+            buf.write_i32(2)
+        if value == IndoorOutdoorState.UNCERTAIN:
+            buf.write_i32(3)
+
+
+
+
+
+
+
 class MovementType(enum.Enum):
     """
     What the classifier thinks is happening.
@@ -4125,6 +5152,237 @@ class _UniffiConverterTypePtilesError(_UniffiConverterRustBuffer):
             buf.write_i32(8)
         if isinstance(value, PtilesError.InvalidBounds):
             buf.write_i32(9)
+
+
+
+
+
+class SamplingIntent(enum.Enum):
+    BACKGROUND = 0
+    
+    TRACKING = 1
+    
+    NAVIGATION = 2
+    
+
+
+class _UniffiConverterTypeSamplingIntent(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return SamplingIntent.BACKGROUND
+        if variant == 2:
+            return SamplingIntent.TRACKING
+        if variant == 3:
+            return SamplingIntent.NAVIGATION
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if value == SamplingIntent.BACKGROUND:
+            return
+        if value == SamplingIntent.TRACKING:
+            return
+        if value == SamplingIntent.NAVIGATION:
+            return
+        raise ValueError(value)
+
+    @staticmethod
+    def write(value, buf):
+        if value == SamplingIntent.BACKGROUND:
+            buf.write_i32(1)
+        if value == SamplingIntent.TRACKING:
+            buf.write_i32(2)
+        if value == SamplingIntent.NAVIGATION:
+            buf.write_i32(3)
+
+
+
+
+
+
+
+class SamplingLevel(enum.Enum):
+    """
+    Relative sensor intensity requested by PTiles Motion. Platform adapters map
+    this intent onto their own location and sensor services.
+    """
+
+    OFF = 0
+    
+    PASSIVE = 1
+    
+    LOW = 2
+    
+    BALANCED = 3
+    
+    HIGH = 4
+    
+    BURST = 5
+    
+
+
+class _UniffiConverterTypeSamplingLevel(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return SamplingLevel.OFF
+        if variant == 2:
+            return SamplingLevel.PASSIVE
+        if variant == 3:
+            return SamplingLevel.LOW
+        if variant == 4:
+            return SamplingLevel.BALANCED
+        if variant == 5:
+            return SamplingLevel.HIGH
+        if variant == 6:
+            return SamplingLevel.BURST
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if value == SamplingLevel.OFF:
+            return
+        if value == SamplingLevel.PASSIVE:
+            return
+        if value == SamplingLevel.LOW:
+            return
+        if value == SamplingLevel.BALANCED:
+            return
+        if value == SamplingLevel.HIGH:
+            return
+        if value == SamplingLevel.BURST:
+            return
+        raise ValueError(value)
+
+    @staticmethod
+    def write(value, buf):
+        if value == SamplingLevel.OFF:
+            buf.write_i32(1)
+        if value == SamplingLevel.PASSIVE:
+            buf.write_i32(2)
+        if value == SamplingLevel.LOW:
+            buf.write_i32(3)
+        if value == SamplingLevel.BALANCED:
+            buf.write_i32(4)
+        if value == SamplingLevel.HIGH:
+            buf.write_i32(5)
+        if value == SamplingLevel.BURST:
+            buf.write_i32(6)
+
+
+
+
+
+
+
+class SamplingReason(enum.Enum):
+    INITIALIZING = 0
+    
+    STABLE_STATIONARY = 1
+    
+    STABLE_WALKING = 2
+    
+    STABLE_RUNNING = 3
+    
+    STABLE_DRIVING = 4
+    
+    PENDING_TRANSITION = 5
+    
+    LOW_CONFIDENCE = 6
+    
+    POOR_LOCATION_ACCURACY = 7
+    
+    MISSING_LOCATION = 8
+    
+    MISSING_ACCELEROMETER = 9
+    
+    CAPABILITY_LIMITED = 10
+    
+
+
+class _UniffiConverterTypeSamplingReason(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return SamplingReason.INITIALIZING
+        if variant == 2:
+            return SamplingReason.STABLE_STATIONARY
+        if variant == 3:
+            return SamplingReason.STABLE_WALKING
+        if variant == 4:
+            return SamplingReason.STABLE_RUNNING
+        if variant == 5:
+            return SamplingReason.STABLE_DRIVING
+        if variant == 6:
+            return SamplingReason.PENDING_TRANSITION
+        if variant == 7:
+            return SamplingReason.LOW_CONFIDENCE
+        if variant == 8:
+            return SamplingReason.POOR_LOCATION_ACCURACY
+        if variant == 9:
+            return SamplingReason.MISSING_LOCATION
+        if variant == 10:
+            return SamplingReason.MISSING_ACCELEROMETER
+        if variant == 11:
+            return SamplingReason.CAPABILITY_LIMITED
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if value == SamplingReason.INITIALIZING:
+            return
+        if value == SamplingReason.STABLE_STATIONARY:
+            return
+        if value == SamplingReason.STABLE_WALKING:
+            return
+        if value == SamplingReason.STABLE_RUNNING:
+            return
+        if value == SamplingReason.STABLE_DRIVING:
+            return
+        if value == SamplingReason.PENDING_TRANSITION:
+            return
+        if value == SamplingReason.LOW_CONFIDENCE:
+            return
+        if value == SamplingReason.POOR_LOCATION_ACCURACY:
+            return
+        if value == SamplingReason.MISSING_LOCATION:
+            return
+        if value == SamplingReason.MISSING_ACCELEROMETER:
+            return
+        if value == SamplingReason.CAPABILITY_LIMITED:
+            return
+        raise ValueError(value)
+
+    @staticmethod
+    def write(value, buf):
+        if value == SamplingReason.INITIALIZING:
+            buf.write_i32(1)
+        if value == SamplingReason.STABLE_STATIONARY:
+            buf.write_i32(2)
+        if value == SamplingReason.STABLE_WALKING:
+            buf.write_i32(3)
+        if value == SamplingReason.STABLE_RUNNING:
+            buf.write_i32(4)
+        if value == SamplingReason.STABLE_DRIVING:
+            buf.write_i32(5)
+        if value == SamplingReason.PENDING_TRANSITION:
+            buf.write_i32(6)
+        if value == SamplingReason.LOW_CONFIDENCE:
+            buf.write_i32(7)
+        if value == SamplingReason.POOR_LOCATION_ACCURACY:
+            buf.write_i32(8)
+        if value == SamplingReason.MISSING_LOCATION:
+            buf.write_i32(9)
+        if value == SamplingReason.MISSING_ACCELEROMETER:
+            buf.write_i32(10)
+        if value == SamplingReason.CAPABILITY_LIMITED:
+            buf.write_i32(11)
+
+
 
 
 
@@ -4425,6 +5683,33 @@ class _UniffiConverterOptionalTypeAdminInfo(_UniffiConverterRustBuffer):
 
 
 
+class _UniffiConverterOptionalTypeAppliedSampling(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypeAppliedSampling.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypeAppliedSampling.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypeAppliedSampling.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
 class _UniffiConverterOptionalTypeAreaInfo(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -4474,6 +5759,33 @@ class _UniffiConverterOptionalTypeBuildingInfo(_UniffiConverterRustBuffer):
             return None
         elif flag == 1:
             return _UniffiConverterTypeBuildingInfo.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
+class _UniffiConverterOptionalTypeLocationSample(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiConverterTypeLocationSample.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterTypeLocationSample.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterTypeLocationSample.read(buf)
         else:
             raise InternalError("Unexpected flag byte for optional type")
 
@@ -5067,6 +6379,196 @@ class _UniffiConverterSequenceOptionalTypeNearestRoad(_UniffiConverterRustBuffer
         ]
 
 # objects.
+class AdaptiveMotionSessionProtocol(typing.Protocol):
+    """
+    Stateful, hardware-neutral pipeline. Calls return sampling advice; Kotlin,
+    Swift, desktop, or other adapters decide how to apply it and may emit their
+    own native callback/stream after `sampling_changed` becomes true.
+    """
+
+    def current_advice(self, ):
+        raise NotImplementedError
+    def last_applied_sampling(self, ):
+        raise NotImplementedError
+    def movement(self, ):
+        raise NotImplementedError
+    def observe(self, observation: "MotionObservation"):
+        raise NotImplementedError
+    def report_applied_sampling(self, applied: "AppliedSampling"):
+        raise NotImplementedError
+    def reset(self, ):
+        raise NotImplementedError
+    def set_capabilities(self, capabilities: "SamplingCapabilities",now_ms: "int"):
+        raise NotImplementedError
+    def set_intent(self, intent: "SamplingIntent",now_ms: "int"):
+        raise NotImplementedError
+    def tick(self, now_ms: "int"):
+        raise NotImplementedError
+# AdaptiveMotionSession is a Rust-only trait - it's a wrapper around a Rust implementation.
+class AdaptiveMotionSession():
+    """
+    Stateful, hardware-neutral pipeline. Calls return sampling advice; Kotlin,
+    Swift, desktop, or other adapters decide how to apply it and may emit their
+    own native callback/stream after `sampling_changed` becomes true.
+    """
+
+    _pointer: ctypes.c_void_p
+    def __init__(self, config: "AdaptiveMotionConfig",capabilities: "SamplingCapabilities"):
+        _UniffiConverterTypeAdaptiveMotionConfig.check_lower(config)
+        
+        _UniffiConverterTypeSamplingCapabilities.check_lower(capabilities)
+        
+        self._pointer = _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_constructor_adaptivemotionsession_new,
+        _UniffiConverterTypeAdaptiveMotionConfig.lower(config),
+        _UniffiConverterTypeSamplingCapabilities.lower(capabilities))
+
+    def __del__(self):
+        # In case of partial initialization of instances.
+        pointer = getattr(self, "_pointer", None)
+        if pointer is not None:
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_free_adaptivemotionsession, pointer)
+
+    def _uniffi_clone_pointer(self):
+        return _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_clone_adaptivemotionsession, self._pointer)
+
+    # Used by alternative constructors or any methods which return this type.
+    @classmethod
+    def _make_instance_(cls, pointer):
+        # Lightly yucky way to bypass the usual __init__ logic
+        # and just create a new instance with the required pointer.
+        inst = cls.__new__(cls)
+        inst._pointer = pointer
+        return inst
+
+
+    def current_advice(self, ) -> "SamplingAdvice":
+        return _UniffiConverterTypeSamplingAdvice.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_current_advice,self._uniffi_clone_pointer(),)
+        )
+
+
+
+
+
+    def last_applied_sampling(self, ) -> "typing.Optional[AppliedSampling]":
+        return _UniffiConverterOptionalTypeAppliedSampling.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_last_applied_sampling,self._uniffi_clone_pointer(),)
+        )
+
+
+
+
+
+    def movement(self, ) -> "MovementType":
+        return _UniffiConverterTypeMovementType.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_movement,self._uniffi_clone_pointer(),)
+        )
+
+
+
+
+
+    def observe(self, observation: "MotionObservation") -> "AdaptiveMotionUpdate":
+        _UniffiConverterTypeMotionObservation.check_lower(observation)
+        
+        return _UniffiConverterTypeAdaptiveMotionUpdate.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_observe,self._uniffi_clone_pointer(),
+        _UniffiConverterTypeMotionObservation.lower(observation))
+        )
+
+
+
+
+
+    def report_applied_sampling(self, applied: "AppliedSampling") -> None:
+        _UniffiConverterTypeAppliedSampling.check_lower(applied)
+        
+        _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling,self._uniffi_clone_pointer(),
+        _UniffiConverterTypeAppliedSampling.lower(applied))
+
+
+
+
+
+
+    def reset(self, ) -> None:
+        _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset,self._uniffi_clone_pointer(),)
+
+
+
+
+
+
+    def set_capabilities(self, capabilities: "SamplingCapabilities",now_ms: "int") -> "bool":
+        _UniffiConverterTypeSamplingCapabilities.check_lower(capabilities)
+        
+        _UniffiConverterUInt64.check_lower(now_ms)
+        
+        return _UniffiConverterBool.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_capabilities,self._uniffi_clone_pointer(),
+        _UniffiConverterTypeSamplingCapabilities.lower(capabilities),
+        _UniffiConverterUInt64.lower(now_ms))
+        )
+
+
+
+
+
+    def set_intent(self, intent: "SamplingIntent",now_ms: "int") -> "bool":
+        _UniffiConverterTypeSamplingIntent.check_lower(intent)
+        
+        _UniffiConverterUInt64.check_lower(now_ms)
+        
+        return _UniffiConverterBool.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_intent,self._uniffi_clone_pointer(),
+        _UniffiConverterTypeSamplingIntent.lower(intent),
+        _UniffiConverterUInt64.lower(now_ms))
+        )
+
+
+
+
+
+    def tick(self, now_ms: "int") -> "AdaptiveMotionUpdate":
+        _UniffiConverterUInt64.check_lower(now_ms)
+        
+        return _UniffiConverterTypeAdaptiveMotionUpdate.lift(
+            _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_tick,self._uniffi_clone_pointer(),
+        _UniffiConverterUInt64.lower(now_ms))
+        )
+
+
+
+
+
+
+class _UniffiConverterTypeAdaptiveMotionSession:
+
+    @staticmethod
+    def lift(value: int):
+        return AdaptiveMotionSession._make_instance_(value)
+
+    @staticmethod
+    def check_lower(value: AdaptiveMotionSession):
+        if not isinstance(value, AdaptiveMotionSession):
+            raise TypeError("Expected AdaptiveMotionSession instance, {} found".format(type(value).__name__))
+
+    @staticmethod
+    def lower(value: AdaptiveMotionSessionProtocol):
+        if not isinstance(value, AdaptiveMotionSession):
+            raise TypeError("Expected AdaptiveMotionSession instance, {} found".format(type(value).__name__))
+        return value._uniffi_clone_pointer()
+
+    @classmethod
+    def read(cls, buf: _UniffiRustBuffer):
+        ptr = buf.read_u64()
+        if ptr == 0:
+            raise InternalError("Raw pointer value was null")
+        return cls.lift(ptr)
+
+    @classmethod
+    def write(cls, value: AdaptiveMotionSessionProtocol, buf: _UniffiRustBuffer):
+        buf.write_u64(cls.lower(value))
 class AddressLayerProtocol(typing.Protocol):
     """
     An opened `.address.ptiles` file. Separate from `PtilesLayer` because
@@ -5390,6 +6892,19 @@ class PtilesLayerProtocol(typing.Protocol):
         Cheap and local, so it is the right first question: outside the box the
         answer is definitively "nothing here", and no range read can improve on
         that. Being *inside* the box does not promise a block exists.
+        """
+
+        raise NotImplementedError
+    def indoor_outdoor(self, lat: "float",lon: "float",horizontal_accuracy_m: "float"):
+        """
+        Estimate whether a GPS fix is indoors or outdoors from building
+        footprints, with an explicit uncertainty result and evidence.
+
+        The containing H3 cell plus ring 1 are read so a footprint assigned to
+        a neighboring cell is not missed. A fix worse than 50 m, a point whose
+        accuracy circle overlaps a wall, an open-sided `roof`/`carport`/`canopy`,
+        or incomplete layer coverage returns `Uncertain`. This is map inference,
+        not room/floor positioning or proof of physical occupancy.
         """
 
         raise NotImplementedError
@@ -5767,6 +7282,35 @@ class PtilesLayer():
             _uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_covers,self._uniffi_clone_pointer(),
         _UniffiConverterDouble.lower(lat),
         _UniffiConverterDouble.lower(lon))
+        )
+
+
+
+
+
+    def indoor_outdoor(self, lat: "float",lon: "float",horizontal_accuracy_m: "float") -> "IndoorOutdoorEstimate":
+        """
+        Estimate whether a GPS fix is indoors or outdoors from building
+        footprints, with an explicit uncertainty result and evidence.
+
+        The containing H3 cell plus ring 1 are read so a footprint assigned to
+        a neighboring cell is not missed. A fix worse than 50 m, a point whose
+        accuracy circle overlaps a wall, an open-sided `roof`/`carport`/`canopy`,
+        or incomplete layer coverage returns `Uncertain`. This is map inference,
+        not room/floor positioning or proof of physical occupancy.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterDouble.check_lower(horizontal_accuracy_m)
+        
+        return _UniffiConverterTypeIndoorOutdoorEstimate.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptileslayer_indoor_outdoor,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterDouble.lower(horizontal_accuracy_m))
         )
 
 
@@ -6259,6 +7803,13 @@ class PtilesStackProtocol(typing.Protocol):
         """
 
         raise NotImplementedError
+    def indoor_outdoor(self, lat: "float",lon: "float",horizontal_accuracy_m: "float"):
+        """
+        Indoor/outdoor estimate using this stack's building layer. A stack with
+        no building layer returns `Uncertain/IncompleteCoverage`, not `Outdoor`.
+        """
+
+        raise NotImplementedError
     def locate(self, lat: "float",lon: "float",ring: "int"):
         """
         Reverse geocode across the stack: the way under the point (road and
@@ -6399,6 +7950,29 @@ class PtilesStack():
         _UniffiConverterDouble.lower(lon),
         _UniffiConverterUInt8.lower(ring),
         _UniffiConverterDouble.lower(range_m))
+        )
+
+
+
+
+
+    def indoor_outdoor(self, lat: "float",lon: "float",horizontal_accuracy_m: "float") -> "IndoorOutdoorEstimate":
+        """
+        Indoor/outdoor estimate using this stack's building layer. A stack with
+        no building layer returns `Uncertain/IncompleteCoverage`, not `Outdoor`.
+        """
+
+        _UniffiConverterDouble.check_lower(lat)
+        
+        _UniffiConverterDouble.check_lower(lon)
+        
+        _UniffiConverterDouble.check_lower(horizontal_accuracy_m)
+        
+        return _UniffiConverterTypeIndoorOutdoorEstimate.lift(
+            _uniffi_rust_call_with_error(_UniffiConverterTypePtilesError,_UniffiLib.uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor,self._uniffi_clone_pointer(),
+        _UniffiConverterDouble.lower(lat),
+        _UniffiConverterDouble.lower(lon),
+        _UniffiConverterDouble.lower(horizontal_accuracy_m))
         )
 
 
@@ -6791,12 +8365,20 @@ def classify_movement_with_history(inst_speed_mps: "typing.Optional[float]",gps_
         _UniffiConverterTypeMovementType.lower(previous_stable)))
 
 
+def default_adaptive_motion_config() -> "AdaptiveMotionConfig":
+    return _UniffiConverterTypeAdaptiveMotionConfig.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_default_adaptive_motion_config,))
+
+
 def default_debounce_config() -> "DebounceConfig":
     """
     The library's default debounce tuning.
     """
 
     return _UniffiConverterTypeDebounceConfig.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_default_debounce_config,))
+
+
+def default_sampling_capabilities() -> "SamplingCapabilities":
+    return _UniffiConverterTypeSamplingCapabilities.lift(_uniffi_rust_call(_UniffiLib.uniffi_ptiles_ffi_fn_func_default_sampling_capabilities,))
 
 
 def intersection_holds_traffic(intersection_type: "int") -> "bool":
@@ -6857,11 +8439,19 @@ def trail_is_developed(trail_type: "str") -> "bool":
 __all__ = [
     "InternalError",
     "CandidateKind",
+    "IndoorOutdoorReason",
+    "IndoorOutdoorState",
     "MovementType",
     "PtilesError",
+    "SamplingIntent",
+    "SamplingLevel",
+    "SamplingReason",
     "AccelStats",
+    "AdaptiveMotionConfig",
+    "AdaptiveMotionUpdate",
     "AddressRecord",
     "AdminInfo",
+    "AppliedSampling",
     "AreaInfo",
     "BuildingInfo",
     "BusinessInfo",
@@ -6871,9 +8461,13 @@ __all__ = [
     "Candidate",
     "DebounceConfig",
     "Fix",
+    "IndoorOutdoorEstimate",
     "LatLon",
     "LayerMetadata",
     "LocatedInfo",
+    "LocationSample",
+    "MotionConfig",
+    "MotionObservation",
     "MovementThresholds",
     "NearbyAddressInfo",
     "NearestIntersection",
@@ -6883,6 +8477,9 @@ __all__ = [
     "RailInfo",
     "RoadContext",
     "RoadInfo",
+    "SamplingAdvice",
+    "SamplingCapabilities",
+    "SamplingConfig",
     "TrafficControl",
     "TrailInfo",
     "Vote",
@@ -6892,11 +8489,14 @@ __all__ = [
     "classify_movement",
     "classify_movement_accel_only",
     "classify_movement_with_history",
+    "default_adaptive_motion_config",
     "default_debounce_config",
+    "default_sampling_capabilities",
     "intersection_holds_traffic",
     "intersection_type_name",
     "movement_thresholds",
     "trail_is_developed",
+    "AdaptiveMotionSession",
     "AddressLayer",
     "AdminLayer",
     "PtilesLayer",

@@ -826,6 +826,36 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -849,7 +879,11 @@ fun uniffi_ptiles_ffi_checksum_func_classify_movement_accel_only(
 ): Short
 fun uniffi_ptiles_ffi_checksum_func_classify_movement_with_history(
 ): Short
+fun uniffi_ptiles_ffi_checksum_func_default_adaptive_motion_config(
+): Short
 fun uniffi_ptiles_ffi_checksum_func_default_debounce_config(
+): Short
+fun uniffi_ptiles_ffi_checksum_func_default_sampling_capabilities(
 ): Short
 fun uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic(
 ): Short
@@ -858,6 +892,24 @@ fun uniffi_ptiles_ffi_checksum_func_intersection_type_name(
 fun uniffi_ptiles_ffi_checksum_func_movement_thresholds(
 ): Short
 fun uniffi_ptiles_ffi_checksum_func_trail_is_developed(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_current_advice(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_last_applied_sampling(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_movement(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_observe(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_report_applied_sampling(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_reset(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_capabilities(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_intent(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_tick(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at(
 ): Short
@@ -880,6 +932,8 @@ fun uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing(
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_covers(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_indoor_outdoor(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata(
 ): Short
@@ -919,6 +973,8 @@ fun uniffi_ptiles_ffi_checksum_method_ptileslayer_water_at(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing(
 ): Short
+fun uniffi_ptiles_ffi_checksum_method_ptilesstack_indoor_outdoor(
+): Short
 fun uniffi_ptiles_ffi_checksum_method_ptilesstack_locate(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptilesstack_score(
@@ -932,6 +988,8 @@ fun uniffi_ptiles_ffi_checksum_method_votedebouncer_current(
 fun uniffi_ptiles_ffi_checksum_method_votedebouncer_tick(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at(
+): Short
+fun uniffi_ptiles_ffi_checksum_constructor_adaptivemotionsession_new(
 ): Short
 fun uniffi_ptiles_ffi_checksum_constructor_addresslayer_open(
 ): Short
@@ -994,7 +1052,31 @@ internal interface UniffiLib : Library {
     }
 
     // FFI functions
-    fun uniffi_ptiles_ffi_fn_clone_addresslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_ptiles_ffi_fn_clone_adaptivemotionsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_free_adaptivemotionsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_ptiles_ffi_fn_constructor_adaptivemotionsession_new(`config`: RustBuffer.ByValue,`capabilities`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_current_advice(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_last_applied_sampling(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_movement(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_observe(`ptr`: Pointer,`observation`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling(`ptr`: Pointer,`applied`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_capabilities(`ptr`: Pointer,`capabilities`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_intent(`ptr`: Pointer,`intent`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_tick(`ptr`: Pointer,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_clone_addresslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_ptiles_ffi_fn_free_addresslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -1034,6 +1116,8 @@ fun uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(`ptr`: Pointer,uniffi_ou
 ): Unit
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_covers(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_indoor_outdoor(`ptr`: Pointer,`lat`: Double,`lon`: Double,`horizontalAccuracyM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_metadata(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection(`ptr`: Pointer,`lat`: Double,`lon`: Double,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
@@ -1080,6 +1164,8 @@ fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(`roads`: RustBuffer
 ): Pointer
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`rangeM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor(`ptr`: Pointer,`lat`: Double,`lon`: Double,`horizontalAccuracyM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_locate(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_score(`ptr`: Pointer,`fix`: RustBuffer.ByValue,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -1108,7 +1194,11 @@ fun uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(`accel`: RustBuffer.B
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_func_classify_movement_with_history(`instSpeedMps`: RustBuffer.ByValue,`gpsAccuracyM`: RustBuffer.ByValue,`nearestRoad`: RustBuffer.ByValue,`accel`: RustBuffer.ByValue,`gpsBearing`: RustBuffer.ByValue,`previousStable`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_default_adaptive_motion_config(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_func_default_debounce_config(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_func_default_sampling_capabilities(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
@@ -1256,7 +1346,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_func_classify_movement_with_history() != 28399.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_func_default_adaptive_motion_config() != 13236.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_func_default_debounce_config() != 57572.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_func_default_sampling_capabilities() != 23415.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_func_intersection_holds_traffic() != 37639.toShort()) {
@@ -1269,6 +1365,33 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_func_trail_is_developed() != 44475.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_current_advice() != 14215.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_last_applied_sampling() != 38945.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_movement() != 44965.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_observe() != 43410.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_report_applied_sampling() != 16382.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_reset() != 63091.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_capabilities() != 22701.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_set_intent() != 59285.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adaptivemotionsession_tick() != 32961.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at() != 56172.toShort()) {
@@ -1302,6 +1425,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_covers() != 61769.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_indoor_outdoor() != 53122.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_metadata() != 54913.toShort()) {
@@ -1361,6 +1487,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_cameras_seeing() != 19587.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_indoor_outdoor() != 45793.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1380,6 +1509,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_votedebouncer_tick_at() != 21118.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_adaptivemotionsession_new() != 17102.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_constructor_addresslayer_open() != 49623.toShort()) {
@@ -1781,6 +1913,369 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
         val byteBuf = toUtf8(value)
         buf.putInt(byteBuf.limit())
         buf.put(byteBuf)
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Stateful, hardware-neutral pipeline. Calls return sampling advice; Kotlin,
+ * Swift, desktop, or other adapters decide how to apply it and may emit their
+ * own native callback/stream after `sampling_changed` becomes true.
+ */
+public interface AdaptiveMotionSessionInterface {
+    
+    fun `currentAdvice`(): SamplingAdvice
+    
+    fun `lastAppliedSampling`(): AppliedSampling?
+    
+    fun `movement`(): MovementType
+    
+    fun `observe`(`observation`: MotionObservation): AdaptiveMotionUpdate
+    
+    fun `reportAppliedSampling`(`applied`: AppliedSampling)
+    
+    fun `reset`()
+    
+    fun `setCapabilities`(`capabilities`: SamplingCapabilities, `nowMs`: kotlin.ULong): kotlin.Boolean
+    
+    fun `setIntent`(`intent`: SamplingIntent, `nowMs`: kotlin.ULong): kotlin.Boolean
+    
+    fun `tick`(`nowMs`: kotlin.ULong): AdaptiveMotionUpdate
+    
+    companion object
+}
+
+/**
+ * Stateful, hardware-neutral pipeline. Calls return sampling advice; Kotlin,
+ * Swift, desktop, or other adapters decide how to apply it and may emit their
+ * own native callback/stream after `sampling_changed` becomes true.
+ */
+open class AdaptiveMotionSession: Disposable, AutoCloseable, AdaptiveMotionSessionInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+    constructor(`config`: AdaptiveMotionConfig, `capabilities`: SamplingCapabilities) :
+        this(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_constructor_adaptivemotionsession_new(
+        FfiConverterTypeAdaptiveMotionConfig.lower(`config`),FfiConverterTypeSamplingCapabilities.lower(`capabilities`),_status)
+}
+    )
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_free_adaptivemotionsession(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_clone_adaptivemotionsession(pointer!!, status)
+        }
+    }
+
+    override fun `currentAdvice`(): SamplingAdvice {
+            return FfiConverterTypeSamplingAdvice.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_current_advice(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `lastAppliedSampling`(): AppliedSampling? {
+            return FfiConverterOptionalTypeAppliedSampling.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_last_applied_sampling(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `movement`(): MovementType {
+            return FfiConverterTypeMovementType.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_movement(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `observe`(`observation`: MotionObservation): AdaptiveMotionUpdate {
+            return FfiConverterTypeAdaptiveMotionUpdate.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_observe(
+        it, FfiConverterTypeMotionObservation.lower(`observation`),_status)
+}
+    }
+    )
+    }
+    
+
+    override fun `reportAppliedSampling`(`applied`: AppliedSampling)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling(
+        it, FfiConverterTypeAppliedSampling.lower(`applied`),_status)
+}
+    }
+    
+    
+
+    override fun `reset`()
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset(
+        it, _status)
+}
+    }
+    
+    
+
+    override fun `setCapabilities`(`capabilities`: SamplingCapabilities, `nowMs`: kotlin.ULong): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_capabilities(
+        it, FfiConverterTypeSamplingCapabilities.lower(`capabilities`),FfiConverterULong.lower(`nowMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    override fun `setIntent`(`intent`: SamplingIntent, `nowMs`: kotlin.ULong): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_intent(
+        it, FfiConverterTypeSamplingIntent.lower(`intent`),FfiConverterULong.lower(`nowMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    override fun `tick`(`nowMs`: kotlin.ULong): AdaptiveMotionUpdate {
+            return FfiConverterTypeAdaptiveMotionUpdate.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_tick(
+        it, FfiConverterULong.lower(`nowMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAdaptiveMotionSession: FfiConverter<AdaptiveMotionSession, Pointer> {
+
+    override fun lower(value: AdaptiveMotionSession): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): AdaptiveMotionSession {
+        return AdaptiveMotionSession(value)
+    }
+
+    override fun read(buf: ByteBuffer): AdaptiveMotionSession {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: AdaptiveMotionSession) = 8UL
+
+    override fun write(value: AdaptiveMotionSession, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
     }
 }
 
@@ -2511,6 +3006,18 @@ public interface PtilesLayerInterface {
     fun `covers`(`lat`: kotlin.Double, `lon`: kotlin.Double): kotlin.Boolean
     
     /**
+     * Estimate whether a GPS fix is indoors or outdoors from building
+     * footprints, with an explicit uncertainty result and evidence.
+     *
+     * The containing H3 cell plus ring 1 are read so a footprint assigned to
+     * a neighboring cell is not missed. A fix worse than 50 m, a point whose
+     * accuracy circle overlaps a wall, an open-sided `roof`/`carport`/`canopy`,
+     * or incomplete layer coverage returns `Uncertain`. This is map inference,
+     * not room/floor positioning or proof of physical occupancy.
+     */
+    fun `indoorOutdoor`(`lat`: kotlin.Double, `lon`: kotlin.Double, `horizontalAccuracyM`: kotlin.Double): IndoorOutdoorEstimate
+    
+    /**
      * What this layer covers, how big it is, and when it was built -- as far as
      * that can be known. See [`LayerMetadata`], especially the caveat on
      * `feature_count`.
@@ -2882,6 +3389,29 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_covers(
         it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Estimate whether a GPS fix is indoors or outdoors from building
+     * footprints, with an explicit uncertainty result and evidence.
+     *
+     * The containing H3 cell plus ring 1 are read so a footprint assigned to
+     * a neighboring cell is not missed. A fix worse than 50 m, a point whose
+     * accuracy circle overlaps a wall, an open-sided `roof`/`carport`/`canopy`,
+     * or incomplete layer coverage returns `Uncertain`. This is map inference,
+     * not room/floor positioning or proof of physical occupancy.
+     */
+    @Throws(PtilesException::class)override fun `indoorOutdoor`(`lat`: kotlin.Double, `lon`: kotlin.Double, `horizontalAccuracyM`: kotlin.Double): IndoorOutdoorEstimate {
+            return FfiConverterTypeIndoorOutdoorEstimate.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_indoor_outdoor(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterDouble.lower(`horizontalAccuracyM`),_status)
 }
     }
     )
@@ -3407,6 +3937,12 @@ public interface PtilesStackInterface {
     fun `camerasSeeing`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `rangeM`: kotlin.Double): List<CameraViewInfo>
     
     /**
+     * Indoor/outdoor estimate using this stack's building layer. A stack with
+     * no building layer returns `Uncertain/IncompleteCoverage`, not `Outdoor`.
+     */
+    fun `indoorOutdoor`(`lat`: kotlin.Double, `lon`: kotlin.Double, `horizontalAccuracyM`: kotlin.Double): IndoorOutdoorEstimate
+    
+    /**
      * Reverse geocode across the stack: the way under the point (road and
      * trail compete on distance alone — see `core::locate`), the nearest
      * address, and the park/water the point falls in.
@@ -3555,6 +4091,23 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing(
         it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),FfiConverterDouble.lower(`rangeM`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Indoor/outdoor estimate using this stack's building layer. A stack with
+     * no building layer returns `Uncertain/IncompleteCoverage`, not `Outdoor`.
+     */
+    @Throws(PtilesException::class)override fun `indoorOutdoor`(`lat`: kotlin.Double, `lon`: kotlin.Double, `horizontalAccuracyM`: kotlin.Double): IndoorOutdoorEstimate {
+            return FfiConverterTypeIndoorOutdoorEstimate.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterDouble.lower(`horizontalAccuracyM`),_status)
 }
     }
     )
@@ -4092,6 +4645,90 @@ public object FfiConverterTypeAccelStats: FfiConverterRustBuffer<AccelStats> {
 
 
 
+data class AdaptiveMotionConfig (
+    var `motion`: MotionConfig, 
+    var `debounce`: DebounceConfig, 
+    var `sampling`: SamplingConfig
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAdaptiveMotionConfig: FfiConverterRustBuffer<AdaptiveMotionConfig> {
+    override fun read(buf: ByteBuffer): AdaptiveMotionConfig {
+        return AdaptiveMotionConfig(
+            FfiConverterTypeMotionConfig.read(buf),
+            FfiConverterTypeDebounceConfig.read(buf),
+            FfiConverterTypeSamplingConfig.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AdaptiveMotionConfig) = (
+            FfiConverterTypeMotionConfig.allocationSize(value.`motion`) +
+            FfiConverterTypeDebounceConfig.allocationSize(value.`debounce`) +
+            FfiConverterTypeSamplingConfig.allocationSize(value.`sampling`)
+    )
+
+    override fun write(value: AdaptiveMotionConfig, buf: ByteBuffer) {
+            FfiConverterTypeMotionConfig.write(value.`motion`, buf)
+            FfiConverterTypeDebounceConfig.write(value.`debounce`, buf)
+            FfiConverterTypeSamplingConfig.write(value.`sampling`, buf)
+    }
+}
+
+
+
+data class AdaptiveMotionUpdate (
+    var `movement`: MovementType, 
+    var `vote`: Vote, 
+    var `smoothedSpeedMps`: kotlin.Double?, 
+    var `atTrafficControl`: kotlin.Boolean, 
+    var `sampling`: SamplingAdvice, 
+    var `samplingChanged`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAdaptiveMotionUpdate: FfiConverterRustBuffer<AdaptiveMotionUpdate> {
+    override fun read(buf: ByteBuffer): AdaptiveMotionUpdate {
+        return AdaptiveMotionUpdate(
+            FfiConverterTypeMovementType.read(buf),
+            FfiConverterTypeVote.read(buf),
+            FfiConverterOptionalDouble.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterTypeSamplingAdvice.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AdaptiveMotionUpdate) = (
+            FfiConverterTypeMovementType.allocationSize(value.`movement`) +
+            FfiConverterTypeVote.allocationSize(value.`vote`) +
+            FfiConverterOptionalDouble.allocationSize(value.`smoothedSpeedMps`) +
+            FfiConverterBoolean.allocationSize(value.`atTrafficControl`) +
+            FfiConverterTypeSamplingAdvice.allocationSize(value.`sampling`) +
+            FfiConverterBoolean.allocationSize(value.`samplingChanged`)
+    )
+
+    override fun write(value: AdaptiveMotionUpdate, buf: ByteBuffer) {
+            FfiConverterTypeMovementType.write(value.`movement`, buf)
+            FfiConverterTypeVote.write(value.`vote`, buf)
+            FfiConverterOptionalDouble.write(value.`smoothedSpeedMps`, buf)
+            FfiConverterBoolean.write(value.`atTrafficControl`, buf)
+            FfiConverterTypeSamplingAdvice.write(value.`sampling`, buf)
+            FfiConverterBoolean.write(value.`samplingChanged`, buf)
+    }
+}
+
+
+
 /**
  * One decoded address (`{osm_id, housenumber, street}`; location is the cell).
  */
@@ -4177,6 +4814,50 @@ public object FfiConverterTypeAdminInfo: FfiConverterRustBuffer<AdminInfo> {
             FfiConverterString.write(value.`zip`, buf)
             FfiConverterString.write(value.`timezone`, buf)
             FfiConverterUByte.write(value.`boundaryFlags`, buf)
+    }
+}
+
+
+
+data class AppliedSampling (
+    var `locationLevel`: SamplingLevel, 
+    var `locationIntervalMs`: kotlin.UInt?, 
+    var `accelerometerLevel`: SamplingLevel, 
+    var `accelerometerHz`: kotlin.UInt?, 
+    var `generation`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAppliedSampling: FfiConverterRustBuffer<AppliedSampling> {
+    override fun read(buf: ByteBuffer): AppliedSampling {
+        return AppliedSampling(
+            FfiConverterTypeSamplingLevel.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterTypeSamplingLevel.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AppliedSampling) = (
+            FfiConverterTypeSamplingLevel.allocationSize(value.`locationLevel`) +
+            FfiConverterOptionalUInt.allocationSize(value.`locationIntervalMs`) +
+            FfiConverterTypeSamplingLevel.allocationSize(value.`accelerometerLevel`) +
+            FfiConverterOptionalUInt.allocationSize(value.`accelerometerHz`) +
+            FfiConverterUInt.allocationSize(value.`generation`)
+    )
+
+    override fun write(value: AppliedSampling, buf: ByteBuffer) {
+            FfiConverterTypeSamplingLevel.write(value.`locationLevel`, buf)
+            FfiConverterOptionalUInt.write(value.`locationIntervalMs`, buf)
+            FfiConverterTypeSamplingLevel.write(value.`accelerometerLevel`, buf)
+            FfiConverterOptionalUInt.write(value.`accelerometerHz`, buf)
+            FfiConverterUInt.write(value.`generation`, buf)
     }
 }
 
@@ -4740,6 +5421,56 @@ public object FfiConverterTypeFix: FfiConverterRustBuffer<Fix> {
 
 
 
+/**
+ * Explainable result from [`PtilesLayer::indoor_outdoor`].
+ */
+data class IndoorOutdoorEstimate (
+    var `state`: IndoorOutdoorState, 
+    var `confidence`: kotlin.Double, 
+    var `reason`: IndoorOutdoorReason, 
+    var `buildingOsmId`: kotlin.Long?, 
+    /**
+     * Depth inside or clearance outside the relevant footprint.
+     */
+    var `distanceToBoundaryM`: kotlin.Double?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeIndoorOutdoorEstimate: FfiConverterRustBuffer<IndoorOutdoorEstimate> {
+    override fun read(buf: ByteBuffer): IndoorOutdoorEstimate {
+        return IndoorOutdoorEstimate(
+            FfiConverterTypeIndoorOutdoorState.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterTypeIndoorOutdoorReason.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: IndoorOutdoorEstimate) = (
+            FfiConverterTypeIndoorOutdoorState.allocationSize(value.`state`) +
+            FfiConverterDouble.allocationSize(value.`confidence`) +
+            FfiConverterTypeIndoorOutdoorReason.allocationSize(value.`reason`) +
+            FfiConverterOptionalLong.allocationSize(value.`buildingOsmId`) +
+            FfiConverterOptionalDouble.allocationSize(value.`distanceToBoundaryM`)
+    )
+
+    override fun write(value: IndoorOutdoorEstimate, buf: ByteBuffer) {
+            FfiConverterTypeIndoorOutdoorState.write(value.`state`, buf)
+            FfiConverterDouble.write(value.`confidence`, buf)
+            FfiConverterTypeIndoorOutdoorReason.write(value.`reason`, buf)
+            FfiConverterOptionalLong.write(value.`buildingOsmId`, buf)
+            FfiConverterOptionalDouble.write(value.`distanceToBoundaryM`, buf)
+    }
+}
+
+
+
 data class LatLon (
     var `lat`: kotlin.Double, 
     var `lon`: kotlin.Double
@@ -4947,6 +5678,142 @@ public object FfiConverterTypeLocatedInfo: FfiConverterRustBuffer<LocatedInfo> {
             FfiConverterOptionalTypeNearbyAddressInfo.write(value.`address`, buf)
             FfiConverterOptionalTypeAreaInfo.write(value.`park`, buf)
             FfiConverterOptionalTypeAreaInfo.write(value.`water`, buf)
+    }
+}
+
+
+
+data class LocationSample (
+    var `lat`: kotlin.Double, 
+    var `lon`: kotlin.Double, 
+    var `horizontalAccuracyM`: kotlin.Double?, 
+    var `speedMps`: kotlin.Double?, 
+    var `bearingDegrees`: kotlin.Double?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLocationSample: FfiConverterRustBuffer<LocationSample> {
+    override fun read(buf: ByteBuffer): LocationSample {
+        return LocationSample(
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterOptionalDouble.read(buf),
+            FfiConverterOptionalDouble.read(buf),
+            FfiConverterOptionalDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LocationSample) = (
+            FfiConverterDouble.allocationSize(value.`lat`) +
+            FfiConverterDouble.allocationSize(value.`lon`) +
+            FfiConverterOptionalDouble.allocationSize(value.`horizontalAccuracyM`) +
+            FfiConverterOptionalDouble.allocationSize(value.`speedMps`) +
+            FfiConverterOptionalDouble.allocationSize(value.`bearingDegrees`)
+    )
+
+    override fun write(value: LocationSample, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`lat`, buf)
+            FfiConverterDouble.write(value.`lon`, buf)
+            FfiConverterOptionalDouble.write(value.`horizontalAccuracyM`, buf)
+            FfiConverterOptionalDouble.write(value.`speedMps`, buf)
+            FfiConverterOptionalDouble.write(value.`bearingDegrees`, buf)
+    }
+}
+
+
+
+data class MotionConfig (
+    var `stationaryMaxMps`: kotlin.Double, 
+    var `drivingMinMps`: kotlin.Double, 
+    var `smoothingWindow`: kotlin.UInt, 
+    var `minDwellSamples`: kotlin.UInt, 
+    var `accuracyGateM`: kotlin.Double, 
+    var `maxGapMs`: kotlin.ULong
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMotionConfig: FfiConverterRustBuffer<MotionConfig> {
+    override fun read(buf: ByteBuffer): MotionConfig {
+        return MotionConfig(
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MotionConfig) = (
+            FfiConverterDouble.allocationSize(value.`stationaryMaxMps`) +
+            FfiConverterDouble.allocationSize(value.`drivingMinMps`) +
+            FfiConverterUInt.allocationSize(value.`smoothingWindow`) +
+            FfiConverterUInt.allocationSize(value.`minDwellSamples`) +
+            FfiConverterDouble.allocationSize(value.`accuracyGateM`) +
+            FfiConverterULong.allocationSize(value.`maxGapMs`)
+    )
+
+    override fun write(value: MotionConfig, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`stationaryMaxMps`, buf)
+            FfiConverterDouble.write(value.`drivingMinMps`, buf)
+            FfiConverterUInt.write(value.`smoothingWindow`, buf)
+            FfiConverterUInt.write(value.`minDwellSamples`, buf)
+            FfiConverterDouble.write(value.`accuracyGateM`, buf)
+            FfiConverterULong.write(value.`maxGapMs`, buf)
+    }
+}
+
+
+
+data class MotionObservation (
+    var `tMs`: kotlin.ULong, 
+    var `location`: LocationSample?, 
+    var `accelerometer`: AccelStats?, 
+    var `road`: RoadContext?, 
+    var `trafficControl`: TrafficControl?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMotionObservation: FfiConverterRustBuffer<MotionObservation> {
+    override fun read(buf: ByteBuffer): MotionObservation {
+        return MotionObservation(
+            FfiConverterULong.read(buf),
+            FfiConverterOptionalTypeLocationSample.read(buf),
+            FfiConverterOptionalTypeAccelStats.read(buf),
+            FfiConverterOptionalTypeRoadContext.read(buf),
+            FfiConverterOptionalTypeTrafficControl.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MotionObservation) = (
+            FfiConverterULong.allocationSize(value.`tMs`) +
+            FfiConverterOptionalTypeLocationSample.allocationSize(value.`location`) +
+            FfiConverterOptionalTypeAccelStats.allocationSize(value.`accelerometer`) +
+            FfiConverterOptionalTypeRoadContext.allocationSize(value.`road`) +
+            FfiConverterOptionalTypeTrafficControl.allocationSize(value.`trafficControl`)
+    )
+
+    override fun write(value: MotionObservation, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`tMs`, buf)
+            FfiConverterOptionalTypeLocationSample.write(value.`location`, buf)
+            FfiConverterOptionalTypeAccelStats.write(value.`accelerometer`, buf)
+            FfiConverterOptionalTypeRoadContext.write(value.`road`, buf)
+            FfiConverterOptionalTypeTrafficControl.write(value.`trafficControl`, buf)
     }
 }
 
@@ -5391,6 +6258,222 @@ public object FfiConverterTypeRoadInfo: FfiConverterRustBuffer<RoadInfo> {
 
 
 
+data class SamplingAdvice (
+    var `locationLevel`: SamplingLevel, 
+    var `locationIntervalMs`: kotlin.UInt?, 
+    var `locationMinDistanceM`: kotlin.Double?, 
+    var `accelerometerLevel`: SamplingLevel, 
+    var `accelerometerHz`: kotlin.UInt?, 
+    var `accelerometerWindowMs`: kotlin.UInt?, 
+    var `burstDurationMs`: kotlin.UInt?, 
+    var `reevaluateAfterMs`: kotlin.UInt, 
+    var `reason`: SamplingReason, 
+    var `generation`: kotlin.UInt, 
+    var `limitedByCapabilities`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSamplingAdvice: FfiConverterRustBuffer<SamplingAdvice> {
+    override fun read(buf: ByteBuffer): SamplingAdvice {
+        return SamplingAdvice(
+            FfiConverterTypeSamplingLevel.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalDouble.read(buf),
+            FfiConverterTypeSamplingLevel.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterTypeSamplingReason.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SamplingAdvice) = (
+            FfiConverterTypeSamplingLevel.allocationSize(value.`locationLevel`) +
+            FfiConverterOptionalUInt.allocationSize(value.`locationIntervalMs`) +
+            FfiConverterOptionalDouble.allocationSize(value.`locationMinDistanceM`) +
+            FfiConverterTypeSamplingLevel.allocationSize(value.`accelerometerLevel`) +
+            FfiConverterOptionalUInt.allocationSize(value.`accelerometerHz`) +
+            FfiConverterOptionalUInt.allocationSize(value.`accelerometerWindowMs`) +
+            FfiConverterOptionalUInt.allocationSize(value.`burstDurationMs`) +
+            FfiConverterUInt.allocationSize(value.`reevaluateAfterMs`) +
+            FfiConverterTypeSamplingReason.allocationSize(value.`reason`) +
+            FfiConverterUInt.allocationSize(value.`generation`) +
+            FfiConverterBoolean.allocationSize(value.`limitedByCapabilities`)
+    )
+
+    override fun write(value: SamplingAdvice, buf: ByteBuffer) {
+            FfiConverterTypeSamplingLevel.write(value.`locationLevel`, buf)
+            FfiConverterOptionalUInt.write(value.`locationIntervalMs`, buf)
+            FfiConverterOptionalDouble.write(value.`locationMinDistanceM`, buf)
+            FfiConverterTypeSamplingLevel.write(value.`accelerometerLevel`, buf)
+            FfiConverterOptionalUInt.write(value.`accelerometerHz`, buf)
+            FfiConverterOptionalUInt.write(value.`accelerometerWindowMs`, buf)
+            FfiConverterOptionalUInt.write(value.`burstDurationMs`, buf)
+            FfiConverterUInt.write(value.`reevaluateAfterMs`, buf)
+            FfiConverterTypeSamplingReason.write(value.`reason`, buf)
+            FfiConverterUInt.write(value.`generation`, buf)
+            FfiConverterBoolean.write(value.`limitedByCapabilities`, buf)
+    }
+}
+
+
+
+data class SamplingCapabilities (
+    var `locationAvailable`: kotlin.Boolean, 
+    var `accelerometerAvailable`: kotlin.Boolean, 
+    var `supportsPassiveLocation`: kotlin.Boolean, 
+    var `supportsMotionWakeup`: kotlin.Boolean, 
+    var `minimumLocationIntervalMs`: kotlin.UInt?, 
+    var `maximumAccelerometerHz`: kotlin.UInt?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSamplingCapabilities: FfiConverterRustBuffer<SamplingCapabilities> {
+    override fun read(buf: ByteBuffer): SamplingCapabilities {
+        return SamplingCapabilities(
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SamplingCapabilities) = (
+            FfiConverterBoolean.allocationSize(value.`locationAvailable`) +
+            FfiConverterBoolean.allocationSize(value.`accelerometerAvailable`) +
+            FfiConverterBoolean.allocationSize(value.`supportsPassiveLocation`) +
+            FfiConverterBoolean.allocationSize(value.`supportsMotionWakeup`) +
+            FfiConverterOptionalUInt.allocationSize(value.`minimumLocationIntervalMs`) +
+            FfiConverterOptionalUInt.allocationSize(value.`maximumAccelerometerHz`)
+    )
+
+    override fun write(value: SamplingCapabilities, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`locationAvailable`, buf)
+            FfiConverterBoolean.write(value.`accelerometerAvailable`, buf)
+            FfiConverterBoolean.write(value.`supportsPassiveLocation`, buf)
+            FfiConverterBoolean.write(value.`supportsMotionWakeup`, buf)
+            FfiConverterOptionalUInt.write(value.`minimumLocationIntervalMs`, buf)
+            FfiConverterOptionalUInt.write(value.`maximumAccelerometerHz`, buf)
+    }
+}
+
+
+
+data class SamplingConfig (
+    var `uncertainLocationIntervalMs`: kotlin.UInt, 
+    var `stationaryLocationIntervalMs`: kotlin.UInt, 
+    var `walkingLocationIntervalMs`: kotlin.UInt, 
+    var `runningLocationIntervalMs`: kotlin.UInt, 
+    var `drivingLocationIntervalMs`: kotlin.UInt, 
+    var `stationaryMinDistanceM`: kotlin.Double, 
+    var `walkingMinDistanceM`: kotlin.Double, 
+    var `runningMinDistanceM`: kotlin.Double, 
+    var `drivingMinDistanceM`: kotlin.Double, 
+    var `uncertainAccelerometerHz`: kotlin.UInt, 
+    var `stationaryAccelerometerHz`: kotlin.UInt, 
+    var `walkingAccelerometerHz`: kotlin.UInt, 
+    var `runningAccelerometerHz`: kotlin.UInt, 
+    var `drivingAccelerometerHz`: kotlin.UInt, 
+    var `accelerometerWindowMs`: kotlin.UInt, 
+    var `transitionBurstMs`: kotlin.UInt, 
+    var `downshiftHoldMs`: kotlin.UInt, 
+    var `adviceTtlMs`: kotlin.UInt, 
+    var `confidenceGate`: kotlin.Double
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSamplingConfig: FfiConverterRustBuffer<SamplingConfig> {
+    override fun read(buf: ByteBuffer): SamplingConfig {
+        return SamplingConfig(
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SamplingConfig) = (
+            FfiConverterUInt.allocationSize(value.`uncertainLocationIntervalMs`) +
+            FfiConverterUInt.allocationSize(value.`stationaryLocationIntervalMs`) +
+            FfiConverterUInt.allocationSize(value.`walkingLocationIntervalMs`) +
+            FfiConverterUInt.allocationSize(value.`runningLocationIntervalMs`) +
+            FfiConverterUInt.allocationSize(value.`drivingLocationIntervalMs`) +
+            FfiConverterDouble.allocationSize(value.`stationaryMinDistanceM`) +
+            FfiConverterDouble.allocationSize(value.`walkingMinDistanceM`) +
+            FfiConverterDouble.allocationSize(value.`runningMinDistanceM`) +
+            FfiConverterDouble.allocationSize(value.`drivingMinDistanceM`) +
+            FfiConverterUInt.allocationSize(value.`uncertainAccelerometerHz`) +
+            FfiConverterUInt.allocationSize(value.`stationaryAccelerometerHz`) +
+            FfiConverterUInt.allocationSize(value.`walkingAccelerometerHz`) +
+            FfiConverterUInt.allocationSize(value.`runningAccelerometerHz`) +
+            FfiConverterUInt.allocationSize(value.`drivingAccelerometerHz`) +
+            FfiConverterUInt.allocationSize(value.`accelerometerWindowMs`) +
+            FfiConverterUInt.allocationSize(value.`transitionBurstMs`) +
+            FfiConverterUInt.allocationSize(value.`downshiftHoldMs`) +
+            FfiConverterUInt.allocationSize(value.`adviceTtlMs`) +
+            FfiConverterDouble.allocationSize(value.`confidenceGate`)
+    )
+
+    override fun write(value: SamplingConfig, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`uncertainLocationIntervalMs`, buf)
+            FfiConverterUInt.write(value.`stationaryLocationIntervalMs`, buf)
+            FfiConverterUInt.write(value.`walkingLocationIntervalMs`, buf)
+            FfiConverterUInt.write(value.`runningLocationIntervalMs`, buf)
+            FfiConverterUInt.write(value.`drivingLocationIntervalMs`, buf)
+            FfiConverterDouble.write(value.`stationaryMinDistanceM`, buf)
+            FfiConverterDouble.write(value.`walkingMinDistanceM`, buf)
+            FfiConverterDouble.write(value.`runningMinDistanceM`, buf)
+            FfiConverterDouble.write(value.`drivingMinDistanceM`, buf)
+            FfiConverterUInt.write(value.`uncertainAccelerometerHz`, buf)
+            FfiConverterUInt.write(value.`stationaryAccelerometerHz`, buf)
+            FfiConverterUInt.write(value.`walkingAccelerometerHz`, buf)
+            FfiConverterUInt.write(value.`runningAccelerometerHz`, buf)
+            FfiConverterUInt.write(value.`drivingAccelerometerHz`, buf)
+            FfiConverterUInt.write(value.`accelerometerWindowMs`, buf)
+            FfiConverterUInt.write(value.`transitionBurstMs`, buf)
+            FfiConverterUInt.write(value.`downshiftHoldMs`, buf)
+            FfiConverterUInt.write(value.`adviceTtlMs`, buf)
+            FfiConverterDouble.write(value.`confidenceGate`, buf)
+    }
+}
+
+
+
 /**
  * The nearest mapped node a vehicle might be waiting at.
  *
@@ -5706,6 +6789,78 @@ public object FfiConverterTypeCandidateKind: FfiConverterRustBuffer<CandidateKin
 
 
 
+
+enum class IndoorOutdoorReason {
+    
+    INSIDE_BUILDING,
+    INSIDE_OPEN_STRUCTURE,
+    ACCURACY_OVERLAPS_BUILDING,
+    CLEAR_OF_BUILDINGS,
+    NO_BUILDINGS_NEARBY,
+    INCOMPLETE_COVERAGE,
+    INVALID_FIX,
+    POOR_ACCURACY;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeIndoorOutdoorReason: FfiConverterRustBuffer<IndoorOutdoorReason> {
+    override fun read(buf: ByteBuffer) = try {
+        IndoorOutdoorReason.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: IndoorOutdoorReason) = 4UL
+
+    override fun write(value: IndoorOutdoorReason, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * Indoor/outdoor estimate exposed to Swift/Kotlin/Python. `Uncertain` is a
+ * first-class result: a building-edge GPS fix or missing map coverage is not
+ * forced into a binary answer.
+ */
+
+enum class IndoorOutdoorState {
+    
+    INDOOR,
+    OUTDOOR,
+    UNCERTAIN;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeIndoorOutdoorState: FfiConverterRustBuffer<IndoorOutdoorState> {
+    override fun read(buf: ByteBuffer) = try {
+        IndoorOutdoorState.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: IndoorOutdoorState) = 4UL
+
+    override fun write(value: IndoorOutdoorState, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 /**
  * What the classifier thinks is happening.
  */
@@ -5877,6 +7032,114 @@ public object FfiConverterTypePtilesError : FfiConverterRustBuffer<PtilesExcepti
     }
 
 }
+
+
+
+
+enum class SamplingIntent {
+    
+    BACKGROUND,
+    TRACKING,
+    NAVIGATION;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSamplingIntent: FfiConverterRustBuffer<SamplingIntent> {
+    override fun read(buf: ByteBuffer) = try {
+        SamplingIntent.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: SamplingIntent) = 4UL
+
+    override fun write(value: SamplingIntent, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * Relative sensor intensity requested by PTiles Motion. Platform adapters map
+ * this intent onto their own location and sensor services.
+ */
+
+enum class SamplingLevel {
+    
+    OFF,
+    PASSIVE,
+    LOW,
+    BALANCED,
+    HIGH,
+    BURST;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSamplingLevel: FfiConverterRustBuffer<SamplingLevel> {
+    override fun read(buf: ByteBuffer) = try {
+        SamplingLevel.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: SamplingLevel) = 4UL
+
+    override fun write(value: SamplingLevel, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class SamplingReason {
+    
+    INITIALIZING,
+    STABLE_STATIONARY,
+    STABLE_WALKING,
+    STABLE_RUNNING,
+    STABLE_DRIVING,
+    PENDING_TRANSITION,
+    LOW_CONFIDENCE,
+    POOR_LOCATION_ACCURACY,
+    MISSING_LOCATION,
+    MISSING_ACCELEROMETER,
+    CAPABILITY_LIMITED;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSamplingReason: FfiConverterRustBuffer<SamplingReason> {
+    override fun read(buf: ByteBuffer) = try {
+        SamplingReason.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: SamplingReason) = 4UL
+
+    override fun write(value: SamplingReason, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
 
 
 
@@ -6236,6 +7499,38 @@ public object FfiConverterOptionalTypeAdminInfo: FfiConverterRustBuffer<AdminInf
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeAppliedSampling: FfiConverterRustBuffer<AppliedSampling?> {
+    override fun read(buf: ByteBuffer): AppliedSampling? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeAppliedSampling.read(buf)
+    }
+
+    override fun allocationSize(value: AppliedSampling?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeAppliedSampling.allocationSize(value)
+        }
+    }
+
+    override fun write(value: AppliedSampling?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeAppliedSampling.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeAreaInfo: FfiConverterRustBuffer<AreaInfo?> {
     override fun read(buf: ByteBuffer): AreaInfo? {
         if (buf.get().toInt() == 0) {
@@ -6290,6 +7585,38 @@ public object FfiConverterOptionalTypeBuildingInfo: FfiConverterRustBuffer<Build
         } else {
             buf.put(1)
             FfiConverterTypeBuildingInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeLocationSample: FfiConverterRustBuffer<LocationSample?> {
+    override fun read(buf: ByteBuffer): LocationSample? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeLocationSample.read(buf)
+    }
+
+    override fun allocationSize(value: LocationSample?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeLocationSample.allocationSize(value)
+        }
+    }
+
+    override fun write(value: LocationSample?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeLocationSample.write(value, buf)
         }
     }
 }
@@ -7027,6 +8354,15 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
     )
     }
     
+ fun `defaultAdaptiveMotionConfig`(): AdaptiveMotionConfig {
+            return FfiConverterTypeAdaptiveMotionConfig.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_default_adaptive_motion_config(
+        _status)
+}
+    )
+    }
+    
 
         /**
          * The library's default debounce tuning.
@@ -7034,6 +8370,15 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
             return FfiConverterTypeDebounceConfig.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_default_debounce_config(
+        _status)
+}
+    )
+    }
+    
+ fun `defaultSamplingCapabilities`(): SamplingCapabilities {
+            return FfiConverterTypeSamplingCapabilities.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_func_default_sampling_capabilities(
         _status)
 }
     )

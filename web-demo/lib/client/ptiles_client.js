@@ -1,5 +1,146 @@
 /* @ts-self-types="./ptiles_client.d.ts" */
 
+/**
+ * Portable adaptive motion and sensor-sampling session.
+ *
+ * This class never touches browser hardware. `observe()` and `tick()` return
+ * a `sampling` record plus `sampling_changed`; the JavaScript adapter maps
+ * that advice to Geolocation, DeviceMotion, a desktop bridge, or any other
+ * host service and can emit its preferred callback/event/stream locally.
+ */
+export class AdaptiveMotionSession {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        AdaptiveMotionSessionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_adaptivemotionsession_free(ptr, 0);
+    }
+    /**
+     * @returns {any}
+     */
+    get currentAdvice() {
+        const ret = wasm.adaptivemotionsession_currentAdvice(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {any}
+     */
+    get lastAppliedSampling() {
+        const ret = wasm.adaptivemotionsession_lastAppliedSampling(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {string}
+     */
+    get movement() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.adaptivemotionsession_movement(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Both arguments are optional. `config` has the nested
+     * `{motion, debounce, sampling}` shape returned by the Rust defaults;
+     * `capabilities` describes what this host can actually collect.
+     * @param {any} config
+     * @param {any} capabilities
+     */
+    constructor(config, capabilities) {
+        const ret = wasm.adaptivemotionsession_new(config, capabilities);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        AdaptiveMotionSessionFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Ingest `{t_ms, location?, accelerometer?, road?, traffic_control?}`.
+     * The timestamp is monotonic milliseconds supplied by the caller.
+     * @param {any} observation
+     * @returns {any}
+     */
+    observe(observation) {
+        const ret = wasm.adaptivemotionsession_observe(this.__wbg_ptr, observation);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Tell the policy what the host actually configured. This is feedback,
+     * not permission for the library to control hardware.
+     * @param {any} applied
+     */
+    reportAppliedSampling(applied) {
+        const ret = wasm.adaptivemotionsession_reportAppliedSampling(this.__wbg_ptr, applied);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    reset() {
+        wasm.adaptivemotionsession_reset(this.__wbg_ptr);
+    }
+    /**
+     * Replace host capabilities. Returns true when hardware may need to be
+     * reconfigured immediately.
+     * @param {any} capabilities
+     * @param {number} now_ms
+     * @returns {boolean}
+     */
+    setCapabilities(capabilities, now_ms) {
+        const ret = wasm.adaptivemotionsession_setCapabilities(this.__wbg_ptr, capabilities, now_ms);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
+    /**
+     * `background`, `tracking`, or `navigation`.
+     * @param {string} intent
+     * @param {number} now_ms
+     * @returns {boolean}
+     */
+    setIntent(intent, now_ms) {
+        const ptr0 = passStringToWasm0(intent, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.adaptivemotionsession_setIntent(this.__wbg_ptr, ptr0, len0, now_ms);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
+    /**
+     * Reevaluate an advice deadline without inventing a sensor sample.
+     * @param {number} now_ms
+     * @returns {any}
+     */
+    tick(now_ms) {
+        const ret = wasm.adaptivemotionsession_tick(this.__wbg_ptr, now_ms);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+}
+if (Symbol.dispose) AdaptiveMotionSession.prototype[Symbol.dispose] = AdaptiveMotionSession.prototype.free;
+
 export class AdminReader {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -1586,6 +1727,10 @@ function __wbg_get_imports() {
             const ret = typeof(val) === 'object' && val !== null;
             return ret;
         },
+        __wbg___wbindgen_is_string_1fca8072260dd261: function(arg0) {
+            const ret = typeof(arg0) === 'string';
+            return ret;
+        },
         __wbg___wbindgen_is_undefined_721f8decd50c87a3: function(arg0) {
             const ret = arg0 === undefined;
             return ret;
@@ -1621,6 +1766,14 @@ function __wbg_get_imports() {
         }, arguments); },
         __wbg_done_b62d4a7d2286852a: function(arg0) {
             const ret = arg0.done;
+            return ret;
+        },
+        __wbg_entries_c261c3fa1f281256: function(arg0) {
+            const ret = Object.entries(arg0);
+            return ret;
+        },
+        __wbg_get_197a3fe98f169e38: function(arg0, arg1) {
+            const ret = arg0[arg1 >>> 0];
             return ret;
         },
         __wbg_get_9a29be2cb383ed9a: function() { return handleError(function (arg0, arg1) {
@@ -1744,6 +1897,9 @@ function __wbg_get_imports() {
     };
 }
 
+const AdaptiveMotionSessionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_adaptivemotionsession_free(ptr, 1));
 const AdminReaderFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_adminreader_free(ptr, 1));

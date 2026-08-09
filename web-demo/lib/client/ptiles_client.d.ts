@@ -1,6 +1,52 @@
 /* tslint:disable */
 /* eslint-disable */
 
+/**
+ * Portable adaptive motion and sensor-sampling session.
+ *
+ * This class never touches browser hardware. `observe()` and `tick()` return
+ * a `sampling` record plus `sampling_changed`; the JavaScript adapter maps
+ * that advice to Geolocation, DeviceMotion, a desktop bridge, or any other
+ * host service and can emit its preferred callback/event/stream locally.
+ */
+export class AdaptiveMotionSession {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Both arguments are optional. `config` has the nested
+     * `{motion, debounce, sampling}` shape returned by the Rust defaults;
+     * `capabilities` describes what this host can actually collect.
+     */
+    constructor(config: any, capabilities: any);
+    /**
+     * Ingest `{t_ms, location?, accelerometer?, road?, traffic_control?}`.
+     * The timestamp is monotonic milliseconds supplied by the caller.
+     */
+    observe(observation: any): any;
+    /**
+     * Tell the policy what the host actually configured. This is feedback,
+     * not permission for the library to control hardware.
+     */
+    reportAppliedSampling(applied: any): void;
+    reset(): void;
+    /**
+     * Replace host capabilities. Returns true when hardware may need to be
+     * reconfigured immediately.
+     */
+    setCapabilities(capabilities: any, now_ms: number): boolean;
+    /**
+     * `background`, `tracking`, or `navigation`.
+     */
+    setIntent(intent: string, now_ms: number): boolean;
+    /**
+     * Reevaluate an advice deadline without inventing a sensor sample.
+     */
+    tick(now_ms: number): any;
+    readonly currentAdvice: any;
+    readonly lastAppliedSampling: any;
+    readonly movement: string;
+}
+
 export class AdminReader {
     free(): void;
     [Symbol.dispose](): void;
@@ -720,9 +766,20 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_adaptivemotionsession_free: (a: number, b: number) => void;
     readonly __wbg_adminreader_free: (a: number, b: number) => void;
     readonly __wbg_movementtracker_free: (a: number, b: number) => void;
     readonly accel_stats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+    readonly adaptivemotionsession_currentAdvice: (a: number) => [number, number, number];
+    readonly adaptivemotionsession_lastAppliedSampling: (a: number) => [number, number, number];
+    readonly adaptivemotionsession_movement: (a: number) => [number, number];
+    readonly adaptivemotionsession_new: (a: any, b: any) => [number, number, number];
+    readonly adaptivemotionsession_observe: (a: number, b: any) => [number, number, number];
+    readonly adaptivemotionsession_reportAppliedSampling: (a: number, b: any) => [number, number];
+    readonly adaptivemotionsession_reset: (a: number) => void;
+    readonly adaptivemotionsession_setCapabilities: (a: number, b: any, c: number) => [number, number, number];
+    readonly adaptivemotionsession_setIntent: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly adaptivemotionsession_tick: (a: number, b: number) => [number, number, number];
     readonly address_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
     readonly adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];

@@ -26,6 +26,11 @@ fix + speed + map context -> classify() ------> Vote         stateless
                                                         v
                                             stable MovementType
 
+observations -> AdaptiveMotionSession -> movement + SamplingAdvice   stateful
+                                            |
+                                            v
+                              host-owned sensor/location adapter
+
 timestamped GPS fixes -> MotionClassifier -> smoothed speed   stateful
                               |              + speed-only state
                               +---- fallback speed for classify()
@@ -79,6 +84,8 @@ input sequence.
 | `t_two_sided_p` | Stateless statistical helper | None | Degrees of freedom is an argument |
 | Wasm `MovementTracker` | Stateful composition | A `MotionClassifier`, `VoteDebouncer`, and last raw vote | Debounce config is configurable; speed config is fixed to defaults |
 | UniFFI `VoteDebouncer` | Stateful Android/Swift/Python wrapper | Core debouncer behind a mutex | Full `DebounceConfig` at construction |
+| `AdaptiveSampler` | Stateful sampling policy | Last evidence/state, current advice, burst/downshift timing, capabilities, intent, applied acknowledgement | `SamplingConfig` plus runtime capabilities/intent |
+| `AdaptiveMotionSession` | Stateful complete pipeline | `MotionClassifier`, `VoteDebouncer`, `AdaptiveSampler`, last vote/evidence | `AdaptiveMotionConfig`; Rust, UniFFI, and Wasm |
 
 ## Stateless components
 
@@ -280,8 +287,8 @@ window, current state, or pending transition.
 
 ### Wasm `MovementTracker`
 
-`MovementTracker` is the only integrated stateful pipeline currently supplied
-by a binding. It owns:
+`MovementTracker` is the older Wasm-only integrated pipeline. It remains for
+compatibility alongside the cross-binding `AdaptiveMotionSession`. It owns:
 
 - `MotionClassifier` for derived/smoothed fallback speed;
 - `VoteDebouncer` for stable state;
@@ -301,12 +308,42 @@ Current limitations are worth making explicit:
 - the stable movement and smoothed speed are readable, but internal windows are
   not serialized for process restoration.
 
+### `AdaptiveSampler` and `AdaptiveMotionSession`
+
+`AdaptiveSampler` is the hardware-neutral policy layer. It retains the current
+advice, last evidence and movement, application intent, capability limits,
+burst start, downshift hold, generation, and the most recent
+`AppliedSampling` acknowledgement. It never starts a timer or calls a sensor.
+
+`AdaptiveMotionSession` composes that policy with `MotionClassifier`,
+`classify_with_history`, and `VoteDebouncer`. Each `observe` call returns:
+
+- raw vote and committed movement;
+- smoothed speed and traffic-control evidence;
+- `SamplingAdvice`;
+- `sampling_changed`, which means an adapter may need to reconfigure hardware.
+
+`tick(now_ms)` reevaluates an advice deadline without fabricating a sensor
+reading. The caller must schedule that tick from `reevaluate_after_ms`.
+`set_capabilities` clamps or disables impossible requests immediately;
+`set_intent` selects Background, Tracking, or Navigation policy;
+`report_applied_sampling` records what the host actually configured. A reset
+clears classification and policy history while retaining config, capabilities,
+and intent.
+
+The hook is a returned record rather than a Rust-to-host callback. UniFFI,
+Wasm, native Rust, C-style wrappers, services, and desktop adapters can all
+consume the same synchronous result, then expose a Kotlin `Flow`, Swift
+delegate, JavaScript event, channel, listener, or IPC message locally. This
+avoids imposing callback lifetime, reentrancy, and threading rules across every
+FFI boundary.
+
 ## Configuration reference
 
 ### `MotionConfig` — stateful speed smoothing
 
-Available directly in Rust. It is not currently exposed through UniFFI and is
-not configurable in Wasm `MovementTracker`.
+Available directly in Rust and as part of `AdaptiveMotionConfig` through
+UniFFI and Wasm. The older Wasm `MovementTracker` still fixes it to defaults.
 
 | Field | Default | Effect |
 | --- | ---: | --- |
@@ -365,6 +402,29 @@ Available in Rust and Wasm. It is not currently exposed through UniFFI.
 remaining values are not rejected by a validating constructor; use a finite
 `alpha` in `(0, 1)` and a finite non-negative effect-size threshold.
 
+### `SamplingConfig` — adaptive collection policy
+
+Available in Rust, UniFFI, and Wasm through `AdaptiveMotionConfig`. Defaults
+request a 1-second location interval and 50 Hz accelerometer burst while
+initializing or resolving a transition. Stable profiles request approximately:
+
+| State | Location | Accelerometer |
+| --- | --- | --- |
+| Stationary | Passive, 60 s / 25 m | Passive wakeup, or 5 Hz when wakeup is unavailable |
+| Walking | Balanced, 5 s / 5 m | Balanced, 20 Hz |
+| Running | High, 2 s / 3 m | High, 25 Hz |
+| Driving | High, 2 s / 8 m | Low, 10 Hz |
+
+The default accelerometer window is 4 seconds. A transition burst is capped at
+10 seconds, advice is reevaluated within 10 seconds, and a 15-second hold
+prevents an immediate power downshift after an escalation. The confidence gate
+is `0.60`. Every interval, rate, distance, duration, and gate is configurable.
+
+`SamplingCapabilities` can disable location or acceleration, replace passive
+location with low-rate active collection, enforce the host's minimum location
+interval, and cap accelerometer frequency. Capability restrictions are marked
+in the advice instead of silently promising unavailable data.
+
 ### Fixed decision-tree constants
 
 These are exposed for inspection but are not runtime config:
@@ -391,44 +451,42 @@ new corpus validation; `MotionConfig` does not affect them.
 | `classify_with_history` | Yes | `classify_movement_with_history` | No |
 | `classify_accel_only` | Yes | `classify_movement_accel_only` | Only through tracker/classifier flow |
 | `MotionClassifier` | Public | Not exposed | Internal to `MovementTracker` |
-| Custom `MotionConfig` | Yes | No | No |
+| Custom `MotionConfig` | Yes | Through adaptive session | Through adaptive session |
 | `VoteDebouncer` | Public | Public opaque object | Internal to `MovementTracker` |
 | Custom `DebounceConfig` | Yes | Yes | Yes, partial object accepted |
 | Responsive preset by name | Yes | No | No |
 | `significant_shifts` | Yes | No | Yes |
 | Custom `ShiftConfig` | Yes | No | Yes |
-| Full integrated tracker | Compose manually | Compose manually | `MovementTracker` |
-| Reset speed history | `MotionClassifier::reset` | Not exposed | Recreate tracker |
-| Reset debounce history | Recreate object | Recreate object | Recreate tracker |
+| Adaptive sampling advice | Yes | Yes | Yes |
+| Capability/applied-policy feedback | Yes | Yes | Yes |
+| Background/tracking/navigation intent | Yes | Yes | Yes |
+| Full integrated adaptive tracker | `AdaptiveMotionSession` | `AdaptiveMotionSession` | `AdaptiveMotionSession` |
+| Legacy integrated tracker | Compose manually | Compose manually | `MovementTracker` |
+| Reset adaptive session | Yes | Yes | Yes |
 
 ## Recommended Android composition
 
-Android currently has the rich stateless functions and stateful debouncer, but
-not `MotionClassifier`. Therefore the app should either supply platform speed
-or derive/smooth speed in its existing capture layer, then use one persistent
-debouncer per active track:
+Android can continue composing the lower-level functions, but new integrations
+should keep one UniFFI `AdaptiveMotionSession` per active capture session:
 
 ```text
 location/sensor callback
     -> AccelStats (when a sensor window exists)
     -> PTiles nearest road + nearest traffic control
-    -> classify_movement_with_history(
-           speed,
-           accuracy,
-           road,
-           accel,
-           bearing,
-           debouncer.current()
-       )
-    -> debouncer.tick_at(vote, monotonic_ms, traffic_control)
-    -> committed MovementType
+    -> adaptiveSession.observe(MotionObservation(...))
+    -> AdaptiveMotionUpdate
+    -> if samplingChanged, translate SamplingAdvice into Android APIs
+    -> schedule tick from reevaluateAfterMs
+    -> reportAppliedSampling(actual configuration)
 ```
 
 Operational rules:
 
-- Keep the `VoteDebouncer` instance for the lifetime of one capture session.
+- Keep the `AdaptiveMotionSession` instance for the lifetime of one capture
+  session.
 - Use a monotonic elapsed-realtime clock, not wall-clock epoch time.
-- Recreate the debouncer when starting an unrelated track or changing tuning.
+- Call `reset` when starting an unrelated track; recreate the session to change
+  construction-time classifier tuning.
 - Record both the raw `Vote` and committed state; they answer different
   questions and make later debugging possible.
 - Pass absent speed, accuracy, accelerometer, or map context as absent—not as a
@@ -436,16 +494,15 @@ Operational rules:
 - Use the indoor/outdoor estimate as additional application evidence, not as a
   replacement motion class. A confident arrival inside a building may justify
   `clear_vehicle_sticky()` before accepting Stationary.
-- If Android needs library-owned derived speed and identical behavior to Wasm,
-  expose `MotionClassifier` or add an integrated UniFFI tracker rather than
-  maintaining another Kotlin smoother.
+- Treat advice as a request. Android permissions, lifecycle, battery saver, and
+  OS throttling remain authoritative; report what was actually applied.
 
 ## Configuration lifecycle and persistence
 
 All config records are copied into their stateful object at construction. They
 are not live references, and changing the original record later has no effect.
 
-Neither stateful object exposes a serializable snapshot of its internal
+No stateful object exposes a serializable snapshot of its internal
 history. For Android process death, there are three options:
 
 1. Recreate state and accept a short warm-up period.
@@ -477,15 +534,18 @@ versioned persistence contract.
   flapping on representative traces.
 - Using `significant_shifts` as segment labels; it finds boundaries, not the
   movement types between them.
+- Treating `SamplingAdvice` as a guarantee rather than a capability-clamped
+  request that the host may further restrict.
+- Waiting for a callback from Rust: the portable hook is the returned update;
+  each adapter emits its own native event when `sampling_changed` is true.
 
 ## Useful future API additions
 
 - Export `DebounceConfig::responsive()` by name through UniFFI and Wasm.
-- Expose `MotionClassifier` and `MotionConfig` through UniFFI, or provide an
-  Android integrated tracker matching Wasm.
-- Let the integrated tracker call `classify_with_history` and accept GPS
-  bearing.
-- Add explicit reset methods to UniFFI/Wasm stateful wrappers.
+- Add adapter examples that map advice to Android, Apple, browser, and desktop
+  sensor services without putting those dependencies in `ptiles-motion`.
+- Feed route deviation, indoor/outdoor state, and arrival evidence into the
+  sampling policy as optional generic signals after their behavior is measured.
 - Expose `significant_shifts` and `ShiftConfig` through UniFFI for on-device
   trace diagnostics.
 - Add optional confidence-weighted debouncing only after corpus evidence shows
@@ -494,4 +554,3 @@ versioned persistence contract.
   internally inconsistent values.
 - Add versioned state snapshot/restore only if Android process-continuity tests
   justify the persistence contract.
-
