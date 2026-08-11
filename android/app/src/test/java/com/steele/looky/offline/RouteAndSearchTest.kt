@@ -173,19 +173,26 @@ class RouteAndSearchTest {
         assertEquals(listOf("Airport Diner"), PtilesRepository.mergeBusinessHits(hits, limit = 10).map { it.name })
     }
 
-    @Test fun theCorridorCapIsTheOneRouteErrorWorthSplittingFor() {
+    @Test fun bothCorridorFailuresAreWorthSplittingFor() {
         assertTrue(
-            PtilesRepository.isCorridorTooLarge(
+            PtilesRepository.isSplittableFailure(
                 IllegalStateException("bad bounding box: bounding box (35, -88)..(36, -87) is too large: covers more than 512 H3 res-7 cells")
             )
         )
-        assertFalse(PtilesRepository.isCorridorTooLarge(IllegalStateException("no roads layer is installed")))
-        assertFalse(PtilesRepository.isCorridorTooLarge(IllegalStateException("Offline route graph is empty")))
+        // Measured on the TN pack: Savannah to Camden fails this way whole and
+        // routes as two halves.
+        assertTrue(PtilesRepository.isSplittableFailure(IllegalStateException("offline route failed: Disconnected")))
+    }
+
+    @Test fun failuresASmallerCorridorCannotFixAreNotSplit() {
+        assertFalse(PtilesRepository.isSplittableFailure(IllegalStateException("no roads layer is installed")))
+        assertFalse(PtilesRepository.isSplittableFailure(IllegalStateException("offline route failed: StartNotSnapped")))
+        assertFalse(PtilesRepository.isSplittableFailure(IllegalStateException("offline route failed: EmptyGraph")))
     }
 
     @Test fun aWrappedCorridorErrorIsStillRecognised() {
         val wrapped = RuntimeException("route failed", IllegalStateException("bad bounding box: too large, 512 cells"))
 
-        assertTrue(PtilesRepository.isCorridorTooLarge(wrapped))
+        assertTrue(PtilesRepository.isSplittableFailure(wrapped))
     }
 }

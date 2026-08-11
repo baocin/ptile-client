@@ -2251,20 +2251,16 @@ impl PtilesStack {
             prefs,
         );
 
-        // A disconnected corridor is the one failure worth retrying: both ends
-        // snapped, but the strip of cells between them did not hold a road
-        // joining them -- a river crossing or an interchange just outside the
-        // box. `RouteFailure`'s own docs say widening helps here and nowhere
-        // else, so this widens once rather than reporting a dead end the map
-        // plainly contradicts.
+        // A disconnected corridor means both ends snapped but the road joining
+        // them arcs outside the box -- a river crossing or an interchange just
+        // past the edge. Widening pulls it in: measured on the Tennessee pack,
+        // Savannah to the midpoint of Camden goes from Disconnected to a 70.9 km
+        // route this way. It only helps when the box has room left, which is why
+        // the caller also splits long legs.
         if attempt == Err(ptiles_core::route_graph::RouteFailure::Disconnected) {
-            let wider = cells_for_bounds(
-                start_lat.min(end_lat) - lat_margin * DISCONNECTED_RETRY_SCALE,
-                start_lon.min(end_lon) - lon_margin * DISCONNECTED_RETRY_SCALE,
-                start_lat.max(end_lat) + lat_margin * DISCONNECTED_RETRY_SCALE,
-                start_lon.max(end_lon) + lon_margin * DISCONNECTED_RETRY_SCALE,
-            );
-            if let Ok(wider) = wider {
+            if let Some(wider) = widened_corridor(
+                start_lat, start_lon, end_lat, end_lon, lat_margin, lon_margin, cells.len(),
+            ) {
                 let mut widened = roads_layer.decoded_roads_for_cells(&wider)?;
                 if mode == OfflineRouteMode::Trail {
                     if let Some(trails_layer) = &self.trails {
@@ -2275,14 +2271,7 @@ impl PtilesStack {
                 if widened.len() > segments.len() {
                     decoded_segments = widened.len() as u32;
                     attempt = route_roads_diagnostic(
-                        &widened,
-                        &[],
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        snap_radius,
-                        prefs,
+                        &widened, &[], start_lat, start_lon, end_lat, end_lon, snap_radius, prefs,
                     );
                 }
             }
@@ -2326,12 +2315,37 @@ impl PtilesStack {
     }
 }
 
-/// How much wider the corridor gets on a disconnected-route retry.
+/// Corridor widenings to try on a disconnected route, widest first.
 ///
-/// Two-and-a-half times the margin, once. Enough to pull in the bridge or the
-/// interchange that sat just outside the first box, and still inside the 512
-/// cell budget for any route that fit before.
-const DISCONNECTED_RETRY_SCALE: f64 = 2.5;
+/// One fixed scale does not work: the cell budget follows the box *area*, so
+/// 2.5x fits a 100 km north-south corridor (406 cells) and is rejected outright
+/// for a 50 km diagonal (376 cells at 1x). A rejected widening is a silent
+/// no-op, so this walks down until one fits.
+const DISCONNECTED_RETRY_SCALES: [f64; 4] = [2.5, 2.0, 1.6, 1.3];
+
+/// The widest corridor that still fits the cell cap and holds more cells than
+/// the original. `None` when nothing fits, which means a retry would only
+/// repeat the same work.
+fn widened_corridor(
+    start_lat: f64,
+    start_lon: f64,
+    end_lat: f64,
+    end_lon: f64,
+    lat_margin: f64,
+    lon_margin: f64,
+    base_cells: usize,
+) -> Option<Vec<u64>> {
+    DISCONNECTED_RETRY_SCALES.iter().find_map(|scale| {
+        cells_for_bounds(
+            start_lat.min(end_lat) - lat_margin * scale,
+            start_lon.min(end_lon) - lon_margin * scale,
+            start_lat.max(end_lat) + lat_margin * scale,
+            start_lon.max(end_lon) + lon_margin * scale,
+        )
+        .ok()
+        .filter(|cells| cells.len() > base_cells)
+    })
+}
 
 /// One manoeuvre in a route's turn queue.
 #[derive(Debug, Clone, uniffi::Record)]
@@ -2625,6 +2639,72 @@ mod tests {
         assert_eq!(groups[0].0, cell_for_coord(points[0].lat, points[0].lon));
         assert_eq!(groups[1].0, cell_for_coord(points[1].lat, points[1].lon));
         assert!(PtilesLayer::group_by_cell(&[]).is_empty());
+    }
+
+    fn margins(start: (f64, f64), end: (f64, f64)) -> (f64, f64) {
+        let lat_span = (start.0 - end.0).abs();
+        let lon_span = (start.1 - end.1).abs();
+        (0.015_f64.max(lat_span * 0.15), 0.020_f64.max(lon_span * 0.15))
+    }
+
+    fn base_cells(start: (f64, f64), end: (f64, f64)) -> usize {
+        let (lat_margin, lon_margin) = margins(start, end);
+        cells_for_bounds(
+            start.0.min(end.0) - lat_margin,
+            start.1.min(end.1) - lon_margin,
+            start.0.max(end.0) + lat_margin,
+            start.1.max(end.1) + lon_margin,
+        )
+        .expect("the base corridor must fit")
+        .len()
+    }
+
+    #[test]
+    fn a_short_route_widens_by_the_full_step() {
+        let start = (35.0, -88.0);
+        let end = (35.45, -88.0);
+        let (lat_margin, lon_margin) = margins(start, end);
+        let base = base_cells(start, end);
+
+        let wider = widened_corridor(start.0, start.1, end.0, end.1, lat_margin, lon_margin, base)
+            .expect("a short route has room to widen");
+
+        assert!(wider.len() > base);
+    }
+
+    #[test]
+    fn a_diagonal_route_widens_after_the_widest_step_is_rejected() {
+        // ~50 km diagonal: 376 cells at 1x, and 2.5x blows the 512-cell cap.
+        // A single fixed scale gave up here and left the route disconnected.
+        let start = (35.0, -88.0);
+        let end = (35.315, -87.685);
+        let (lat_margin, lon_margin) = margins(start, end);
+        let base = base_cells(start, end);
+
+        assert!(
+            cells_for_bounds(
+                start.0 - lat_margin * 2.5,
+                start.1 - lon_margin * 2.5,
+                end.0 + lat_margin * 2.5,
+                end.1 + lon_margin * 2.5,
+            )
+            .is_err(),
+            "this case exists because the widest step is rejected",
+        );
+
+        let wider = widened_corridor(start.0, start.1, end.0, end.1, lat_margin, lon_margin, base)
+            .expect("a smaller widening must still be found");
+        assert!(wider.len() > base);
+        assert!(wider.len() <= ptiles_core::MAX_BOUNDS_CELLS);
+    }
+
+    #[test]
+    fn a_route_with_no_room_left_reports_no_widening() {
+        let start = (35.0, -88.0);
+        let end = (36.4, -86.6);
+        let (lat_margin, lon_margin) = margins(start, end);
+
+        assert!(widened_corridor(start.0, start.1, end.0, end.1, lat_margin, lon_margin, 1).is_none());
     }
 
     #[test]

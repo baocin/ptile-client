@@ -364,11 +364,15 @@ class PtilesRepository(context: Context) {
     /**
      * One leg, split in half as many times as the corridor cap demands.
      *
-     * The FFI bounds a route's corridor at 512 H3 res-7 cells and fails the
-     * whole request when the endpoints are further apart than that -- "bad
-     * bounding box", which is a fact about the graph budget, not about the
-     * trip being impossible. Halving the leg halves the corridor, so a long
-     * route becomes several short ones and joins back into one line.
+     * The FFI bounds a route's corridor at 512 H3 res-7 cells, and fails two
+     * ways once a trip outgrows it: "bad bounding box" when the box itself is
+     * over the cap, and "Disconnected" when it fits but the road joining the
+     * ends arcs outside it. Both are facts about the corridor, not about the
+     * trip being impossible, and halving fixes both -- each half's box hugs
+     * the line more tightly, so the missing link falls inside it.
+     *
+     * Measured on the Tennessee roads pack: Savannah to Camden is
+     * Disconnected whole, and routes as 70.9 km + 53.1 km split in half.
      *
      * ponytail: the split point is the geometric midpoint snapped to the
      * network, not a real waypoint. It can put a joint somewhere a router
@@ -385,7 +389,7 @@ class PtilesRepository(context: Context) {
     ): RouteResult = try {
         routeLeg(start, end, trail, avoidHighways, avoidIntersections)
     } catch (e: Exception) {
-        if (splitsLeft <= 0 || !isCorridorTooLarge(e)) throw e
+        if (splitsLeft <= 0 || !isSplittableFailure(e)) throw e
         val midpoint = GeoPoint((start.lat + end.lat) / 2, (start.lon + end.lon) / 2)
         val split = snapForRoute(midpoint, trail) ?: midpoint
         joinLegs(
@@ -519,15 +523,22 @@ class PtilesRepository(context: Context) {
         internal const val MAX_ROUTE_SPLITS = 3
 
         /**
-         * True for the FFI's corridor-budget failure, which splitting fixes,
-         * and false for a missing layer or an empty graph, which it does not.
+         * True for the two corridor failures splitting fixes, false for a
+         * missing layer, an unsnappable endpoint, or an empty graph -- none of
+         * which a smaller corridor helps.
+         *
+         * Widening the corridor instead was tried and measured: on a
+         * disconnected route the box is already at the cell cap, so there is
+         * usually no room to widen, and where there was room the extra
+         * segments did not bridge the gap.
          */
-        internal fun isCorridorTooLarge(error: Throwable): Boolean {
+        internal fun isSplittableFailure(error: Throwable): Boolean {
             val message = generateSequence(error, Throwable::cause)
                 .mapNotNull { it.message }
                 .joinToString(" ")
                 .lowercase()
-            return "bounding box" in message && ("too large" in message || "cells" in message)
+            val overBudget = "bounding box" in message && ("too large" in message || "cells" in message)
+            return overBudget || "disconnected" in message
         }
 
         /** How far a typed search sweeps the spatial layer before the index. */
