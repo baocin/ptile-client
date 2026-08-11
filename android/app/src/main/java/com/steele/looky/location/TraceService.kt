@@ -173,7 +173,7 @@ class TraceService : Service() {
             // "Driving" outlived the drive: the classifier debounces, so the
             // last verdict stood on the badge until movement changed it. A new
             // session starts unclassified.
-            motion.reset()
+            motion.reset(mode)
             TraceBus.update {
                 it.copy(
                     recentPoints = emptyList(),

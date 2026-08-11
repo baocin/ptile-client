@@ -112,11 +112,16 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
         }
     }
 
+    // Ending the drive ends everything that belonged to it: the turn card, the
+    // route line, and the lime summary card, which used to sit there after the
+    // drive was over describing a route nobody was on.
     LaunchedEffect(driving) {
         if (!driving) {
             navigator = null
             navState = null
             turns = emptyList()
+            route = null
+            routeError = null
         }
     }
 

@@ -23,7 +23,8 @@ class MotionEngine(
     private val sensorManager: SensorManager,
     private val ptiles: PtilesRepository,
 ) : SensorEventListener {
-    private val session = AdaptiveMotionSession(defaultAdaptiveMotionConfig(), defaultSamplingCapabilities())
+    @Volatile
+    private var session = AdaptiveMotionSession(defaultAdaptiveMotionConfig(), defaultSamplingCapabilities())
     private val lock = Any()
     private val x = ArrayList<Float>(256)
     private val y = ArrayList<Float>(256)
@@ -62,19 +63,28 @@ class MotionEngine(
     }
 
     /**
-     * Drop the accelerometer window a new session should not inherit.
+     * Start classification over for a new session.
      *
-     * The PTiles session itself keeps its own debounce; this clears the
-     * samples so the first classification of a walk is not computed from the
-     * drive that ended a second ago.
+     * Clearing the accelerometer window is not enough: the PTiles session
+     * debounces its own verdict, so "Driving" survived the end of the drive
+     * and sat in the badge until real movement changed it. The session is
+     * replaced, not just cleared, because the debounce is its state.
      */
-    fun reset() {
+    fun reset(mode: LookyMode) {
         synchronized(lock) {
             x.clear()
             y.clear()
             z.clear()
         }
+        val fresh = AdaptiveMotionSession(defaultAdaptiveMotionConfig(), defaultSamplingCapabilities())
+        fresh.setIntent(intentFor(mode), SystemClock.elapsedRealtime().toULong())
+        val previous = session
+        session = fresh
+        runCatching { previous.close() }
     }
+
+    private fun intentFor(mode: LookyMode) =
+        if (mode == LookyMode.DRIVE) SamplingIntent.NAVIGATION else SamplingIntent.TRACKING
 
     fun stop() {
         running = false

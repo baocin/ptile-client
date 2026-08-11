@@ -96,6 +96,14 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     val walking = live.running && live.session == TraceRecorder.SESSION_TRAIL
     val imperial = settings.imperialUnits
 
+    // A finished walk leaves no route card behind, same as a finished drive.
+    LaunchedEffect(walking) {
+        if (!walking) {
+            route = null
+            routeError = null
+        }
+    }
+
     LaunchedEffect(anchor.lat, anchor.lon) { if (!panned) dataCenter = anchor }
 
     LaunchedEffect(dataCenter.lat, dataCenter.lon) {
