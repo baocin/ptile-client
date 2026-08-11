@@ -74,14 +74,14 @@ class MainActivity : ComponentActivity() {
                             settings.onboardingComplete = true
                             onboarded = true
                             if (permissionsGranted && settings.continuousRecording) {
-                                TraceService.start(this, settings.activeMode)
+                                TraceService.startBackground(this)
                             }
                         },
                     )
                 } else {
                     LaunchedEffect(permissionsGranted, settings.continuousRecording) {
                         if (permissionsGranted && settings.continuousRecording) {
-                            TraceService.start(this@MainActivity, settings.activeMode)
+                            TraceService.startBackground(this@MainActivity)
                         }
                     }
                     LookyApp(settings, ::requestLookyPermissions, currentStateCode)
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
                 }
             mapDownloadRunning = false
             if (settings.onboardingComplete) {
-                if (permissionsGranted && settings.continuousRecording) TraceService.start(this@MainActivity, settings.activeMode)
+                if (permissionsGranted && settings.continuousRecording) TraceService.startBackground(this@MainActivity)
                 // Compose observes onboardingComplete only through this local state.
                 setContent {
                     LookyTheme { LookyApp(settings, ::requestLookyPermissions, currentStateCode) }

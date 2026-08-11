@@ -1,7 +1,6 @@
 package com.steele.looky
 
 import android.content.Context
-import com.steele.looky.location.TraceRecorder
 import com.steele.looky.model.LookyMode
 
 class AppSettings(context: Context) {
@@ -24,11 +23,6 @@ class AppSettings(context: Context) {
             LookyMode.valueOf(prefs.getString("active_mode", LookyMode.DRIVE.name)!!)
         }.getOrDefault(LookyMode.DRIVE)
         set(value) = prefs.edit().putString("active_mode", value.name).apply()
-
-    /** Which day file a sticky restart should keep appending to. */
-    var activeSession: String
-        get() = prefs.getString("active_session", TraceRecorder.SESSION_BACKGROUND)!!
-        set(value) = prefs.edit().putString("active_session", value).apply()
 
     /** Feet and miles. Default on: this ships to a US-only pack set. */
     var imperialUnits: Boolean

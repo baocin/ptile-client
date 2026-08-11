@@ -44,6 +44,7 @@ class TraceService : Service() {
         const val ACTION_DRIVE = "com.steele.looky.DRIVE"
         const val ACTION_TRAIL = "com.steele.looky.TRAIL"
         const val ACTION_BACKGROUND = "com.steele.looky.BACKGROUND"
+        const val ACTION_END_SESSION = "com.steele.looky.END_SESSION"
         const val ACTION_APPLY_SETTINGS = "com.steele.looky.APPLY_SETTINGS"
         private const val CHANNEL = "looky-trace"
         private const val NOTIFICATION = 4102
@@ -54,6 +55,14 @@ class TraceService : Service() {
          * correct and stale for a label the user watches while moving.
          */
         internal const val CLASSIFICATION_INTERVAL_MS = 1_000L
+
+        /**
+         * Silence that means the subscription died rather than the phone
+         * standing still: several polling intervals, floored so a 3 s interval
+         * does not re-subscribe on one skipped fix.
+         */
+        internal fun staleAfterMs(intervalSeconds: Int): Long =
+            (intervalSeconds * 6_000L).coerceIn(60_000L, 300_000L)
 
         fun start(context: Context, mode: LookyMode) {
             val action = if (mode == LookyMode.DRIVE) ACTION_DRIVE else ACTION_TRAIL
@@ -67,6 +76,16 @@ class TraceService : Service() {
          */
         fun startBackground(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, TraceService::class.java).setAction(ACTION_BACKGROUND))
+        }
+
+        /**
+         * End a drive or trail and fall back to background recording.
+         *
+         * [stop] is the global off switch -- the Settings toggle and the
+         * notification's Stop. Finishing one journey is not that.
+         */
+        fun endSession(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, TraceService::class.java).setAction(ACTION_END_SESSION))
         }
 
         fun stop(context: Context) {
@@ -86,6 +105,8 @@ class TraceService : Service() {
     private var mode = LookyMode.DRIVE
     private var session = TraceRecorder.SESSION_BACKGROUND
     private var last: Location? = null
+    /** When the last fix arrived, for the stalled-provider watchdog. */
+    private var lastFixAt = 0L
     private var distanceM = 0.0
     private var started = false
     private var wakeLock: PowerManager.WakeLock? = null
@@ -122,12 +143,26 @@ class TraceService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            // Ending a drive is not "stop recording". Before this, the Stop
+            // button cleared continuousRecording, so finishing one drive
+            // silently ended the always-on log until Settings was toggled
+            // back on by hand.
+            ACTION_END_SESSION -> {
+                if (!settings.continuousRecording) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                mode = settings.activeMode
+                session = TraceRecorder.SESSION_BACKGROUND
+            }
             ACTION_TRAIL -> { mode = LookyMode.TRAIL; session = TraceRecorder.SESSION_TRAIL }
             ACTION_DRIVE -> { mode = LookyMode.DRIVE; session = TraceRecorder.SESSION_DRIVE }
-            // A sticky restart resumes whatever was running, so the session
-            // label has to survive the process, not the intent.
             ACTION_BACKGROUND -> { mode = settings.activeMode; session = TraceRecorder.SESSION_BACKGROUND }
-            null -> { mode = settings.activeMode; session = settings.activeSession }
+            // A sticky restart resumes recording, not a journey. Persisting the
+            // session meant a drive stopped hours ago came back as a drive on
+            // the next launch -- the app insisting you were driving when you
+            // were sitting still.
+            null -> { mode = settings.activeMode; session = TraceRecorder.SESSION_BACKGROUND }
         }
         // The breadcrumb belongs to the session being recorded, so switching
         // from a drive to a walk starts the trail line empty instead of
@@ -135,9 +170,20 @@ class TraceService : Service() {
         if (!started || previousSession != session) {
             distanceM = 0.0
             last = null
-            TraceBus.update { it.copy(recentPoints = emptyList(), distanceM = 0.0, pointsToday = 0) }
+            // "Driving" outlived the drive: the classifier debounces, so the
+            // last verdict stood on the badge until movement changed it. A new
+            // session starts unclassified.
+            motion.reset()
+            TraceBus.update {
+                it.copy(
+                    recentPoints = emptyList(),
+                    distanceM = 0.0,
+                    pointsToday = 0,
+                    movement = "Unknown",
+                    confidence = 0.0,
+                )
+            }
         }
-        settings.activeSession = session
         settings.apply {
             continuousRecording = true
             activeMode = mode
@@ -159,6 +205,7 @@ class TraceService : Service() {
             return false
         }
         started = true
+        lastFixAt = System.currentTimeMillis()
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Looky:TraceService")
             .apply {
@@ -171,6 +218,16 @@ class TraceService : Service() {
             while (isActive) {
                 delay(CLASSIFICATION_INTERVAL_MS)
                 last?.let { classifyAndPublish(Location(it)) }
+                // A foreground service can outlive its location subscription:
+                // Doze, a provider restart, or Play services updating leaves
+                // the notification up and the file untouched. Nothing else
+                // notices, so re-subscribe when the fixes stop arriving.
+                val interval = AppSettings(this@TraceService).gpsIntervalSeconds
+                val silentFor = System.currentTimeMillis() - lastFixAt
+                if (lastFixAt > 0 && silentFor > staleAfterMs(interval)) {
+                    lastFixAt = System.currentTimeMillis()
+                    requestLocationUpdates(interval)
+                }
             }
         }
         return true
@@ -196,6 +253,7 @@ class TraceService : Service() {
     }
 
     private fun record(fix: Location) {
+        lastFixAt = System.currentTimeMillis()
         // Always classify the fix being written. This used to reuse the timer's
         // verdict when one landed inside CLASSIFICATION_INTERVAL_MS, which meant
         // a fresh GPS fix -- the best evidence available -- was labelled with
@@ -291,7 +349,7 @@ class TraceService : Service() {
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
         scope.cancel()
-        TraceBus.update { it.copy(running = false) }
+        TraceBus.update { it.copy(running = false, movement = "Unknown", traceFile = null) }
         super.onDestroy()
     }
 

@@ -858,17 +858,25 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
-// N.B. the name of the extension is very misleading, since it is
-// rather `InterfaceTooLargeException`, caused by too many methods
+// N.B. the name of the extension is very misleading, since it is 
+// rather `InterfaceTooLargeException`, caused by too many methods 
 // in the interface for large crates.
 //
 // By splitting the otherwise huge interface into two parts
-// * UniffiLib
+// * UniffiLib 
 // * IntegrityCheckingUniffiLib (this)
 // we allow for ~2x as many methods in the UniffiLib interface.
-//
-// The `ffi_uniffi_contract_version` method and all checksum methods are put
+// 
+// The `ffi_uniffi_contract_version` method and all checksum methods are put 
 // into `IntegrityCheckingUniffiLib` and these methods are called only once,
 // when the library is loaded.
 internal interface IntegrityCheckingUniffiLib : Library {
@@ -918,6 +926,10 @@ fun uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at(
 fun uniffi_ptiles_ffi_checksum_method_addresslayer_find_address(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_navigator_turns(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_navigator_update(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_building(
 ): Short
@@ -999,6 +1011,8 @@ fun uniffi_ptiles_ffi_checksum_constructor_addresslayer_open(
 ): Short
 fun uniffi_ptiles_ffi_checksum_constructor_adminlayer_open(
 ): Short
+fun uniffi_ptiles_ffi_checksum_constructor_navigator_new(
+): Short
 fun uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open(
 ): Short
 fun uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new(
@@ -1019,8 +1033,8 @@ internal interface UniffiLib : Library {
         internal val INSTANCE: UniffiLib by lazy {
             val componentName = "ptiles_ffi"
             // For large crates we prevent `MethodTooLargeException` (see #2340)
-            // N.B. the name of the extension is very misleading, since it is
-            // rather `InterfaceTooLargeException`, caused by too many methods
+            // N.B. the name of the extension is very misleading, since it is 
+            // rather `InterfaceTooLargeException`, caused by too many methods 
             // in the interface for large crates.
             //
             // By splitting the otherwise huge interface into two parts
@@ -1028,7 +1042,7 @@ internal interface UniffiLib : Library {
             // * IntegrityCheckingUniffiLib
             // And all checksum methods are put into `IntegrityCheckingUniffiLib`
             // we allow for ~2x as many methods in the UniffiLib interface.
-            //
+            // 
             // Thus we first load the library with `loadIndirect` as `IntegrityCheckingUniffiLib`
             // so that we can (optionally!) call `uniffiCheckApiChecksums`...
             loadIndirect<IntegrityCheckingUniffiLib>(componentName)
@@ -1043,12 +1057,12 @@ internal interface UniffiLib : Library {
             // to trigger this issue, the performance impact is negligible, running on
             // a macOS M1 machine the `loadIndirect` call takes ~50ms.
             val lib = loadIndirect<UniffiLib>(componentName)
-            // No need to check the contract version and checksums, since
+            // No need to check the contract version and checksums, since 
             // we already did that with `IntegrityCheckingUniffiLib` above.
             // Loading of library with integrity check done.
             lib
         }
-
+        
         // The Cleaner for the whole library
         internal val CLEANER: UniffiCleaner by lazy {
             UniffiCleaner.create()
@@ -1056,171 +1070,181 @@ internal interface UniffiLib : Library {
     }
 
     // FFI functions
-    fun uniffi_ptiles_ffi_fn_clone_adaptivemotionsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+    fun uniffi_ptiles_ffi_fn_clone_adaptivemotionsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_free_adaptivemotionsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_free_adaptivemotionsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_constructor_adaptivemotionsession_new(`config`: RustBuffer.ByValue,`capabilities`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_constructor_adaptivemotionsession_new(`config`: RustBuffer.ByValue,`capabilities`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_current_advice(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_current_advice(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_last_applied_sampling(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_last_applied_sampling(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_movement(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_movement(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_observe(`ptr`: Pointer,`observation`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_observe(`ptr`: Pointer,`observation`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling(`ptr`: Pointer,`applied`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling(`ptr`: Pointer,`applied`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_capabilities(`ptr`: Pointer,`capabilities`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_capabilities(`ptr`: Pointer,`capabilities`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
-fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_intent(`ptr`: Pointer,`intent`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_set_intent(`ptr`: Pointer,`intent`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
-fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_tick(`ptr`: Pointer,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adaptivemotionsession_tick(`ptr`: Pointer,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_clone_addresslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_clone_addresslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_free_addresslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_free_addresslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_constructor_addresslayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_constructor_addresslayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_method_addresslayer_addresses_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_addresslayer_addresses_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_addresslayer_find_address(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`housenumber`: RustBuffer.ByValue,`street`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_addresslayer_find_address(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`housenumber`: RustBuffer.ByValue,`street`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_clone_adminlayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_clone_adminlayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_free_adminlayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_free_adminlayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_constructor_adminlayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_constructor_adminlayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_method_adminlayer_admin_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_adminlayer_admin_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_clone_ptileslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_clone_navigator(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_free_ptileslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_free_navigator(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_constructor_ptileslayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_constructor_navigator_new(`path`: RustBuffer.ByValue,`roads`: RustBuffer.ByValue,`nameRadiusM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_building(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_navigator_turns(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_buildings_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_navigator_update(`ptr`: Pointer,`lat`: Double,`lon`: Double,`accuracyM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`radiusM`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_clone_ptileslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_free_ptileslayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_ptiles_ffi_fn_constructor_ptileslayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_building(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_buildings_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_businesses_near(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`radiusM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_cameras(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_cameras(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`rangeM`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`rangeM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_covers(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_covers(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_indoor_outdoor(`ptr`: Pointer,`lat`: Double,`lon`: Double,`horizontalAccuracyM`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_indoor_outdoor(`ptr`: Pointer,`lat`: Double,`lon`: Double,`horizontalAccuracyM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_metadata(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_metadata(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection(`ptr`: Pointer,`lat`: Double,`lon`: Double,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersection(`ptr`: Pointer,`lat`: Double,`lon`: Double,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_intersections_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_rail(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_rail(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_road(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_roads_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,`thresholdM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_station(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_station(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trail(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trail(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trailhead(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_nearest_trailhead(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_park_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_park_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_parks(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_parks(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox(`ptr`: Pointer,`minLat`: Double,`minLon`: Double,`maxLat`: Double,`maxLon`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_prefetch_bbox(`ptr`: Pointer,`minLat`: Double,`minLon`: Double,`maxLat`: Double,`maxLon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_rail(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_rail(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_roads(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_roads(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(`ptr`: Pointer,`query`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(`ptr`: Pointer,`query`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_trails(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_trails(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_water(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_water(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptileslayer_water_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_water_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_clone_ptilesstack(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_clone_ptilesstack(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_free_ptilesstack(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_free_ptilesstack(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_new(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_new(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,`trails`: RustBuffer.ByValue,`parks`: RustBuffer.ByValue,`water`: RustBuffer.ByValue,`camera`: RustBuffer.ByValue,`addresses`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_constructor_ptilesstack_with_layers(`roads`: RustBuffer.ByValue,`buildings`: RustBuffer.ByValue,`business`: RustBuffer.ByValue,`trails`: RustBuffer.ByValue,`parks`: RustBuffer.ByValue,`water`: RustBuffer.ByValue,`camera`: RustBuffer.ByValue,`addresses`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`rangeM`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptilesstack_cameras_seeing(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`rangeM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor(`ptr`: Pointer,`lat`: Double,`lon`: Double,`horizontalAccuracyM`: Double,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor(`ptr`: Pointer,`lat`: Double,`lon`: Double,`horizontalAccuracyM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptilesstack_locate(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptilesstack_locate(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptilesstack_offline_route(`ptr`: Pointer,`startLat`: Double,`startLon`: Double,`endLat`: Double,`endLon`: Double,`mode`: RustBuffer.ByValue,`avoidHighways`: Byte,`avoidIntersections`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptilesstack_offline_route(`ptr`: Pointer,`startLat`: Double,`startLon`: Double,`endLat`: Double,`endLon`: Double,`mode`: RustBuffer.ByValue,`avoidHighways`: Byte,`avoidIntersections`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptilesstack_score(`ptr`: Pointer,`fix`: RustBuffer.ByValue,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_ptilesstack_score(`ptr`: Pointer,`fix`: RustBuffer.ByValue,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_clone_votedebouncer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_clone_votedebouncer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_free_votedebouncer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_free_votedebouncer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_constructor_votedebouncer_new(`config`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_constructor_votedebouncer_new(`config`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun uniffi_ptiles_ffi_fn_method_votedebouncer_config(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_config(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_votedebouncer_current(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_current(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_votedebouncer_tick(`ptr`: Pointer,`vote`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_tick(`ptr`: Pointer,`vote`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_votedebouncer_tick_at(`ptr`: Pointer,`vote`: RustBuffer.ByValue,`nowMs`: Long,`control`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_method_votedebouncer_tick_at(`ptr`: Pointer,`vote`: RustBuffer.ByValue,`nowMs`: Long,`control`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_accel_stats_from_samples(`x`: RustBuffer.ByValue,`y`: RustBuffer.ByValue,`z`: RustBuffer.ByValue,`sampleRateHz`: Int,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_accel_stats_from_samples(`x`: RustBuffer.ByValue,`y`: RustBuffer.ByValue,`z`: RustBuffer.ByValue,`sampleRateHz`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_classify_movement(`instSpeedMps`: RustBuffer.ByValue,`gpsAccuracyM`: RustBuffer.ByValue,`nearestRoad`: RustBuffer.ByValue,`accel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_classify_movement(`instSpeedMps`: RustBuffer.ByValue,`gpsAccuracyM`: RustBuffer.ByValue,`nearestRoad`: RustBuffer.ByValue,`accel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(`accel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_classify_movement_accel_only(`accel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_classify_movement_with_history(`instSpeedMps`: RustBuffer.ByValue,`gpsAccuracyM`: RustBuffer.ByValue,`nearestRoad`: RustBuffer.ByValue,`accel`: RustBuffer.ByValue,`gpsBearing`: RustBuffer.ByValue,`previousStable`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_classify_movement_with_history(`instSpeedMps`: RustBuffer.ByValue,`gpsAccuracyM`: RustBuffer.ByValue,`nearestRoad`: RustBuffer.ByValue,`accel`: RustBuffer.ByValue,`gpsBearing`: RustBuffer.ByValue,`previousStable`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_default_adaptive_motion_config(uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_default_adaptive_motion_config(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_default_debounce_config(uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_default_debounce_config(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_default_sampling_capabilities(uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_default_sampling_capabilities(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_intersection_holds_traffic(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
-fun uniffi_ptiles_ffi_fn_func_intersection_type_name(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_intersection_type_name(`intersectionType`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_movement_thresholds(uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_movement_thresholds(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_func_trail_is_developed(`trailType`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_ptiles_ffi_fn_func_trail_is_developed(`trailType`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
-fun ffi_ptiles_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun ffi_ptiles_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun ffi_ptiles_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-fun ffi_ptiles_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun ffi_ptiles_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1228,7 +1252,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_u8(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_u8(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 fun ffi_ptiles_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1236,7 +1260,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_i8(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_i8(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 fun ffi_ptiles_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1244,7 +1268,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_u16(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_u16(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Short
 fun ffi_ptiles_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1252,7 +1276,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_i16(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_i16(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Short
 fun ffi_ptiles_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1260,7 +1284,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_u32(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_u32(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
 fun ffi_ptiles_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1268,7 +1292,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_i32(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_i32(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
 fun ffi_ptiles_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1276,7 +1300,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_u64(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_u64(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 fun ffi_ptiles_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1284,7 +1308,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_i64(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_i64(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 fun ffi_ptiles_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1292,7 +1316,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_f32(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_f32(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Float
 fun ffi_ptiles_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1300,7 +1324,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_f64(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_f64(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Double
 fun ffi_ptiles_ffi_rust_future_poll_pointer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1308,7 +1332,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_pointer(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_pointer(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_pointer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_pointer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun ffi_ptiles_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1316,7 +1340,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_rust_buffer(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun ffi_ptiles_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1324,7 +1348,7 @@ fun ffi_ptiles_ffi_rust_future_cancel_void(`handle`: Long,
 ): Unit
 fun ffi_ptiles_ffi_rust_future_free_void(`handle`: Long,
 ): Unit
-fun ffi_ptiles_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+fun ffi_ptiles_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 
 }
@@ -1407,6 +1431,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at() != 29916.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_navigator_turns() != 35688.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_navigator_update() != 16928.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_building() != 45883.toShort()) {
@@ -1529,6 +1559,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_constructor_adminlayer_open() != 36006.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_navigator_new() != 23778.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 23503.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1613,7 +1646,7 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
         }
     }
 
-/**
+/** 
  * Used to instantiate an interface without an actual pointer, for fakes in tests, mostly.
  *
  * @suppress
@@ -2030,25 +2063,25 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
  * own native callback/stream after `sampling_changed` becomes true.
  */
 public interface AdaptiveMotionSessionInterface {
-
+    
     fun `currentAdvice`(): SamplingAdvice
-
+    
     fun `lastAppliedSampling`(): AppliedSampling?
-
+    
     fun `movement`(): MovementType
-
+    
     fun `observe`(`observation`: MotionObservation): AdaptiveMotionUpdate
-
+    
     fun `reportAppliedSampling`(`applied`: AppliedSampling)
-
+    
     fun `reset`()
-
+    
     fun `setCapabilities`(`capabilities`: SamplingCapabilities, `nowMs`: kotlin.ULong): kotlin.Boolean
-
+    
     fun `setIntent`(`intent`: SamplingIntent, `nowMs`: kotlin.ULong): kotlin.Boolean
-
+    
     fun `tick`(`nowMs`: kotlin.ULong): AdaptiveMotionUpdate
-
+    
     companion object
 }
 
@@ -2156,7 +2189,7 @@ open class AdaptiveMotionSession: Disposable, AutoCloseable, AdaptiveMotionSessi
     }
     )
     }
-
+    
 
     override fun `lastAppliedSampling`(): AppliedSampling? {
             return FfiConverterOptionalTypeAppliedSampling.lift(
@@ -2168,7 +2201,7 @@ open class AdaptiveMotionSession: Disposable, AutoCloseable, AdaptiveMotionSessi
     }
     )
     }
-
+    
 
     override fun `movement`(): MovementType {
             return FfiConverterTypeMovementType.lift(
@@ -2180,7 +2213,7 @@ open class AdaptiveMotionSession: Disposable, AutoCloseable, AdaptiveMotionSessi
     }
     )
     }
-
+    
 
     override fun `observe`(`observation`: MotionObservation): AdaptiveMotionUpdate {
             return FfiConverterTypeAdaptiveMotionUpdate.lift(
@@ -2192,29 +2225,29 @@ open class AdaptiveMotionSession: Disposable, AutoCloseable, AdaptiveMotionSessi
     }
     )
     }
-
+    
 
     override fun `reportAppliedSampling`(`applied`: AppliedSampling)
-        =
+        = 
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_report_applied_sampling(
         it, FfiConverterTypeAppliedSampling.lower(`applied`),_status)
 }
     }
-
-
+    
+    
 
     override fun `reset`()
-        =
+        = 
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adaptivemotionsession_reset(
         it, _status)
 }
     }
-
-
+    
+    
 
     override fun `setCapabilities`(`capabilities`: SamplingCapabilities, `nowMs`: kotlin.ULong): kotlin.Boolean {
             return FfiConverterBoolean.lift(
@@ -2226,7 +2259,7 @@ open class AdaptiveMotionSession: Disposable, AutoCloseable, AdaptiveMotionSessi
     }
     )
     }
-
+    
 
     override fun `setIntent`(`intent`: SamplingIntent, `nowMs`: kotlin.ULong): kotlin.Boolean {
             return FfiConverterBoolean.lift(
@@ -2238,7 +2271,7 @@ open class AdaptiveMotionSession: Disposable, AutoCloseable, AdaptiveMotionSessi
     }
     )
     }
-
+    
 
     override fun `tick`(`nowMs`: kotlin.ULong): AdaptiveMotionUpdate {
             return FfiConverterTypeAdaptiveMotionUpdate.lift(
@@ -2250,14 +2283,14 @@ open class AdaptiveMotionSession: Disposable, AutoCloseable, AdaptiveMotionSessi
     }
     )
     }
+    
 
+    
 
-
-
-
-
+    
+    
     companion object
-
+    
 }
 
 /**
@@ -2392,19 +2425,19 @@ public object FfiConverterTypeAdaptiveMotionSession: FfiConverter<AdaptiveMotion
  * address uses a v2 merged-block index, not the v1 block reader.
  */
 public interface AddressLayerInterface {
-
+    
     /**
      * Reverse lookup: all addresses in the cell(s) covering `(lat, lon)`
      * (`ring == 1` adds neighbors).
      */
     fun `addressesAt`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<AddressRecord>
-
+    
     /**
      * Forward lookup: addresses near `(lat, lon)` matching `housenumber` +
      * `street` (accent/case-insensitive).
      */
     fun `findAddress`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `housenumber`: kotlin.String, `street`: kotlin.String): List<AddressRecord>
-
+    
     companion object
 }
 
@@ -2494,7 +2527,7 @@ open class AddressLayer: Disposable, AutoCloseable, AddressLayerInterface
         }
     }
 
-
+    
     /**
      * Reverse lookup: all addresses in the cell(s) covering `(lat, lon)`
      * (`ring == 1` adds neighbors).
@@ -2509,9 +2542,9 @@ open class AddressLayer: Disposable, AutoCloseable, AddressLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Forward lookup: addresses near `(lat, lon)` matching `housenumber` +
      * `street` (accent/case-insensitive).
@@ -2526,13 +2559,13 @@ open class AddressLayer: Disposable, AutoCloseable, AddressLayerInterface
     }
     )
     }
+    
 
+    
 
-
-
-
+    
     companion object {
-
+        
     /**
      * Open an address file, local path or `http(s)://` URL.
      */
@@ -2544,11 +2577,11 @@ open class AddressLayer: Disposable, AutoCloseable, AddressLayerInterface
 }
     )
     }
+    
 
-
-
+        
     }
-
+    
 }
 
 /**
@@ -2683,13 +2716,13 @@ public object FfiConverterTypeAddressLayer: FfiConverter<AddressLayer, Pointer> 
  * because admin is a lookup-grid layer, not block-per-cell.
  */
 public interface AdminLayerInterface {
-
+    
     /**
      * Jurisdiction (country/state/county/zip/timezone) covering `(lat, lon)`,
      * or `None` if the lookup grid has no entry for that cell.
      */
     fun `adminAt`(`lat`: kotlin.Double, `lon`: kotlin.Double): AdminInfo?
-
+    
     companion object
 }
 
@@ -2779,7 +2812,7 @@ open class AdminLayer: Disposable, AutoCloseable, AdminLayerInterface
         }
     }
 
-
+    
     /**
      * Jurisdiction (country/state/county/zip/timezone) covering `(lat, lon)`,
      * or `None` if the lookup grid has no entry for that cell.
@@ -2793,13 +2826,13 @@ open class AdminLayer: Disposable, AutoCloseable, AdminLayerInterface
     }
     )
     }
+    
 
+    
 
-
-
-
+    
     companion object {
-
+        
     /**
      * Open an admin file, local path or `http(s)://` URL.
      */
@@ -2811,11 +2844,11 @@ open class AdminLayer: Disposable, AutoCloseable, AdminLayerInterface
 }
     )
     }
+    
 
-
-
+        
     }
-
+    
 }
 
 /**
@@ -2946,20 +2979,309 @@ public object FfiConverterTypeAdminLayer: FfiConverter<AdminLayer, Pointer> {
 
 
 /**
+ * A route being followed.
+ *
+ * The path, its cumulative distances, and the turn queue stay on this side,
+ * so a position update is one small call rather than re-serialising the whole
+ * route at every fix.
+ */
+public interface NavigatorInterface {
+    
+    /**
+     * The queue, in order: `depart`, every manoeuvre, `arrive`.
+     */
+    fun `turns`(): List<TurnInfo>
+    
+    /**
+     * None when the route is too short to follow, or the fix cannot be
+     * snapped to it at all.
+     */
+    fun `update`(`lat`: kotlin.Double, `lon`: kotlin.Double, `accuracyM`: kotlin.Double): NavStateInfo?
+    
+    companion object
+}
+
+/**
+ * A route being followed.
+ *
+ * The path, its cumulative distances, and the turn queue stay on this side,
+ * so a position update is one small call rather than re-serialising the whole
+ * route at every fix.
+ */
+open class Navigator: Disposable, AutoCloseable, NavigatorInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+    /**
+     * `roads` only names the turns -- pass an empty list for an unnamed
+     * queue. `name_radius_m` of 0 falls back to 30 m.
+     */
+    constructor(`path`: List<LatLon>, `roads`: List<RoadInfo>, `nameRadiusM`: kotlin.Double) :
+        this(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_constructor_navigator_new(
+        FfiConverterSequenceTypeLatLon.lower(`path`),FfiConverterSequenceTypeRoadInfo.lower(`roads`),FfiConverterDouble.lower(`nameRadiusM`),_status)
+}
+    )
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_free_navigator(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_clone_navigator(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * The queue, in order: `depart`, every manoeuvre, `arrive`.
+     */override fun `turns`(): List<TurnInfo> {
+            return FfiConverterSequenceTypeTurnInfo.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_navigator_turns(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * None when the route is too short to follow, or the fix cannot be
+     * snapped to it at all.
+     */override fun `update`(`lat`: kotlin.Double, `lon`: kotlin.Double, `accuracyM`: kotlin.Double): NavStateInfo? {
+            return FfiConverterOptionalTypeNavStateInfo.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_navigator_update(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterDouble.lower(`accuracyM`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeNavigator: FfiConverter<Navigator, Pointer> {
+
+    override fun lower(value: Navigator): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): Navigator {
+        return Navigator(value)
+    }
+
+    override fun read(buf: ByteBuffer): Navigator {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: Navigator) = 8UL
+
+    override fun write(value: Navigator, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
  * One opened `.ptiles` file (local path or `http(s)://` URL), its layer
  * inferred from the filename (`<state>.<layer>.ptiles`), wrapping
  * `AnyFile` -- see that type's doc comment for why this isn't
  * `PtilesFile<FileSource>` directly anymore.
  */
 public interface PtilesLayerInterface {
-
+    
     /**
      * Building containing `(lat, lon)`, falling back to the nearest
      * centroid within 50m (mirrors `cli/src/main.rs::find_building`).
      * Buildings-layer only.
      */
     fun `building`(`lat`: kotlin.Double, `lon`: kotlin.Double): BuildingInfo?
-
+    
     /**
      * The building at each of `points`, in input order.
      *
@@ -2972,25 +3294,25 @@ public interface PtilesLayerInterface {
      * [`PtilesLayer::building`] rule.
      */
     fun `buildingsAt`(`points`: List<LatLon>): List<BuildingInfo?>
-
+    
     /**
      * Businesses within `radius_m` of `(lat, lon)`, searching the
      * containing cell (plus ring-1 neighbors when `ring == 1`).
      * Business-layer only.
      */
     fun `businessesNear`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `radiusM`: kotlin.Double): List<BusinessInfo>
-
+    
     /**
      * How many blocks are currently cached in memory. For a caller that wants
      * to know what a prefetch actually bought, or when to drop the layer.
      */
     fun `cachedBlockCount`(): kotlin.UInt
-
+    
     /**
      * Every camera in the query cells. Camera-layer only.
      */
     fun `cameras`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<CameraInfo>
-
+    
     /**
      * Which cameras can see `(lat, lon)`, nearest first -- without the
      * occlusion half of the answer, since a camera file alone knows nothing
@@ -2999,12 +3321,12 @@ public interface PtilesLayerInterface {
      * reads the buildings layer too, when that matters. Camera-layer only.
      */
     fun `camerasSeeing`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `rangeM`: kotlin.Double): List<CameraViewInfo>
-
+    
     /**
      * Drop the block cache, keeping the layer open.
      */
     fun `clearCache`()
-
+    
     /**
      * Whether a coordinate is inside this layer's declared coverage.
      *
@@ -3013,7 +3335,7 @@ public interface PtilesLayerInterface {
      * that. Being *inside* the box does not promise a block exists.
      */
     fun `covers`(`lat`: kotlin.Double, `lon`: kotlin.Double): kotlin.Boolean
-
+    
     /**
      * Estimate whether a GPS fix is indoors or outdoors from building
      * footprints, with an explicit uncertainty result and evidence.
@@ -3025,7 +3347,7 @@ public interface PtilesLayerInterface {
      * not room/floor positioning or proof of physical occupancy.
      */
     fun `indoorOutdoor`(`lat`: kotlin.Double, `lon`: kotlin.Double, `horizontalAccuracyM`: kotlin.Double): IndoorOutdoorEstimate
-
+    
     /**
      * What this layer covers, how big it is, and when it was built -- as far as
      * that can be known. See [`LayerMetadata`], especially the caveat on
@@ -3036,7 +3358,7 @@ public interface PtilesLayerInterface {
      * additional request.
      */
     fun `metadata`(): LayerMetadata
-
+    
     /**
      * Nearest labeled intersection to `(lat, lon)` within `threshold_m`
      * (defaults to `ptiles_core::DEFAULT_THRESHOLD_M` when `threshold_m <= 0`).
@@ -3046,7 +3368,7 @@ public interface PtilesLayerInterface {
      * an intersection in the adjacent cell.
      */
     fun `nearestIntersection`(`lat`: kotlin.Double, `lon`: kotlin.Double, `thresholdM`: kotlin.Double): NearestIntersection?
-
+    
     /**
      * The nearest mapped intersection to each of `points`, in input order.
      *
@@ -3056,13 +3378,13 @@ public interface PtilesLayerInterface {
      * edge frequently lives in the next cell over.
      */
     fun `nearestIntersectionsAt`(`points`: List<LatLon>, `thresholdM`: kotlin.Double): List<NearestIntersection?>
-
+    
     /**
      * The rail track under `(lat, lon)`. Station points are skipped; use
      * [`PtilesLayer::nearest_station`] for those. Rail-layer only.
      */
     fun `nearestRail`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): WayInfo?
-
+    
     /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
@@ -3070,7 +3392,7 @@ public interface PtilesLayerInterface {
      * only.
      */
     fun `nearestRoad`(`lat`: kotlin.Double, `lon`: kotlin.Double): NearestRoad?
-
+    
     /**
      * The nearest road to each of `points`, in input order. Same cell grouping
      * as [`PtilesLayer::buildings_at`].
@@ -3079,36 +3401,36 @@ public interface PtilesLayerInterface {
      * [`PtilesLayer::nearest_road`].
      */
     fun `nearestRoadsAt`(`points`: List<LatLon>, `thresholdM`: kotlin.Double): List<NearestRoad?>
-
+    
     /**
      * The nearest station or halt point. Rail-layer only.
      */
     fun `nearestStation`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): PointInfo?
-
+    
     /**
      * The trail under `(lat, lon)` — "which path am I walking on". Trailhead
      * points are skipped (they have no centreline); use
      * [`PtilesLayer::nearest_trailhead`] for those. Trails-layer only.
      */
     fun `nearestTrail`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): WayInfo?
-
+    
     /**
      * The nearest trailhead — where a trail network is entered, which is what
      * a caller planning to start a walk wants. Trails-layer only.
      */
     fun `nearestTrailhead`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): PointInfo?
-
+    
     /**
      * The park containing `(lat, lon)`, else the nearest park boundary.
      * Check `inside` before telling a user they are in it. Parks-layer only.
      */
     fun `parkAt`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): AreaInfo?
-
+    
     /**
      * Every park in the query cells. Parks-layer only.
      */
     fun `parks`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<ParkInfo>
-
+    
     /**
      * Fetch and cache every block covering a bounding box, in one pass.
      *
@@ -3125,12 +3447,12 @@ public interface PtilesLayerInterface {
      * you are working in, or walk a larger area in tiles.
      */
     fun `prefetchBbox`(`minLat`: kotlin.Double, `minLon`: kotlin.Double, `maxLat`: kotlin.Double, `maxLon`: kotlin.Double): kotlin.UInt
-
+    
     /**
      * Every rail feature in the query cells. Rail-layer only.
      */
     fun `rail`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<RailInfo>
-
+    
     /**
      * All decoded road segments in the cell containing `(lat, lon)`, plus
      * ring-1 neighbors when `ring == 1`. `ring` must be 0 or 1 (matches the
@@ -3138,7 +3460,7 @@ public interface PtilesLayerInterface {
      * Roads-layer only.
      */
     fun `roads`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<RoadInfo>
-
+    
     /**
      * Business name search over a `{STATE}.business_name_index.ptiles`
      * sidecar (open a `PtilesLayer` on that file, not the main
@@ -3149,25 +3471,25 @@ public interface PtilesLayerInterface {
      * returned, score-ranked hit count. `BusinessNameIndex`-layer only.
      */
     fun `searchBusiness`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit>
-
+    
     /**
      * Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
      * when `ring == 1`. Trails-layer only.
      */
     fun `trails`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<TrailInfo>
-
+    
     /**
      * Every water feature in the query cells. Water-layer only.
      */
     fun `water`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<WaterInfo>
-
+    
     /**
      * The water body containing `(lat, lon)`, else the nearest water feature.
      * River centrelines are linestrings and never report `inside`.
      * Water-layer only.
      */
     fun `waterAt`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): AreaInfo?
-
+    
     companion object
 }
 
@@ -3259,7 +3581,7 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
         }
     }
 
-
+    
     /**
      * Building containing `(lat, lon)`, falling back to the nearest
      * centroid within 50m (mirrors `cli/src/main.rs::find_building`).
@@ -3275,9 +3597,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The building at each of `points`, in input order.
      *
@@ -3299,9 +3621,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Businesses within `radius_m` of `(lat, lon)`, searching the
      * containing cell (plus ring-1 neighbors when `ring == 1`).
@@ -3317,9 +3639,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * How many blocks are currently cached in memory. For a caller that wants
      * to know what a prefetch actually bought, or when to drop the layer.
@@ -3333,9 +3655,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Every camera in the query cells. Camera-layer only.
      */
@@ -3349,9 +3671,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Which cameras can see `(lat, lon)`, nearest first -- without the
      * occlusion half of the answer, since a camera file alone knows nothing
@@ -3369,23 +3691,23 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Drop the block cache, keeping the layer open.
      */override fun `clearCache`()
-        =
+        = 
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(
         it, _status)
 }
     }
+    
+    
 
-
-
-
+    
     /**
      * Whether a coordinate is inside this layer's declared coverage.
      *
@@ -3402,9 +3724,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Estimate whether a GPS fix is indoors or outdoors from building
      * footprints, with an explicit uncertainty result and evidence.
@@ -3425,9 +3747,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * What this layer covers, how big it is, and when it was built -- as far as
      * that can be known. See [`LayerMetadata`], especially the caveat on
@@ -3446,9 +3768,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Nearest labeled intersection to `(lat, lon)` within `threshold_m`
      * (defaults to `ptiles_core::DEFAULT_THRESHOLD_M` when `threshold_m <= 0`).
@@ -3467,9 +3789,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The nearest mapped intersection to each of `points`, in input order.
      *
@@ -3488,9 +3810,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The rail track under `(lat, lon)`. Station points are skipped; use
      * [`PtilesLayer::nearest_station`] for those. Rail-layer only.
@@ -3505,9 +3827,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Nearest road segment to `(lat, lon)` within the CLI's default search
      * threshold (`ptiles_core::DEFAULT_THRESHOLD_M * 2.0`, matching
@@ -3524,9 +3846,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The nearest road to each of `points`, in input order. Same cell grouping
      * as [`PtilesLayer::buildings_at`].
@@ -3544,9 +3866,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The nearest station or halt point. Rail-layer only.
      */
@@ -3560,9 +3882,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The trail under `(lat, lon)` — "which path am I walking on". Trailhead
      * points are skipped (they have no centreline); use
@@ -3578,9 +3900,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The nearest trailhead — where a trail network is entered, which is what
      * a caller planning to start a walk wants. Trails-layer only.
@@ -3595,9 +3917,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The park containing `(lat, lon)`, else the nearest park boundary.
      * Check `inside` before telling a user they are in it. Parks-layer only.
@@ -3612,9 +3934,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Every park in the query cells. Parks-layer only.
      */
@@ -3628,9 +3950,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Fetch and cache every block covering a bounding box, in one pass.
      *
@@ -3656,9 +3978,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Every rail feature in the query cells. Rail-layer only.
      */
@@ -3672,9 +3994,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * All decoded road segments in the cell containing `(lat, lon)`, plus
      * ring-1 neighbors when `ring == 1`. `ring` must be 0 or 1 (matches the
@@ -3691,9 +4013,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Business name search over a `{STATE}.business_name_index.ptiles`
      * sidecar (open a `PtilesLayer` on that file, not the main
@@ -3713,9 +4035,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
      * when `ring == 1`. Trails-layer only.
@@ -3730,9 +4052,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Every water feature in the query cells. Water-layer only.
      */
@@ -3746,9 +4068,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The water body containing `(lat, lon)`, else the nearest water feature.
      * River centrelines are linestrings and never report `inside`.
@@ -3764,13 +4086,13 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     }
     )
     }
+    
 
+    
 
-
-
-
+    
     companion object {
-
+        
     /**
      * Open a `.ptiles` file, local or remote. `path` must be
      * `<state>.<layer>.ptiles` (optionally under an `http(s)://` URL) where
@@ -3784,11 +4106,11 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
 }
     )
     }
+    
 
-
-
+        
     }
-
+    
 }
 
 /**
@@ -3928,7 +4250,7 @@ public object FfiConverterTypePtilesLayer: FfiConverter<PtilesLayer, Pointer> {
  * single-file one-shot path.
  */
 public interface PtilesStackInterface {
-
+    
     /**
      * Which cameras can see `(lat, lon)`, nearest first -- "is anything
      * pointed at me right now".
@@ -3944,13 +4266,13 @@ public interface PtilesStackInterface {
      * `range_m <= 0` uses `ptiles_core::CAMERA_RANGE_M` (50 m).
      */
     fun `camerasSeeing`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `rangeM`: kotlin.Double): List<CameraViewInfo>
-
+    
     /**
      * Indoor/outdoor estimate using this stack's building layer. A stack with
      * no building layer returns `Uncertain/IncompleteCoverage`, not `Outdoor`.
      */
     fun `indoorOutdoor`(`lat`: kotlin.Double, `lon`: kotlin.Double, `horizontalAccuracyM`: kotlin.Double): IndoorOutdoorEstimate
-
+    
     /**
      * Reverse geocode across the stack: the way under the point (road and
      * trail compete on distance alone — see `core::locate`), the nearest
@@ -3964,7 +4286,7 @@ public interface PtilesStackInterface {
      * ([`PtilesLayer::nearest_rail`]) when that is the question.
      */
     fun `locate`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): LocatedInfo
-
+    
     /**
      * Compute a bounded route entirely from installed PTiles layers.
      *
@@ -3975,7 +4297,7 @@ public interface PtilesStackInterface {
      * trails layer, so a path can connect to a trailhead through quiet streets.
      */
     fun `offlineRoute`(`startLat`: kotlin.Double, `startLon`: kotlin.Double, `endLat`: kotlin.Double, `endLon`: kotlin.Double, `mode`: OfflineRouteMode, `avoidHighways`: kotlin.Boolean, `avoidIntersections`: kotlin.Boolean): OfflineRoute
-
+    
     /**
      * Score `fix` against whichever layers this stack holds, at the fix's
      * cell (plus ring-1 neighbors when `ring == 1`). Uses
@@ -3983,7 +4305,7 @@ public interface PtilesStackInterface {
      * aren't exposed yet; add a params record if a caller needs to retune.
      */
     fun `score`(`fix`: Fix, `ring`: kotlin.UByte): List<Candidate>
-
+    
     companion object
 }
 
@@ -4090,7 +4412,7 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
         }
     }
 
-
+    
     /**
      * Which cameras can see `(lat, lon)`, nearest first -- "is anything
      * pointed at me right now".
@@ -4115,9 +4437,9 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Indoor/outdoor estimate using this stack's building layer. A stack with
      * no building layer returns `Uncertain/IncompleteCoverage`, not `Outdoor`.
@@ -4132,9 +4454,9 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Reverse geocode across the stack: the way under the point (road and
      * trail compete on distance alone — see `core::locate`), the nearest
@@ -4157,9 +4479,9 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Compute a bounded route entirely from installed PTiles layers.
      *
@@ -4179,9 +4501,9 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Score `fix` against whichever layers this stack holds, at the fix's
      * cell (plus ring-1 neighbors when `ring == 1`). Uses
@@ -4198,13 +4520,13 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
     }
     )
     }
+    
 
+    
 
-
-
-
+    
     companion object {
-
+        
     /**
      * Every layer this stack can use. `score` reads roads/buildings/business,
      * `locate` reads roads/trails/addresses/parks/water; pass whichever files
@@ -4217,11 +4539,11 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
 }
     )
     }
+    
 
-
-
+        
     }
-
+    
 }
 
 /**
@@ -4362,7 +4684,7 @@ public object FfiConverterTypePtilesStack: FfiConverter<PtilesStack, Pointer> {
  * from whichever thread its location callback arrives on.
  */
 public interface VoteDebouncerInterface {
-
+    
     /**
      * Drop the vehicle-sticky guard so the next Stationary majority commits
      * without waiting the sticky window out.
@@ -4371,17 +4693,17 @@ public interface VoteDebouncerInterface {
      * inside a known place, say. A red light is not inside your house.
      */
     fun `clearVehicleSticky`()
-
+    
     /**
      * The tuning this debouncer was built with.
      */
     fun `config`(): DebounceConfig
-
+    
     /**
      * The committed state, without feeding anything.
      */
     fun `current`(): MovementType
-
+    
     /**
      * Feed one vote and read back the state after it.
      *
@@ -4390,7 +4712,7 @@ public interface VoteDebouncerInterface {
      * produced live.
      */
     fun `tick`(`vote`: Vote, `nowMs`: kotlin.ULong): MovementType
-
+    
     /**
      * Feed one vote plus the nearest mapped traffic control to the fix.
      *
@@ -4398,7 +4720,7 @@ public interface VoteDebouncerInterface {
      * a transition plain `tick` would have allowed.
      */
     fun `tickAt`(`vote`: Vote, `nowMs`: kotlin.ULong, `control`: TrafficControl?): MovementType
-
+    
     companion object
 }
 
@@ -4501,7 +4823,7 @@ open class VoteDebouncer: Disposable, AutoCloseable, VoteDebouncerInterface
         }
     }
 
-
+    
     /**
      * Drop the vehicle-sticky guard so the next Stationary majority commits
      * without waiting the sticky window out.
@@ -4509,17 +4831,17 @@ open class VoteDebouncer: Disposable, AutoCloseable, VoteDebouncerInterface
      * For a caller holding evidence the sticky no longer applies -- the fix is
      * inside a known place, say. A red light is not inside your house.
      */override fun `clearVehicleSticky`()
-        =
+        = 
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_votedebouncer_clear_vehicle_sticky(
         it, _status)
 }
     }
+    
+    
 
-
-
-
+    
     /**
      * The tuning this debouncer was built with.
      */override fun `config`(): DebounceConfig {
@@ -4532,9 +4854,9 @@ open class VoteDebouncer: Disposable, AutoCloseable, VoteDebouncerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * The committed state, without feeding anything.
      */override fun `current`(): MovementType {
@@ -4547,9 +4869,9 @@ open class VoteDebouncer: Disposable, AutoCloseable, VoteDebouncerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Feed one vote and read back the state after it.
      *
@@ -4566,9 +4888,9 @@ open class VoteDebouncer: Disposable, AutoCloseable, VoteDebouncerInterface
     }
     )
     }
+    
 
-
-
+    
     /**
      * Feed one vote plus the nearest mapped traffic control to the fix.
      *
@@ -4584,14 +4906,14 @@ open class VoteDebouncer: Disposable, AutoCloseable, VoteDebouncerInterface
     }
     )
     }
+    
 
+    
 
-
-
-
-
+    
+    
     companion object
-
+    
 }
 
 /**
@@ -4635,22 +4957,22 @@ data class AccelStats (
     /**
      * Variance of the magnitude series, (m/s^2)^2.
      */
-    var `variance`: kotlin.Double,
+    var `variance`: kotlin.Double, 
     /**
      * Mean magnitude, m/s^2.
      */
-    var `meanMagnitude`: kotlin.Double?,
+    var `meanMagnitude`: kotlin.Double?, 
     /**
      * Step cadence, Hz.
      */
-    var `dominantFrequency`: kotlin.Double,
-    var `stepCount`: kotlin.UInt,
+    var `dominantFrequency`: kotlin.Double, 
+    var `stepCount`: kotlin.UInt, 
     /**
      * Window length, seconds.
      */
     var `windowDurationS`: kotlin.Double?
 ) {
-
+    
     companion object
 }
 
@@ -4688,11 +5010,11 @@ public object FfiConverterTypeAccelStats: FfiConverterRustBuffer<AccelStats> {
 
 
 data class AdaptiveMotionConfig (
-    var `motion`: MotionConfig,
-    var `debounce`: DebounceConfig,
+    var `motion`: MotionConfig, 
+    var `debounce`: DebounceConfig, 
     var `sampling`: SamplingConfig
 ) {
-
+    
     companion object
 }
 
@@ -4724,14 +5046,14 @@ public object FfiConverterTypeAdaptiveMotionConfig: FfiConverterRustBuffer<Adapt
 
 
 data class AdaptiveMotionUpdate (
-    var `movement`: MovementType,
-    var `vote`: Vote,
-    var `smoothedSpeedMps`: kotlin.Double?,
-    var `atTrafficControl`: kotlin.Boolean,
-    var `sampling`: SamplingAdvice,
+    var `movement`: MovementType, 
+    var `vote`: Vote, 
+    var `smoothedSpeedMps`: kotlin.Double?, 
+    var `atTrafficControl`: kotlin.Boolean, 
+    var `sampling`: SamplingAdvice, 
     var `samplingChanged`: kotlin.Boolean
 ) {
-
+    
     companion object
 }
 
@@ -4775,11 +5097,11 @@ public object FfiConverterTypeAdaptiveMotionUpdate: FfiConverterRustBuffer<Adapt
  * One decoded address (`{osm_id, housenumber, street}`; location is the cell).
  */
 data class AddressRecord (
-    var `osmId`: kotlin.Long,
-    var `housenumber`: kotlin.String,
+    var `osmId`: kotlin.Long, 
+    var `housenumber`: kotlin.String, 
     var `street`: kotlin.String
 ) {
-
+    
     companion object
 }
 
@@ -4814,14 +5136,14 @@ public object FfiConverterTypeAddressRecord: FfiConverterRustBuffer<AddressRecor
  * Resolved jurisdiction for a point, from the admin layer.
  */
 data class AdminInfo (
-    var `country`: kotlin.String,
-    var `state`: kotlin.String,
-    var `county`: kotlin.String,
-    var `zip`: kotlin.String,
-    var `timezone`: kotlin.String,
+    var `country`: kotlin.String, 
+    var `state`: kotlin.String, 
+    var `county`: kotlin.String, 
+    var `zip`: kotlin.String, 
+    var `timezone`: kotlin.String, 
     var `boundaryFlags`: kotlin.UByte
 ) {
-
+    
     companion object
 }
 
@@ -4862,13 +5184,13 @@ public object FfiConverterTypeAdminInfo: FfiConverterRustBuffer<AdminInfo> {
 
 
 data class AppliedSampling (
-    var `locationLevel`: SamplingLevel,
-    var `locationIntervalMs`: kotlin.UInt?,
-    var `accelerometerLevel`: SamplingLevel,
-    var `accelerometerHz`: kotlin.UInt?,
+    var `locationLevel`: SamplingLevel, 
+    var `locationIntervalMs`: kotlin.UInt?, 
+    var `accelerometerLevel`: SamplingLevel, 
+    var `accelerometerHz`: kotlin.UInt?, 
     var `generation`: kotlin.UInt
 ) {
-
+    
     companion object
 }
 
@@ -4913,13 +5235,13 @@ data class AreaInfo (
     /**
      * `park` or `water`.
      */
-    var `kind`: kotlin.String,
-    var `name`: kotlin.String?,
-    var `class`: kotlin.String,
-    var `distanceM`: kotlin.Double,
+    var `kind`: kotlin.String, 
+    var `name`: kotlin.String?, 
+    var `class`: kotlin.String, 
+    var `distanceM`: kotlin.Double, 
     var `inside`: kotlin.Boolean
 ) {
-
+    
     companion object
 }
 
@@ -4957,13 +5279,13 @@ public object FfiConverterTypeAreaInfo: FfiConverterRustBuffer<AreaInfo> {
 
 
 data class BuildingInfo (
-    var `osmId`: kotlin.Long,
-    var `name`: kotlin.String?,
-    var `buildingType`: kotlin.String,
-    var `category`: kotlin.String?,
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `buildingType`: kotlin.String, 
+    var `category`: kotlin.String?, 
     var `centroid`: LatLon
 ) {
-
+    
     companion object
 }
 
@@ -5001,29 +5323,29 @@ public object FfiConverterTypeBuildingInfo: FfiConverterRustBuffer<BuildingInfo>
 
 
 data class BusinessInfo (
-    var `osmId`: kotlin.Long,
-    var `name`: kotlin.String,
-    var `location`: LatLon,
-    var `categoryIdx`: kotlin.UByte,
-    var `phone`: kotlin.String?,
-    var `website`: kotlin.String?,
-    var `operatingStatus`: kotlin.String,
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String, 
+    var `location`: LatLon, 
+    var `categoryIdx`: kotlin.UByte, 
+    var `phone`: kotlin.String?, 
+    var `website`: kotlin.String?, 
+    var `operatingStatus`: kotlin.String, 
     /**
      * Upstream dataset: 1 = Overture, 2 = Foursquare. `None` on records with
      * no extended-attributes trailer.
      */
-    var `sourceType`: kotlin.UByte?,
+    var `sourceType`: kotlin.UByte?, 
     /**
      * Upstream record id (a GERS id for Overture, a venue id for Foursquare) --
      * the only stable handle back to the source dataset.
      */
-    var `sourceId`: kotlin.String?,
+    var `sourceId`: kotlin.String?, 
     /**
      * Upstream confidence, 0-100.
      */
     var `confidence`: kotlin.UByte?
 ) {
-
+    
     companion object
 }
 
@@ -5084,15 +5406,15 @@ public object FfiConverterTypeBusinessInfo: FfiConverterRustBuffer<BusinessInfo>
  * `.ptiles` file (`PtilesLayer::businesses_near`) has that detail.
  */
 data class BusinessSearchHit (
-    var `name`: kotlin.String,
-    var `categoryIdx`: kotlin.UByte,
-    var `location`: LatLon,
+    var `name`: kotlin.String, 
+    var `categoryIdx`: kotlin.UByte, 
+    var `location`: LatLon, 
     /**
      * 2 = exact (case-insensitive) name match, 1 = prefix, 0 = substring.
      */
     var `score`: kotlin.UByte
 ) {
-
+    
     companion object
 }
 
@@ -5131,27 +5453,27 @@ public object FfiConverterTypeBusinessSearchHit: FfiConverterRustBuffer<Business
  * north when tagged; `angle` is the field of view in degrees when tagged.
  */
 data class CameraInfo (
-    var `osmId`: kotlin.Long,
-    var `location`: LatLon,
+    var `osmId`: kotlin.Long, 
+    var `location`: LatLon, 
     /**
      * `camera`, `ALPR`, `guard`, or `unknown`.
      */
-    var `deviceType`: kotlin.String,
+    var `deviceType`: kotlin.String, 
     /**
      * `public`, `outdoor`, `indoor`, or `unknown`.
      */
-    var `placement`: kotlin.String,
+    var `placement`: kotlin.String, 
     /**
      * `fixed`, `panning`, `dome`, or `unknown`. The last two rotate.
      */
-    var `cameraType`: kotlin.String,
-    var `direction`: kotlin.UShort?,
-    var `angle`: kotlin.UByte?,
-    var `operator`: kotlin.String?,
-    var `name`: kotlin.String?,
+    var `cameraType`: kotlin.String, 
+    var `direction`: kotlin.UShort?, 
+    var `angle`: kotlin.UByte?, 
+    var `operator`: kotlin.String?, 
+    var `name`: kotlin.String?, 
     var `refTag`: kotlin.String?
 ) {
-
+    
     companion object
 }
 
@@ -5214,32 +5536,32 @@ public object FfiConverterTypeCameraInfo: FfiConverterRustBuffer<CameraInfo> {
  * solid.
  */
 data class CameraViewInfo (
-    var `osmId`: kotlin.Long,
-    var `name`: kotlin.String?,
-    var `operator`: kotlin.String?,
-    var `cameraType`: kotlin.String,
-    var `location`: LatLon,
-    var `distanceM`: kotlin.Double,
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `operator`: kotlin.String?, 
+    var `cameraType`: kotlin.String, 
+    var `location`: LatLon, 
+    var `distanceM`: kotlin.Double, 
     /**
      * Bearing from the camera to you, degrees clockwise from north.
      */
-    var `bearingDeg`: kotlin.Double,
+    var `bearingDeg`: kotlin.Double, 
     /**
      * False only when the camera is tagged with a direction and you fall
      * outside the resulting cone.
      */
-    var `aimedAtYou`: kotlin.Boolean,
+    var `aimedAtYou`: kotlin.Boolean, 
     /**
      * True when `aimed_at_you` rests on an assumption rather than on tags.
      */
-    var `aimAssumed`: kotlin.Boolean,
+    var `aimAssumed`: kotlin.Boolean, 
     /**
      * False when a building stands between you and it.
      */
-    var `lineOfSight`: kotlin.Boolean,
+    var `lineOfSight`: kotlin.Boolean, 
     var `sees`: kotlin.Boolean
 ) {
-
+    
     companion object
 }
 
@@ -5295,13 +5617,13 @@ public object FfiConverterTypeCameraViewInfo: FfiConverterRustBuffer<CameraViewI
 
 
 data class Candidate (
-    var `kind`: CandidateKind,
-    var `osmId`: kotlin.Long,
-    var `name`: kotlin.String?,
-    var `distanceM`: kotlin.Double,
+    var `kind`: CandidateKind, 
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `distanceM`: kotlin.Double, 
     var `score`: kotlin.Double
 ) {
-
+    
     companion object
 }
 
@@ -5345,35 +5667,35 @@ data class DebounceConfig (
     /**
      * Votes kept in the majority window.
      */
-    var `majorityWindow`: kotlin.UInt,
+    var `majorityWindow`: kotlin.UInt, 
     /**
      * Latency into `Driving`, ms.
      */
-    var `rapidLatencyMs`: kotlin.ULong,
+    var `rapidLatencyMs`: kotlin.ULong, 
     /**
      * Latency for every other transition, ms.
      */
-    var `defaultLatencyMs`: kotlin.ULong,
+    var `defaultLatencyMs`: kotlin.ULong, 
     /**
      * After a `Driving` vote, how long (ms) a flip to `Stationary` is
      * suppressed -- a red light is not an arrival.
      */
-    var `vehicleStickyMs`: kotlin.ULong,
+    var `vehicleStickyMs`: kotlin.ULong, 
     /**
      * Sticky window (ms) used instead of `vehicle_sticky_ms` at a mapped
      * traffic control, where a queue can hold a car far longer.
      */
-    var `signalStickyMs`: kotlin.ULong,
+    var `signalStickyMs`: kotlin.ULong, 
     /**
      * How close (m) a traffic control counts as "waiting at it".
      */
-    var `signalRadiusM`: kotlin.Double,
+    var `signalRadiusM`: kotlin.Double, 
     /**
      * Consecutive agreeing majorities required before a transition commits.
      */
     var `minContinuous`: kotlin.UInt
 ) {
-
+    
     companion object
 }
 
@@ -5424,12 +5746,12 @@ public object FfiConverterTypeDebounceConfig: FfiConverterRustBuffer<DebounceCon
  * boundary).
  */
 data class Fix (
-    var `lat`: kotlin.Double,
-    var `lon`: kotlin.Double,
-    var `horizontalAccuracyM`: kotlin.Double,
+    var `lat`: kotlin.Double, 
+    var `lon`: kotlin.Double, 
+    var `horizontalAccuracyM`: kotlin.Double, 
     var `speedMps`: kotlin.Double?
 ) {
-
+    
     companion object
 }
 
@@ -5467,16 +5789,16 @@ public object FfiConverterTypeFix: FfiConverterRustBuffer<Fix> {
  * Explainable result from [`PtilesLayer::indoor_outdoor`].
  */
 data class IndoorOutdoorEstimate (
-    var `state`: IndoorOutdoorState,
-    var `confidence`: kotlin.Double,
-    var `reason`: IndoorOutdoorReason,
-    var `buildingOsmId`: kotlin.Long?,
+    var `state`: IndoorOutdoorState, 
+    var `confidence`: kotlin.Double, 
+    var `reason`: IndoorOutdoorReason, 
+    var `buildingOsmId`: kotlin.Long?, 
     /**
      * Depth inside or clearance outside the relevant footprint.
      */
     var `distanceToBoundaryM`: kotlin.Double?
 ) {
-
+    
     companion object
 }
 
@@ -5514,10 +5836,10 @@ public object FfiConverterTypeIndoorOutdoorEstimate: FfiConverterRustBuffer<Indo
 
 
 data class LatLon (
-    var `lat`: kotlin.Double,
+    var `lat`: kotlin.Double, 
     var `lon`: kotlin.Double
 ) {
-
+    
     companion object
 }
 
@@ -5557,52 +5879,52 @@ data class LayerMetadata (
     /**
      * Layer name inferred from the filename (`roads`, `buildings_v8`, ...).
      */
-    var `layer`: kotlin.String,
+    var `layer`: kotlin.String, 
     /**
      * Path or URL this layer was opened from.
      */
-    var `path`: kotlin.String,
+    var `path`: kotlin.String, 
     /**
      * Format/schema version from the header.
      */
-    var `version`: kotlin.UByte,
+    var `version`: kotlin.UByte, 
     /**
      * Coverage bounding box, degrees. Everything outside it is guaranteed
      * absent, so a caller can skip the query rather than pay a range read to
      * learn there is nothing there.
      */
-    var `minLat`: kotlin.Double,
-    var `minLon`: kotlin.Double,
-    var `maxLat`: kotlin.Double,
-    var `maxLon`: kotlin.Double,
+    var `minLat`: kotlin.Double, 
+    var `minLon`: kotlin.Double, 
+    var `maxLat`: kotlin.Double, 
+    var `maxLon`: kotlin.Double, 
     /**
      * Features the header claims. **Not always true**: every published
      * business layer reports 0 because of a builder bug (it compares a string
      * to an int), while its records decode fine. Treat 0 as "unknown", not as
      * "empty".
      */
-    var `featureCount`: kotlin.ULong,
+    var `featureCount`: kotlin.ULong, 
     /**
      * Blocks in the file, i.e. how many populated H3 cells it has.
      */
-    var `blockCount`: kotlin.UInt,
+    var `blockCount`: kotlin.UInt, 
     /**
      * Total size of the remote/local file in bytes, if known.
      */
-    var `byteLength`: kotlin.ULong?,
+    var `byteLength`: kotlin.ULong?, 
     /**
      * `Last-Modified` of the remote file. The format stores no build date, so
      * this is the only answer to "is this layer from 2024 or last week?".
      * `None` for a local file, or a server that does not send it.
      */
-    var `lastModified`: kotlin.String?,
+    var `lastModified`: kotlin.String?, 
     /**
      * `ETag` of the remote file: opaque, but a change means a rebuild. Pair it
      * with a cached copy to detect that the layer moved on.
      */
     var `etag`: kotlin.String?
 ) {
-
+    
     companion object
 }
 
@@ -5669,26 +5991,26 @@ data class LocatedInfo (
     /**
      * Nearest road/trail/rail way, whether or not you are on it.
      */
-    var `nearestWay`: WayInfo?,
+    var `nearestWay`: WayInfo?, 
     /**
      * The way you are actually on, within 25 m. When set, the same feature
      * as `nearest_way`.
      */
-    var `onWay`: WayInfo?,
+    var `onWay`: WayInfo?, 
     /**
      * Nearest address within `ptiles_core::ADDRESS_THRESHOLD_M` (150 m).
      */
-    var `address`: NearbyAddressInfo?,
+    var `address`: NearbyAddressInfo?, 
     /**
      * The park you are in, else the nearest one.
      */
-    var `park`: AreaInfo?,
+    var `park`: AreaInfo?, 
     /**
      * The water body you are in, else the nearest.
      */
     var `water`: AreaInfo?
 ) {
-
+    
     companion object
 }
 
@@ -5726,13 +6048,13 @@ public object FfiConverterTypeLocatedInfo: FfiConverterRustBuffer<LocatedInfo> {
 
 
 data class LocationSample (
-    var `lat`: kotlin.Double,
-    var `lon`: kotlin.Double,
-    var `horizontalAccuracyM`: kotlin.Double?,
-    var `speedMps`: kotlin.Double?,
+    var `lat`: kotlin.Double, 
+    var `lon`: kotlin.Double, 
+    var `horizontalAccuracyM`: kotlin.Double?, 
+    var `speedMps`: kotlin.Double?, 
     var `bearingDegrees`: kotlin.Double?
 ) {
-
+    
     companion object
 }
 
@@ -5770,14 +6092,14 @@ public object FfiConverterTypeLocationSample: FfiConverterRustBuffer<LocationSam
 
 
 data class MotionConfig (
-    var `stationaryMaxMps`: kotlin.Double,
-    var `drivingMinMps`: kotlin.Double,
-    var `smoothingWindow`: kotlin.UInt,
-    var `minDwellSamples`: kotlin.UInt,
-    var `accuracyGateM`: kotlin.Double,
+    var `stationaryMaxMps`: kotlin.Double, 
+    var `drivingMinMps`: kotlin.Double, 
+    var `smoothingWindow`: kotlin.UInt, 
+    var `minDwellSamples`: kotlin.UInt, 
+    var `accuracyGateM`: kotlin.Double, 
     var `maxGapMs`: kotlin.ULong
 ) {
-
+    
     companion object
 }
 
@@ -5818,13 +6140,13 @@ public object FfiConverterTypeMotionConfig: FfiConverterRustBuffer<MotionConfig>
 
 
 data class MotionObservation (
-    var `tMs`: kotlin.ULong,
-    var `location`: LocationSample?,
-    var `accelerometer`: AccelStats?,
-    var `road`: RoadContext?,
+    var `tMs`: kotlin.ULong, 
+    var `location`: LocationSample?, 
+    var `accelerometer`: AccelStats?, 
+    var `road`: RoadContext?, 
     var `trafficControl`: TrafficControl?
 ) {
-
+    
     companion object
 }
 
@@ -5872,22 +6194,22 @@ data class MovementThresholds (
     /**
      * Above this speed (m/s) nothing is walking.
      */
-    var `walkingCeilingMps`: kotlin.Double,
+    var `walkingCeilingMps`: kotlin.Double, 
     /**
      * At or above this speed (m/s) a fix reads as driving.
      */
-    var `drivingFloorMps`: kotlin.Double,
+    var `drivingFloorMps`: kotlin.Double, 
     /**
      * Above this horizontal accuracy (m) GPS position is not trusted.
      */
-    var `gpsAccuracyGateM`: kotlin.Double,
+    var `gpsAccuracyGateM`: kotlin.Double, 
     /**
      * Where a person would draw the walking/running line on a speed chart.
      * A labelling aid for UIs, never a classifier threshold.
      */
     var `runningSpeedHintMps`: kotlin.Double
 ) {
-
+    
     companion object
 }
 
@@ -5922,6 +6244,81 @@ public object FfiConverterTypeMovementThresholds: FfiConverterRustBuffer<Movemen
 
 
 /**
+ * Where one GPS fix puts you on the route being followed.
+ */
+data class NavStateInfo (
+    /**
+     * The fix pulled onto the route line.
+     */
+    var `location`: LatLon, 
+    /**
+     * How far the raw fix was from the line.
+     */
+    var `offsetM`: kotlin.Double, 
+    var `alongM`: kotlin.Double, 
+    var `remainingM`: kotlin.Double, 
+    /**
+     * Heading of the route ahead, degrees clockwise from north.
+     */
+    var `bearingDeg`: kotlin.Double, 
+    /**
+     * Index into the turn queue of the next manoeuvre, if any remain.
+     */
+    var `nextTurn`: kotlin.UInt?, 
+    var `distanceToTurnM`: kotlin.Double, 
+    /**
+     * True for this fix alone. One bad fix is not a wrong turn -- require
+     * several in a row before rerouting.
+     */
+    var `offRoute`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeNavStateInfo: FfiConverterRustBuffer<NavStateInfo> {
+    override fun read(buf: ByteBuffer): NavStateInfo {
+        return NavStateInfo(
+            FfiConverterTypeLatLon.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: NavStateInfo) = (
+            FfiConverterTypeLatLon.allocationSize(value.`location`) +
+            FfiConverterDouble.allocationSize(value.`offsetM`) +
+            FfiConverterDouble.allocationSize(value.`alongM`) +
+            FfiConverterDouble.allocationSize(value.`remainingM`) +
+            FfiConverterDouble.allocationSize(value.`bearingDeg`) +
+            FfiConverterOptionalUInt.allocationSize(value.`nextTurn`) +
+            FfiConverterDouble.allocationSize(value.`distanceToTurnM`) +
+            FfiConverterBoolean.allocationSize(value.`offRoute`)
+    )
+
+    override fun write(value: NavStateInfo, buf: ByteBuffer) {
+            FfiConverterTypeLatLon.write(value.`location`, buf)
+            FfiConverterDouble.write(value.`offsetM`, buf)
+            FfiConverterDouble.write(value.`alongM`, buf)
+            FfiConverterDouble.write(value.`remainingM`, buf)
+            FfiConverterDouble.write(value.`bearingDeg`, buf)
+            FfiConverterOptionalUInt.write(value.`nextTurn`, buf)
+            FfiConverterDouble.write(value.`distanceToTurnM`, buf)
+            FfiConverterBoolean.write(value.`offRoute`, buf)
+    }
+}
+
+
+
+/**
  * An address near the query point, with where it is and how far.
  *
  * Distinct from [`AddressRecord`], which carries no position: v1 address
@@ -5929,13 +6326,13 @@ public object FfiConverterTypeMovementThresholds: FfiConverterRustBuffer<Movemen
  * all (see `core::locate::nearest_address`).
  */
 data class NearbyAddressInfo (
-    var `osmId`: kotlin.Long,
-    var `housenumber`: kotlin.String,
-    var `street`: kotlin.String,
-    var `location`: LatLon,
+    var `osmId`: kotlin.Long, 
+    var `housenumber`: kotlin.String, 
+    var `street`: kotlin.String, 
+    var `location`: LatLon, 
     var `distanceM`: kotlin.Double
 ) {
-
+    
     companion object
 }
 
@@ -5980,12 +6377,12 @@ public object FfiConverterTypeNearbyAddressInfo: FfiConverterRustBuffer<NearbyAd
  * road-to-node topology.
  */
 data class NearestIntersection (
-    var `lat`: kotlin.Double,
-    var `lon`: kotlin.Double,
-    var `distanceM`: kotlin.Double,
+    var `lat`: kotlin.Double, 
+    var `lon`: kotlin.Double, 
+    var `distanceM`: kotlin.Double, 
     var `intersectionType`: kotlin.UByte
 ) {
-
+    
     companion object
 }
 
@@ -6020,15 +6417,15 @@ public object FfiConverterTypeNearestIntersection: FfiConverterRustBuffer<Neares
 
 
 data class NearestRoad (
-    var `osmId`: kotlin.ULong,
-    var `name`: kotlin.String?,
-    var `roadClass`: kotlin.String,
-    var `snappedLat`: kotlin.Double,
-    var `snappedLon`: kotlin.Double,
-    var `distanceM`: kotlin.Double,
+    var `osmId`: kotlin.ULong, 
+    var `name`: kotlin.String?, 
+    var `roadClass`: kotlin.String, 
+    var `snappedLat`: kotlin.Double, 
+    var `snappedLon`: kotlin.Double, 
+    var `distanceM`: kotlin.Double, 
     var `geometry`: List<LatLon>
 ) {
-
+    
     companion object
 }
 
@@ -6075,12 +6472,12 @@ public object FfiConverterTypeNearestRoad: FfiConverterRustBuffer<NearestRoad> {
  * A complete route computed from installed PTiles blocks only.
  */
 data class OfflineRoute (
-    var `distanceM`: kotlin.Double,
-    var `durationS`: kotlin.Double,
-    var `path`: List<LatLon>,
+    var `distanceM`: kotlin.Double, 
+    var `durationS`: kotlin.Double, 
+    var `path`: List<LatLon>, 
     var `decodedSegments`: kotlin.UInt
 ) {
-
+    
     companion object
 }
 
@@ -6115,12 +6512,12 @@ public object FfiConverterTypeOfflineRoute: FfiConverterRustBuffer<OfflineRoute>
 
 
 data class ParkInfo (
-    var `osmId`: kotlin.Long,
-    var `name`: kotlin.String?,
-    var `parkType`: kotlin.String,
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `parkType`: kotlin.String, 
     var `geometry`: List<LatLon>
 ) {
-
+    
     companion object
 }
 
@@ -6163,13 +6560,13 @@ data class PointInfo (
     /**
      * `trailhead` or `station`.
      */
-    var `kind`: kotlin.String,
-    var `name`: kotlin.String?,
-    var `class`: kotlin.String,
-    var `location`: LatLon,
+    var `kind`: kotlin.String, 
+    var `name`: kotlin.String?, 
+    var `class`: kotlin.String, 
+    var `location`: LatLon, 
     var `distanceM`: kotlin.Double
 ) {
-
+    
     companion object
 }
 
@@ -6210,13 +6607,13 @@ public object FfiConverterTypePointInfo: FfiConverterRustBuffer<PointInfo> {
  * One decoded rail feature. `geom_type`: 0 = track, 1 = station/halt point.
  */
 data class RailInfo (
-    var `osmId`: kotlin.Long,
-    var `name`: kotlin.String?,
-    var `railType`: kotlin.String,
-    var `geomType`: kotlin.UByte,
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `railType`: kotlin.String, 
+    var `geomType`: kotlin.UByte, 
     var `geometry`: List<LatLon>
 ) {
-
+    
     companion object
 }
 
@@ -6260,11 +6657,11 @@ data class RoadContext (
     /**
      * OSM `highway` tag: "motorway", "footway", "residential", ...
      */
-    var `roadClass`: kotlin.String,
+    var `roadClass`: kotlin.String, 
     /**
      * Fix to nearest road, meters.
      */
-    var `distanceM`: kotlin.Double,
+    var `distanceM`: kotlin.Double, 
     /**
      * Bearing of the road at the snapped point, degrees. `None` when the caller
      * cannot compute it -- which is a different fact from a road running due
@@ -6272,7 +6669,7 @@ data class RoadContext (
      */
     var `bearing`: kotlin.Double?
 ) {
-
+    
     companion object
 }
 
@@ -6304,12 +6701,12 @@ public object FfiConverterTypeRoadContext: FfiConverterRustBuffer<RoadContext> {
 
 
 data class RoadInfo (
-    var `osmId`: kotlin.ULong,
-    var `name`: kotlin.String?,
-    var `roadClass`: kotlin.String,
+    var `osmId`: kotlin.ULong, 
+    var `name`: kotlin.String?, 
+    var `roadClass`: kotlin.String, 
     var `geometry`: List<LatLon>
 ) {
-
+    
     companion object
 }
 
@@ -6344,19 +6741,19 @@ public object FfiConverterTypeRoadInfo: FfiConverterRustBuffer<RoadInfo> {
 
 
 data class SamplingAdvice (
-    var `locationLevel`: SamplingLevel,
-    var `locationIntervalMs`: kotlin.UInt?,
-    var `locationMinDistanceM`: kotlin.Double?,
-    var `accelerometerLevel`: SamplingLevel,
-    var `accelerometerHz`: kotlin.UInt?,
-    var `accelerometerWindowMs`: kotlin.UInt?,
-    var `burstDurationMs`: kotlin.UInt?,
-    var `reevaluateAfterMs`: kotlin.UInt,
-    var `reason`: SamplingReason,
-    var `generation`: kotlin.UInt,
+    var `locationLevel`: SamplingLevel, 
+    var `locationIntervalMs`: kotlin.UInt?, 
+    var `locationMinDistanceM`: kotlin.Double?, 
+    var `accelerometerLevel`: SamplingLevel, 
+    var `accelerometerHz`: kotlin.UInt?, 
+    var `accelerometerWindowMs`: kotlin.UInt?, 
+    var `burstDurationMs`: kotlin.UInt?, 
+    var `reevaluateAfterMs`: kotlin.UInt, 
+    var `reason`: SamplingReason, 
+    var `generation`: kotlin.UInt, 
     var `limitedByCapabilities`: kotlin.Boolean
 ) {
-
+    
     companion object
 }
 
@@ -6412,14 +6809,14 @@ public object FfiConverterTypeSamplingAdvice: FfiConverterRustBuffer<SamplingAdv
 
 
 data class SamplingCapabilities (
-    var `locationAvailable`: kotlin.Boolean,
-    var `accelerometerAvailable`: kotlin.Boolean,
-    var `supportsPassiveLocation`: kotlin.Boolean,
-    var `supportsMotionWakeup`: kotlin.Boolean,
-    var `minimumLocationIntervalMs`: kotlin.UInt?,
+    var `locationAvailable`: kotlin.Boolean, 
+    var `accelerometerAvailable`: kotlin.Boolean, 
+    var `supportsPassiveLocation`: kotlin.Boolean, 
+    var `supportsMotionWakeup`: kotlin.Boolean, 
+    var `minimumLocationIntervalMs`: kotlin.UInt?, 
     var `maximumAccelerometerHz`: kotlin.UInt?
 ) {
-
+    
     companion object
 }
 
@@ -6460,27 +6857,27 @@ public object FfiConverterTypeSamplingCapabilities: FfiConverterRustBuffer<Sampl
 
 
 data class SamplingConfig (
-    var `uncertainLocationIntervalMs`: kotlin.UInt,
-    var `stationaryLocationIntervalMs`: kotlin.UInt,
-    var `walkingLocationIntervalMs`: kotlin.UInt,
-    var `runningLocationIntervalMs`: kotlin.UInt,
-    var `drivingLocationIntervalMs`: kotlin.UInt,
-    var `stationaryMinDistanceM`: kotlin.Double,
-    var `walkingMinDistanceM`: kotlin.Double,
-    var `runningMinDistanceM`: kotlin.Double,
-    var `drivingMinDistanceM`: kotlin.Double,
-    var `uncertainAccelerometerHz`: kotlin.UInt,
-    var `stationaryAccelerometerHz`: kotlin.UInt,
-    var `walkingAccelerometerHz`: kotlin.UInt,
-    var `runningAccelerometerHz`: kotlin.UInt,
-    var `drivingAccelerometerHz`: kotlin.UInt,
-    var `accelerometerWindowMs`: kotlin.UInt,
-    var `transitionBurstMs`: kotlin.UInt,
-    var `downshiftHoldMs`: kotlin.UInt,
-    var `adviceTtlMs`: kotlin.UInt,
+    var `uncertainLocationIntervalMs`: kotlin.UInt, 
+    var `stationaryLocationIntervalMs`: kotlin.UInt, 
+    var `walkingLocationIntervalMs`: kotlin.UInt, 
+    var `runningLocationIntervalMs`: kotlin.UInt, 
+    var `drivingLocationIntervalMs`: kotlin.UInt, 
+    var `stationaryMinDistanceM`: kotlin.Double, 
+    var `walkingMinDistanceM`: kotlin.Double, 
+    var `runningMinDistanceM`: kotlin.Double, 
+    var `drivingMinDistanceM`: kotlin.Double, 
+    var `uncertainAccelerometerHz`: kotlin.UInt, 
+    var `stationaryAccelerometerHz`: kotlin.UInt, 
+    var `walkingAccelerometerHz`: kotlin.UInt, 
+    var `runningAccelerometerHz`: kotlin.UInt, 
+    var `drivingAccelerometerHz`: kotlin.UInt, 
+    var `accelerometerWindowMs`: kotlin.UInt, 
+    var `transitionBurstMs`: kotlin.UInt, 
+    var `downshiftHoldMs`: kotlin.UInt, 
+    var `adviceTtlMs`: kotlin.UInt, 
     var `confidenceGate`: kotlin.Double
 ) {
-
+    
     companion object
 }
 
@@ -6570,14 +6967,14 @@ data class TrafficControl (
     /**
      * Fix to the intersection node, meters.
      */
-    var `distanceM`: kotlin.Double,
+    var `distanceM`: kotlin.Double, 
     /**
      * 1 = traffic_signals, 2 = stop, 3 = give_way, 4 = roundabout;
      * 0 or anything else is an untyped junction, which does not hold traffic.
      */
     var `intersectionType`: kotlin.UByte
 ) {
-
+    
     companion object
 }
 
@@ -6610,25 +7007,25 @@ public object FfiConverterTypeTrafficControl: FfiConverterRustBuffer<TrafficCont
  * includes trailhead points, which carry a single coordinate.
  */
 data class TrailInfo (
-    var `osmId`: kotlin.Long,
-    var `name`: kotlin.String?,
-    var `trailType`: kotlin.String,
-    var `surface`: kotlin.String,
-    var `sacScale`: kotlin.String,
-    var `developed`: kotlin.Boolean,
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `trailType`: kotlin.String, 
+    var `surface`: kotlin.String, 
+    var `sacScale`: kotlin.String, 
+    var `developed`: kotlin.Boolean, 
     /**
      * True for a trailhead marker rather than a length of trail. The same
      * fact as `geom_type == 1`, named for callers that read rather than
      * decode.
      */
-    var `isTrailhead`: kotlin.Boolean,
+    var `isTrailhead`: kotlin.Boolean, 
     /**
      * 0 = linestring (a way you walk), 1 = point (a trailhead).
      */
-    var `geomType`: kotlin.UByte,
+    var `geomType`: kotlin.UByte, 
     var `geometry`: List<LatLon>
 ) {
-
+    
     companion object
 }
 
@@ -6678,13 +7075,77 @@ public object FfiConverterTypeTrailInfo: FfiConverterRustBuffer<TrailInfo> {
 
 
 /**
+ * One manoeuvre in a route's turn queue.
+ */
+data class TurnInfo (
+    /**
+     * `depart`, `left`, `slight_right`, `u_turn`, `arrive`, and so on.
+     */
+    var `maneuver`: kotlin.String, 
+    /**
+     * Signed bearing change in degrees; positive is right.
+     */
+    var `deltaDeg`: kotlin.Double, 
+    /**
+     * Metres from the route start to this manoeuvre.
+     */
+    var `alongM`: kotlin.Double, 
+    var `location`: LatLon, 
+    var `roadName`: kotlin.String?, 
+    var `roadRef`: kotlin.String?, 
+    var `roadClass`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTurnInfo: FfiConverterRustBuffer<TurnInfo> {
+    override fun read(buf: ByteBuffer): TurnInfo {
+        return TurnInfo(
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterTypeLatLon.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TurnInfo) = (
+            FfiConverterString.allocationSize(value.`maneuver`) +
+            FfiConverterDouble.allocationSize(value.`deltaDeg`) +
+            FfiConverterDouble.allocationSize(value.`alongM`) +
+            FfiConverterTypeLatLon.allocationSize(value.`location`) +
+            FfiConverterOptionalString.allocationSize(value.`roadName`) +
+            FfiConverterOptionalString.allocationSize(value.`roadRef`) +
+            FfiConverterOptionalString.allocationSize(value.`roadClass`)
+    )
+
+    override fun write(value: TurnInfo, buf: ByteBuffer) {
+            FfiConverterString.write(value.`maneuver`, buf)
+            FfiConverterDouble.write(value.`deltaDeg`, buf)
+            FfiConverterDouble.write(value.`alongM`, buf)
+            FfiConverterTypeLatLon.write(value.`location`, buf)
+            FfiConverterOptionalString.write(value.`roadName`, buf)
+            FfiConverterOptionalString.write(value.`roadRef`, buf)
+            FfiConverterOptionalString.write(value.`roadClass`, buf)
+    }
+}
+
+
+
+/**
  * One classifier output: a type plus how much the evidence is worth.
  */
 data class Vote (
-    var `movement`: MovementType,
+    var `movement`: MovementType, 
     var `confidence`: kotlin.Double
 ) {
-
+    
     companion object
 }
 
@@ -6718,15 +7179,15 @@ public object FfiConverterTypeVote: FfiConverterRustBuffer<Vote> {
  * empty and `ref_feature_id` is the handle).
  */
 data class WaterInfo (
-    var `osmId`: kotlin.Long,
-    var `name`: kotlin.String?,
-    var `waterType`: kotlin.String,
-    var `geomType`: kotlin.UByte,
-    var `width`: kotlin.UShort?,
-    var `refFeatureId`: kotlin.UInt?,
+    var `osmId`: kotlin.Long, 
+    var `name`: kotlin.String?, 
+    var `waterType`: kotlin.String, 
+    var `geomType`: kotlin.UByte, 
+    var `width`: kotlin.UShort?, 
+    var `refFeatureId`: kotlin.UInt?, 
     var `geometry`: List<LatLon>
 ) {
-
+    
     companion object
 }
 
@@ -6779,7 +7240,7 @@ data class WayInfo (
     /**
      * `road`, `trail`, or `rail`.
      */
-    var `kind`: kotlin.String,
+    var `kind`: kotlin.String, 
     /**
      * OSM id of the feature, or `None` when the caller did not supply the
      * slice `core` indexed into (as in `PtilesStack::locate`, which merges
@@ -6789,18 +7250,18 @@ data class WayInfo (
      * decoders carry the id as a signed delta and OSM ids for derived ways
      * can be negative, so widening it would corrupt exactly those records.
      */
-    var `osmId`: kotlin.Long?,
-    var `name`: kotlin.String?,
+    var `osmId`: kotlin.Long?, 
+    var `name`: kotlin.String?, 
     /**
      * Road class, trail type, or rail type. Pass it to
      * [`trail_is_developed`] for the made-trail-vs-desire-path split.
      */
-    var `class`: kotlin.String,
-    var `distanceM`: kotlin.Double,
-    var `snapped`: LatLon,
+    var `class`: kotlin.String, 
+    var `distanceM`: kotlin.Double, 
+    var `snapped`: LatLon, 
     var `onIt`: kotlin.Boolean
 ) {
-
+    
     companion object
 }
 
@@ -6845,7 +7306,7 @@ public object FfiConverterTypeWayInfo: FfiConverterRustBuffer<WayInfo> {
 
 
 enum class CandidateKind {
-
+    
     ROAD,
     BUILDING,
     BUSINESS;
@@ -6876,7 +7337,7 @@ public object FfiConverterTypeCandidateKind: FfiConverterRustBuffer<CandidateKin
 
 
 enum class IndoorOutdoorReason {
-
+    
     INSIDE_BUILDING,
     INSIDE_OPEN_STRUCTURE,
     ACCURACY_OVERLAPS_BUILDING,
@@ -6917,7 +7378,7 @@ public object FfiConverterTypeIndoorOutdoorReason: FfiConverterRustBuffer<Indoor
  */
 
 enum class IndoorOutdoorState {
-
+    
     INDOOR,
     OUTDOOR,
     UNCERTAIN;
@@ -6951,7 +7412,7 @@ public object FfiConverterTypeIndoorOutdoorState: FfiConverterRustBuffer<IndoorO
  */
 
 enum class MovementType {
-
+    
     UNKNOWN,
     STATIONARY,
     WALKING,
@@ -6987,7 +7448,7 @@ public object FfiConverterTypeMovementType: FfiConverterRustBuffer<MovementType>
  */
 
 enum class OfflineRouteMode {
-
+    
     DRIVING,
     TRAIL;
     companion object
@@ -7024,13 +7485,13 @@ public object FfiConverterTypeOfflineRouteMode: FfiConverterRustBuffer<OfflineRo
  * which keeps the generated Swift/Kotlin error surface small and stable.
  */
 sealed class PtilesException(message: String): kotlin.Exception(message) {
-
+        
     /**
      * Local or otherwise unclassified open failure: a missing local file, a
      * bad magic prefix, an unsupported version.
      */
         class Open(message: String) : PtilesException(message)
-
+        
     /**
      * The host could not be reached at all: DNS, TLS, connection refused or
      * reset, timeout.
@@ -7044,14 +7505,14 @@ sealed class PtilesException(message: String): kotlin.Exception(message) {
      * the distinction away.
      */
         class Network(message: String) : PtilesException(message)
-
+        
     /**
      * The server answered, and said no: the file is not there (404), or not
      * permitted (403), or any other non-success status. The layer genuinely
      * does not exist at that URL -- retrying will not change that.
      */
         class NotFound(message: String) : PtilesException(message)
-
+        
     /**
      * The server ignored the `Range` header (answered 200 instead of 206), so
      * positioned reads cannot work against it. A server/CDN configuration
@@ -7059,15 +7520,15 @@ sealed class PtilesException(message: String): kotlin.Exception(message) {
      * whole body and treating it as a slice.
      */
         class RangeUnsupported(message: String) : PtilesException(message)
-
+        
         class UnknownLayer(message: String) : PtilesException(message)
-
+        
         class Decode(message: String) : PtilesException(message)
-
+        
         class UnsupportedForLayer(message: String) : PtilesException(message)
-
+        
         class InvalidRing(message: String) : PtilesException(message)
-
+        
     /**
      * A bounding box that is malformed, or larger than
      * `ptiles_core::MAX_BOUNDS_CELLS` (512 H3 res-7 cells, roughly a
@@ -7076,9 +7537,9 @@ sealed class PtilesException(message: String): kotlin.Exception(message) {
      * it does not have.
      */
         class InvalidBounds(message: String) : PtilesException(message)
-
+        
         class Routing(message: String) : PtilesException(message)
-
+        
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<PtilesException> {
         override fun lift(error_buf: RustBuffer.ByValue): PtilesException = FfiConverterTypePtilesError.lift(error_buf)
@@ -7090,7 +7551,7 @@ sealed class PtilesException(message: String): kotlin.Exception(message) {
  */
 public object FfiConverterTypePtilesError : FfiConverterRustBuffer<PtilesException> {
     override fun read(buf: ByteBuffer): PtilesException {
-
+        
             return when(buf.getInt()) {
             1 -> PtilesException.Open(FfiConverterString.read(buf))
             2 -> PtilesException.Network(FfiConverterString.read(buf))
@@ -7104,7 +7565,7 @@ public object FfiConverterTypePtilesError : FfiConverterRustBuffer<PtilesExcepti
             10 -> PtilesException.Routing(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
-
+        
     }
 
     override fun allocationSize(value: PtilesException): ULong {
@@ -7162,7 +7623,7 @@ public object FfiConverterTypePtilesError : FfiConverterRustBuffer<PtilesExcepti
 
 
 enum class SamplingIntent {
-
+    
     BACKGROUND,
     TRACKING,
     NAVIGATION;
@@ -7197,7 +7658,7 @@ public object FfiConverterTypeSamplingIntent: FfiConverterRustBuffer<SamplingInt
  */
 
 enum class SamplingLevel {
-
+    
     OFF,
     PASSIVE,
     LOW,
@@ -7231,7 +7692,7 @@ public object FfiConverterTypeSamplingLevel: FfiConverterRustBuffer<SamplingLeve
 
 
 enum class SamplingReason {
-
+    
     INITIALIZING,
     STABLE_STATIONARY,
     STABLE_WALKING,
@@ -7742,6 +8203,38 @@ public object FfiConverterOptionalTypeLocationSample: FfiConverterRustBuffer<Loc
         } else {
             buf.put(1)
             FfiConverterTypeLocationSample.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeNavStateInfo: FfiConverterRustBuffer<NavStateInfo?> {
+    override fun read(buf: ByteBuffer): NavStateInfo? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeNavStateInfo.read(buf)
+    }
+
+    override fun allocationSize(value: NavStateInfo?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeNavStateInfo.allocationSize(value)
+        }
+    }
+
+    override fun write(value: NavStateInfo?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeNavStateInfo.write(value, buf)
         }
     }
 }
@@ -8312,6 +8805,34 @@ public object FfiConverterSequenceTypeTrailInfo: FfiConverterRustBuffer<List<Tra
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeTurnInfo: FfiConverterRustBuffer<List<TurnInfo>> {
+    override fun read(buf: ByteBuffer): List<TurnInfo> {
+        val len = buf.getInt()
+        return List<TurnInfo>(len) {
+            FfiConverterTypeTurnInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TurnInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTurnInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TurnInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTurnInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeWaterInfo: FfiConverterRustBuffer<List<WaterInfo>> {
     override fun read(buf: ByteBuffer): List<WaterInfo> {
         val len = buf.getInt()
@@ -8432,7 +8953,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
 
         /**
          * Stateless single-fix classification.
@@ -8449,7 +8970,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
 
         /**
          * Classification from the accelerometer alone, ignoring GPS entirely.
@@ -8461,7 +8982,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
 
         /**
          * [`classify_movement`] plus the two inputs only a caller tracking a sequence
@@ -8478,7 +8999,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
  fun `defaultAdaptiveMotionConfig`(): AdaptiveMotionConfig {
             return FfiConverterTypeAdaptiveMotionConfig.lift(
     uniffiRustCall() { _status ->
@@ -8487,7 +9008,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
 
         /**
          * The library's default debounce tuning.
@@ -8499,7 +9020,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
  fun `defaultSamplingCapabilities`(): SamplingCapabilities {
             return FfiConverterTypeSamplingCapabilities.lift(
     uniffiRustCall() { _status ->
@@ -8508,7 +9029,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
  fun `intersectionHoldsTraffic`(`intersectionType`: kotlin.UByte): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
@@ -8517,7 +9038,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
 
         /**
          * Name for an `intersection_type` byte: `traffic_signals`, `stop`, `give_way`,
@@ -8535,7 +9056,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
 
         /**
          * The thresholds this build classifies against.
@@ -8547,7 +9068,7 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
 
         /**
          * Whether an `intersection_type` is a node traffic *waits* at (signals, stop,
@@ -8571,6 +9092,6 @@ public object FfiConverterSequenceOptionalTypeNearestRoad: FfiConverterRustBuffe
 }
     )
     }
-
+    
 
 

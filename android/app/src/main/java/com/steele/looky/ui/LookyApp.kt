@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -103,29 +104,32 @@ import com.steele.looky.offline.MapDownloadProgress
 import com.steele.looky.offline.MapPackDownloader
 import com.steele.looky.offline.PtilesRepository
 import uniffi.ptiles_ffi.BusinessInfo
+import uniffi.ptiles_ffi.TrailInfo
+import uniffi.ptiles_ffi.NavStateInfo
+import uniffi.ptiles_ffi.Navigator
+import uniffi.ptiles_ffi.TurnInfo
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.Instant
 import kotlin.math.roundToInt
 
 private enum class Screen { DRIVE, TRAIL, MORE, RECORDINGS, PACKS, SETTINGS, DEVELOPER }
 
 /** Settle time before a panned viewport triggers a PTiles decode. */
-private const val VIEWPORT_DEBOUNCE_MS = 400L
+internal const val VIEWPORT_DEBOUNCE_MS = 400L
 
 /** Settle time before a search query hits the name indexes. */
-private const val SEARCH_DEBOUNCE_MS = 300L
+internal const val SEARCH_DEBOUNCE_MS = 300L
 
 /** How far the viewport must move before reloading features, in metres. */
-private const val VIEWPORT_RELOAD_M = 400.0
+internal const val VIEWPORT_RELOAD_M = 400.0
 
 /** Height cap on the hits-and-stops list before it scrolls inside the card. */
-private val LIST_MAX_HEIGHT = 200.dp
 
-private val STOP_ROW_HEIGHT = 52.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -182,19 +186,50 @@ fun LookyApp(
                     }
                 },
                 actions = {
-                    Surface(
-                        color = if (mapsReady) Lime.copy(alpha = .45f) else Clay.copy(alpha = .55f),
-                        shape = RoundedCornerShape(100.dp),
-                        // The badge is the only place the app admits a pack is
-                        // missing, so it is also the fastest way to go fix it.
-                        modifier = Modifier.clickable { screen = Screen.PACKS },
-                    ) {
-                        Text(
-                            if (mapsReady) "Ready" else "Downloads Needed",
-                            Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Forest,
-                        )
+                    // The corner says the one thing that matters right now:
+                    // stop the journey you are on, or go get the maps you are
+                    // missing. "Ready" was neither -- it only ever confirmed
+                    // that nothing needed doing.
+                    val onAJourney = live.running && live.session != TraceRecorder.SESSION_BACKGROUND
+                    when {
+                        onAJourney -> Surface(
+                            color = Clay,
+                            shape = RoundedCornerShape(100.dp),
+                            modifier = Modifier.clickable { TraceService.endSession(context) },
+                        ) {
+                            Text(
+                                if (live.mode == LookyMode.TRAIL) "Stop trail" else "Stop drive",
+                                Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color.White,
+                            )
+                        }
+                        !mapsReady -> Surface(
+                            color = Clay.copy(alpha = .55f),
+                            shape = RoundedCornerShape(100.dp),
+                            modifier = Modifier.clickable { screen = Screen.PACKS },
+                        ) {
+                            Text(
+                                "Downloads Needed",
+                                Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Forest,
+                            )
+                        }
+                        // The classifier's verdict, once it has one. "Unknown"
+                        // is its starting state, and printing that is worse
+                        // than printing nothing.
+                        live.running && live.movement != "Unknown" -> Surface(
+                            color = Lime,
+                            shape = RoundedCornerShape(100.dp),
+                        ) {
+                            Text(
+                                live.movement,
+                                Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Forest,
+                            )
+                        }
                     }
                     Spacer(Modifier.width(12.dp))
                 },
@@ -234,8 +269,8 @@ fun LookyApp(
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (screen) {
-                Screen.DRIVE -> DriveScreen(settings, onRequestPermissions)
-                Screen.TRAIL -> TrailScreen(settings, onRequestPermissions)
+                Screen.DRIVE -> DriveScreen(settings, onRequestPermissions) { screen = Screen.PACKS }
+                Screen.TRAIL -> TrailScreen(settings, onRequestPermissions) { screen = Screen.PACKS }
                 Screen.MORE -> MoreScreen(settings) { screen = it }
                 Screen.RECORDINGS -> RecordingsScreen()
                 Screen.PACKS -> PacksScreen(currentStateCode) { mapsRevision++ }
@@ -255,327 +290,66 @@ private fun Screen.title() = when (this) {
 }
 
 /** Drive: search, destination chain, offline route, and its own recording. */
-@Composable
-private fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit) =
-    ModeMap(trail = false, routing = true, settings = settings, onRequestPermissions = onRequestPermissions)
-
 /**
- * Trail: a log and a breadcrumb, nothing else.
+ * The next manoeuvre, its distance, and what is left of the route.
  *
- * A walk has no destination to pick, so the whole search-and-route panel is
- * left out rather than shown and ignored.
+ * Everything shown is decided natively by `Navigator`; this only draws it.
+ * A null state before the first fix snaps is normal, not an error.
  */
 @Composable
-private fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit) =
-    ModeMap(trail = true, routing = false, settings = settings, onRequestPermissions = onRequestPermissions)
-
-@Composable
-private fun ModeMap(trail: Boolean, routing: Boolean, settings: AppSettings, onRequestPermissions: () -> Unit) {
-    val context = LocalContext.current
-    val live by TraceBus.state.collectAsState()
-    val repo = remember { PtilesRepository(context) }
-    val scope = rememberCoroutineScope()
-    val current = live.location?.let { GeoPoint(it.latitude, it.longitude) }
-    val anchor = current ?: GeoPoint(35.73377, -88.03220)
-    // One ordered list, no separate destination field: the last stop is the
-    // destination by definition, which is also what a one-stop route means.
-    var stops by remember(trail) { mutableStateOf(emptyList<Stop>()) }
-    var query by remember(trail) { mutableStateOf("") }
-    var results by remember(trail) { mutableStateOf(emptyList<PtilesRepository.BusinessResult>()) }
-    var features by remember { mutableStateOf(emptyList<com.steele.looky.model.MapFeature>()) }
-    var route by remember { mutableStateOf<PtilesRepository.RouteResult?>(null) }
-    var routeError by remember { mutableStateOf<String?>(null) }
-    var routeRunning by remember { mutableStateOf(false) }
-    var routeProgress by remember { mutableStateOf(0f) }
-    // dataCenter is where PTiles data is loaded from; anchor is where the map
-    // is projected from. Panning moves the first without disturbing the second,
-    // which is what stops a reload from yanking the view back.
-    var dataCenter by remember(trail) { mutableStateOf(anchor) }
-    var panned by remember(trail) { mutableStateOf(false) }
-    var recenterKey by remember(trail) { mutableIntStateOf(0) }
-    val requestedMode = if (trail) LookyMode.TRAIL else LookyMode.DRIVE
-    val active = live.running && live.mode == requestedMode
-    val imperial = settings.imperialUnits
-    val hasLayers = remember(live.running) { repo.installedLayers().isNotEmpty() }
-
-    // Follow the GPS fix until the user pans away from it.
-    LaunchedEffect(anchor.lat, anchor.lon) {
-        if (!panned) dataCenter = anchor
-    }
-
-    LaunchedEffect(dataCenter.lat, dataCenter.lon, trail) {
-        delay(VIEWPORT_DEBOUNCE_MS)
-        features = withContext(Dispatchers.IO) { repo.featuresAround(dataCenter.lat, dataCenter.lon, trail) }
-    }
-
-    LaunchedEffect(query) {
-        if (query.isBlank()) {
-            results = emptyList()
-        } else {
-            delay(SEARCH_DEBOUNCE_MS)
-            results = withContext(Dispatchers.IO) { repo.searchBusinesses(query) }
-        }
-    }
-
-    Box(Modifier.fillMaxSize()) {
-        OfflineMap(
-            center = anchor,
-            features = features,
-            current = current,
-            destination = stops.lastOrNull()?.point,
-            route = route?.points.orEmpty(),
-            trace = live.recentPoints,
-            onViewportChange = { viewport ->
-                // Ignore sub-tile drags so a nudge does not trigger a decode.
-                if (GpxReader.distanceM(dataCenter, viewport) > VIEWPORT_RELOAD_M) {
-                    panned = true
-                    dataCenter = viewport
-                }
-            },
-            recenterKey = recenterKey,
-        )
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .96f))) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(if (trail) "TRAIL MODE" else "DRIVE MODE", style = MaterialTheme.typography.labelLarge, color = ForestSoft)
-                        }
-                        // No badge until there is a real classification: the
-                        // bus starts at "Unknown", and printing that is worse
-                        // than printing nothing.
-                        if (live.running && hasLayers && live.movement != "Unknown") {
-                            Surface(color = Lime, shape = CircleShape) {
-                                Text(
-                                    live.movement,
-                                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                    style = MaterialTheme.typography.labelLarge,
-                                )
-                            }
-                        }
-                    }
-                    if (routing) {
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                            trailingIcon = {
-                                if (query.isNotEmpty()) IconButton(onClick = { query = "" }) {
-                                    Icon(Icons.Rounded.Close, "Clear search")
-                                }
-                            },
-                            label = { Text("Search") },
-                            placeholder = { Text("Business Name") },
-                        )
-                        // Both lists are height-capped and scroll inside the
-                        // card. Unbounded, a dozen stops grew the panel over
-                        // the whole map and pushed Route offline off-screen.
-                        if (results.isNotEmpty() || stops.isNotEmpty()) {
-                            Column(
-                                Modifier.fillMaxWidth().heightIn(max = LIST_MAX_HEIGHT).verticalScroll(rememberScrollState()),
-                            ) {
-                                results.forEach { hit ->
-                                    BusinessRow(
-                                        hit = hit,
-                                        distanceM = GpxReader.distanceM(anchor, hit.point),
-                                        imperial = imperial,
-                                        onAdd = {
-                                            stops = stops + Stop(hit.name, hit.point)
-                                            route = null
-                                            routeError = null
-                                            query = ""
-                                        },
-                                    )
-                                }
-                                StopList(
-                                    stops = stops,
-                                    onMove = { from, to -> stops = stops.move(from, to); route = null },
-                                    onRemove = { index -> stops = stops.filterIndexed { at, _ -> at != index }; route = null },
-                                )
-                            }
-                        }
-                        Button(
-                            enabled = stops.isNotEmpty() && !routeRunning,
-                            onClick = {
-                                val chain = stops
-                                val end = chain.lastOrNull()?.point ?: return@Button
-                                routeRunning = true; routeError = null; routeProgress = 0f
-                                scope.launch {
-                                    runCatching {
-                                        withContext(Dispatchers.Default) {
-                                            repo.offlineRouteVia(
-                                                anchor, chain.dropLast(1).map { it.point }, end, trail,
-                                                settings.avoidHighways, settings.avoidIntersections,
-                                            ) { done, total -> routeProgress = done.toFloat() / total }
-                                        }
-                                    }.onSuccess { route = it }.onFailure { routeError = it.message ?: "No connected route in this pack" }
-                                    routeRunning = false
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Forest),
-                        ) {
-                            if (routeRunning) {
-                                CircularProgressIndicator(
-                                    progress = { routeProgress },
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White,
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Text("${(routeProgress * 100).roundToInt()}%")
-                            } else {
-                                Text("Route offline")
-                            }
-                        }
-                    }
-                    // Recording is its own action. Routing used to start it as a
-                    // side effect, which let the Drive tab relabel a running
-                    // Trail session. Starting here takes over from whatever was
-                    // running; the old session's day file is already closed.
-                    Button(
-                        onClick = {
-                            when {
-                                active -> TraceService.stop(context)
-                                hasLocationPermission(context) -> TraceService.start(context, requestedMode)
-                                else -> onRequestPermissions()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = if (active) Clay else Forest),
-                    ) {
-                        Text(if (active) "Stop ${if (trail) "trail" else "drive"}" else "Start ${if (trail) "trail" else "drive"}")
-                    }
-                }
-            }
-            route?.let {
-                Card(colors = CardDefaults.cardColors(containerColor = Lime), shape = RoundedCornerShape(18.dp)) {
-                    Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(formatDistance(it.distanceM, imperial), fontWeight = FontWeight.Black, color = Forest)
-                        Text("${(it.durationS / 60).roundToInt().coerceAtLeast(1)} min", fontWeight = FontWeight.Bold, color = Forest)
-                    }
-                }
-            }
-            routeError?.let {
-                Surface(color = Color(0xFFFFE4DA), shape = RoundedCornerShape(14.dp)) {
-                    Text(it, Modifier.padding(12.dp), color = Color(0xFF7A2B16))
-                }
-            }
-        }
-        if (panned) {
-            FilledTonalButton(
-                onClick = {
-                    panned = false
-                    dataCenter = anchor
-                    recenterKey++
+internal fun TurnCard(state: NavStateInfo?, turns: List<TurnInfo>, imperial: Boolean) {
+    val turn = state?.nextTurn?.toInt()?.let(turns::getOrNull)
+    Card(
+        colors = CardDefaults.cardColors(containerColor = if (state?.offRoute == true) Clay else Forest),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                when {
+                    state == null -> "Finding you on the route…"
+                    state.offRoute -> "Off route"
+                    turn == null -> "Continue to the destination"
+                    else -> maneuverText(turn)
                 },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 96.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Icon(Icons.Rounded.MyLocation, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Recenter")
-            }
-        }
-        Card(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xEE173F35)),
-        ) {
-            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceAround) {
-                Metric(if (live.location?.hasAccuracy() == true) "±${live.location?.accuracy?.roundToInt()} m" else "—", "GPS")
-                Metric(formatDistance(live.distanceM, imperial), "TODAY")
-                Metric(live.pointsToday.toString(), "POINTS")
-            }
-        }
-    }
-}
-
-/** A place on the route. The last one in the list is the destination. */
-internal data class Stop(val label: String, val point: GeoPoint)
-
-internal fun List<Stop>.move(from: Int, to: Int): List<Stop> {
-    if (from == to || from !in indices || to !in indices) return this
-    val out = toMutableList()
-    out.add(to, out.removeAt(from))
-    return out
-}
-
-@Composable
-private fun BusinessRow(
-    hit: PtilesRepository.BusinessResult,
-    distanceM: Double,
-    imperial: Boolean,
-    onAdd: () -> Unit,
-) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onAdd), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
-            Text(hit.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(formatDistance(distanceM, imperial), style = MaterialTheme.typography.bodySmall, color = ForestSoft)
-        }
-        IconButton(onClick = onAdd) { Icon(Icons.Rounded.Add, "Add stop") }
-    }
-}
-
-/**
- * The stop chain, reordered by dragging a row's handle.
- *
- * ponytail: rows are a fixed height so the drop index is offset/height. If the
- * rows ever wrap to two lines, measure them instead.
- */
-@Composable
-private fun StopList(stops: List<Stop>, onMove: (Int, Int) -> Unit, onRemove: (Int) -> Unit) {
-    val rowPx = with(LocalDensity.current) { STOP_ROW_HEIGHT.toPx() }
-    var dragging by remember { mutableStateOf<Int?>(null) }
-    var dragOffset by remember { mutableStateOf(0f) }
-    Column(Modifier.fillMaxWidth()) {
-        stops.forEachIndexed { index, stop ->
-            val held = dragging == index
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(STOP_ROW_HEIGHT)
-                    .zIndex(if (held) 1f else 0f)
-                    .offset { IntOffset(0, if (held) dragOffset.roundToInt() else 0) },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Rounded.DragHandle,
-                    "Reorder stop",
-                    tint = ForestSoft,
-                    modifier = Modifier.pointerInput(index, stops.size) {
-                        detectDragGestures(
-                            onDragStart = { dragging = index; dragOffset = 0f },
-                            onDrag = { change, amount -> change.consume(); dragOffset += amount.y },
-                            onDragEnd = {
-                                onMove(index, (index + (dragOffset / rowPx).roundToInt()).coerceIn(0, stops.lastIndex))
-                                dragging = null; dragOffset = 0f
-                            },
-                            onDragCancel = { dragging = null; dragOffset = 0f },
-                        )
-                    },
-                )
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(stop.label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Forest)
+                style = MaterialTheme.typography.headlineSmall,
+                color = Color.White,
+                fontWeight = FontWeight.Black,
+            )
+            if (state != null) {
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(
-                        if (index == stops.lastIndex) "Destination" else "Stop ${index + 1}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ForestSoft,
+                        if (turn == null) "" else "in ${formatDistance(state.distanceToTurnM, imperial)}",
+                        color = Lime,
+                        fontWeight = FontWeight.Bold,
                     )
+                    Text("${formatDistance(state.remainingM, imperial)} left", color = Lime)
                 }
-                IconButton(onClick = { onRemove(index) }) { Icon(Icons.Rounded.Close, "Remove stop") }
             }
         }
     }
 }
 
+internal fun maneuverText(turn: TurnInfo): String {
+    val verb = when (turn.maneuver) {
+        "depart" -> "Head out"
+        "arrive" -> "Arrive"
+        "left" -> "Turn left"
+        "right" -> "Turn right"
+        "slight_left" -> "Bear left"
+        "slight_right" -> "Bear right"
+        "sharp_left" -> "Sharp left"
+        "sharp_right" -> "Sharp right"
+        "u_turn" -> "Make a U-turn"
+        else -> "Continue"
+    }
+    // An unnamed service road is common; inventing a name helps nobody.
+    val onto = turn.roadName ?: turn.roadRef ?: return verb
+    return if (turn.maneuver == "arrive") verb else "$verb onto $onto"
+}
+
 @Composable
-private fun Metric(value: String, label: String) {
+internal fun Metric(value: String, label: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, color = Color.White, fontWeight = FontWeight.Black)
         Text(label, color = Lime, style = MaterialTheme.typography.labelSmall)
@@ -673,7 +447,7 @@ private fun RateSetting(title: String, subtitle: String, valueLabel: String, val
     }
 }
 
-private fun hasLocationPermission(context: android.content.Context): Boolean =
+internal fun hasLocationPermission(context: android.content.Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
@@ -693,51 +467,84 @@ private fun SettingsToggle(title: String, subtitle: String, checked: Boolean, on
 @Composable
 private fun RecordingsScreen() {
     val context = LocalContext.current
-    val traces = remember { File(context.filesDir, "traces").listFiles().orEmpty().filter { it.extension == "gpx" }.sortedDescending() }
+    val live by TraceBus.state.collectAsState()
+    val traces = File(context.filesDir, "traces").listFiles().orEmpty().filter { it.extension == "gpx" }
     var open by remember { mutableStateOf<File?>(null) }
     open?.let { file ->
         BackHandler { open = null }
         RecordingDetailScreen(file)
         return
     }
-    if (traces.isEmpty()) {
-        EmptyState("No day files yet", "Start Drive or Trail and the first accurate fix will create one.")
+    // One list of stretches, newest first, across every day file: drove for
+    // twenty minutes, walked for five, sat still for an hour. Which file a
+    // stretch came from is a storage detail, not a heading.
+    var segments by remember { mutableStateOf(emptyList<TraceSegment>()) }
+    val fileNames = traces.map { it.name }.sorted().joinToString()
+    LaunchedEffect(fileNames) {
+        segments = withContext(Dispatchers.IO) {
+            traces.flatMap(GpxReader::readSegments).sortedByDescending { it.lastFix ?: Instant.EPOCH }
+        }
+    }
+    // The open segment grows while you are moving, so re-read the file being
+    // written every time the recorder reports a new fix. Only that one file:
+    // re-parsing the whole history at 1 Hz is not a live view, it is a stall.
+    LaunchedEffect(live.pointsToday, live.traceFile) {
+        val active = live.traceFile?.let(::File)?.takeIf { it.exists() } ?: return@LaunchedEffect
+        val reread = withContext(Dispatchers.IO) { GpxReader.readSegments(active) }
+        segments = (segments.filterNot { it.file?.name == active.name } + reread)
+            .sortedByDescending { it.lastFix ?: Instant.EPOCH }
+    }
+    if (segments.isEmpty()) {
+        EmptyState("Nothing recorded yet", "Start Drive or Trail and the first accurate fix opens a segment.")
         return
     }
-    // Three logs, three sections: a drive, a walk, and the always-on background
-    // recording are different journeys and were never worth reading merged.
-    val sections = listOf(
-        "Drives" to TraceRecorder.SESSION_DRIVE,
-        "Trails" to TraceRecorder.SESSION_TRAIL,
-        "Background" to TraceRecorder.SESSION_BACKGROUND,
-    ).mapNotNull { (title, session) ->
-        traces.filter { TraceRecorder.sessionOf(it) == session }.takeIf { it.isNotEmpty() }?.let { title to it }
-    }
-    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        sections.forEach { (title, files) ->
-        item(key = title) {
-            Text(title.uppercase(), style = MaterialTheme.typography.labelLarge, color = ForestSoft)
-        }
-        items(files, key = File::getName) { file ->
+    val imperial = remember { AppSettings(context).imperialUnits }
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        itemsIndexed(segments) { index, segment ->
+            val recording = index == 0 && live.running && segment.file?.absolutePath == live.traceFile
             Card(
-                Modifier.clickable { open = file },
+                Modifier.clickable { segment.file?.let { open = it } },
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 shape = RoundedCornerShape(18.dp),
             ) {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(12.dp).background(movementColor(segment.movement), CircleShape))
+                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            TraceRecorder.dateOf(file)?.toString() ?: file.nameWithoutExtension,
+                            // "Unknown" is the classifier's starting state, not
+                            // a kind of travel; naming it that in a list of
+                            // journeys reads as a bug.
+                            movementLabel(segment.movement, recording),
                             style = MaterialTheme.typography.titleMedium,
+                            color = Forest,
                         )
-                        Text("${file.length() / 1024} KB · GPX 1.1", color = Color(0xFF69716C))
+                        Text(
+                            listOfNotNull(
+                                formatSpan(segment.firstFix, segment.lastFix),
+                                formatDistance(segment.distanceM, imperial),
+                                if (segment.points.size == 1) "1 fix" else "${segment.points.size} fixes",
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF69716C),
+                        )
                     }
-                    Text("Open", color = Forest, fontWeight = FontWeight.Bold)
+                    segment.file?.let { file ->
+                        Text(
+                            TraceRecorder.dateOf(file)?.toString().orEmpty(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ForestSoft,
+                        )
+                    }
                 }
             }
         }
-        }
     }
+}
+
+private fun movementLabel(movement: String, recording: Boolean): String {
+    val name = if (movement.equals("Unknown", ignoreCase = true)) "Unclassified" else movement
+    return if (recording) "$name · now" else name
 }
 
 @Composable
@@ -756,7 +563,7 @@ private fun PacksScreen(currentStateCode: String?, onPacksChanged: () -> Unit) {
         scope.launch {
             MapPackDownloader.downloadStates(context, states, { progress = it }, includeUsLayers)
                 .onSuccess {
-                    message = if (states.size == 1) "${states.first()} offline maps installed" else "All US PTiles layers installed"
+                    message = if (states.size == 1) "${states.first()} maps installed" else "All US PTiles layers installed"
                     onPacksChanged()
                 }
                 .onFailure { message = it.message ?: "Download failed" }
@@ -771,7 +578,7 @@ private fun PacksScreen(currentStateCode: String?, onPacksChanged: () -> Unit) {
                 scope.launch {
                     MapPackDownloader.downloadCurrentState(context, state) { progress = it }
                         .onSuccess {
-                            message = "${com.steele.looky.offline.StateResolver.name(state)} offline maps installed"
+                            message = "${com.steele.looky.offline.StateResolver.name(state)} maps installed"
                             onPacksChanged()
                         }
                         .onFailure { message = it.message ?: "Download failed" }
@@ -792,7 +599,12 @@ private fun PacksScreen(currentStateCode: String?, onPacksChanged: () -> Unit) {
         progress?.let { item { Text("${it.completed}/${it.total} · ${it.layer}", color = ForestSoft) } }
         message?.let { item { Text(it, color = Forest) } }
         item { Text("STATES", style = MaterialTheme.typography.labelLarge, color = ForestSoft, modifier = Modifier.padding(top = 8.dp)) }
-        items(MapPackDownloader.US_STATES, key = { it }) { region ->
+        // What you already have, first: the installed packs are the ones you
+        // come here to check on or update.
+        val regions = MapPackDownloader.US_STATES.sortedWith(
+            compareByDescending<String> { installedByRegion.containsKey(it) }.thenBy { it }
+        )
+        items(regions, key = { it }) { region ->
             val pack = installedByRegion[region]
             var expanded by remember { mutableStateOf(false) }
             var confirmDelete by remember { mutableStateOf(false) }
@@ -867,6 +679,7 @@ private fun DeveloperMapScreen() {
     var stateCode by remember { mutableStateOf<String?>(null) }
     var nearestRoad by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<BusinessInfo?>(null) }
+    var selectedTrail by remember { mutableStateOf<TrailInfo?>(null) }
     val scope = rememberCoroutineScope()
     val groups = listOf("Roads", "Trails", "Water", "Parks", "Buildings", "Rail", "Cameras", "Businesses")
     var enabledGroups by remember { mutableStateOf(groups.toSet()) }
@@ -933,13 +746,51 @@ private fun DeveloperMapScreen() {
             center, visible, center, null, emptyList(), live.recentPoints, Modifier.weight(1f),
             onTap = { tap ->
                 scope.launch {
-                    selected = withContext(Dispatchers.IO) { repo.businessAt(tap) }
+                    // Businesses first, trails second: a tap in town is nearly
+                    // always a place, and a tap on a ridge nearly always a path.
+                    val hit = withContext(Dispatchers.IO) {
+                        repo.businessAt(tap)?.let { it as Any } ?: repo.trailAt(tap)
+                    }
+                    selected = hit as? BusinessInfo
+                    selectedTrail = hit as? TrailInfo
                 }
             },
         )
     }
     selected?.let { business ->
         BusinessSheet(business) { selected = null }
+    }
+    selectedTrail?.let { trail ->
+        TrailSheet(trail) { selectedTrail = null }
+    }
+}
+
+/** Tapped-trail detail: what the trails layer knows about this path. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TrailSheet(trail: TrailInfo, onDismiss: () -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+        containerColor = Color.White,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(trail.name ?: "Unnamed trail", style = MaterialTheme.typography.headlineSmall, color = Forest)
+            trail.geometry.firstOrNull()?.let {
+                Text("%.5f, %.5f".format(it.lat, it.lon), style = MaterialTheme.typography.bodyMedium, color = ForestSoft)
+            }
+            Spacer(Modifier.height(14.dp))
+            DetailRow("Type", trail.trailType)
+            DetailRow("Surface", trail.surface)
+            DetailRow("SAC scale", trail.sacScale)
+            DetailRow("Developed", if (trail.developed) "yes" else "no")
+            DetailRow("Trailhead", if (trail.isTrailhead) "yes" else "no")
+            DetailRow("Points", trail.geometry.size.toString())
+            DetailRow("OSM id", trail.osmId.toString())
+        }
     }
 }
 
@@ -1003,11 +854,21 @@ private fun EmptyState(title: String, subtitle: String) {
     }
 }
 
-private fun formatDistance(meters: Double, imperial: Boolean): String = if (imperial) {
-    val feet = meters * 3.28084
-    if (feet < 1_000) "${feet.roundToInt()} ft" else "%.1f mi".format(feet / 5_280)
-} else {
-    if (meters < 1_000) "${meters.roundToInt()} m" else "%.1f km".format(meters / 1_000)
+/** The GPS/distance/points strip both mode screens pin to the bottom. */
+@Composable
+internal fun LiveMetrics(imperial: Boolean, modifier: Modifier = Modifier) {
+    val live by TraceBus.state.collectAsState()
+    Card(
+        modifier = modifier.padding(16.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xEE173F35)),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceAround) {
+            Metric(if (live.location?.hasAccuracy() == true) "±${live.location?.accuracy?.roundToInt()} m" else "—", "GPS")
+            Metric(formatDistance(live.distanceM, imperial), "TODAY")
+            Metric(live.pointsToday.toString(), "POINTS")
+        }
+    }
 }
 
 private fun formatBytes(bytes: Long): String = when {

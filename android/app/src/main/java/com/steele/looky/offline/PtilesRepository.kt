@@ -10,7 +10,9 @@ import uniffi.ptiles_ffi.BusinessInfo
 import uniffi.ptiles_ffi.CameraInfo
 import uniffi.ptiles_ffi.OfflineRouteMode
 import uniffi.ptiles_ffi.RoadContext
+import uniffi.ptiles_ffi.TrailInfo
 import uniffi.ptiles_ffi.LatLon
+import uniffi.ptiles_ffi.Navigator
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.cos
@@ -22,6 +24,7 @@ data class NearbyContext(
 )
 
 class PtilesRepository(context: Context) {
+    private val appContext = context.applicationContext
     private val manager = PackManager(context)
     private data class CachedLayer(
         val length: Long,
@@ -108,6 +111,7 @@ class PtilesRepository(context: Context) {
         lon: Double,
         trails: Boolean,
         developer: Boolean = false,
+        places: Boolean = false,
         spread: Int = DEFAULT_SPREAD,
     ): List<MapFeature> {
         val out = mutableListOf<MapFeature>()
@@ -132,12 +136,28 @@ class PtilesRepository(context: Context) {
                     if (park.geometry.size > 1) out += MapFeature(park.geometry.map { GeoPoint(it.lat, it.lon) }, "park", park.name)
                 }
             }
-            if (trails) runCatching {
-                layer("trails", c.lat, c.lon)?.trails(c.lat, c.lon, RING)?.filter { !it.isTrailhead }?.forEach { trail ->
+            runCatching {
+                layer("trails", c.lat, c.lon)?.trails(c.lat, c.lon, RING)?.forEach { trail ->
+                    val points = trail.geometry.map { GeoPoint(it.lat, it.lon) }
+                    if (points.isEmpty()) return@forEach
+                    if (trail.isTrailhead) {
+                        out += MapFeature(listOf(points.first()), "trailhead", trail.name)
+                        return@forEach
+                    }
+                    out += MapFeature(points, "trail:${trail.trailType}", trail.name)
+                    // Where a path starts and stops is the thing a walker
+                    // squints for; the line alone does not say.
+                    out += MapFeature(listOf(points.first()), "trail_end", trail.name)
+                    if (points.size > 1) out += MapFeature(listOf(points.last()), "trail_end", trail.name)
+                }
+            }
+            if (places || developer) runCatching {
+                layer("business", c.lat, c.lon)?.businessesNear(c.lat, c.lon, RING, 1_500.0)?.forEach { business ->
+                    if (isFlightNode(business.name)) return@forEach
                     out += MapFeature(
-                        trail.geometry.map { GeoPoint(it.lat, it.lon) },
-                        "trail:${trail.trailType}",
-                        trail.name,
+                        listOf(GeoPoint(business.location.lat, business.location.lon)),
+                        "business:${business.categoryIdx}",
+                        business.name,
                     )
                 }
             }
@@ -161,15 +181,6 @@ class PtilesRepository(context: Context) {
                         }
                     }
                 }
-                runCatching {
-                    layer("business", c.lat, c.lon)?.businessesNear(c.lat, c.lon, RING, 1_500.0)?.forEach { business ->
-                        out += MapFeature(
-                            listOf(GeoPoint(business.location.lat, business.location.lon)),
-                            "business:${business.categoryIdx}",
-                            business.name,
-                        )
-                    }
-                }
             }
         }
         // Buildings are point centroids in the PTiles API and are fetched by
@@ -189,25 +200,119 @@ class PtilesRepository(context: Context) {
     }
 
     /**
-     * Business-name search across every installed state's name index.
+     * Business search: what is near you that resembles what you typed.
      *
-     * Deliberately not routed through [layer]: that filters candidates on
-     * `covers(lat, lon)`, and `{STATE}.business_name_index.ptiles` is keyed by
-     * the first letter of the business name, not by geography. Its header bbox
-     * is not a coverage claim to filter on.
+     * Two passes, because neither alone answers the question a driver asks.
+     * The spatial layer gives everything within a few kilometres regardless of
+     * spelling, which is where a hit almost always is. The state name index
+     * (`{STATE}.business_name_index.ptiles`, bucketed by first letter, not by
+     * geography -- so deliberately not routed through [layer]) reaches the rest
+     * of the state for the times the answer is genuinely further out.
+     *
+     * Both are then scored on name similarity and pulled toward you by
+     * distance, so a misspelling down the road beats a perfect match across
+     * the state -- which is what the name index alone kept returning.
      */
-    fun searchBusinesses(query: String, limit: Int = SEARCH_LIMIT): List<BusinessResult> {
+    fun searchBusinesses(
+        query: String,
+        origin: GeoPoint? = null,
+        limit: Int = SEARCH_LIMIT,
+    ): List<BusinessResult>? {
         if (query.isBlank() || limit <= 0) return emptyList()
-        val hits = nameIndexFiles().flatMap { file ->
+        val indexes = nameIndexFiles()
+        val nearLayer = origin?.let { layer("business", it.lat, it.lon) }
+        // Null, not empty: "nothing installed to search" and "nothing matched"
+        // are different answers, and only one of them is the user's to fix.
+        if (indexes.isEmpty() && nearLayer == null) return null
+
+        val nearby = if (origin == null || nearLayer == null) {
+            emptyList()
+        } else {
+            nearLayer.businessesNear(origin.lat, origin.lon, RING, SEARCH_NEARBY_RADIUS_M)
+                .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), score = 0) }
+        }
+        val perIndex = (limit * SEARCH_OVERFETCH).coerceAtMost(SEARCH_MAX_FETCH)
+        val statewide = indexes.flatMap { file ->
             runCatching {
                 openCached(file)
-                    ?.searchBusiness(query, limit.toUInt())
+                    ?.searchBusiness(query, perIndex.toUInt())
                     ?.map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), it.score.toInt()) }
                     .orEmpty()
             }.getOrDefault(emptyList())
         }
-        return mergeBusinessHits(hits, limit)
+        return rankByNameAndDistance(query, nearby + statewide, origin, limit)
     }
+
+    /**
+     * What is around you, nearest first -- the list an empty search box shows.
+     *
+     * Straight off the spatial business layer, so it needs no query and no
+     * name index; the same flight-node junk is filtered out of it.
+     */
+    fun businessesNearby(
+        origin: GeoPoint,
+        radiusM: Double = NEARBY_RADIUS_M,
+        limit: Int = SEARCH_LIMIT,
+    ): List<BusinessResult>? {
+        // Null when no business layer covers here -- a decode failure is a
+        // different thing again, and is left to throw.
+        val layer = layer("business", origin.lat, origin.lon) ?: return null
+        val hits = layer.businessesNear(origin.lat, origin.lon, RING, radiusM)
+            .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), score = 0) }
+        return mergeBusinessHits(hits, limit, origin)
+    }
+
+    /**
+     * Named trails and trailheads around a point, nearest first.
+     *
+     * Trail mode's answer to the business search: the trails layer is
+     * geographic, so this is the same query with or without a name typed --
+     * `query` only narrows what came back. Unnamed ways are dropped; a list of
+     * "path" repeated forty times is not a destination picker.
+     *
+     * The point offered is the vertex nearest the origin, which for a long
+     * trail is the end you would actually walk in from.
+     */
+    fun trailsNearby(
+        origin: GeoPoint,
+        query: String = "",
+        limit: Int = SEARCH_LIMIT,
+    ): List<BusinessResult>? {
+        val needle = query.trim().lowercase()
+        val centers = sampleCenters(origin.lat, origin.lon, DEFAULT_SPREAD)
+        val layers = centers.mapNotNull { c -> layer("trails", c.lat, c.lon)?.let { c to it } }
+        if (layers.isEmpty()) return null
+        val hits = layers.flatMap { (c, layer) ->
+            layer.trails(c.lat, c.lon, RING)
+        }.mapNotNull { trail ->
+            val name = trail.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (needle.isNotEmpty() && !name.lowercase().contains(needle)) return@mapNotNull null
+            val nearest = nearestVertex(trail.geometry, origin) ?: return@mapNotNull null
+            // Trailheads first among equals: they are where you park.
+            BusinessResult(name, nearest, score = if (trail.isTrailhead) 1 else 0)
+        }
+        return mergeBusinessHits(hits, limit, origin)
+    }
+
+    /**
+     * The trail nearest a tap, with the attributes the layer carries.
+     *
+     * Distance is to the nearest vertex, which for a long path is the bit of
+     * it you actually pointed at.
+     */
+    fun trailAt(point: GeoPoint, radiusM: Double = BUSINESS_TAP_RADIUS_M): TrailInfo? = runCatching {
+        layer("trails", point.lat, point.lon)
+            ?.trails(point.lat, point.lon, RING)
+            ?.mapNotNull { trail ->
+                val nearest = trail.geometry.minByOrNull { v ->
+                    flatDistance2(point, GeoPoint(v.lat, v.lon))
+                } ?: return@mapNotNull null
+                trail to flatDistance2(point, GeoPoint(nearest.lat, nearest.lon))
+            }
+            ?.filter { (_, d2) -> d2 <= radiusM * radiusM }
+            ?.minByOrNull { (_, d2) -> d2 }
+            ?.first
+    }.getOrNull()
 
     /**
      * The business record nearest to a tap, with its extended attributes.
@@ -228,12 +333,70 @@ class PtilesRepository(context: Context) {
             }
     }.getOrNull()
 
+    /**
+     * A [Navigator] over a computed route, with its turns named where roads
+     * could be decoded.
+     *
+     * Naming reads the roads around points sampled along the path. Every
+     * sample is a decode, so they are spaced [NAME_SAMPLE_STEP] apart and
+     * capped: a turn on an unnamed lane is normal, and the queue is still
+     * correct without a name.
+     */
+    fun navigatorFor(path: List<GeoPoint>): Navigator? {
+        if (path.size < 2) return null
+        val step = (path.size / NAME_SAMPLE_MAX).coerceAtLeast(NAME_SAMPLE_STEP)
+        val roads = path.filterIndexed { index, _ -> index % step == 0 }
+            .flatMap { point ->
+                runCatching { layer("roads", point.lat, point.lon)?.roads(point.lat, point.lon, RING).orEmpty() }
+                    .getOrDefault(emptyList())
+            }
+            .distinctBy { it.osmId }
+        return runCatching {
+            Navigator(path.map { LatLon(it.lat, it.lon) }, roads, TURN_NAME_RADIUS_M)
+        }.getOrNull()
+    }
+
     private fun nameIndexFiles(): List<File> = manager.packsDir.listFiles()
         .orEmpty()
         .filter { it.isFile && it.name.endsWith(".business_name_index.ptiles", ignoreCase = true) }
         .sortedBy { it.name }
 
+    /**
+     * One leg, split in half as many times as the corridor cap demands.
+     *
+     * The FFI bounds a route's corridor at 512 H3 res-7 cells and fails the
+     * whole request when the endpoints are further apart than that -- "bad
+     * bounding box", which is a fact about the graph budget, not about the
+     * trip being impossible. Halving the leg halves the corridor, so a long
+     * route becomes several short ones and joins back into one line.
+     *
+     * ponytail: the split point is the geometric midpoint snapped to the
+     * network, not a real waypoint. It can put a joint somewhere a router
+     * would not have chosen. Good enough until someone drives one and says
+     * otherwise.
+     */
     fun offlineRoute(
+        start: GeoPoint,
+        end: GeoPoint,
+        trail: Boolean,
+        avoidHighways: Boolean,
+        avoidIntersections: Boolean,
+        splitsLeft: Int = MAX_ROUTE_SPLITS,
+    ): RouteResult = try {
+        routeLeg(start, end, trail, avoidHighways, avoidIntersections)
+    } catch (e: Exception) {
+        if (splitsLeft <= 0 || !isCorridorTooLarge(e)) throw e
+        val midpoint = GeoPoint((start.lat + end.lat) / 2, (start.lon + end.lon) / 2)
+        val split = snapForRoute(midpoint, trail) ?: midpoint
+        joinLegs(
+            listOf(
+                offlineRoute(start, split, trail, avoidHighways, avoidIntersections, splitsLeft - 1),
+                offlineRoute(split, end, trail, avoidHighways, avoidIntersections, splitsLeft - 1),
+            )
+        )
+    }
+
+    private fun routeLeg(
         start: GeoPoint,
         end: GeoPoint,
         trail: Boolean,
@@ -256,7 +419,7 @@ class PtilesRepository(context: Context) {
             avoidHighways,
             avoidIntersections,
         )
-        check(route.path.isNotEmpty()) { "Offline route graph is empty: install the local roads/trails PTiles layer for this area" }
+        check(route.path.isNotEmpty()) { "No roads or trails in the downloaded maps here -- download this area in Offline maps" }
         return RouteResult(
             route.path.map { GeoPoint(it.lat, it.lon) },
             route.distanceM,
@@ -297,7 +460,14 @@ class PtilesRepository(context: Context) {
     /** True when a real installed roads pack covers the current coordinate. */
     fun mapsReadyAt(lat: Double, lon: Double): Boolean = layer("roads", lat, lon) != null
 
-    /** Exact admin lookup when installed; bbox fallback for the first download. */
+    /**
+     * Which state a coordinate is in.
+     *
+     * `US.admin.ptiles` when it is installed, then the boundaries baked into
+     * the APK, and only then [StateResolver]'s bounding boxes -- which overlap
+     * at every border and were picking the wrong state on the strength of a
+     * box centre.
+     */
     fun currentStateCode(lat: Double, lon: Double): String? {
         val admin = adminLayer ?: manager.packsDir.listFiles().orEmpty()
             .firstOrNull { it.isFile && it.name == "US.admin.ptiles" }
@@ -306,6 +476,7 @@ class PtilesRepository(context: Context) {
         val resolved = admin
             ?.let { runCatching { it.adminAt(lat, lon)?.state }.getOrNull() }
             ?.let(StateResolver::codeForName)
+            ?: StateBoundaries.stateAt(appContext, lat, lon)
             ?: StateResolver.stateAt(lat, lon, stateHint)
         if (resolved != null) stateHint = resolved
         return resolved
@@ -335,6 +506,51 @@ class PtilesRepository(context: Context) {
         internal const val SAMPLE_STEP_LON = 0.037
 
         internal const val SEARCH_LIMIT = 20
+
+        /** Hits pulled per index before the distance sort trims them. */
+        internal const val SEARCH_OVERFETCH = 5
+        internal const val SEARCH_MAX_FETCH = 200
+
+        /**
+         * How many times a leg may be halved before the corridor cap is
+         * accepted as real. Eight legs covers a cross-state drive; past that
+         * the pack almost certainly does not hold the road anyway.
+         */
+        internal const val MAX_ROUTE_SPLITS = 3
+
+        /**
+         * True for the FFI's corridor-budget failure, which splitting fixes,
+         * and false for a missing layer or an empty graph, which it does not.
+         */
+        internal fun isCorridorTooLarge(error: Throwable): Boolean {
+            val message = generateSequence(error, Throwable::cause)
+                .mapNotNull { it.message }
+                .joinToString(" ")
+                .lowercase()
+            return "bounding box" in message && ("too large" in message || "cells" in message)
+        }
+
+        /** How far a typed search sweeps the spatial layer before the index. */
+        internal const val SEARCH_NEARBY_RADIUS_M = 8_000.0
+
+        /** Below this, a name is not a match however lenient the scoring. */
+        internal const val MIN_NAME_SIMILARITY = 0.55
+
+        /** Distance at which the pull toward the user stops growing. */
+        internal const val DISTANCE_FALLOFF_KM = 40.0
+
+        /** Similarity points the full falloff distance costs a hit. */
+        internal const val DISTANCE_WEIGHT = 0.45
+
+        /** How far the default nearby list reaches. */
+        internal const val NEARBY_RADIUS_M = 2_000.0
+
+        /** Turn naming: how far a road may be from a manoeuvre to name it. */
+        internal const val TURN_NAME_RADIUS_M = 30.0
+
+        /** Path vertices between road decodes when naming turns, and a cap. */
+        internal const val NAME_SAMPLE_STEP = 8
+        internal const val NAME_SAMPLE_MAX = 40
 
         /**
          * Ceiling on features handed to the renderer in one viewport.
@@ -431,10 +647,121 @@ class PtilesRepository(context: Context) {
          * a border, so identity is name plus coordinate rounded to 5 decimal
          * places -- about a metre, well under the spacing of two real stores.
          */
-        internal fun mergeBusinessHits(hits: List<BusinessResult>, limit: Int): List<BusinessResult> = hits
-            .sortedWith(compareByDescending<BusinessResult> { it.score }.thenBy { it.name })
+        /**
+         * Flight numbers that ride along in the business layer.
+         *
+         * OSM aeroway import leaves nodes named `AA 1234`, `DL2201`, `UA 45`:
+         * a gate's departure, not a place. They are never what a search for a
+         * business meant, and they crowd out real hits near an airport.
+         */
+        private val FLIGHT_NODE = Regex("""^[A-Z]{2,3}\s?\d{1,4}[A-Z]?$""")
+
+        internal fun isFlightNode(name: String): Boolean = FLIGHT_NODE.matches(name.trim())
+
+        /**
+         * How much a name looks like what was typed, 0 (not at all) to 1.
+         *
+         * Exact beats prefix beats substring beats a word that merely starts
+         * the same; below that it is edit distance, so "wafle huse" still
+         * finds Waffle House. Anything under [MIN_NAME_SIMILARITY] is not a
+         * match at all -- fuzzy without a floor returns the whole layer.
+         */
+        internal fun nameSimilarity(query: String, name: String): Double {
+            val q = query.trim().lowercase()
+            val n = name.trim().lowercase()
+            if (q.isEmpty() || n.isEmpty()) return 0.0
+            if (q == n) return 1.0
+            if (n.startsWith(q)) return 0.92
+            if (n.contains(q)) return 0.85
+            val words = n.split(' ', '-', '/', ',').filter { it.isNotEmpty() }
+            if (words.any { it.startsWith(q) }) return 0.8
+            // Typos: the whole string, then the single best word, since
+            // "huse" against "waffle house" is mostly a distance to `waffle`.
+            val whole = editRatio(q, n)
+            val best = words.maxOfOrNull { editRatio(q, it) } ?: 0.0
+            return maxOf(whole, best * 0.95)
+        }
+
+        /** 1 minus normalised Levenshtein distance. */
+        internal fun editRatio(a: String, b: String): Double {
+            if (a.isEmpty() || b.isEmpty()) return 0.0
+            val longer = maxOf(a.length, b.length)
+            return 1.0 - editDistance(a, b).toDouble() / longer
+        }
+
+        private fun editDistance(a: String, b: String): Int {
+            var previous = IntArray(b.length + 1) { it }
+            var current = IntArray(b.length + 1)
+            for (i in 1..a.length) {
+                current[0] = i
+                for (j in 1..b.length) {
+                    val substitution = previous[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1
+                    current[j] = minOf(current[j - 1] + 1, previous[j] + 1, substitution)
+                }
+                val swap = previous
+                previous = current
+                current = swap
+            }
+            return previous[b.length]
+        }
+
+        /**
+         * Rank by resemblance, pulled toward the user by distance.
+         *
+         * A perfect match forty kilometres away scores below a close-enough
+         * one on this street: [DISTANCE_WEIGHT] is how much of a similarity
+         * point the full [DISTANCE_FALLOFF_KM] is worth.
+         */
+        internal fun rankByNameAndDistance(
+            query: String,
+            hits: List<BusinessResult>,
+            origin: GeoPoint?,
+            limit: Int,
+        ): List<BusinessResult> = hits
+            .asSequence()
+            .filterNot { isFlightNode(it.name) }
+            .map { it to nameSimilarity(query, it.name) }
+            .filter { (_, similarity) -> similarity >= MIN_NAME_SIMILARITY }
+            .map { (hit, similarity) ->
+                val km = origin?.let { kotlin.math.sqrt(flatDistance2(it, hit.point)) / 1_000.0 } ?: 0.0
+                val penalty = (km.coerceAtMost(DISTANCE_FALLOFF_KM) / DISTANCE_FALLOFF_KM) * DISTANCE_WEIGHT
+                Triple(hit, similarity - penalty, km)
+            }
+            .sortedWith(compareByDescending<Triple<BusinessResult, Double, Double>> { it.second }.thenBy { it.third })
+            .map { it.first }
             .distinctBy { Triple(it.name, round5(it.point.lat), round5(it.point.lon)) }
             .take(limit)
+            .toList()
+
+        internal fun mergeBusinessHits(
+            hits: List<BusinessResult>,
+            limit: Int,
+            origin: GeoPoint? = null,
+        ): List<BusinessResult> {
+            // Nearest first when we know where the user is -- the web demo
+            // reaches the same order by walking cells outward from the origin,
+            // but the name index answers in one block, so the sort is the whole
+            // job. Match quality only breaks ties between equidistant hits.
+            val order = if (origin == null) {
+                compareByDescending<BusinessResult> { it.score }.thenBy { it.name }
+            } else {
+                compareBy<BusinessResult> { flatDistance2(origin, it.point) }
+                    .thenByDescending { it.score }
+                    .thenBy { it.name }
+            }
+            return hits
+                .filterNot { isFlightNode(it.name) }
+                .sortedWith(order)
+                .distinctBy { Triple(it.name, round5(it.point.lat), round5(it.point.lon)) }
+                .take(limit)
+        }
+
+        /** Squared metres, flat-earth. Ranking never needs the real thing. */
+        internal fun flatDistance2(from: GeoPoint, to: GeoPoint): Double {
+            val dLat = (to.lat - from.lat) * 111_320.0
+            val dLon = (to.lon - from.lon) * 111_320.0 * cos(Math.toRadians(from.lat))
+            return dLat * dLat + dLon * dLon
+        }
 
         private fun round5(value: Double): Long = Math.round(value * 100_000.0)
 

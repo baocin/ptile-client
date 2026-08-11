@@ -61,6 +61,21 @@ class MotionEngine(
         )
     }
 
+    /**
+     * Drop the accelerometer window a new session should not inherit.
+     *
+     * The PTiles session itself keeps its own debounce; this clears the
+     * samples so the first classification of a walk is not computed from the
+     * drive that ended a second ago.
+     */
+    fun reset() {
+        synchronized(lock) {
+            x.clear()
+            y.clear()
+            z.clear()
+        }
+    }
+
     fun stop() {
         running = false
         sensorManager.unregisterListener(this)

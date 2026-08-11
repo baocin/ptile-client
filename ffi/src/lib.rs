@@ -2233,23 +2233,61 @@ impl PtilesStack {
                 segments.extend(core_trail_segments(&trails));
             }
         }
-        let decoded_segments = segments.len() as u32;
+        let mut decoded_segments = segments.len() as u32;
         let profile = match mode {
             OfflineRouteMode::Driving => RouteProfile::Driving,
             OfflineRouteMode::Trail => RouteProfile::Foot,
         };
         let prefs = RoutePrefs { profile, avoid_highways, avoid_intersections };
-        let route = route_roads_diagnostic(
+        let snap_radius = if mode == OfflineRouteMode::Driving { 250.0 } else { 120.0 };
+        let mut attempt = route_roads_diagnostic(
             &segments,
             &[],
             start_lat,
             start_lon,
             end_lat,
             end_lon,
-            if mode == OfflineRouteMode::Driving { 250.0 } else { 120.0 },
+            snap_radius,
             prefs,
-        )
-        .map_err(|e| PtilesError::Routing { message: format!("{e:?}") })?;
+        );
+
+        // A disconnected corridor is the one failure worth retrying: both ends
+        // snapped, but the strip of cells between them did not hold a road
+        // joining them -- a river crossing or an interchange just outside the
+        // box. `RouteFailure`'s own docs say widening helps here and nowhere
+        // else, so this widens once rather than reporting a dead end the map
+        // plainly contradicts.
+        if attempt == Err(ptiles_core::route_graph::RouteFailure::Disconnected) {
+            let wider = cells_for_bounds(
+                start_lat.min(end_lat) - lat_margin * DISCONNECTED_RETRY_SCALE,
+                start_lon.min(end_lon) - lon_margin * DISCONNECTED_RETRY_SCALE,
+                start_lat.max(end_lat) + lat_margin * DISCONNECTED_RETRY_SCALE,
+                start_lon.max(end_lon) + lon_margin * DISCONNECTED_RETRY_SCALE,
+            );
+            if let Ok(wider) = wider {
+                let mut widened = roads_layer.decoded_roads_for_cells(&wider)?;
+                if mode == OfflineRouteMode::Trail {
+                    if let Some(trails_layer) = &self.trails {
+                        let trails = trails_layer.decoded_trails_for_cells(&wider)?;
+                        widened.extend(core_trail_segments(&trails));
+                    }
+                }
+                if widened.len() > segments.len() {
+                    decoded_segments = widened.len() as u32;
+                    attempt = route_roads_diagnostic(
+                        &widened,
+                        &[],
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        snap_radius,
+                        prefs,
+                    );
+                }
+            }
+        }
+        let route = attempt.map_err(|e| PtilesError::Routing { message: format!("{e:?}") })?;
         Ok(OfflineRoute {
             distance_m: route.distance_m,
             duration_s: route.duration_s,
@@ -2285,6 +2323,135 @@ impl PtilesStack {
         let candidates =
             score_candidates(&core_fix, &roads, &buildings, &businesses, &ScoringParams::default());
         Ok(candidates.iter().map(to_candidate).collect())
+    }
+}
+
+/// How much wider the corridor gets on a disconnected-route retry.
+///
+/// Two-and-a-half times the margin, once. Enough to pull in the bridge or the
+/// interchange that sat just outside the first box, and still inside the 512
+/// cell budget for any route that fit before.
+const DISCONNECTED_RETRY_SCALE: f64 = 2.5;
+
+/// One manoeuvre in a route's turn queue.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TurnInfo {
+    /// `depart`, `left`, `slight_right`, `u_turn`, `arrive`, and so on.
+    pub maneuver: String,
+    /// Signed bearing change in degrees; positive is right.
+    pub delta_deg: f64,
+    /// Metres from the route start to this manoeuvre.
+    pub along_m: f64,
+    pub location: LatLon,
+    pub road_name: Option<String>,
+    pub road_ref: Option<String>,
+    pub road_class: Option<String>,
+}
+
+/// Where one GPS fix puts you on the route being followed.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NavStateInfo {
+    /// The fix pulled onto the route line.
+    pub location: LatLon,
+    /// How far the raw fix was from the line.
+    pub offset_m: f64,
+    pub along_m: f64,
+    pub remaining_m: f64,
+    /// Heading of the route ahead, degrees clockwise from north.
+    pub bearing_deg: f64,
+    /// Index into the turn queue of the next manoeuvre, if any remain.
+    pub next_turn: Option<u32>,
+    pub distance_to_turn_m: f64,
+    /// True for this fix alone. One bad fix is not a wrong turn -- require
+    /// several in a row before rerouting.
+    pub off_route: bool,
+}
+
+/// A route being followed.
+///
+/// The path, its cumulative distances, and the turn queue stay on this side,
+/// so a position update is one small call rather than re-serialising the whole
+/// route at every fix.
+#[derive(uniffi::Object)]
+pub struct Navigator {
+    path: Vec<[f64; 2]>,
+    cum: Vec<f64>,
+    turns: Vec<ptiles_core::nav::Turn>,
+    // navigate() takes the previous snap index to keep the search local, and
+    // uniffi hands out &self, so the cursor needs its own lock.
+    last_index: std::sync::Mutex<usize>,
+}
+
+#[uniffi::export]
+impl Navigator {
+    /// `roads` only names the turns -- pass an empty list for an unnamed
+    /// queue. `name_radius_m` of 0 falls back to 30 m.
+    #[uniffi::constructor]
+    pub fn new(path: Vec<LatLon>, roads: Vec<RoadInfo>, name_radius_m: f64) -> Arc<Self> {
+        let path: Vec<[f64; 2]> = path.iter().map(|p| [p.lon, p.lat]).collect();
+        let segments: Vec<ptiles_core::roads::RoadSegment> = roads
+            .into_iter()
+            .map(|r| ptiles_core::roads::RoadSegment {
+                osm_id: r.osm_id,
+                road_class: r.road_class,
+                coords: r.geometry.iter().map(|p| [p.lon, p.lat]).collect(),
+                name: r.name,
+                ref_tag: None,
+                oneway: None,
+                speed_limit_kmh: None,
+                lanes: None,
+                surface: None,
+                bridge_tunnel: None,
+            })
+            .collect();
+        let cum = ptiles_core::nav::cumulative_m(&path);
+        let radius = if name_radius_m > 0.0 { name_radius_m } else { 30.0 };
+        let turns = ptiles_core::nav::turn_queue(&path, &segments, radius);
+        Arc::new(Navigator { path, cum, turns, last_index: std::sync::Mutex::new(0) })
+    }
+
+    /// The queue, in order: `depart`, every manoeuvre, `arrive`.
+    pub fn turns(&self) -> Vec<TurnInfo> {
+        self.turns
+            .iter()
+            .map(|t| TurnInfo {
+                maneuver: t.maneuver.as_str().to_string(),
+                delta_deg: t.delta_deg,
+                along_m: t.along_m,
+                location: LatLon { lat: t.lat, lon: t.lon },
+                road_name: t.road_name.clone(),
+                road_ref: t.road_ref.clone(),
+                road_class: t.road_class.clone(),
+            })
+            .collect()
+    }
+
+    /// None when the route is too short to follow, or the fix cannot be
+    /// snapped to it at all.
+    pub fn update(&self, lat: f64, lon: f64, accuracy_m: f64) -> Option<NavStateInfo> {
+        let last = *self.last_index.lock().ok()?;
+        let state = ptiles_core::nav::navigate(
+            &self.path,
+            &self.cum,
+            &self.turns,
+            lat,
+            lon,
+            accuracy_m,
+            last,
+        )?;
+        if let Ok(mut cursor) = self.last_index.lock() {
+            *cursor = state.index;
+        }
+        Some(NavStateInfo {
+            location: LatLon { lat: state.lat, lon: state.lon },
+            offset_m: state.offset_m,
+            along_m: state.along_m,
+            remaining_m: state.remaining_m,
+            bearing_deg: state.bearing_deg,
+            next_turn: state.next_turn.map(|i| i as u32),
+            distance_to_turn_m: state.distance_to_turn_m,
+            off_route: state.off_route,
+        })
     }
 }
 
@@ -2458,6 +2625,42 @@ mod tests {
         assert_eq!(groups[0].0, cell_for_coord(points[0].lat, points[0].lon));
         assert_eq!(groups[1].0, cell_for_coord(points[1].lat, points[1].lon));
         assert!(PtilesLayer::group_by_cell(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_navigator_walks_an_l_shaped_route() {
+        // East for ~900 m, then north for ~1.1 km: one left turn.
+        let path = vec![
+            LatLon { lat: 35.0, lon: -88.0 },
+            LatLon { lat: 35.0, lon: -87.99 },
+            LatLon { lat: 35.01, lon: -87.99 },
+        ];
+        let nav = Navigator::new(path, Vec::new(), 0.0);
+        let turns = nav.turns();
+
+        assert_eq!(turns.first().unwrap().maneuver, "depart");
+        assert_eq!(turns.last().unwrap().maneuver, "arrive");
+        assert!(turns.iter().any(|t| t.maneuver == "left"), "{turns:?}");
+
+        // Halfway down the first leg: on route, with distance still to run.
+        let state = nav.update(35.0, -87.995, 5.0).expect("a fix on the line snaps");
+        assert!(!state.off_route);
+        assert!(state.remaining_m > 900.0, "{}", state.remaining_m);
+        assert!(state.distance_to_turn_m > 0.0);
+    }
+
+    #[test]
+    fn a_fix_far_from_the_line_reads_as_off_route() {
+        let path = vec![
+            LatLon { lat: 35.0, lon: -88.0 },
+            LatLon { lat: 35.0, lon: -87.99 },
+        ];
+        let nav = Navigator::new(path, Vec::new(), 0.0);
+
+        // ~1.1 km north of the route, with a good fix: nothing to blame it on.
+        let state = nav.update(35.01, -87.995, 5.0).expect("still snaps, just far");
+        assert!(state.off_route);
+        assert!(state.offset_m > 500.0, "{}", state.offset_m);
     }
 
     #[test]

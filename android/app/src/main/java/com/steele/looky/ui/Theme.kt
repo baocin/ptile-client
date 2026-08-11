@@ -18,6 +18,22 @@ val Paper = Color(0xFFF7F7F2)
 val Ink = Color(0xFF17201D)
 val Clay = Color(0xFFD67246)
 
+// One movement palette for the whole app: the recordings list, the trace
+// detail, and anything else that breaks a track down by how it was travelled.
+val Driving = Color(0xFF2477D4)
+val Walking = Color(0xFF3E9C6D)
+val Running = Color(0xFFD67246)
+val Stationary = Color(0xFF9AA29C)
+
+/** Colour for a `TraceRecorder` movement label; grey for anything unknown. */
+fun movementColor(movement: String): Color = when (movement.lowercase()) {
+    "driving" -> Driving
+    "walking" -> Walking
+    "running" -> Running
+    "stationary" -> Stationary
+    else -> Color(0xFFC7CCC8)
+}
+
 private val LightColors = lightColorScheme(
     primary = Forest,
     onPrimary = Color.White,

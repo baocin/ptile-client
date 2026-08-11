@@ -3,6 +3,7 @@ package com.steele.looky.offline
 import com.steele.looky.model.GeoPoint
 import com.steele.looky.model.MapFeature
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -133,5 +134,58 @@ class RouteAndSearchTest {
         val second = MapFeature(listOf(GeoPoint(36.0, -87.0), GeoPoint(36.1, -87.1)), "primary", "Church St")
 
         assertEquals(2, PtilesRepository.dedupeFeatures(listOf(first, second)).size)
+    }
+
+    @Test fun hitsSortNearestFirstWhenAnOriginIsKnown() {
+        val here = GeoPoint(35.0, -88.0)
+        val hits = listOf(
+            PtilesRepository.BusinessResult("Far exact", GeoPoint(35.5, -88.0), score = 2),
+            PtilesRepository.BusinessResult("Near substring", GeoPoint(35.001, -88.0), score = 0),
+        )
+
+        val merged = PtilesRepository.mergeBusinessHits(hits, limit = 10, origin = here)
+
+        assertEquals(listOf("Near substring", "Far exact"), merged.map { it.name })
+    }
+
+    @Test fun withNoOriginTheMatchQualityStillDecides() {
+        val hits = listOf(
+            PtilesRepository.BusinessResult("Near substring", GeoPoint(35.001, -88.0), score = 0),
+            PtilesRepository.BusinessResult("Far exact", GeoPoint(35.5, -88.0), score = 2),
+        )
+
+        assertEquals("Far exact", PtilesRepository.mergeBusinessHits(hits, limit = 10).first().name)
+    }
+
+    @Test fun flightNumbersFromTheAerowayImportAreNotBusinesses() {
+        assertTrue(PtilesRepository.isFlightNode("AA 1234"))
+        assertTrue(PtilesRepository.isFlightNode("DL2201"))
+        assertFalse(PtilesRepository.isFlightNode("Gate A12 Cafe"))
+        assertFalse(PtilesRepository.isFlightNode("Waffle House"))
+    }
+
+    @Test fun flightNodesAreDroppedFromMergedHits() {
+        val hits = listOf(
+            PtilesRepository.BusinessResult("AA 1234", GeoPoint(35.0, -88.0), score = 2),
+            PtilesRepository.BusinessResult("Airport Diner", GeoPoint(35.0, -88.0), score = 1),
+        )
+
+        assertEquals(listOf("Airport Diner"), PtilesRepository.mergeBusinessHits(hits, limit = 10).map { it.name })
+    }
+
+    @Test fun theCorridorCapIsTheOneRouteErrorWorthSplittingFor() {
+        assertTrue(
+            PtilesRepository.isCorridorTooLarge(
+                IllegalStateException("bad bounding box: bounding box (35, -88)..(36, -87) is too large: covers more than 512 H3 res-7 cells")
+            )
+        )
+        assertFalse(PtilesRepository.isCorridorTooLarge(IllegalStateException("no roads layer is installed")))
+        assertFalse(PtilesRepository.isCorridorTooLarge(IllegalStateException("Offline route graph is empty")))
+    }
+
+    @Test fun aWrappedCorridorErrorIsStillRecognised() {
+        val wrapped = RuntimeException("route failed", IllegalStateException("bad bounding box: too large, 512 cells"))
+
+        assertTrue(PtilesRepository.isCorridorTooLarge(wrapped))
     }
 }

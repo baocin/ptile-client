@@ -96,10 +96,10 @@ fun Onboarding(
             Text(item.body, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF58615C))
             Spacer(Modifier.weight(1f))
             if (page == pages.lastIndex && mapDownloadRunning) {
-                Text("Downloading ${currentStateName ?: "your state"} offline maps…", color = Forest, fontWeight = FontWeight.Bold)
+                Text("Downloading ${currentStateName ?: "your state"} maps…", color = Forest, fontWeight = FontWeight.Bold)
                 mapDownload?.let { Text("${it.completed}/${it.total} · ${it.layer.replace('_', ' ')}", color = ForestSoft) }
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Preparing offline maps…") }
+                Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Preparing maps…") }
             } else if (page == pages.lastIndex && permissionsGranted && mapDownload == null) {
                 Text("${currentStateName ?: "Your state"} roads, highways, trails, parks, rail, places, water, buildings, cameras, and lookup layers are ready to cache.", color = ForestSoft)
                 mapDownloadError?.let { Text(it, color = Color(0xFF9B3D2B)) }
