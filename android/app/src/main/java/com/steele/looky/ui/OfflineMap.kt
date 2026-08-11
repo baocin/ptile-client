@@ -102,11 +102,18 @@ internal object MapProjection {
  * slow. Detail arrives as the view tightens and the stroke count falls.
  */
 internal object MapDetail {
-    /** Below this scale only through roads are worth a stroke. */
-    const val ARTERIAL_ONLY_BELOW = 1.4f
+    /**
+     * Below this scale only through roads are worth a stroke.
+     *
+     * The map opens at scale 1.0, so a threshold above that culled minor roads
+     * in the *default* view: 251 decoded roads rendered as three lines and a
+     * lot of paper. Culling now starts only once the user zooms out past where
+     * they began.
+     */
+    const val ARTERIAL_ONLY_BELOW = 0.9f
 
-    /** Points (buildings, businesses, cameras) start drawing here. */
-    const val POINTS_ABOVE = 2.2f
+    /** Points (businesses, cameras) start drawing here -- also the opening view. */
+    const val POINTS_ABOVE = 0.9f
 
     private val MAJOR = setOf("motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link")
     private val THROUGH = MAJOR + setOf("tertiary", "water", "park", "rail")

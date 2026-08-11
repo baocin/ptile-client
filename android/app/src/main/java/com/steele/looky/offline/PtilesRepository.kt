@@ -291,7 +291,12 @@ class PtilesRepository(context: Context) {
             // Trailheads first among equals: they are where you park.
             BusinessResult(name, nearest, score = if (trail.isTrailhead) 1 else 0)
         }
-        return mergeBusinessHits(hits, limit, origin)
+        // One row per trail, not one per stretch of it: the same path decodes
+        // as several segments, and "Chirt Pit Road" twice is not two choices.
+        val nearestPerTrail = hits
+            .sortedBy { flatDistance2(origin, it.point) }
+            .distinctBy { it.name.lowercase() }
+        return mergeBusinessHits(nearestPerTrail, limit, origin)
     }
 
     /**

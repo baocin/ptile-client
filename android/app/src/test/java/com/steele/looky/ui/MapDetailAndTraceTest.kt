@@ -8,6 +8,13 @@ import org.junit.Test
 import java.time.Instant
 
 class MapDetailAndTraceTest {
+    @Test fun theOpeningViewDrawsEverything() {
+        // The map opens at 1.0; anything culled here is culled by default.
+        assertTrue(MapDetail.draws("residential", isPoint = false, scale = 1.0f))
+        assertTrue(MapDetail.draws("service", isPoint = false, scale = 1.0f))
+        assertTrue(MapDetail.draws("business:5", isPoint = true, scale = 1.0f))
+    }
+
     @Test fun zoomedOutKeepsThroughRoadsAndDropsTheRest() {
         val far = MapDetail.ARTERIAL_ONLY_BELOW - 0.1f
 
