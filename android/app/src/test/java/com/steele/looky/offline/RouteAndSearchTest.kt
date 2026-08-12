@@ -205,11 +205,47 @@ class RouteAndSearchTest {
     }
 
     @Test fun theCapKeepsRoadsWhenFootwaysOutnumberThem() {
-        val streets = (1..10).map { com.steele.looky.model.MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.0)), "residential", "Street $it") }
-        val footways = (1..100).map { com.steele.looky.model.MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.0)), "trail:footway", null) }
+        val streets = (1..10).map { feature("residential", "Street $it") }
+        val footways = (1..100).map { feature("trail:footway", null) }
 
-        val kept = PtilesRepository.capFeatures(footways + streets, max = 10)
+        val kept = PtilesRepository.capFeatures(footways + streets, max = 20)
 
-        assertEquals(10, kept.count { it.kind == "residential" })
+        assertTrue(kept.count { it.kind == "residential" } >= 8)
+    }
+
+    @Test fun aTownFullOfRoadsStillLeavesRoomForTrails() {
+        // The bug this exists for: a city viewport decoded thousands of roads,
+        // and a single global ranking evicted every trail before it drew.
+        val roads = (1..3_000).map { feature("residential", "Street $it") }
+        val trails = (1..40).map { feature("trail:path", "Path $it") }
+
+        val kept = PtilesRepository.capFeatures(roads + trails, max = 1_000)
+
+        assertTrue("trails must survive a road-dense viewport", kept.any { it.kind == "trail:path" })
+        assertTrue(kept.count { it.kind == "residential" } > 300)
+        assertEquals(1_000, kept.size)
+    }
+
+    @Test fun unusedBudgetGoesBackToWhoeverCanUseIt() {
+        // Only roads present: they should take the whole budget, not 40% of it.
+        val roads = (1..500).map { feature("residential", null) }
+
+        assertEquals(100, PtilesRepository.capFeatures(roads, max = 100).size)
+    }
+
+    private fun feature(kind: String, name: String?) =
+        com.steele.looky.model.MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.0)), kind, name)
+
+    @Test fun theDrawCapHoldsMoreThanItUsedTo() {
+        // 3,000 features is ~60k vertices, well inside the frame budget that
+        // the uncapped 34k-path case blew through.
+        assertEquals(3_000, PtilesRepository.MAX_DRAWN_FEATURES)
+    }
+
+    @Test fun pavementAndParkingAislesAreTheClassesWorthSkipping() {
+        assertTrue("footway" in PtilesRepository.MINOR_ROAD_CLASSES)
+        assertTrue("service" in PtilesRepository.MINOR_ROAD_CLASSES)
+        assertFalse("residential" in PtilesRepository.MINOR_ROAD_CLASSES)
+        assertFalse("motorway" in PtilesRepository.MINOR_ROAD_CLASSES)
     }
 }

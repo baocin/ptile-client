@@ -3,16 +3,34 @@ package com.steele.looky.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.ZoomOutMap
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -25,7 +43,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.steele.looky.model.GeoPoint
 import com.steele.looky.model.MapFeature
-import com.steele.looky.offline.AdminBoundaries
 import kotlin.math.cos
 
 private val MapPaper = Color(0xFFF1F0E8)
@@ -37,11 +54,25 @@ private val Park = Color(0xFF91AE83)
 private val Building = Color(0xFFB68E73)
 private val Route = Color(0xFF173F35)
 private val Track = Color(0xFFD67246)
+
+/**
+ * Route colours.
+ *
+ * The old line was ink casing plus a thin lime core, which on cream paper
+ * crossed by grey roads read as one more road. A saturated blue is the one hue
+ * nothing else on this map uses at full strength, and it keeps the casing so it
+ * still separates from whatever it runs over. [RouteWalk] is the same line on
+ * foot, [RouteUnclassified] is a stretch no installed layer could place.
+ */
+internal val RouteDrive = Color(0xFF2B5BE0)
+internal val RouteWalk = Color(0xFFE23C8A)
+internal val RouteUnclassified = Color(0xFF6F7770)
 private val Camera = Color(0xFFB72F3E)
 private val Rail = Color(0xFF6D4C7D)
 private val Business = Color(0xFFD67246)
 private val WaterEdge = Color(0xFF5E93A6)
 private val AdminLine = Color(0x998A7FA6)
+private val AdminStateLine = Color(0xBB6F5F94)
 
 /**
  * The map's screen/geography conversion, kept out of the composable so the
@@ -100,6 +131,18 @@ internal object MapProjection {
         )
     }
 
+    /**
+     * The zoom range a gesture or a fit may land on.
+     *
+     * The floor used to be 0.6, about 14 km of latitude, which is roughly as
+     * far out as the decoded viewport has anything to say. That is fine for a
+     * pinch and useless for "show all": a cross-county route framed at 0.6 has
+     * both ends off screen. 0.08 is about 100 km, which the bounded router
+     * cannot exceed by much.
+     */
+    const val MIN_SCALE = 0.08f
+    const val MAX_SCALE = 18f
+
     /** Where the middle of the visible canvas currently sits on the ground. */
     fun viewportCenter(
         center: GeoPoint,
@@ -108,6 +151,48 @@ internal object MapProjection {
         height: Float,
         scale: Float,
     ): GeoPoint = unproject(Offset(width / 2f, height / 2f), center, pan, width, height, scale)
+}
+
+/**
+ * The zoom and pan that put a set of points on screen at once.
+ *
+ * Both spans are inversely proportional to scale, so the scale that just fits
+ * an extent is the extent's share of the span at scale 1 -- which is asked of
+ * [MapProjection] rather than re-derived here, and the pan comes straight out
+ * of its forward transform.
+ */
+internal object MapFit {
+    /** Room for the compass, the panel edge, and the marker rings themselves. */
+    const val MARGIN_PX = 90f
+
+    fun solve(
+        points: List<GeoPoint>,
+        center: GeoPoint,
+        width: Float,
+        height: Float,
+        marginPx: Float = MARGIN_PX,
+    ): Pair<Float, Offset>? {
+        if (points.isEmpty() || width <= 0f || height <= 0f) return null
+        val minLat = points.minOf { it.lat }
+        val maxLat = points.maxOf { it.lat }
+        val minLon = points.minOf { it.lon }
+        val maxLon = points.maxOf { it.lon }
+        val usableWidth = (width - 2 * marginPx).coerceAtLeast(1f)
+        val usableHeight = (height - 2 * marginPx).coerceAtLeast(1f)
+        // A single point has no extent to fit, so only the centring applies and
+        // the caller's zoom is left where it is.
+        val byLat = fitScale(MapProjection.spanLat(1f), maxLat - minLat, usableHeight / height)
+        val byLon = fitScale(
+            MapProjection.spanLon(center.lat, 1f, width, height), maxLon - minLon, usableWidth / width,
+        )
+        val scale = minOf(byLat, byLon).coerceIn(MapProjection.MIN_SCALE, MapProjection.MAX_SCALE)
+        val middle = GeoPoint((minLat + maxLat) / 2, (minLon + maxLon) / 2)
+        val at = MapProjection.project(middle, center, Offset.Zero, width, height, scale)
+        return scale to Offset(width / 2f - at.x, height / 2f - at.y)
+    }
+
+    private fun fitScale(spanAtOne: Double, extent: Double, usableFraction: Float): Float =
+        if (extent <= 0.0) MapProjection.MAX_SCALE else (spanAtOne * usableFraction / extent).toFloat()
 }
 
 /**
@@ -134,6 +219,10 @@ internal object MapDetail {
 
     private val MAJOR = setOf("motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link")
     private val THROUGH = MAJOR + setOf("tertiary", "water", "park", "rail")
+
+    /** Coarse-zoom jurisdiction lines: state lines survive further out. */
+    const val COUNTY_LINES_BELOW = 1.0f
+    const val STATE_LINES_BELOW = 1.6f
 
     /** Points worth drawing before the rest: they are destinations. */
     private val ALWAYS_POINTS = setOf("trailhead", "trail_end")
@@ -163,7 +252,7 @@ internal object MapDetail {
      * a lottery -- a lake could land on a highway.
      */
     fun layer(kind: String): Int = when {
-        kind == "admin_county" -> 0
+        kind == "admin_county" || kind == "admin_state" -> 0
         kind == "water_area" || kind == "park" -> 0
         kind == "building_area" -> 1
         kind == "water" -> 2
@@ -178,7 +267,10 @@ internal object MapDetail {
     fun draws(kind: String, isPoint: Boolean, scale: Float): Boolean = when {
         // County lines are the coarse-zoom answer to "where am I", and clutter
         // once the streets are back.
-        kind == "admin_county" -> scale < AdminBoundaries.COUNTY_LINES_BELOW
+        // Jurisdiction lines answer "where am I" when the streets are gone,
+        // and clutter once they are back.
+        kind == "admin_county" -> scale < COUNTY_LINES_BELOW
+        kind == "admin_state" -> scale < STATE_LINES_BELOW
         isPoint && kind in ALWAYS_POINTS -> true
         isPoint -> scale >= POINTS_ABOVE
         // A town's footprints are thousands of little rings: worth it close
@@ -206,15 +298,33 @@ fun OfflineMap(
     onTap: (GeoPoint) -> Unit = {},
     onViewportChange: (GeoPoint) -> Unit = {},
     recenterKey: Int = 0,
+    /** Drawn over [route] instead of one flat line when the caller can split it. */
+    routeParts: List<Pair<List<GeoPoint>, Color>> = emptyList(),
+    fitPoints: List<GeoPoint> = emptyList(),
+    fitKey: Int = 0,
 ) {
     // Keyed on recenterKey, not center: center changes with every GPS fix, and
     // resetting the pan on each one yanked the map back mid-gesture.
     var scale by remember(recenterKey) { mutableFloatStateOf(1f) }
     var pan by remember(recenterKey) { mutableStateOf(Offset.Zero) }
+    // The fit needs the canvas size, which only the draw scope knows, so it is
+    // captured on layout and the fit waits for it.
+    var canvas by remember { mutableStateOf(Size.Zero) }
+
+    LaunchedEffect(fitKey, canvas) {
+        if (fitKey == 0 || canvas == Size.Zero) return@LaunchedEffect
+        val (fitScale, fitPan) = MapFit.solve(fitPoints, center, canvas.width, canvas.height) ?: return@LaunchedEffect
+        scale = fitScale
+        pan = fitPan
+        // A fit usually lands away from `center`, and without this the map
+        // shows the route over paper: nothing reloads the PTiles data there.
+        onViewportChange(MapProjection.viewportCenter(center, pan, canvas.width, canvas.height, scale))
+    }
 
     Canvas(
         modifier
             .fillMaxSize()
+            .onSizeChanged { canvas = Size(it.width.toFloat(), it.height.toFloat()) }
             // Canvas does not clip: the trace and roads drew straight over the
             // panel below a weighted map, which read as the map leaking.
             .clipToBounds()
@@ -230,7 +340,7 @@ fun OfflineMap(
             }
             .pointerInput(center, recenterKey) {
                 detectTransformGestures { _, panChange, zoomChange, _ ->
-                    scale = (scale * zoomChange).coerceIn(0.6f, 18f)
+                    scale = (scale * zoomChange).coerceIn(MapProjection.MIN_SCALE, MapProjection.MAX_SCALE)
                     pan += panChange
                     onViewportChange(
                         MapProjection.viewportCenter(
@@ -312,8 +422,9 @@ fun OfflineMap(
                 }
                 return@forEach
             }
-            if (feature.kind == "admin_county") {
-                line(feature.points, AdminLine, 2f)
+            if (feature.kind == "admin_county" || feature.kind == "admin_state") {
+                val state = feature.kind == "admin_state"
+                line(feature.points, if (state) AdminStateLine else AdminLine, if (state) 3.5f else 1.8f)
                 return@forEach
             }
             val isTrail = feature.kind.startsWith("trail") || feature.kind in setOf("path", "footway", "track", "steps")
@@ -336,13 +447,15 @@ fun OfflineMap(
             drawLabels(visible.filter { it.kind.startsWith("business") }, ::project, Business, 26f)
         }
         line(trace, Track, 7f)
-        line(route, Route, 10f)
-        line(route, Lime, 4f)
+        // Casing under every part, so a split route still reads as one line.
+        line(route, Route, 16f)
+        if (routeParts.isEmpty()) line(route, RouteDrive, 9f)
+        else routeParts.forEach { (points, color) -> line(points, color, 9f) }
 
         destination?.let {
             val p = project(it)
-            drawCircle(Route, 13f, p)
-            drawCircle(Lime, 6f, p)
+            drawCircle(Route, 14f, p)
+            drawCircle(Lime, 7f, p)
         }
         current?.let {
             val p = project(it)
@@ -350,6 +463,37 @@ fun OfflineMap(
             drawCircle(Color(0xFF2477D4), 8f, p)
         }
         drawCompass()
+    }
+}
+
+/**
+ * The two map buttons, shared by Drive and Trail because a control that moves
+ * between the modes is a control users stop trusting.
+ *
+ * Recenter only appears once the map has been moved off the live position;
+ * Show all only once there is more than one thing to frame.
+ */
+@Composable
+internal fun BoxScope.MapControls(canFit: Boolean, panned: Boolean, onFit: () -> Unit, onRecenter: () -> Unit) {
+    if (!canFit && !panned) return
+    Row(
+        Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 96.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (canFit) {
+            FilledTonalButton(onClick = onFit, shape = RoundedCornerShape(16.dp)) {
+                Icon(Icons.Rounded.ZoomOutMap, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Show all")
+            }
+        }
+        if (panned) {
+            FilledTonalButton(onClick = onRecenter, shape = RoundedCornerShape(16.dp)) {
+                Icon(Icons.Rounded.MyLocation, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Recenter")
+            }
+        }
     }
 }
 

@@ -69,8 +69,13 @@ pub struct AdminStringTables {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AdminPolygon {
     pub name: String,
-    /// Hardcoded to 4 by the reference decoder (`admin.py:214`).
+    /// 4 = state, 6 = county. The writer stores no level field, so the only
+    /// on-disk signal is the `" County"` suffix `build_admin.py:353` appends to
+    /// every county ring (state names never carry it).
     pub admin_level: u8,
+    /// Index into [`AdminStringTables::state`]. County names repeat across
+    /// states (two "Davidson County"), so this is the only disambiguator.
+    pub state_idx: u8,
     /// `(lon, lat)` degrees.
     pub coords: Vec<[f64; 2]>,
 }
@@ -164,7 +169,7 @@ pub fn decode_polygons(data: &[u8]) -> Result<Vec<AdminPolygon>, DecodeError> {
     let mut p = 4usize;
     let mut polygons = Vec::with_capacity(count.min(1 << 16));
     for _ in 0..count {
-        let _state_idx = read_u8(data, p)?;
+        let state_idx = read_u8(data, p)?;
         p += 1;
         let (name, consumed) = decode_string_u16(data, p)?;
         p += consumed;
@@ -177,9 +182,11 @@ pub fn decode_polygons(data: &[u8]) -> Result<Vec<AdminPolygon>, DecodeError> {
             p += 8;
             coords.push([lon as f64 / 100_000.0, lat as f64 / 100_000.0]);
         }
+        let admin_level = if name.ends_with(" County") { 6 } else { 4 };
         polygons.push(AdminPolygon {
             name,
-            admin_level: 4,
+            admin_level,
+            state_idx,
             coords,
         });
     }
@@ -419,4 +426,21 @@ mod tests {
         assert_eq!(polys[0].admin_level, 4);
         assert_eq!(polys[0].coords[0], [-86.79367, 36.16076]);
     }
+
+    #[test]
+    fn county_suffix_promotes_admin_level_to_6() {
+        let ring = |name: &str| {
+            let mut blob = 1u32.to_le_bytes().to_vec();
+            blob.push(1);
+            blob.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            blob.extend_from_slice(name.as_bytes());
+            blob.extend_from_slice(&1u32.to_le_bytes());
+            blob.extend_from_slice(&0i32.to_le_bytes());
+            blob.extend_from_slice(&0i32.to_le_bytes());
+            decode_polygons(&blob).unwrap().remove(0).admin_level
+        };
+        assert_eq!(ring("Davidson County"), 6);
+        assert_eq!(ring("Tennessee"), 4);
+    }
 }
+

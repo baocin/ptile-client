@@ -40,7 +40,9 @@ use ptiles_core::{
 };
 use ptiles_core::file::FileError;
 use ptiles_core::source::SourceError;
-use ptiles_core::{AdminFile as CoreAdminFile, AdminInfo as CoreAdminInfo};
+use ptiles_core::{
+    AdminFile as CoreAdminFile, AdminInfo as CoreAdminInfo, AdminPolygon as CoreAdminPolygon,
+};
 use ptiles_core::{AddressFile as CoreAddressFile, AddressRecord as CoreAddressRecord};
 
 pub mod motion;
@@ -231,6 +233,59 @@ impl From<CoreAdminInfo> for AdminInfo {
             zip: a.zip,
             timezone: a.timezone,
             boundary_flags: a.boundary_flags,
+        }
+    }
+}
+
+/// Does a ring's extent overlap the query box? Extent overlap rather than
+/// vertex containment, because a ring can enclose the whole viewport without
+/// putting a single vertex inside it. `coords` are `(lon, lat)`.
+fn ring_overlaps_bbox(
+    coords: &[[f64; 2]],
+    min_lat: f64,
+    min_lon: f64,
+    max_lat: f64,
+    max_lon: f64,
+) -> bool {
+    let (mut lo_lat, mut lo_lon) = (f64::MAX, f64::MAX);
+    let (mut hi_lat, mut hi_lon) = (f64::MIN, f64::MIN);
+    for c in coords {
+        lo_lon = lo_lon.min(c[0]);
+        hi_lon = hi_lon.max(c[0]);
+        lo_lat = lo_lat.min(c[1]);
+        hi_lat = hi_lat.max(c[1]);
+    }
+    lo_lat <= max_lat && hi_lat >= min_lat && lo_lon <= max_lon && hi_lon >= min_lon
+}
+
+/// One closed boundary ring from the admin layer, for drawing state/county
+/// lines. Multi-part jurisdictions (islands, exclaves) arrive as several rings
+/// sharing a `name` — the writer flattens MultiPolygons.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AdminPolygon {
+    pub name: String,
+    /// 4 = state, 6 = county.
+    pub admin_level: u8,
+    /// Containing state, resolved from the string table. County names repeat
+    /// across states, so `name` alone does not identify a county.
+    pub state: String,
+    pub geometry: Vec<LatLon>,
+}
+
+impl AdminPolygon {
+    fn from_core(p: CoreAdminPolygon, states: &[String]) -> Self {
+        AdminPolygon {
+            name: p.name,
+            admin_level: p.admin_level,
+            state: states.get(p.state_idx as usize).cloned().unwrap_or_default(),
+            geometry: p
+                .coords
+                .into_iter()
+                .map(|c| LatLon {
+                    lat: c[1],
+                    lon: c[0],
+                })
+                .collect(),
         }
     }
 }
@@ -1915,6 +1970,29 @@ impl AdminLayer {
     pub fn admin_at(&self, lat: f64, lon: f64) -> Option<AdminInfo> {
         self.file.admin_at(lat, lon).map(AdminInfo::from)
     }
+
+    /// State and county boundary rings whose extent overlaps the given box.
+    ///
+    /// The bbox is not a convenience — the full table is ~6.2K rings / 611K
+    /// vertices, and handing all of it across the FFI boundary costs megabytes
+    /// per call. Pass `-90/-180/90/180` to opt into the whole country anyway.
+    pub fn polygons_in(
+        &self,
+        min_lat: f64,
+        min_lon: f64,
+        max_lat: f64,
+        max_lon: f64,
+    ) -> Result<Vec<AdminPolygon>, PtilesError> {
+        let all = self.file.polygons().map_err(|e| PtilesError::Decode {
+            message: e.to_string(),
+        })?;
+        let states = &self.file.lookup().tables.state;
+        Ok(all
+            .into_iter()
+            .filter(|p| ring_overlaps_bbox(&p.coords, min_lat, min_lon, max_lat, max_lon))
+            .map(|p| AdminPolygon::from_core(p, states))
+            .collect())
+    }
 }
 
 // --- AddressLayer: reverse/forward address lookup ---------------------------
@@ -2477,6 +2555,16 @@ impl Navigator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ring_enclosing_the_viewport_is_kept() {
+        // Big square ring, viewport wholly inside it: no vertex is in the box,
+        // but the boundary still has to be drawn.
+        let ring = [[-10.0, -10.0], [10.0, -10.0], [10.0, 10.0], [-10.0, 10.0]];
+        assert!(ring_overlaps_bbox(&ring, -1.0, -1.0, 1.0, 1.0));
+        assert!(ring_overlaps_bbox(&ring, 9.0, 9.0, 20.0, 20.0)); // corner overlap
+        assert!(!ring_overlaps_bbox(&ring, 11.0, 11.0, 20.0, 20.0)); // disjoint
+    }
 
     #[test]
     fn source_errors_keep_transport_semantics_across_ffi() {

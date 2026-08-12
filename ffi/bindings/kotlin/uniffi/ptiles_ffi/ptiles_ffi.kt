@@ -866,6 +866,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -926,6 +928,8 @@ fun uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at(
 fun uniffi_ptiles_ffi_checksum_method_addresslayer_find_address(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_adminlayer_polygons_in(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_navigator_turns(
 ): Short
@@ -1111,6 +1115,8 @@ fun uniffi_ptiles_ffi_fn_free_adminlayer(`ptr`: Pointer,uniffi_out_err: UniffiRu
 fun uniffi_ptiles_ffi_fn_constructor_adminlayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_ptiles_ffi_fn_method_adminlayer_admin_at(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_adminlayer_polygons_in(`ptr`: Pointer,`minLat`: Double,`minLon`: Double,`maxLat`: Double,`maxLon`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_clone_navigator(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
@@ -1431,6 +1437,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at() != 29916.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_adminlayer_polygons_in() != 54740.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_navigator_turns() != 35688.toShort()) {
@@ -2723,6 +2732,15 @@ public interface AdminLayerInterface {
      */
     fun `adminAt`(`lat`: kotlin.Double, `lon`: kotlin.Double): AdminInfo?
     
+    /**
+     * State and county boundary rings whose extent overlaps the given box.
+     *
+     * The bbox is not a convenience — the full table is ~6.2K rings / 611K
+     * vertices, and handing all of it across the FFI boundary costs megabytes
+     * per call. Pass `-90/-180/90/180` to opt into the whole country anyway.
+     */
+    fun `polygonsIn`(`minLat`: kotlin.Double, `minLon`: kotlin.Double, `maxLat`: kotlin.Double, `maxLon`: kotlin.Double): List<AdminPolygon>
+    
     companion object
 }
 
@@ -2822,6 +2840,26 @@ open class AdminLayer: Disposable, AutoCloseable, AdminLayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adminlayer_admin_at(
         it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * State and county boundary rings whose extent overlaps the given box.
+     *
+     * The bbox is not a convenience — the full table is ~6.2K rings / 611K
+     * vertices, and handing all of it across the FFI boundary costs megabytes
+     * per call. Pass `-90/-180/90/180` to opt into the whole country anyway.
+     */
+    @Throws(PtilesException::class)override fun `polygonsIn`(`minLat`: kotlin.Double, `minLon`: kotlin.Double, `maxLat`: kotlin.Double, `maxLon`: kotlin.Double): List<AdminPolygon> {
+            return FfiConverterSequenceTypeAdminPolygon.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_adminlayer_polygons_in(
+        it, FfiConverterDouble.lower(`minLat`),FfiConverterDouble.lower(`minLon`),FfiConverterDouble.lower(`maxLat`),FfiConverterDouble.lower(`maxLon`),_status)
 }
     }
     )
@@ -5178,6 +5216,58 @@ public object FfiConverterTypeAdminInfo: FfiConverterRustBuffer<AdminInfo> {
             FfiConverterString.write(value.`zip`, buf)
             FfiConverterString.write(value.`timezone`, buf)
             FfiConverterUByte.write(value.`boundaryFlags`, buf)
+    }
+}
+
+
+
+/**
+ * One closed boundary ring from the admin layer, for drawing state/county
+ * lines. Multi-part jurisdictions (islands, exclaves) arrive as several rings
+ * sharing a `name` — the writer flattens MultiPolygons.
+ */
+data class AdminPolygon (
+    var `name`: kotlin.String, 
+    /**
+     * 4 = state, 6 = county.
+     */
+    var `adminLevel`: kotlin.UByte, 
+    /**
+     * Containing state, resolved from the string table. County names repeat
+     * across states, so `name` alone does not identify a county.
+     */
+    var `state`: kotlin.String, 
+    var `geometry`: List<LatLon>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAdminPolygon: FfiConverterRustBuffer<AdminPolygon> {
+    override fun read(buf: ByteBuffer): AdminPolygon {
+        return AdminPolygon(
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeLatLon.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AdminPolygon) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterUByte.allocationSize(value.`adminLevel`) +
+            FfiConverterString.allocationSize(value.`state`) +
+            FfiConverterSequenceTypeLatLon.allocationSize(value.`geometry`)
+    )
+
+    override fun write(value: AdminPolygon, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterUByte.write(value.`adminLevel`, buf)
+            FfiConverterString.write(value.`state`, buf)
+            FfiConverterSequenceTypeLatLon.write(value.`geometry`, buf)
     }
 }
 
@@ -8524,6 +8614,34 @@ public object FfiConverterSequenceTypeAddressRecord: FfiConverterRustBuffer<List
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeAddressRecord.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeAdminPolygon: FfiConverterRustBuffer<List<AdminPolygon>> {
+    override fun read(buf: ByteBuffer): List<AdminPolygon> {
+        val len = buf.getInt()
+        return List<AdminPolygon>(len) {
+            FfiConverterTypeAdminPolygon.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AdminPolygon>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAdminPolygon.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AdminPolygon>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAdminPolygon.write(it, buf)
         }
     }
 }

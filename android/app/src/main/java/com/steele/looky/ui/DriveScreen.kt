@@ -18,14 +18,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -96,6 +94,7 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     var panned by remember { mutableStateOf(false) }
     var panelOpen by remember { mutableStateOf(true) }
     var recenterKey by remember { mutableIntStateOf(0) }
+    var fitKey by remember { mutableIntStateOf(0) }
     // A drive is the session, not the mode. Background recording also runs
     // with mode DRIVE, and testing that instead hid this whole panel whenever
     // the always-on log was going -- which is always.
@@ -169,6 +168,10 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
         }
     }
 
+    // What "show all" has to frame: the planned line, every stop on it, and
+    // where the driver is now.
+    val fitPoints = plannedPath + stops.map { it.point } + listOfNotNull(current)
+
     Box(Modifier.fillMaxSize()) {
         OfflineMap(
             center = anchor,
@@ -188,6 +191,8 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                 }
             },
             recenterKey = recenterKey,
+            fitPoints = fitPoints,
+            fitKey = fitKey,
         )
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .96f))) {
@@ -309,17 +314,12 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                 }
             }
         }
-        if (panned) {
-            FilledTonalButton(
-                onClick = { panned = false; dataCenter = anchor; recenterKey++ },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 96.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Icon(Icons.Rounded.MyLocation, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Recenter")
-            }
-        }
+        MapControls(
+            canFit = fitPoints.size > 1,
+            panned = panned,
+            onFit = { fitKey++ },
+            onRecenter = { panned = false; dataCenter = anchor; recenterKey++ },
+        )
         LiveMetrics(imperial, Modifier.align(Alignment.BottomCenter))
     }
 }

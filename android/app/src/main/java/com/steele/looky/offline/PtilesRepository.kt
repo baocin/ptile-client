@@ -113,12 +113,18 @@ class PtilesRepository(context: Context) {
         developer: Boolean = false,
         places: Boolean = false,
         spread: Int = DEFAULT_SPREAD,
+        skipMinorRoads: Boolean = false,
     ): List<MapFeature> {
         val out = mutableListOf<MapFeature>()
         val centers = sampleCenters(lat, lon, spread)
         centers.forEach { c ->
             runCatching {
                 layer("roads", c.lat, c.lon)?.roads(c.lat, c.lon, RING)?.forEach { road ->
+                    // Pavement and parking aisles are 82.5% of the segments a
+                    // city cell decodes, and at a zoom that hides them every
+                    // one of those objects is allocated, marshalled across the
+                    // FFI, deduped, ranked, and then thrown away.
+                    if (skipMinorRoads && road.roadClass in MINOR_ROAD_CLASSES) return@forEach
                     out += MapFeature(
                         road.geometry.map { GeoPoint(it.lat, it.lon) },
                         road.roadClass,
@@ -206,11 +212,12 @@ class PtilesRepository(context: Context) {
                 }
             }
         }
-        // County lines ride along with everything else; the renderer decides
-        // whether this zoom wants them.
+        // State and county lines from the admin pack itself. It carries 6,245
+        // rings; the bbox is load-bearing, since the whole table is 611k
+        // vertices and every one of them would cross the FFI.
         runCatching {
-            val reach = 0.35
-            out += AdminBoundaries.linesWithin(appContext, lat - reach, lon - reach, lat + reach, lon + reach)
+            val reach = ADMIN_REACH_DEG
+            out += adminBoundaries(lat - reach, lon - reach, lat + reach, lon + reach)
         }
         return capFeatures(dedupeFeatures(out))
     }
@@ -480,6 +487,39 @@ class PtilesRepository(context: Context) {
         return joinLegs(results)
     }
 
+    /**
+     * Administrative rings overlapping a bounding box, as map features.
+     *
+     * Rings are closed on disk (first vertex repeated), so they are drawn as
+     * polylines rather than filled: an administrative area has no colour, only
+     * an edge.
+     */
+    fun adminBoundaries(
+        minLat: Double,
+        minLon: Double,
+        maxLat: Double,
+        maxLon: Double,
+    ): List<MapFeature> = runCatching {
+        openAdminLayer()
+            ?.polygonsIn(minLat, minLon, maxLat, maxLon)
+            ?.map { polygon ->
+                MapFeature(
+                    polygon.geometry.map { GeoPoint(it.lat, it.lon) },
+                    if (polygon.adminLevel <= 4u) "admin_state" else "admin_county",
+                    polygon.name,
+                )
+            }
+            .orEmpty()
+    }.getOrDefault(emptyList())
+
+    private fun openAdminLayer(): AdminLayer? {
+        adminLayer?.let { return it }
+        return manager.packsDir.listFiles().orEmpty()
+            .firstOrNull { it.isFile && it.name == "US.admin.ptiles" }
+            ?.let { runCatching { AdminLayer.open(it.absolutePath) }.getOrNull() }
+            ?.also { adminLayer = it }
+    }
+
     fun installedLayers(): List<File> = manager.packs().flatMap { it.layers }
 
     /** True when a real installed roads pack covers the current coordinate. */
@@ -494,11 +534,7 @@ class PtilesRepository(context: Context) {
      * box centre.
      */
     fun currentStateCode(lat: Double, lon: Double): String? {
-        val admin = adminLayer ?: manager.packsDir.listFiles().orEmpty()
-            .firstOrNull { it.isFile && it.name == "US.admin.ptiles" }
-            ?.let { runCatching { AdminLayer.open(it.absolutePath) }.getOrNull() }
-            ?.also { adminLayer = it }
-        val resolved = admin
+        val resolved = openAdminLayer()
             ?.let { runCatching { it.adminAt(lat, lon)?.state }.getOrNull() }
             ?.let(StateResolver::codeForName)
             ?: StateBoundaries.stateAt(appContext, lat, lon)
@@ -574,6 +610,14 @@ class PtilesRepository(context: Context) {
         /** Similarity points the full falloff distance costs a hit. */
         internal const val DISTANCE_WEIGHT = 0.45
 
+        /**
+         * How far around the viewport administrative rings are fetched.
+         *
+         * Wide enough that a line already on screen survives a pan, narrow
+         * enough that the ring scan stays trivial.
+         */
+        internal const val ADMIN_REACH_DEG = 0.6
+
         /** How far the default nearby list reaches. */
         internal const val NEARBY_RADIUS_M = 2_000.0
 
@@ -597,7 +641,10 @@ class PtilesRepository(context: Context) {
          * per-zoom road-class filtering, worth building when someone complains
          * about a missing side street rather than before.
          */
-        internal const val MAX_DRAWN_FEATURES = 1_500
+        internal const val MAX_DRAWN_FEATURES = 3_000
+
+        /** Road classes not worth carrying when the map will not draw them. */
+        internal val MINOR_ROAD_CLASSES = setOf("footway", "service", "steps", "sidewalk", "path")
 
         /**
          * Draw priority when a viewport exceeds [MAX_DRAWN_FEATURES].
@@ -623,19 +670,57 @@ class PtilesRepository(context: Context) {
         }
 
         /**
-         * Keep the most navigationally useful features when over the cap.
+         * Keep the most useful features when over the cap, without starving a
+         * layer.
          *
-         * Kind first, then vertex count inside a kind, so the arterial grid
-         * survives and the least legible detail goes first.
+         * A single global ranking looked right and was not: a city viewport
+         * decodes thousands of roads, so ranking roads above trails meant a
+         * trail screen in town got zero trails -- the layer was queried,
+         * decoded, and then entirely evicted before it reached the canvas.
+         * Each group now gets a share of the budget and only gives up what it
+         * does not use.
          */
         internal fun capFeatures(
             features: List<MapFeature>,
             max: Int = MAX_DRAWN_FEATURES,
-        ): List<MapFeature> =
-            if (features.size <= max) features
-            else features
-                .sortedWith(compareBy<MapFeature> { featureRank(it.kind) }.thenByDescending { it.points.size })
-                .take(max)
+        ): List<MapFeature> {
+            if (features.size <= max) return features
+            // Indices, not the features themselves: two stretches of the same
+            // street decode to equal values, and a set would collapse them.
+            val ranked = features.indices.sortedWith(
+                compareBy<Int> { featureRank(features[it].kind) }
+                    .thenByDescending { features[it].points.size }
+            )
+            val quota = GROUP_SHARE.mapValues { (_, share) -> (max * share).toInt() }.toMutableMap()
+            val kept = mutableListOf<Int>()
+            val spare = mutableListOf<Int>()
+            ranked.forEach { index ->
+                val group = featureRank(features[index].kind)
+                val left = quota[group] ?: 0
+                if (left > 0) {
+                    quota[group] = left - 1
+                    kept += index
+                } else {
+                    spare += index
+                }
+            }
+            // Unused budget goes back to whoever still had features to draw.
+            val out = kept + spare.take((max - kept.size).coerceAtLeast(0))
+            return out.sorted().map(features::get)
+        }
+
+        /**
+         * How much of the draw budget each rank may claim before the rest is
+         * shared out. Roads dominate because they are what a map is for.
+         */
+        internal val GROUP_SHARE = mapOf(
+            0 to 0.20, // motorways and trunks
+            1 to 0.40, // every other road
+            2 to 0.10, // water
+            3 to 0.15, // trails
+            4 to 0.05, // parks
+            5 to 0.10, // buildings, pins
+        )
 
         /** How close a tap must land to count as hitting a business pin. */
         internal const val BUSINESS_TAP_RADIUS_M = 60.0

@@ -1,5 +1,6 @@
 package com.steele.looky.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,14 +19,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,7 +59,120 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.cos
 import kotlin.math.roundToInt
+
+/**
+ * Which surface each stretch of a trail route runs on.
+ *
+ * The router hands back one path and no per-vertex mode, so the split is not
+ * read off the route -- it is measured against the installed layers: a vertex
+ * is walking when the nearest mapped line to it is a trail, driving when it is
+ * a road, and unmapped when neither is within [MATCH_M]. That last case is real
+ * and gets its own colour rather than being folded into either side; the
+ * decoded features only cover the viewport, so a route running off the loaded
+ * area is honestly unclassified there.
+ *
+ * ponytail: nearest is measured to feature *vertices*, not to the segments
+ * between them, and costs route x feature vertices. OSM geometry is dense
+ * enough for the 40 m threshold; move to point-segment distance and a grid
+ * index if a sparse layer starts mislabelling.
+ */
+internal object RouteModes {
+    enum class Surface { ROAD, TRAIL, UNKNOWN }
+
+    /** How near a mapped line a vertex must fall before that line names it. */
+    const val MATCH_M = 40.0
+
+    private const val M_PER_DEG = 111_320.0
+    private val NOT_A_WAY = setOf("water", "water_area", "park", "admin_county", "building_area")
+
+    fun surfaceOf(feature: MapFeature): Surface? = when {
+        feature.points.size < 2 -> null
+        feature.kind.startsWith("trail") -> Surface.TRAIL
+        feature.kind in NOT_A_WAY || feature.kind.startsWith("rail") -> null
+        else -> Surface.ROAD
+    }
+
+    fun classify(
+        route: List<GeoPoint>,
+        features: List<MapFeature>,
+        matchM: Double = MATCH_M,
+    ): List<Pair<Surface, List<GeoPoint>>> {
+        if (route.size < 2) return emptyList()
+        val roads = features.filter { surfaceOf(it) == Surface.ROAD }.flatMap { it.points }
+        val trails = features.filter { surfaceOf(it) == Surface.TRAIL }.flatMap { it.points }
+        if (roads.isEmpty() && trails.isEmpty()) return emptyList()
+        // Degrees of longitude shrink away from the equator; one cosine for the
+        // whole route is plenty over the tens of metres being compared.
+        val kx = cos(Math.toRadians(route.first().lat))
+        val limit = (matchM / M_PER_DEG).let { it * it }
+        val labels = route.map { point ->
+            val road = nearestSq(point, roads, kx)
+            val trail = nearestSq(point, trails, kx)
+            when {
+                minOf(road, trail) > limit -> Surface.UNKNOWN
+                trail < road -> Surface.TRAIL
+                else -> Surface.ROAD
+            }
+        }
+        return runs(route, labels)
+    }
+
+    private fun nearestSq(point: GeoPoint, candidates: List<GeoPoint>, kx: Double): Double {
+        var best = Double.MAX_VALUE
+        candidates.forEach {
+            val dy = it.lat - point.lat
+            val dx = (it.lon - point.lon) * kx
+            val d = dy * dy + dx * dx
+            if (d < best) best = d
+        }
+        return best
+    }
+
+    /** Consecutive vertices of one surface, sharing the joint so no gap shows. */
+    private fun runs(route: List<GeoPoint>, labels: List<Surface>): List<Pair<Surface, List<GeoPoint>>> {
+        val out = mutableListOf<Pair<Surface, List<GeoPoint>>>()
+        var start = 0
+        for (i in 1..route.lastIndex) {
+            if (labels[i] != labels[start]) {
+                out += labels[start] to route.subList(start, i + 1)
+                start = i
+            }
+        }
+        out += labels[start] to route.subList(start, route.size)
+        return out.filter { it.second.size > 1 }
+    }
+}
+
+internal fun surfaceColor(surface: RouteModes.Surface): Color = when (surface) {
+    RouteModes.Surface.ROAD -> RouteDrive
+    RouteModes.Surface.TRAIL -> RouteWalk
+    RouteModes.Surface.UNKNOWN -> RouteUnclassified
+}
+
+internal fun surfaceLabel(surface: RouteModes.Surface): String = when (surface) {
+    RouteModes.Surface.ROAD -> "Drive"
+    RouteModes.Surface.TRAIL -> "Walk"
+    RouteModes.Surface.UNKNOWN -> "Unmapped"
+}
+
+/** Names the colours on the line, in the order they are walked. */
+@Composable
+private fun SurfaceLegend(parts: List<Pair<RouteModes.Surface, List<GeoPoint>>>) {
+    val present = parts.map { it.first }.distinct()
+    if (present.isEmpty()) return
+    Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .94f))) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            present.forEach { surface ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.size(width = 18.dp, height = 5.dp).background(surfaceColor(surface), RoundedCornerShape(3.dp)))
+                    Text(surfaceLabel(surface), style = MaterialTheme.typography.labelMedium, color = Forest)
+                }
+            }
+        }
+    }
+}
 
 /**
  * Trail: find a named trail or trailhead, walk it, keep the breadcrumb.
@@ -90,6 +202,8 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     var panned by remember { mutableStateOf(false) }
     var panelOpen by remember { mutableStateOf(true) }
     var recenterKey by remember { mutableIntStateOf(0) }
+    var fitKey by remember { mutableIntStateOf(0) }
+    var routeParts by remember { mutableStateOf(emptyList<Pair<RouteModes.Surface, List<GeoPoint>>>()) }
     // The trail session, not the trail mode: background recording runs with a
     // mode too, and testing that hid this panel whenever the always-on log was
     // going.
@@ -146,6 +260,16 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
         }
     }
 
+    // Off the main thread: the match is every route vertex against every
+    // decoded road and trail vertex in the viewport.
+    LaunchedEffect(plannedPath, features) {
+        routeParts = withContext(Dispatchers.Default) { RouteModes.classify(plannedPath, features) }
+    }
+
+    // What "show all" has to frame: the planned line, every stop on it, and
+    // where the walker is now.
+    val fitPoints = plannedPath + stops.map { it.point } + listOfNotNull(current)
+
     Box(Modifier.fillMaxSize()) {
         OfflineMap(
             center = anchor,
@@ -165,6 +289,9 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                 }
             },
             recenterKey = recenterKey,
+            routeParts = routeParts.map { (surface, points) -> points to surfaceColor(surface) },
+            fitPoints = fitPoints,
+            fitKey = fitKey,
         )
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .96f))) {
@@ -272,6 +399,7 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                         Text("${(it.durationS / 60).roundToInt().coerceAtLeast(1)} min walk", fontWeight = FontWeight.Bold, color = Forest)
                     }
                 }
+                SurfaceLegend(routeParts)
             }
             routeError?.let {
                 Surface(color = Color(0xFFFFE4DA), shape = RoundedCornerShape(14.dp)) {
@@ -279,17 +407,12 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                 }
             }
         }
-        if (panned) {
-            FilledTonalButton(
-                onClick = { panned = false; dataCenter = anchor; recenterKey++ },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 96.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Icon(Icons.Rounded.MyLocation, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Recenter")
-            }
-        }
+        MapControls(
+            canFit = fitPoints.size > 1,
+            panned = panned,
+            onFit = { fitKey++ },
+            onRecenter = { panned = false; dataCenter = anchor; recenterKey++ },
+        )
         LiveMetrics(imperial, Modifier.align(Alignment.BottomCenter))
     }
 }

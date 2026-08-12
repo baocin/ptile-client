@@ -1,5 +1,8 @@
 package com.steele.looky.ui
 
+import androidx.compose.ui.geometry.Offset
+import com.steele.looky.model.GeoPoint
+import com.steele.looky.model.MapFeature
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -102,10 +105,113 @@ class MapDetailAndTraceTest {
         assertTrue(MapDetail.draws("trail:path", isPoint = false, scale = 1.0f))
     }
 
+    private val center = GeoPoint(35.6145, -88.8139)
+    private val canvasWidth = 1080f
+    private val canvasHeight = 1920f
+
+    private fun fitProject(point: GeoPoint, fit: Pair<Float, Offset>) =
+        MapProjection.project(point, center, fit.second, canvasWidth, canvasHeight, fit.first)
+
+    @Test fun aFitPutsEveryPointOnScreen() {
+        // A corridor wider than the opening view, well off the projection anchor.
+        val corner = GeoPoint(35.90, -88.50)
+        val points = listOf(GeoPoint(35.55, -88.95), center, corner)
+
+        val fit = MapFit.solve(points, center, canvasWidth, canvasHeight)!!
+
+        points.forEach {
+            val at = fitProject(it, fit)
+            assertTrue("$it landed at $at", at.x in 0f..canvasWidth && at.y in 0f..canvasHeight)
+        }
+    }
+
+    @Test fun aFitLeavesAMarginRatherThanTouchingTheEdge() {
+        val points = listOf(GeoPoint(35.55, -88.95), GeoPoint(35.90, -88.50))
+
+        val fit = MapFit.solve(points, center, canvasWidth, canvasHeight, marginPx = 120f)
+
+        points.forEach {
+            val at = fitProject(it, fit!!)
+            assertTrue(at.x >= 100f && at.x <= canvasWidth - 100f)
+            assertTrue(at.y >= 100f && at.y <= canvasHeight - 100f)
+        }
+    }
+
+    @Test fun aFitCentresASinglePointWithoutSolvingAZoom() {
+        val only = GeoPoint(35.70, -88.70)
+
+        val fit = MapFit.solve(listOf(only), center, canvasWidth, canvasHeight)!!
+
+        assertEquals(MapProjection.MAX_SCALE, fit.first, 0f)
+        val at = fitProject(only, fit)
+        assertEquals(canvasWidth / 2f, at.x, 0.5f)
+        assertEquals(canvasHeight / 2f, at.y, 0.5f)
+    }
+
+    @Test fun thereIsNothingToFitWithoutPointsOrACanvas() {
+        assertNull(MapFit.solve(emptyList(), center, canvasWidth, canvasHeight))
+        assertNull(MapFit.solve(listOf(center), center, 0f, 0f))
+    }
+
+    private val roadLine = MapFeature(
+        (0..10).map { GeoPoint(35.6000, -88.8000 + it * 0.001) }, "residential", "Main St",
+    )
+    private val trailLine = MapFeature(
+        (0..10).map { GeoPoint(35.6100, -88.8000 + it * 0.001) }, "trail:path", "Ridge Trail",
+    )
+
+    @Test fun aRouteIsSplitWhereItLeavesTheRoadForTheTrail() {
+        // Drive east along the road, then walk the trail one hundred metres north.
+        val route = (0..5).map { GeoPoint(35.6000, -88.8000 + it * 0.001) } +
+            (5..10).map { GeoPoint(35.6100, -88.8000 + it * 0.001) }
+
+        val parts = RouteModes.classify(route, listOf(roadLine, trailLine))
+
+        assertEquals(listOf(RouteModes.Surface.ROAD, RouteModes.Surface.TRAIL), parts.map { it.first })
+        // The joint vertex belongs to both parts, so the drawn line has no gap.
+        assertEquals(parts[0].second.last(), parts[1].second.first())
+    }
+
+    @Test fun aStretchNearNoMappedWayIsNotGuessedAt() {
+        val route = (0..4).map { GeoPoint(35.6000, -88.8000 + it * 0.001) } +
+            (0..4).map { GeoPoint(35.7000 + it * 0.001, -88.8000) }
+
+        val parts = RouteModes.classify(route, listOf(roadLine, trailLine))
+
+        assertEquals(listOf(RouteModes.Surface.ROAD, RouteModes.Surface.UNKNOWN), parts.map { it.first })
+    }
+
+    @Test fun withNoDecodedWaysThereIsNothingToSplitOn() {
+        val route = (0..5).map { GeoPoint(35.6000, -88.8000 + it * 0.001) }
+
+        assertTrue(RouteModes.classify(route, emptyList()).isEmpty())
+        assertTrue(RouteModes.classify(route, listOf(MapFeature(roadLine.points, "water"))).isEmpty())
+    }
+
+    @Test fun onlyLinesThatCanBeTravelledAreMatchedAgainst() {
+        assertEquals(RouteModes.Surface.ROAD, RouteModes.surfaceOf(roadLine))
+        assertEquals(RouteModes.Surface.TRAIL, RouteModes.surfaceOf(trailLine))
+        assertNull(RouteModes.surfaceOf(MapFeature(roadLine.points, "water_area")))
+        assertNull(RouteModes.surfaceOf(MapFeature(listOf(center), "trailhead")))
+    }
+
     @Test fun theGroundIsPaintedBeforeWhatSitsOnIt() {
         assertTrue(MapDetail.layer("water_area") < MapDetail.layer("residential"))
         assertTrue(MapDetail.layer("building_area") < MapDetail.layer("motorway"))
         assertTrue(MapDetail.layer("residential") < MapDetail.layer("motorway"))
         assertTrue(MapDetail.layer("motorway") < MapDetail.layer("business:5"))
+    }
+
+    @Test fun jurisdictionLinesShowWhenTheStreetsAreGone() {
+        // County lines go first as you zoom in, state lines linger.
+        assertTrue(MapDetail.draws("admin_county", isPoint = false, scale = 0.7f))
+        assertTrue(MapDetail.draws("admin_state", isPoint = false, scale = 1.2f))
+        assertFalse(MapDetail.draws("admin_county", isPoint = false, scale = 1.2f))
+        assertFalse(MapDetail.draws("admin_state", isPoint = false, scale = 2.0f))
+    }
+
+    @Test fun jurisdictionLinesArePaintedUnderEverything() {
+        assertTrue(MapDetail.layer("admin_state") <= MapDetail.layer("water_area"))
+        assertTrue(MapDetail.layer("admin_county") < MapDetail.layer("motorway"))
     }
 }
