@@ -214,4 +214,19 @@ class MapDetailAndTraceTest {
         assertTrue(MapDetail.layer("admin_state") <= MapDetail.layer("water_area"))
         assertTrue(MapDetail.layer("admin_county") < MapDetail.layer("motorway"))
     }
+
+    @Test fun theFetchWidensAsTheViewGrows() {
+        // Zoomed in, five sample centres decoded twenty-two cells to draw three.
+        assertEquals(0, MapDetail.fetchSpread(4f))
+        assertEquals(1, MapDetail.fetchSpread(1f))
+        // Zoomed out far enough to frame a route, one net width leaves blank paper.
+        assertTrue(MapDetail.fetchSpread(0.3f) >= 2)
+        assertTrue(MapDetail.fetchSpread(MapProjection.MIN_SCALE) >= 2)
+    }
+
+    @Test fun pavementIsSkippedExactlyWhereItIsNotDrawn() {
+        assertTrue(MapDetail.skipsMinorRoads(0.5f))
+        assertFalse(MapDetail.draws("footway", isPoint = false, scale = 0.5f))
+        assertFalse(MapDetail.skipsMinorRoads(1.5f))
+    }
 }

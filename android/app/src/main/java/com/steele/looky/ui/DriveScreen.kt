@@ -92,6 +92,9 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     var navState by remember { mutableStateOf<NavStateInfo?>(null) }
     var dataCenter by remember { mutableStateOf(anchor) }
     var panned by remember { mutableStateOf(false) }
+    // The zoom the map is showing, so the fetch can match it: one net width
+    // cannot serve a street corner and a hundred kilometres of it.
+    var mapScale by remember { mutableStateOf(1f) }
     var panelOpen by remember { mutableStateOf(true) }
     var recenterKey by remember { mutableIntStateOf(0) }
     var fitKey by remember { mutableIntStateOf(0) }
@@ -103,11 +106,19 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
 
     LaunchedEffect(anchor.lat, anchor.lon) { if (!panned) dataCenter = anchor }
 
-    LaunchedEffect(dataCenter.lat, dataCenter.lon) {
+    val fetchSpread = MapDetail.fetchSpread(mapScale)
+    val skipMinorRoads = MapDetail.skipsMinorRoads(mapScale)
+    LaunchedEffect(dataCenter.lat, dataCenter.lon, fetchSpread, skipMinorRoads) {
         delay(VIEWPORT_DEBOUNCE_MS)
         features = withContext(Dispatchers.IO) {
-            repo.featuresAround(dataCenter.lat, dataCenter.lon, trails = true, places = true)
-                .filter { it.kind != "building" }
+            repo.featuresAround(
+                dataCenter.lat,
+                dataCenter.lon,
+                trails = true,
+                places = true,
+                spread = fetchSpread,
+                skipMinorRoads = skipMinorRoads,
+            ).filter { it.kind != "building" }
         }
     }
 
@@ -182,7 +193,8 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
             trace = live.recentPoints,
             // A tap on the map means "let me look at the map".
             onTap = { panelOpen = !panelOpen },
-            onViewportChange = { viewport ->
+            onViewportChange = { viewport, scale ->
+                mapScale = scale
                 // Reload sooner while panning: waiting for a 400 m move meant
                 // the map ran off the edge of its data before fetching more.
                 if (GpxReader.distanceM(dataCenter, viewport) > VIEWPORT_RELOAD_M) {

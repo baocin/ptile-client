@@ -265,4 +265,20 @@ class RouteAndSearchTest {
         assertEquals("US.admin.ptiles", PtilesRepository.newestAdminPack(files)?.name)
         assertEquals(null, PtilesRepository.newestAdminPack(listOf(java.io.File("/packs/TN.roads_v2.ptiles"))))
     }
+
+    @Test fun aWideFetchCoversTheCornersAndNotJustACross() {
+        // A plus leaves the diagonals empty past one step, which drew a cross
+        // of streets with blank corners on a zoomed-out map.
+        val plus = PtilesRepository.sampleCenters(35.0, -88.0, 1)
+        val grid = PtilesRepository.sampleCenters(35.0, -88.0, 2)
+
+        assertEquals(5, plus.size)
+        assertEquals(25, grid.size)
+        val corner = grid.any { it.lat > 35.0 && it.lon > -88.0 && it.lat != 35.0 && it.lon != -88.0 }
+        assertTrue("a wide fetch must reach the diagonals", corner)
+    }
+
+    @Test fun oneCentreIsStillOneCentre() {
+        assertEquals(1, PtilesRepository.sampleCenters(35.0, -88.0, 0).size)
+    }
 }

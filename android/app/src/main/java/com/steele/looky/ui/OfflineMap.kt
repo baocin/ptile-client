@@ -220,6 +220,29 @@ internal object MapDetail {
     private val MAJOR = setOf("motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link")
     private val THROUGH = MAJOR + setOf("tertiary", "water", "park", "rail")
 
+    /**
+     * How wide a net to cast for features at this zoom.
+     *
+     * The viewport grew by a factor of twelve when the zoom floor dropped to
+     * frame a whole route, and the fetch did not: five sample centres cover
+     * about 8 km, so everything beyond that was blank paper. Zoomed in the
+     * opposite is true -- the old five centres decoded twenty-two cells to
+     * draw three.
+     */
+    fun fetchSpread(scale: Float): Int = when {
+        scale >= 2.0f -> 0
+        scale >= ARTERIAL_ONLY_BELOW -> 1
+        else -> 2
+    }
+
+    /**
+     * True where pavement and parking aisles are not drawn anyway.
+     *
+     * They are 82.5% of the segments a city cell decodes, so skipping them is
+     * what makes the wide fetch above affordable.
+     */
+    fun skipsMinorRoads(scale: Float): Boolean = scale < ARTERIAL_ONLY_BELOW
+
     /** Coarse-zoom jurisdiction lines: state lines survive further out. */
     const val COUNTY_LINES_BELOW = 1.0f
     const val STATE_LINES_BELOW = 1.6f
@@ -296,7 +319,7 @@ fun OfflineMap(
     modifier: Modifier = Modifier,
     onLongPress: (GeoPoint) -> Unit = {},
     onTap: (GeoPoint) -> Unit = {},
-    onViewportChange: (GeoPoint) -> Unit = {},
+    onViewportChange: (GeoPoint, Float) -> Unit = { _, _ -> },
     recenterKey: Int = 0,
     /** Drawn over [route] instead of one flat line when the caller can split it. */
     routeParts: List<Pair<List<GeoPoint>, Color>> = emptyList(),
@@ -318,7 +341,7 @@ fun OfflineMap(
         pan = fitPan
         // A fit usually lands away from `center`, and without this the map
         // shows the route over paper: nothing reloads the PTiles data there.
-        onViewportChange(MapProjection.viewportCenter(center, pan, canvas.width, canvas.height, scale))
+        onViewportChange(MapProjection.viewportCenter(center, pan, canvas.width, canvas.height, scale), scale)
     }
 
     Canvas(
@@ -345,7 +368,8 @@ fun OfflineMap(
                     onViewportChange(
                         MapProjection.viewportCenter(
                             center, pan, size.width.toFloat(), size.height.toFloat(), scale,
-                        )
+                        ),
+                        scale,
                     )
                 }
             }

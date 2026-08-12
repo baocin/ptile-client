@@ -876,12 +876,25 @@ class PtilesRepository(context: Context) {
          */
         internal fun sampleCenters(lat: Double, lon: Double, spread: Int): List<GeoPoint> {
             if (spread <= 0) return listOf(GeoPoint(lat, lon))
-            val out = mutableListOf(GeoPoint(lat, lon))
-            for (step in 1..spread) {
-                out += GeoPoint(lat + step * SAMPLE_STEP_LAT, lon)
-                out += GeoPoint(lat - step * SAMPLE_STEP_LAT, lon)
-                out += GeoPoint(lat, lon + step * SAMPLE_STEP_LON)
-                out += GeoPoint(lat, lon - step * SAMPLE_STEP_LON)
+            // A plus reaches one step out in each direction, and the rings
+            // around its arms close most of the gap to the diagonals. Past one
+            // step they stop touching, so a wide viewport fetched as a plus
+            // draws a cross of streets with empty corners -- which is exactly
+            // what a zoomed-out map looked like.
+            if (spread == 1) {
+                return listOf(
+                    GeoPoint(lat, lon),
+                    GeoPoint(lat + SAMPLE_STEP_LAT, lon),
+                    GeoPoint(lat - SAMPLE_STEP_LAT, lon),
+                    GeoPoint(lat, lon + SAMPLE_STEP_LON),
+                    GeoPoint(lat, lon - SAMPLE_STEP_LON),
+                )
+            }
+            val out = mutableListOf<GeoPoint>()
+            for (y in -spread..spread) {
+                for (x in -spread..spread) {
+                    out += GeoPoint(lat + y * SAMPLE_STEP_LAT, lon + x * SAMPLE_STEP_LON)
+                }
             }
             return out
         }
