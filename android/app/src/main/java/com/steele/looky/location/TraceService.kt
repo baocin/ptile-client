@@ -37,6 +37,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+/** What [TraceService.plan] decided an action means. */
+internal sealed interface SessionPlan {
+    data class Record(val mode: LookyMode, val session: String) : SessionPlan
+    data class Stop(val forgetSetting: Boolean) : SessionPlan
+}
+
 class TraceService : Service() {
     companion object {
         const val ACTION_START = "com.steele.looky.START"
@@ -63,6 +69,29 @@ class TraceService : Service() {
          */
         internal fun staleAfterMs(intervalSeconds: Int): Long =
             (intervalSeconds * 6_000L).coerceIn(60_000L, 300_000L)
+
+        /**
+         * What an incoming action means, with no Android in the way.
+         *
+         * Start/stop cycling between Drive and Trail is the sequence most
+         * likely to go wrong -- a session label that sticks turns the whole
+         * app into a lie about what you are doing -- so the decision is pure
+         * and covered by [SessionCyclingTest].
+         */
+        internal fun plan(action: String?, continuousRecording: Boolean, activeMode: LookyMode): SessionPlan =
+            when (action) {
+                ACTION_STOP -> SessionPlan.Stop(forgetSetting = true)
+                ACTION_DRIVE -> SessionPlan.Record(LookyMode.DRIVE, TraceRecorder.SESSION_DRIVE)
+                ACTION_TRAIL -> SessionPlan.Record(LookyMode.TRAIL, TraceRecorder.SESSION_TRAIL)
+                // Ending a journey is not "stop recording": the always-on log
+                // carries on, and only the Settings switch turns it off.
+                ACTION_END_SESSION ->
+                    if (continuousRecording) SessionPlan.Record(activeMode, TraceRecorder.SESSION_BACKGROUND)
+                    else SessionPlan.Stop(forgetSetting = false)
+                // ACTION_BACKGROUND, and a null action from a sticky restart:
+                // recording resumes, a journey does not.
+                else -> SessionPlan.Record(activeMode, TraceRecorder.SESSION_BACKGROUND)
+            }
 
         fun start(context: Context, mode: LookyMode) {
             val action = if (mode == LookyMode.DRIVE) ACTION_DRIVE else ACTION_TRAIL
@@ -130,39 +159,23 @@ class TraceService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val settings = AppSettings(this)
         val previousSession = session
-        when (intent?.action) {
-            ACTION_APPLY_SETTINGS -> {
-                if (started) {
-                    motion.setAccelerometerRate(settings.accelerometerRateHz)
-                    requestLocationUpdates(settings.gpsIntervalSeconds)
-                }
-                return START_STICKY
+        if (intent?.action == ACTION_APPLY_SETTINGS) {
+            if (started) {
+                motion.setAccelerometerRate(settings.accelerometerRateHz)
+                requestLocationUpdates(settings.gpsIntervalSeconds)
             }
-            ACTION_STOP -> {
-                settings.continuousRecording = false
+            return START_STICKY
+        }
+        when (val plan = plan(intent?.action, settings.continuousRecording, settings.activeMode)) {
+            is SessionPlan.Stop -> {
+                if (plan.forgetSetting) settings.continuousRecording = false
                 stopSelf()
                 return START_NOT_STICKY
             }
-            // Ending a drive is not "stop recording". Before this, the Stop
-            // button cleared continuousRecording, so finishing one drive
-            // silently ended the always-on log until Settings was toggled
-            // back on by hand.
-            ACTION_END_SESSION -> {
-                if (!settings.continuousRecording) {
-                    stopSelf()
-                    return START_NOT_STICKY
-                }
-                mode = settings.activeMode
-                session = TraceRecorder.SESSION_BACKGROUND
+            is SessionPlan.Record -> {
+                mode = plan.mode
+                session = plan.session
             }
-            ACTION_TRAIL -> { mode = LookyMode.TRAIL; session = TraceRecorder.SESSION_TRAIL }
-            ACTION_DRIVE -> { mode = LookyMode.DRIVE; session = TraceRecorder.SESSION_DRIVE }
-            ACTION_BACKGROUND -> { mode = settings.activeMode; session = TraceRecorder.SESSION_BACKGROUND }
-            // A sticky restart resumes recording, not a journey. Persisting the
-            // session meant a drive stopped hours ago came back as a drive on
-            // the next launch -- the app insisting you were driving when you
-            // were sitting still.
-            null -> { mode = settings.activeMode; session = TraceRecorder.SESSION_BACKGROUND }
         }
         // The breadcrumb belongs to the session being recorded, so switching
         // from a drive to a walk starts the trail line empty instead of
