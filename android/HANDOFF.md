@@ -9,7 +9,7 @@ that should not be accidentally hidden by a UI change.
 Looky is an Android-only, offline-first map and movement recorder. Drive and
 Trail are first-class modes. A foreground location service stays visible in a
 persistent notification, holds a partial wake lock while active, refreshes
-movement classification every two seconds, records location and motion in the
+movement classification every second, records location and motion in the
 background, and writes one Rook-compatible GPX day file per local date.
 
 Looky does not use a WebView, Google Maps SDK, or online route service. The map
@@ -56,12 +56,22 @@ operation; storage forecasting and resumable downloads are future work.
 
 ### Drive and Trail
 
-The bottom navigation switches modes. Starting recording updates the active
-mode in settings and the foreground service. Routing uses the current GPS
-point or a map long-press destination. Both endpoints are snapped to the
-nearest installed offline road/trail before the route graph is evaluated.
-Layer selection is state- and coverage-aware; filesystem order never decides
-which state's graph is used.
+Drive and Trail are separate screens, not one screen with a flag. Drive
+searches the business layers and follows turn-by-turn; Trail searches only the
+trails layer and shows a walk summary. Both build a chain of stops -- the last
+one is the destination -- and both record to their own GPX day file, with an
+always-on background log continuing between journeys.
+
+Destinations come from search or from the stop chain; the map's long-press
+handler still exists on `OfflineMap` but no screen passes one. Both endpoints
+are snapped to the nearest installed offline road/trail before the route graph
+is evaluated. Layer selection is state- and coverage-aware; filesystem order
+never decides which state's graph is used.
+
+A leg that fails because its corridor is over the cell cap, or because the
+corridor is connected on paper but not in the data, is split at its midpoint
+and retried -- up to three times. Measured over 45 Tennessee city pairs, that
+takes 14 routable pairs to 38.
 
 If a route reports an empty graph, first verify that a versioned state roads
 layer is installed for the area and that the endpoints are inside its coverage.
@@ -86,9 +96,12 @@ PTiles adaptive motion session. `TraceService` owns the foreground lifecycle,
 location requests, notifications, and GPX append operations.
 
 `OfflineMap` is a deliberately small vector canvas. It renders roads, trails,
-parks, water, building centroids, active routes, and recorded traces. It is not
-a production vector-tile renderer and has no satellite, traffic, labels, or
-3D layer.
+parks, filled water, building footprints, state and county lines from the admin
+pack, business and trailhead pins, road and business labels, active routes, and
+recorded traces. Detail is gated by zoom (`MapDetail`) and the draw budget is
+shared per layer, because a city's roads would otherwise evict every trail. It
+is not a production vector-tile renderer and has no satellite, traffic, or 3D
+layer.
 
 ## GPX and durability expectations
 
@@ -176,10 +189,11 @@ and motion classification use OSM `highway` tags from the roads layer.
 ## Known boundaries
 
 Read [CANNOT_DO_YET.md](CANNOT_DO_YET.md) before promising production behavior.
-The important current limits are bounded routing, no turn-by-turn navigation,
-no traffic/closures, no resumable downloads, no
-wearable heart rate, Android background-execution limits, and no end-to-end
-trace encryption.
+The important current limits are bounded routing, no rerouting once off route,
+no address or coordinate destination entry, no traffic/closures, no resumable
+downloads, no wearable heart rate, Android background-execution limits, and no
+end-to-end trace encryption. Turn-by-turn itself now exists: `Navigator` in
+`ffi/src/lib.rs` wraps `core::nav`, and the drive screen follows it.
 
 ## Handoff checklist
 
