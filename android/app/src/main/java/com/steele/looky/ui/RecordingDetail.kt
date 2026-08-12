@@ -159,14 +159,43 @@ object GpxReader {
     }
 }
 
+/**
+ * How long a stretch lasted, when it carries both ends.
+ *
+ * The place lookup uses it to reject a stretch too short to be a visit; a file
+ * still being written has a first fix and no last one yet.
+ */
+fun segmentSeconds(segment: TraceSegment): Long? {
+    val from = segment.firstFix ?: return null
+    val to = segment.lastFix ?: return null
+    return java.time.Duration.between(from, to).seconds
+}
+
+/**
+ * Where a stretch was, if it stayed anywhere. See [PtilesRepository.placeLabel]
+ * for what counts as staying.
+ */
+suspend fun PtilesRepository.placeLabel(segment: TraceSegment): String? =
+    placeLabel(segment.points, segmentSeconds(segment))
+
 @Composable
 fun RecordingDetailScreen(file: File) {
     val context = LocalContext.current
     val repo = remember { PtilesRepository(context) }
     var trace by remember(file) { mutableStateOf<RecordedTrace?>(null) }
     var features by remember(file) { mutableStateOf(emptyList<MapFeature>()) }
+    var stops by remember(file) { mutableStateOf(emptyList<Pair<TraceSegment, String>>()) }
     LaunchedEffect(file) {
         trace = withContext(Dispatchers.IO) { GpxReader.read(file) }
+    }
+    // Named stops, after the track: reading the file and then the buildings and
+    // business layers for each stretch is far slower than the map, and the day
+    // is legible without them.
+    LaunchedEffect(file) {
+        val segments = withContext(Dispatchers.IO) { GpxReader.readSegments(file) }
+        stops = segments.mapNotNull { segment ->
+            repo.placeLabel(segment)?.let { segment to it }
+        }
     }
     // The roads the day was travelled on, decoded around the middle of it.
     val around = trace?.points?.getOrNull((trace?.points?.size ?: 0) / 2)
@@ -228,6 +257,17 @@ fun RecordingDetailScreen(file: File) {
                         )
                     }
                 }
+            }
+            // Three at most: the map keeps the rest of the height, and a day's
+            // worth of "near Kroger" is a list, not a summary.
+            stops.take(3).forEach { (segment, place) ->
+                Text(
+                    listOfNotNull(formatSpan(segment.firstFix, segment.lastFix), "near $place")
+                        .joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ForestSoft,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
         }
     }

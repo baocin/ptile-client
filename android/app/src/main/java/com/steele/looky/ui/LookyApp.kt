@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Terrain
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -70,6 +71,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -99,6 +101,7 @@ import com.steele.looky.location.TraceService
 import com.steele.looky.model.GeoPoint
 import com.steele.looky.model.LookyMode
 import com.steele.looky.model.TraceBus
+import com.steele.looky.model.motionStaleness
 import com.steele.looky.offline.PackManager
 import com.steele.looky.offline.MapDownloadProgress
 import com.steele.looky.offline.MapPackDownloader
@@ -147,6 +150,23 @@ fun LookyApp(
     var screen by remember {
         mutableStateOf(if (settings.activeMode == LookyMode.TRAIL) Screen.TRAIL else Screen.DRIVE)
     }
+    var showMotion by remember { mutableStateOf(false) }
+    // Staleness is the absence of updates, so nothing in the bus will wake the
+    // warning icon up. Its own clock has to.
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(live.running) {
+        while (live.running) {
+            nowMs = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val staleness = motionStaleness(
+        nowMs,
+        live.lastFixAtMs,
+        live.lastAccelAtMs,
+        settings.gpsIntervalSeconds,
+        settings.accelerometerRateHz,
+    )
     val currentLat = live.location?.latitude
     val currentLon = live.location?.longitude
     LaunchedEffect(initialStateCode) {
@@ -218,18 +238,32 @@ fun LookyApp(
                         }
                         // The classifier's verdict, once it has one. "Unknown"
                         // is its starting state, and printing that is worse
-                        // than printing nothing.
-                        live.running && live.movement != "Unknown" -> Surface(
-                            color = Lime,
-                            shape = RoundedCornerShape(100.dp),
-                        ) {
-                            Text(
-                                live.movement,
-                                Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Forest,
-                            )
-                        }
+                        // than printing nothing -- unless an input has gone
+                        // quiet, which is exactly why the label is not moving.
+                        live.running && (live.movement != "Unknown" || staleness.any) ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (staleness.any) {
+                                    Icon(
+                                        Icons.Rounded.Warning,
+                                        "Motion input is stale",
+                                        Modifier.size(20.dp).clickable { showMotion = true },
+                                        tint = Clay,
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                }
+                                Surface(
+                                    color = Lime,
+                                    shape = RoundedCornerShape(100.dp),
+                                    modifier = Modifier.clickable { showMotion = true },
+                                ) {
+                                    Text(
+                                        if (live.movement == "Unknown") "No signal" else live.movement,
+                                        Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = Forest,
+                                    )
+                                }
+                            }
                     }
                     Spacer(Modifier.width(12.dp))
                 },
@@ -277,6 +311,7 @@ fun LookyApp(
                 Screen.SETTINGS -> SettingsScreen(settings, onRequestPermissions)
                 Screen.DEVELOPER -> DeveloperMapScreen()
             }
+            if (showMotion) MotionSheet(live, settings, nowMs) { showMotion = false }
         }
     }
 }
@@ -499,9 +534,17 @@ private fun RecordingsScreen() {
         return
     }
     val imperial = remember { AppSettings(context).imperialUnits }
+    val placeRepo = remember { PtilesRepository(context) }
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         itemsIndexed(segments) { index, segment ->
             val recording = index == 0 && live.running && segment.file?.absolutePath == live.traceFile
+            // Where a stretch was spent, when the fixes are evidence of a stop
+            // rather than a pause at a light. Keyed on the segment's own shape
+            // so a growing live segment re-asks as it settles.
+            var place by remember(segment.firstFix, segment.points.size) { mutableStateOf<String?>(null) }
+            LaunchedEffect(segment.firstFix, segment.points.size) {
+                place = placeRepo.placeLabel(segment)
+            }
             Card(
                 Modifier.clickable { segment.file?.let { open = it } },
                 colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -522,6 +565,7 @@ private fun RecordingsScreen() {
                         Text(
                             listOfNotNull(
                                 formatSpan(segment.firstFix, segment.lastFix),
+                                place?.let { "near $it" },
                                 formatDistance(segment.distanceM, imperial),
                                 if (segment.points.size == 1) "1 fix" else "${segment.points.size} fixes",
                             ).joinToString(" · "),

@@ -26,7 +26,9 @@ import com.steele.looky.MainActivity
 import com.steele.looky.R
 import com.steele.looky.model.LookyMode
 import com.steele.looky.model.GeoPoint
+import com.steele.looky.model.MotionFix
 import com.steele.looky.model.TraceBus
+import com.steele.looky.model.appendFix
 import com.steele.looky.offline.PtilesRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -281,7 +283,18 @@ class TraceService : Service() {
         val appended = recorder.append(fix, result.movement, result.accel, nearby, session)
         TraceBus.update {
             val recent = (it.recentPoints + GeoPoint(fix.latitude, fix.longitude)).takeLast(2_000)
+            val history = appendFix(
+                it.fixes,
+                MotionFix(
+                    atMs = lastFixAt,
+                    speedMps = if (fix.hasSpeed()) fix.speed.toDouble() else null,
+                    headingDeg = if (fix.hasBearing()) fix.bearing.toDouble() else null,
+                    accuracyM = if (fix.hasAccuracy()) fix.accuracy.toDouble() else null,
+                ),
+            )
             it.copy(
+                lastFixAtMs = lastFixAt,
+                fixes = history,
                 running = true,
                 mode = mode,
                 session = session,
@@ -309,6 +322,9 @@ class TraceService : Service() {
                 session = session,
                 movement = result.movement,
                 confidence = result.confidence,
+                // The 1 Hz timer is the only thing that runs while GPS is
+                // silent, so it is what keeps the staleness clock honest.
+                lastAccelAtMs = motion.lastSampleAtMs,
             )
         }
         getSystemService(NotificationManager::class.java).notify(

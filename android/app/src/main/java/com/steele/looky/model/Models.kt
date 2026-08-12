@@ -27,7 +27,95 @@ data class LiveTraceState(
     val traceFile: String? = null,
     val recentPoints: List<GeoPoint> = emptyList(),
     val error: String? = null,
+    /** Wall clock of the last GPS fix and accelerometer sample; 0 means none yet. */
+    val lastFixAtMs: Long = 0L,
+    val lastAccelAtMs: Long = 0L,
+    val fixes: List<MotionFix> = emptyList(),
 )
+
+/** A GPS fix reduced to the fields the diagnostics panel averages. */
+data class MotionFix(
+    val atMs: Long,
+    val speedMps: Double?,
+    val headingDeg: Double?,
+    val accuracyM: Double?,
+)
+
+/**
+ * Averaging windows in seconds.
+ *
+ * Fibonacci because the interesting resolutions are dense near now -- where a
+ * classification flips -- and coarse further back, where only the trend
+ * matters. The last one is the retention bound for [appendFix].
+ */
+val SPEED_WINDOWS_S = listOf(1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610)
+
+/**
+ * Hard ceiling on retained fixes.
+ *
+ * Age alone bounds the buffer at any sane polling rate; this is the guard for
+ * a provider that decides to deliver a burst.
+ */
+const val MOTION_HISTORY_CAP = 1_024
+
+/** Append a fix, dropping anything older than the widest window. */
+fun appendFix(history: List<MotionFix>, fix: MotionFix): List<MotionFix> {
+    val oldest = fix.atMs - SPEED_WINDOWS_S.last() * 1_000L
+    return (history + fix).filter { it.atMs >= oldest }.takeLast(MOTION_HISTORY_CAP)
+}
+
+/** [samples] is shown alongside [meanMps] so a two-fix average is not read as settled. */
+data class SpeedWindow(val seconds: Int, val samples: Int, val meanMps: Double?)
+
+fun speedWindows(history: List<MotionFix>, nowMs: Long): List<SpeedWindow> =
+    SPEED_WINDOWS_S.map { seconds ->
+        val speeds = history.filter { it.atMs >= nowMs - seconds * 1_000L }.mapNotNull { it.speedMps }
+        SpeedWindow(seconds, speeds.size, if (speeds.isEmpty()) null else speeds.average())
+    }
+
+/** Ages of -1 mean the input has produced nothing at all this session. */
+data class MotionStaleness(
+    val gpsAgeMs: Long,
+    val gpsLimitMs: Long,
+    val gpsStale: Boolean,
+    val accelAgeMs: Long,
+    val accelLimitMs: Long,
+    val accelStale: Boolean,
+) {
+    val any: Boolean get() = gpsStale || accelStale
+}
+
+/**
+ * Whether either motion input has gone quiet.
+ *
+ * GPS gets three polling intervals: one skipped fix is normal, three is the
+ * provider having stopped. The accelerometer gets a hundred sample periods
+ * with a floor, because sensor batching legitimately delivers in bursts and a
+ * strict per-period deadline would flag every healthy phone.
+ */
+fun motionStaleness(
+    nowMs: Long,
+    lastFixAtMs: Long,
+    lastAccelAtMs: Long,
+    gpsIntervalSeconds: Int,
+    accelRateHz: Int,
+): MotionStaleness {
+    val gpsLimit = gpsIntervalSeconds.coerceAtLeast(1) * 3_000L
+    val accelLimit = (100_000L / accelRateHz.coerceAtLeast(1)).coerceAtLeast(1_500L)
+    // The caller's clock ticks once a second while the bus updates faster, so
+    // a reading can legitimately be newer than "now". Negative is reserved for
+    // an input that has never reported.
+    val gpsAge = if (lastFixAtMs <= 0L) -1L else (nowMs - lastFixAtMs).coerceAtLeast(0L)
+    val accelAge = if (lastAccelAtMs <= 0L) -1L else (nowMs - lastAccelAtMs).coerceAtLeast(0L)
+    return MotionStaleness(
+        gpsAgeMs = gpsAge,
+        gpsLimitMs = gpsLimit,
+        gpsStale = gpsAge < 0L || gpsAge > gpsLimit,
+        accelAgeMs = accelAge,
+        accelLimitMs = accelLimit,
+        accelStale = accelAge < 0L || accelAge > accelLimit,
+    )
+}
 
 object TraceBus {
     private val mutable = MutableStateFlow(LiveTraceState())

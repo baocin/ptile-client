@@ -33,6 +33,11 @@ class MotionEngine(
     private var running = false
     private var accelerometerRateHz = 50
 
+    /** Wall clock of the newest sample, for the diagnostics staleness check. */
+    @Volatile
+    var lastSampleAtMs = 0L
+        private set
+
     fun start(mode: LookyMode, rateHz: Int = accelerometerRateHz) {
         accelerometerRateHz = rateHz.coerceIn(10, 100)
         session.setIntent(
@@ -144,6 +149,7 @@ class MotionEngine(
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ACCELEROMETER) return
+        lastSampleAtMs = System.currentTimeMillis()
         synchronized(lock) {
             if (x.size >= 300) {
                 x.removeAt(0); y.removeAt(0); z.removeAt(0)

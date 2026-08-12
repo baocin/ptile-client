@@ -13,6 +13,8 @@ import uniffi.ptiles_ffi.RoadContext
 import uniffi.ptiles_ffi.TrailInfo
 import uniffi.ptiles_ffi.LatLon
 import uniffi.ptiles_ffi.Navigator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.cos
@@ -38,6 +40,10 @@ class PtilesRepository(context: Context) {
     private val layers = ConcurrentHashMap<String, CachedLayer>()
     @Volatile private var adminLayer: AdminLayer? = null
     @Volatile private var stateHint: String? = null
+
+    // Empty string is "looked, found nothing": a map cannot hold null, and
+    // re-running a lookup that already came back empty is the expensive case.
+    private val placeCache = ConcurrentHashMap<Pair<Long, Long>, String>()
 
     data class RouteResult(
         val points: List<GeoPoint>,
@@ -301,7 +307,7 @@ class PtilesRepository(context: Context) {
         query: String = "",
         limit: Int = SEARCH_LIMIT,
     ): List<BusinessResult>? {
-        val needle = query.trim().lowercase()
+        val needle = query.trim()
         val centers = sampleCenters(origin.lat, origin.lon, DEFAULT_SPREAD)
         val layers = centers.mapNotNull { c -> layer("trails", c.lat, c.lon)?.let { c to it } }
         if (layers.isEmpty()) return null
@@ -309,7 +315,6 @@ class PtilesRepository(context: Context) {
             layer.trails(c.lat, c.lon, RING)
         }.mapNotNull { trail ->
             val name = trail.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            if (needle.isNotEmpty() && !name.lowercase().contains(needle)) return@mapNotNull null
             val nearest = nearestVertex(trail.geometry, origin) ?: return@mapNotNull null
             // Trailheads first among equals: they are where you park.
             BusinessResult(name, nearest, score = if (trail.isTrailhead) 1 else 0)
@@ -319,7 +324,56 @@ class PtilesRepository(context: Context) {
         val nearestPerTrail = hits
             .sortedBy { flatDistance2(origin, it.point) }
             .distinctBy { it.name.lowercase() }
+        // Typed queries go through the same scoring businesses use: a trail is
+        // named once on disk and never by an alternate (see `build_trails.py`,
+        // which stores `tags["name"]` and nothing else), so "greenway" against
+        // "Stones River Greenwy" is the only spelling forgiveness available.
+        // The trailhead-first tiebreak is given up with it; distance already
+        // orders what a typed query returns.
+        if (needle.isNotEmpty()) return rankByNameAndDistance(needle, nearestPerTrail, origin, limit)
         return mergeBusinessHits(nearestPerTrail, limit, origin)
+    }
+
+    /**
+     * Where a stretch of a recording was, when the fixes prove it stayed there.
+     *
+     * A stop is named from the buildings and business layers: the footprint the
+     * fixes sit in, then the business registered at that footprint, which is the
+     * name a person would use ("Cherokee Marina") where the building's own OSM
+     * name is usually missing or a street number.
+     *
+     * Null is the normal answer. A stretch that only passed through, or one over
+     * ground with no installed business layer, has no honest label, and a wrong
+     * one on a day's history is worse than none.
+     *
+     * Cached by rounded stop position rather than by segment, so the six
+     * stretches a day spends at home cost one lookup.
+     */
+    suspend fun placeLabel(points: List<GeoPoint>, durationS: Long? = null): String? {
+        val stop = stopCentroid(points, durationS) ?: return null
+        val key = round5(stop.lat) to round5(stop.lon)
+        placeCache[key]?.let { return it.ifEmpty { null } }
+        val name = withContext(Dispatchers.IO) { lookupPlace(stop) }
+        placeCache[key] = name.orEmpty()
+        return name
+    }
+
+    private fun lookupPlace(at: GeoPoint): String? {
+        val building = runCatching {
+            layer("buildings", at.lat, at.lon)?.buildingsAt(listOf(LatLon(at.lat, at.lon)))?.firstOrNull()
+        }.getOrNull()
+        if (building != null) {
+            // Standing inside the footprint earns a wider search from the
+            // building's centre: a supermarket's registered point sits well away
+            // from where anyone parks or walks in. Merely near one does not.
+            val inside = containsPoint(building.geometry.map { GeoPoint(it.lat, it.lon) }, at)
+            val radius = if (inside) INSIDE_PLACE_RADIUS_M else BESIDE_PLACE_RADIUS_M
+            val centre = GeoPoint(building.centroid.lat, building.centroid.lon)
+            businessAt(centre, radius)?.name?.takeIf { it.isNotBlank() && !isFlightNode(it) }
+                ?.let { return it }
+            building.name?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return businessesNearby(at, BESIDE_PLACE_RADIUS_M, limit = 1)?.firstOrNull()?.name
     }
 
     /**
@@ -724,6 +778,68 @@ class PtilesRepository(context: Context) {
 
         /** How close a tap must land to count as hitting a business pin. */
         internal const val BUSINESS_TAP_RADIUS_M = 60.0
+
+        /**
+         * What makes a run of fixes a stop rather than a slow stretch of road.
+         *
+         * Five fixes because fewer cannot distinguish a stop from GPS noise on
+         * a moving track; 60 m because a phone parked in one spot still wanders
+         * tens of metres, while a car crawling through a drive-through covers
+         * far more than that; two minutes because everything shorter -- a light,
+         * a queue, a stop sign -- is traffic, not a visit.
+         *
+         * Duration is optional: a file mid-write may have no `<time>` yet, and
+         * the fix count still bounds how brief a stop can be.
+         */
+        internal const val MIN_STOP_FIXES = 5
+        internal const val STOP_SPREAD_M = 60.0
+        internal const val MIN_STOP_SECONDS = 120L
+
+        /** Search radius from a footprint centre when the stop is inside it. */
+        internal const val INSIDE_PLACE_RADIUS_M = 120.0
+
+        /** And when it is merely beside one, or there is no footprint at all. */
+        internal const val BESIDE_PLACE_RADIUS_M = 50.0
+
+        /**
+         * The middle of a stop, or null when these fixes are not one.
+         *
+         * Spread is measured from the mean rather than end to end: a track that
+         * leaves and returns has a small end-to-end distance and is still a
+         * journey.
+         */
+        internal fun stopCentroid(points: List<GeoPoint>, durationS: Long? = null): GeoPoint? {
+            if (points.size < MIN_STOP_FIXES) return null
+            if (durationS != null && durationS < MIN_STOP_SECONDS) return null
+            val centre = GeoPoint(points.sumOf { it.lat } / points.size, points.sumOf { it.lon } / points.size)
+            val worst = points.maxOf { flatDistance2(centre, it) }
+            return if (worst <= STOP_SPREAD_M * STOP_SPREAD_M) centre else null
+        }
+
+        /**
+         * Whether a point falls inside a footprint ring, by ray casting.
+         *
+         * The FFI already picks the building containing a point, but not
+         * whether it contained it or merely had a centroid within 50 m, and
+         * those deserve different confidence. Degrees are compared directly:
+         * a building spans metres, where the latitude scaling is a rounding
+         * error on a containment test.
+         */
+        internal fun containsPoint(ring: List<GeoPoint>, point: GeoPoint): Boolean {
+            if (ring.size < 3) return false
+            var inside = false
+            var j = ring.size - 1
+            for (i in ring.indices) {
+                val a = ring[i]
+                val b = ring[j]
+                if ((a.lat > point.lat) != (b.lat > point.lat)) {
+                    val x = (b.lon - a.lon) * (point.lat - a.lat) / (b.lat - a.lat) + a.lon
+                    if (point.lon < x) inside = !inside
+                }
+                j = i
+            }
+            return inside
+        }
 
         /** Half-width of the building sample grid for a given spread. */
         internal fun buildingSampleSpan(spread: Int): Int = (spread + 2).coerceIn(2, 6)
