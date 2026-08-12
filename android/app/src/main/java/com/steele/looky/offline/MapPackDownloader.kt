@@ -30,7 +30,9 @@ object MapPackDownloader {
     )
     val CORE_LAYERS = STATE_LAYERS
     val US_STATES = "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC".split(' ')
-    val US_LAYERS = listOf("admin", "camera", "signals")
+    // admin_v2 is the first build with boundary_flags actually populated and
+    // county rings named from TIGER rather than assumed to be counties.
+    val US_LAYERS = listOf("admin_v2", "camera", "signals")
 
     suspend fun downloadCurrentState(
         context: Context,
@@ -46,10 +48,10 @@ object MapPackDownloader {
         var completed = 0
         // Admin before anything else: it is what makes "which state am I in"
         // exact, and every state pack that follows is chosen by that answer.
-        val admin = listOf("US" to "admin")
+        val admin = listOf("US" to "admin_v2")
         val jobs = admin +
             states.flatMap { state -> STATE_LAYERS.map { state to it } } +
-            if (includeUsLayers) US_LAYERS.filterNot { it == "admin" }.map { "US" to it } else emptyList()
+            if (includeUsLayers) US_LAYERS.filterNot { it.startsWith("admin") }.map { "US" to it } else emptyList()
         runCatching {
             jobs.forEach { (state, layer) ->
                 val extension = if (layer == "business_categories") "json" else "ptiles"

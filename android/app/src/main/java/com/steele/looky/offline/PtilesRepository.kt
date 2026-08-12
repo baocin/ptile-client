@@ -574,8 +574,10 @@ class PtilesRepository(context: Context) {
 
     private fun openAdminLayer(): AdminLayer? {
         adminLayer?.let { return it }
-        return manager.packsDir.listFiles().orEmpty()
-            .firstOrNull { it.isFile && it.name == "US.admin.ptiles" }
+        // Highest version wins, the same rule layerCandidates applies to state
+        // packs: an older admin file left behind by a previous install must not
+        // shadow the one that knows about boundary straddles.
+        return newestAdminPack(manager.packsDir.listFiles().orEmpty().toList())
             ?.let { runCatching { AdminLayer.open(it.absolutePath) }.getOrNull() }
             ?.also { adminLayer = it }
     }
@@ -702,6 +704,20 @@ class PtilesRepository(context: Context) {
          * about a missing side street rather than before.
          */
         internal const val MAX_DRAWN_FEATURES = 3_000
+
+        /**
+         * The newest installed admin pack.
+         *
+         * Same rule [layerCandidates] applies to state packs: an unversioned
+         * file left behind by an earlier install must not shadow the one that
+         * knows which cells straddle a border.
+         */
+        internal fun newestAdminPack(files: List<File>): File? = files
+            .filter { it.name.startsWith("US.admin") && it.name.endsWith(".ptiles") }
+            .maxByOrNull { file ->
+                VERSIONED_STEM.matchEntire(file.name.removeSuffix(".ptiles").removePrefix("US."))
+                    ?.groupValues?.get(2)?.toIntOrNull() ?: 1
+            }
 
         /** Road classes not worth carrying when the map will not draw them. */
         internal val MINOR_ROAD_CLASSES = setOf("footway", "service", "steps", "sidewalk", "path")

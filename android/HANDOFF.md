@@ -50,9 +50,13 @@ bytes, has a Download/Update action, and keeps individual filenames collapsed
 until expanded. Downloads stream to a pending file and rename atomically only
 after completion.
 
-The all-US action downloads every state layer plus `US.admin.ptiles`,
+The all-US action downloads every state layer plus `US.admin_v2.ptiles`,
 `US.camera.ptiles`, and `US.signals.ptiles`. This is intentionally a large
 operation; storage forecasting and resumable downloads are future work.
+
+The admin pack is fetched before anything else, including on a single-state
+download: it is what resolves which state you are in, and that answer chooses
+every pack that follows.
 
 ### Drive and Trail
 
@@ -182,7 +186,33 @@ The downloader currently targets:
 State layer stems are defined in `MapPackDownloader.STATE_LAYERS`; the US-wide
 stems are in `US_LAYERS`. If the snapshot date or vocabulary changes, update
 those constants and test at least two representative state downloads before
-enabling a new default. The native decoder currently has no independent `highways` layer
+enabling a new default.
+
+Layer files are versioned by a `_vN` suffix on the stem, and the client always
+opens the highest version it has installed (`layerCandidates` for state packs,
+`newestAdminPack` for the admin one). Publishing a rebuilt layer therefore
+means uploading it under a new stem rather than overwriting the old file: a
+device that already has the old one keeps working, and picks up the new one on
+its next download.
+
+### `US.admin_v2.ptiles`
+
+Published 2026-08-12 alongside the untouched `US.admin.ptiles`. Two fixes, both
+in `scripts/build_admin.py` in the ptiles repo:
+
+- `boundary_flags` is populated. It was specified in SPEC.md as straddle bits
+  and hardcoded to `0`, so `admin_at()` returned the H3 cell centre's
+  jurisdiction with no warning and could be wrong by up to ~1.2 km. A point on
+  the Tennessee side of the TN/KY line north of Clarksville resolved to
+  Kentucky. 34.5% of cells carry a flag; 3.3% carry the state bit.
+- County ring names come from TIGER `NAMELSAD` rather than `"{NAME} County"`,
+  so Louisiana parishes, Alaska boroughs and census areas, and Virginia
+  independent cities are named correctly.
+
+The on-disk layout is unchanged and the old pack still decodes. The client does
+not yet act on the flags; doing so means falling back to point-in-polygon
+against `AdminLayer.polygonsIn` when the state bit is set, before choosing a
+map pack. The native decoder currently has no independent `highways` layer
 kind, so highway files are retained for forward compatibility while routing
 and motion classification use OSM `highway` tags from the roads layer.
 

@@ -248,4 +248,21 @@ class RouteAndSearchTest {
         assertFalse("residential" in PtilesRepository.MINOR_ROAD_CLASSES)
         assertFalse("motorway" in PtilesRepository.MINOR_ROAD_CLASSES)
     }
+
+    @Test fun theNewestAdminPackWins() {
+        val files = listOf(
+            java.io.File("/packs/US.admin.ptiles"),
+            java.io.File("/packs/US.admin_v2.ptiles"),
+            java.io.File("/packs/TN.roads_v2.ptiles"),
+        )
+
+        assertEquals("US.admin_v2.ptiles", PtilesRepository.newestAdminPack(files)?.name)
+    }
+
+    @Test fun anUnversionedAdminPackIsStillUsableOnItsOwn() {
+        val files = listOf(java.io.File("/packs/US.admin.ptiles"))
+
+        assertEquals("US.admin.ptiles", PtilesRepository.newestAdminPack(files)?.name)
+        assertEquals(null, PtilesRepository.newestAdminPack(listOf(java.io.File("/packs/TN.roads_v2.ptiles"))))
+    }
 }
