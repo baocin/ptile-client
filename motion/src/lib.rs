@@ -31,12 +31,17 @@ pub use ptiles_core::Fix as CoreFix;
 pub mod movement;
 pub mod sampling;
 pub mod shifts;
+pub mod sun;
 pub use sampling::{
     AdaptiveMotionConfig, AdaptiveMotionSession, AdaptiveMotionUpdate, AdaptiveSampler,
     AppliedSampling, LocationSample, MotionObservation, SamplingAdvice, SamplingCapabilities,
     SamplingConfig, SamplingIntent, SamplingLevel, SamplingReason,
 };
 pub use shifts::{significant_shifts, Shift, ShiftConfig};
+pub use sun::{
+    is_daylight, seconds_to_sunset, sun_times, sun_times_at, SunTimes, ELEVATION_CIVIL_DEG,
+    ELEVATION_NAUTICAL_DEG, ELEVATION_SUNRISE_DEG,
+};
 pub use movement::{
     AccelStats, DebounceConfig, MovementType, RoadContext, TrafficControl, Vote, VoteDebouncer,
     classify, classify_accel_only, classify_with_history, DRIVING_FLOOR_MPS, GPS_ACCURACY_GATE_M,
