@@ -105,15 +105,20 @@ class RouteAndSearchTest {
         )
     }
 
-    @Test fun spreadAddsFourArmsPerStepAroundTheCentre() {
+    @Test fun spreadRingsTheCentreOnEverySideIncludingTheDiagonals() {
         val centers = PtilesRepository.sampleCenters(35.0, -88.0, 1)
 
-        assertEquals(5, centers.size)
+        assertEquals(9, centers.size)
         assertEquals(GeoPoint(35.0, -88.0), centers.first())
         assertTrue(centers.any { it.lat > 35.0 && it.lon == -88.0 })
         assertTrue(centers.any { it.lat < 35.0 && it.lon == -88.0 })
         assertTrue(centers.any { it.lon > -88.0 && it.lat == 35.0 })
         assertTrue(centers.any { it.lon < -88.0 && it.lat == 35.0 })
+        // The corners are the whole point: on a plus they were 2.7 km from any
+        // centre, and a ring reaches about 2 km.
+        assertTrue(centers.any { it.lat > 35.0 && it.lon > -88.0 })
+        assertTrue(centers.any { it.lat < 35.0 && it.lon < -88.0 })
+        assertEquals(centers.size, centers.distinct().size)
     }
 
     @Test fun sampleStepsStayInsideOneCellSoNoGapOpensBetweenRings() {
@@ -266,16 +271,19 @@ class RouteAndSearchTest {
         assertEquals(null, PtilesRepository.newestAdminPack(listOf(java.io.File("/packs/TN.roads_v2.ptiles"))))
     }
 
-    @Test fun aWideFetchCoversTheCornersAndNotJustACross() {
-        // A plus leaves the diagonals empty past one step, which drew a cross
-        // of streets with blank corners on a zoomed-out map.
-        val plus = PtilesRepository.sampleCenters(35.0, -88.0, 1)
-        val grid = PtilesRepository.sampleCenters(35.0, -88.0, 2)
+    @Test fun everyFetchCoversItsCornersAndNotJustACross() {
+        // The viewport corner sits 2.7 km from the nearest arm of a plus, and
+        // a ring reaches about 2 km, so the corners came back empty at every
+        // zoom -- the map read as one tile surrounded by paper.
+        val near = PtilesRepository.sampleCenters(35.0, -88.0, 1)
+        val wide = PtilesRepository.sampleCenters(35.0, -88.0, 2)
 
-        assertEquals(5, plus.size)
-        assertEquals(25, grid.size)
-        val corner = grid.any { it.lat > 35.0 && it.lon > -88.0 && it.lat != 35.0 && it.lon != -88.0 }
-        assertTrue("a wide fetch must reach the diagonals", corner)
+        assertEquals(9, near.size)
+        assertEquals(25, wide.size)
+        assertTrue(
+            "the diagonal must be sampled",
+            near.any { it.lat > 35.0 && it.lon > -88.0 },
+        )
     }
 
     @Test fun oneCentreIsStillOneCentre() {
