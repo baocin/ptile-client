@@ -44,7 +44,12 @@ object MapPackDownloader {
     suspend fun downloadStates(context: Context, states: List<String>, onProgress: (MapDownloadProgress) -> Unit, includeUsLayers: Boolean = false): Result<Int> = withContext(Dispatchers.IO) {
         val dir = PackManager(context).packsDir
         var completed = 0
-        val jobs = states.flatMap { state -> STATE_LAYERS.map { state to it } } + if (includeUsLayers) US_LAYERS.map { "US" to it } else emptyList()
+        // Admin before anything else: it is what makes "which state am I in"
+        // exact, and every state pack that follows is chosen by that answer.
+        val admin = listOf("US" to "admin")
+        val jobs = admin +
+            states.flatMap { state -> STATE_LAYERS.map { state to it } } +
+            if (includeUsLayers) US_LAYERS.filterNot { it == "admin" }.map { "US" to it } else emptyList()
         runCatching {
             jobs.forEach { (state, layer) ->
                 val extension = if (layer == "business_categories") "json" else "ptiles"

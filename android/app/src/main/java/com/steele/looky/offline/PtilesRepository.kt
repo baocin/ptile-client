@@ -206,6 +206,12 @@ class PtilesRepository(context: Context) {
                 }
             }
         }
+        // County lines ride along with everything else; the renderer decides
+        // whether this zoom wants them.
+        runCatching {
+            val reach = 0.35
+            out += AdminBoundaries.linesWithin(appContext, lat - reach, lon - reach, lat + reach, lon + reach)
+        }
         return capFeatures(dedupeFeatures(out))
     }
 

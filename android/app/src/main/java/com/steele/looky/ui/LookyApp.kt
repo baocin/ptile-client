@@ -854,7 +854,27 @@ private fun EmptyState(title: String, subtitle: String) {
     }
 }
 
-/** The GPS/distance/points strip both mode screens pin to the bottom. */
+/**
+ * Rough calories for a distance travelled under its own power.
+ *
+ * Per-kilometre cost scales with body mass, so this is 70 kg times the usual
+ * kcal/kg/km figures -- about 55 walking, 70 running. Driving burns nothing
+ * worth reporting, and a count of GPS fixes never meant anything to anyone,
+ * which is what this replaced.
+ *
+ * ponytail: a fixed body mass. Add a weight setting when someone asks for a
+ * number they would stand behind.
+ */
+internal fun estimateCalories(distanceM: Double, movement: String): Int {
+    val perKm = when (movement.lowercase()) {
+        "walking" -> 55.0
+        "running" -> 70.0
+        else -> 0.0
+    }
+    return (distanceM / 1_000.0 * perKm).roundToInt()
+}
+
+/** The GPS/distance/calories strip both mode screens pin to the bottom. */
 @Composable
 internal fun LiveMetrics(imperial: Boolean, modifier: Modifier = Modifier) {
     val live by TraceBus.state.collectAsState()
@@ -866,7 +886,7 @@ internal fun LiveMetrics(imperial: Boolean, modifier: Modifier = Modifier) {
         Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceAround) {
             Metric(if (live.location?.hasAccuracy() == true) "±${live.location?.accuracy?.roundToInt()} m" else "—", "GPS")
             Metric(formatDistance(live.distanceM, imperial), "TODAY")
-            Metric(live.pointsToday.toString(), "POINTS")
+            Metric(estimateCalories(live.distanceM, live.movement).toString(), "CAL")
         }
     }
 }

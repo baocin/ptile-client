@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.steele.looky.model.GeoPoint
 import com.steele.looky.model.MapFeature
+import com.steele.looky.offline.AdminBoundaries
 import kotlin.math.cos
 
 private val MapPaper = Color(0xFFF1F0E8)
@@ -40,6 +41,7 @@ private val Camera = Color(0xFFB72F3E)
 private val Rail = Color(0xFF6D4C7D)
 private val Business = Color(0xFFD67246)
 private val WaterEdge = Color(0xFF5E93A6)
+private val AdminLine = Color(0x998A7FA6)
 
 /**
  * The map's screen/geography conversion, kept out of the composable so the
@@ -161,6 +163,7 @@ internal object MapDetail {
      * a lottery -- a lake could land on a highway.
      */
     fun layer(kind: String): Int = when {
+        kind == "admin_county" -> 0
         kind == "water_area" || kind == "park" -> 0
         kind == "building_area" -> 1
         kind == "water" -> 2
@@ -173,6 +176,9 @@ internal object MapDetail {
     }
 
     fun draws(kind: String, isPoint: Boolean, scale: Float): Boolean = when {
+        // County lines are the coarse-zoom answer to "where am I", and clutter
+        // once the streets are back.
+        kind == "admin_county" -> scale < AdminBoundaries.COUNTY_LINES_BELOW
         isPoint && kind in ALWAYS_POINTS -> true
         isPoint -> scale >= POINTS_ABOVE
         // A town's footprints are thousands of little rings: worth it close
@@ -304,6 +310,10 @@ fun OfflineMap(
                     }
                     else -> drawCircle(Road, 3.5f, point)
                 }
+                return@forEach
+            }
+            if (feature.kind == "admin_county") {
+                line(feature.points, AdminLine, 2f)
                 return@forEach
             }
             val isTrail = feature.kind.startsWith("trail") || feature.kind in setOf("path", "footway", "track", "steps")

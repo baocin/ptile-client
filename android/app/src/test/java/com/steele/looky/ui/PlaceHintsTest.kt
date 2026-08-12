@@ -36,4 +36,15 @@ class PlaceHintsTest {
     @Test fun withNoRoutePlannedNothingIsOnIt() {
         assertFalse(nearRoute(emptyList(), here, ON_ROUTE_M))
     }
+
+    @Test fun caloriesCountOnlyWhatYouMovedYourselfThrough() {
+        assertEquals(0, estimateCalories(50_000.0, "Driving"))
+        assertEquals(0, estimateCalories(50_000.0, "Stationary"))
+        assertEquals(55, estimateCalories(1_000.0, "Walking"))
+        assertEquals(70, estimateCalories(1_000.0, "Running"))
+    }
+
+    @Test fun anUnclassifiedStretchBurnsNothingRatherThanGuessing() {
+        assertEquals(0, estimateCalories(5_000.0, "Unknown"))
+    }
 }
