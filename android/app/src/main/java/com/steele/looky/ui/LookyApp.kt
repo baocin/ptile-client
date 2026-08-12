@@ -120,13 +120,13 @@ import kotlin.math.roundToInt
 private enum class Screen { DRIVE, TRAIL, MORE, RECORDINGS, PACKS, SETTINGS, DEVELOPER }
 
 /** Settle time before a panned viewport triggers a PTiles decode. */
-internal const val VIEWPORT_DEBOUNCE_MS = 400L
+internal const val VIEWPORT_DEBOUNCE_MS = 220L
 
 /** Settle time before a search query hits the name indexes. */
 internal const val SEARCH_DEBOUNCE_MS = 300L
 
 /** How far the viewport must move before reloading features, in metres. */
-internal const val VIEWPORT_RELOAD_M = 400.0
+internal const val VIEWPORT_RELOAD_M = 220.0
 
 /** Height cap on the hits-and-stops list before it scrolls inside the card. */
 

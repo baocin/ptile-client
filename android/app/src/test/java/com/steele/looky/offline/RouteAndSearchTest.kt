@@ -195,4 +195,21 @@ class RouteAndSearchTest {
 
         assertTrue(PtilesRepository.isSplittableFailure(wrapped))
     }
+
+    @Test fun theStreetGridOutranksTheFootwaysBesideIt() {
+        // A town has a footway per street; ranked above roads they filled the
+        // draw cap and deleted the grid.
+        assertTrue(PtilesRepository.featureRank("residential") < PtilesRepository.featureRank("trail:footway"))
+        assertTrue(PtilesRepository.featureRank("motorway") < PtilesRepository.featureRank("residential"))
+        assertTrue(PtilesRepository.featureRank("trail:path") < PtilesRepository.featureRank("building_area"))
+    }
+
+    @Test fun theCapKeepsRoadsWhenFootwaysOutnumberThem() {
+        val streets = (1..10).map { com.steele.looky.model.MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.0)), "residential", "Street $it") }
+        val footways = (1..100).map { com.steele.looky.model.MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.0)), "trail:footway", null) }
+
+        val kept = PtilesRepository.capFeatures(footways + streets, max = 10)
+
+        assertEquals(10, kept.count { it.kind == "residential" })
+    }
 }

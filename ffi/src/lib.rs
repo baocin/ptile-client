@@ -461,6 +461,10 @@ pub struct BuildingInfo {
     pub building_type: String,
     pub category: Option<String>,
     pub centroid: LatLon,
+    /// The footprint ring, when the record carried one. Decoders have always
+    /// had it; only the centroid was exposed, which is why the map drew towns
+    /// as fields of dots.
+    pub geometry: Vec<LatLon>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -1253,6 +1257,7 @@ fn pick_building(buildings: &[Building], lat: f64, lon: f64) -> Option<BuildingI
             name: b.name.clone(),
             building_type: b.building_type.clone(),
             category: b.category.clone(),
+            geometry: b.coords.iter().map(|c| LatLon { lat: c[1], lon: c[0] }).collect(),
             centroid: LatLon {
                 lat: b.centroid_lat,
                 lon: b.centroid_lon,

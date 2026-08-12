@@ -17,6 +17,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
@@ -37,6 +39,7 @@ private val Track = Color(0xFFD67246)
 private val Camera = Color(0xFFB72F3E)
 private val Rail = Color(0xFF6D4C7D)
 private val Business = Color(0xFFD67246)
+private val WaterEdge = Color(0xFF5E93A6)
 
 /**
  * The map's screen/geography conversion, kept out of the composable so the
@@ -52,8 +55,20 @@ internal object MapProjection {
 
     fun spanLat(scale: Float): Double = BASE_SPAN_LAT / scale
 
-    fun spanLon(centerLat: Double, scale: Float): Double =
-        spanLat(scale) / cos(Math.toRadians(centerLat)).coerceAtLeast(0.25)
+    /**
+     * Longitude span across the canvas width, at the same metres per pixel as
+     * latitude across its height.
+     *
+     * Without the aspect term the map was stretched: 0.075 degrees of latitude
+     * over 1742 px is 4.8 m/px, while the same figure of longitude over
+     * 1080 px is 7.7 m/px, so everything was 1.6x too wide. A degree of
+     * longitude is also shorter than a degree of latitude away from the
+     * equator, which is what the cosine corrects.
+     */
+    fun spanLon(centerLat: Double, scale: Float, width: Float, height: Float): Double {
+        val aspect = if (height > 0f) (width / height).toDouble() else 1.0
+        return spanLat(scale) * aspect / cos(Math.toRadians(centerLat)).coerceAtLeast(0.25)
+    }
 
     fun project(
         point: GeoPoint,
@@ -63,7 +78,7 @@ internal object MapProjection {
         height: Float,
         scale: Float,
     ): Offset = Offset(
-        width / 2f + ((point.lon - center.lon) / spanLon(center.lat, scale) * width).toFloat() + pan.x,
+        width / 2f + ((point.lon - center.lon) / spanLon(center.lat, scale, width, height) * width).toFloat() + pan.x,
         height / 2f - ((point.lat - center.lat) / spanLat(scale) * height).toFloat() + pan.y,
     )
 
@@ -79,7 +94,7 @@ internal object MapProjection {
         val y = offset.y - height / 2f - pan.y
         return GeoPoint(
             center.lat - y / height * spanLat(scale),
-            center.lon + x / width * spanLon(center.lat, scale),
+            center.lon + x / width * spanLon(center.lat, scale, width, height),
         )
     }
 
@@ -121,11 +136,52 @@ internal object MapDetail {
     /** Points worth drawing before the rest: they are destinations. */
     private val ALWAYS_POINTS = setOf("trailhead", "trail_end")
 
+    /** Buildings are the densest thing on the map; they arrive last. */
+    const val BUILDINGS_ABOVE = 2.2f
+
+    /**
+     * Sidewalks and footways wait for a close zoom.
+     *
+     * In a town the trails layer traces every street with a footway, so at
+     * arm's length the whole grid came up green and the roads underneath were
+     * invisible. Named paths and tracks still draw; pavement does not.
+     */
+    const val FOOTWAYS_ABOVE = 3.0f
+    private val MINOR_TRAILS = setOf("trail:footway", "trail:steps", "trail:sidewalk", "footway", "steps", "sidewalk")
+
+    /** Road names first, then business names once there is room to read them. */
+    const val ROAD_LABELS_ABOVE = 1.8f
+    const val BUSINESS_LABELS_ABOVE = 3.2f
+
+    /**
+     * Painting order: ground first, then what sits on it.
+     *
+     * Water and parks are areas, roads and trails are the network over them,
+     * buildings and pins are detail on top. Drawn in feature order the map was
+     * a lottery -- a lake could land on a highway.
+     */
+    fun layer(kind: String): Int = when {
+        kind == "water_area" || kind == "park" -> 0
+        kind == "building_area" -> 1
+        kind == "water" -> 2
+        kind.startsWith("rail") -> 3
+        kind.startsWith("trail") -> 4
+        isMajor(kind) -> 6
+        kind == "building" || kind.startsWith("business") || kind.startsWith("camera") ||
+            kind == "station" || kind == "trailhead" || kind == "trail_end" -> 7
+        else -> 5
+    }
+
     fun draws(kind: String, isPoint: Boolean, scale: Float): Boolean = when {
         isPoint && kind in ALWAYS_POINTS -> true
         isPoint -> scale >= POINTS_ABOVE
+        // A town's footprints are thousands of little rings: worth it close
+        // up, ruinous at arm's length.
+        kind == "building_area" -> scale >= BUILDINGS_ABOVE
+        kind in MINOR_TRAILS -> scale >= FOOTWAYS_ABOVE
         scale >= ARTERIAL_ONLY_BELOW -> true
-        else -> THROUGH.any { kind == it || kind.startsWith("$it:") } || kind.startsWith("rail")
+        else -> THROUGH.any { kind == it || kind.startsWith("$it:") } || kind.startsWith("rail") ||
+            kind == "water_area"
     }
 
     fun isMajor(kind: String): Boolean = kind in MAJOR
@@ -195,8 +251,25 @@ fun OfflineMap(
             drawLine(Color(0xFF6B756D).copy(alpha = alpha), Offset(size.width * i / 5f, 0f), Offset(size.width * i / 5f, size.height), 1f)
             drawLine(Color(0xFF6B756D).copy(alpha = alpha), Offset(0f, size.height * i / 5f), Offset(size.width, size.height * i / 5f), 1f)
         }
-        features.forEach { feature ->
-            if (!MapDetail.draws(feature.kind, feature.points.size == 1, scale)) return@forEach
+        fun area(points: List<GeoPoint>, fill: Color, edge: Color) {
+            if (points.size < 3) return
+            val path = Path()
+            val first = project(points.first())
+            path.moveTo(first.x, first.y)
+            points.drop(1).forEach { point -> project(point).also { path.lineTo(it.x, it.y) } }
+            path.close()
+            drawPath(path, fill)
+            drawPath(path, edge, style = Stroke(width = 1.2f))
+        }
+
+        val visible = features.filter { MapDetail.draws(it.kind, it.points.size == 1, scale) }
+        visible.sortedBy { MapDetail.layer(it.kind) }.forEach { feature ->
+            when (feature.kind) {
+                // Lakes, reservoirs, and wide river banks are areas, and read
+                // as water only when they are filled.
+                "water_area" -> { area(feature.points, Water, WaterEdge); return@forEach }
+                "building_area" -> { area(feature.points, Building.copy(alpha = .45f), Building); return@forEach }
+            }
             if (feature.points.size == 1) {
                 val point = project(feature.points.first())
                 when {
@@ -243,7 +316,14 @@ fun OfflineMap(
                 major -> MajorRoad
                 else -> Road
             }
-            line(feature.points, color, if (isTrail) 4f else if (major) 5f else 2.5f)
+            line(feature.points, color, if (isTrail) 2f else if (major) 5.5f else 3f)
+        }
+        // Road names, where there is room to read one.
+        if (scale >= MapDetail.ROAD_LABELS_ABOVE) {
+            drawLabels(visible.filter { it.points.size > 1 && MapDetail.isMajor(it.kind) }, ::project, Route, 30f)
+        }
+        if (scale >= MapDetail.BUSINESS_LABELS_ABOVE) {
+            drawLabels(visible.filter { it.kind.startsWith("business") }, ::project, Business, 26f)
         }
         line(trace, Track, 7f)
         line(route, Route, 10f)
@@ -260,6 +340,50 @@ fun OfflineMap(
             drawCircle(Color(0xFF2477D4), 8f, p)
         }
         drawCompass()
+    }
+}
+
+/**
+ * Names on the map, one per feature name, never overlapping.
+ *
+ * A label is only worth drawing if it can be read: each one claims a box, and
+ * a name whose box collides with a label already placed is dropped rather than
+ * smeared over it. Nothing is drawn off-canvas, which is most of the corridor
+ * a decode returns.
+ */
+private fun DrawScope.drawLabels(
+    features: List<MapFeature>,
+    project: (GeoPoint) -> Offset,
+    color: Color,
+    sizePx: Float,
+) {
+    val paint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        textSize = sizePx
+        this.color = color.toArgb()
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        textAlign = android.graphics.Paint.Align.CENTER
+    }
+    val halo = android.graphics.Paint(paint).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = sizePx / 6f
+        this.color = android.graphics.Color.WHITE
+    }
+    val taken = mutableListOf<android.graphics.RectF>()
+    val placed = HashSet<String>()
+    drawContext.canvas.nativeCanvas.let { canvas ->
+        features.forEach { feature ->
+            val name = feature.name?.takeIf { it.isNotBlank() } ?: return@forEach
+            if (!placed.add(name)) return@forEach
+            val at = project(feature.points[feature.points.size / 2])
+            if (at.x < 0f || at.y < 0f || at.x > size.width || at.y > size.height) return@forEach
+            val halfWidth = paint.measureText(name) / 2f
+            val box = android.graphics.RectF(at.x - halfWidth, at.y - sizePx, at.x + halfWidth, at.y + sizePx / 2f)
+            if (taken.any { android.graphics.RectF.intersects(it, box) }) return@forEach
+            taken += box
+            canvas.drawText(name, at.x, at.y, halo)
+            canvas.drawText(name, at.x, at.y, paint)
+        }
     }
 }
 

@@ -128,7 +128,11 @@ class PtilesRepository(context: Context) {
             }
             runCatching {
                 layer("water", c.lat, c.lon)?.water(c.lat, c.lon, RING)?.forEach { water ->
-                    if (water.geometry.size > 1) out += MapFeature(water.geometry.map { GeoPoint(it.lat, it.lon) }, "water", water.name)
+                    if (water.geometry.size < 2) return@forEach
+                    // geom_type 0 is a polygon -- a lake, a reservoir, a wide
+                    // river's bank -- and wants filling, not outlining.
+                    val kind = if (water.geomType == 0.toUByte()) "water_area" else "water"
+                    out += MapFeature(water.geometry.map { GeoPoint(it.lat, it.lon) }, kind, water.name)
                 }
             }
             runCatching {
@@ -183,16 +187,22 @@ class PtilesRepository(context: Context) {
                 }
             }
         }
-        // Buildings are point centroids in the PTiles API and are fetched by
-        // explicit point list rather than by ring, so one widened grid covers
-        // every sample centre at once.
+        // Buildings are fetched by explicit point list rather than by ring, so
+        // one widened grid covers every sample centre at once. The footprint
+        // ring comes back with them now; the centroid is the fallback for
+        // records that carry no polygon.
         runCatching {
             val buildingLayer = layer("buildings", lat, lon)
             if (buildingLayer != null) {
                 val span = buildingSampleSpan(spread)
                 val sample = (-span..span).flatMap { y -> (-span..span).map { x -> LatLon(lat + y * 0.003, lon + x * 0.004) } }
                 buildingLayer.buildingsAt(sample).filterNotNull().forEach { building ->
-                    out += MapFeature(listOf(GeoPoint(building.centroid.lat, building.centroid.lon)), "building", building.name)
+                    val outline = building.geometry.map { GeoPoint(it.lat, it.lon) }
+                    out += if (outline.size > 2) {
+                        MapFeature(outline, "building_area", building.name)
+                    } else {
+                        MapFeature(listOf(GeoPoint(building.centroid.lat, building.centroid.lon)), "building", building.name)
+                    }
                 }
             }
         }
@@ -593,11 +603,17 @@ class PtilesRepository(context: Context) {
          */
         internal fun featureRank(kind: String): Int = when {
             kind in setOf("motorway", "trunk", "primary", "secondary") -> 0
-            kind.startsWith("trail") || kind in setOf("path", "footway", "track", "steps") -> 1
-            kind == "water" -> 2
-            kind == "building" || kind.startsWith("camera") || kind.startsWith("business") -> 4
-            kind == "park" -> 3
-            else -> 2 // residential and unclassified roads
+            // Every other road, ahead of trails. Ranking trails higher meant a
+            // town's footways -- one per street, and there is a footway beside
+            // most streets -- filled the cap and evicted the street grid they
+            // run alongside, leaving highways floating on blank paper.
+            kind in setOf("tertiary", "residential", "unclassified", "service", "living_street", "road") -> 1
+            kind.startsWith("trail") || kind in setOf("path", "footway", "track", "steps") -> 3
+            kind == "water_area" || kind == "water" -> 2
+            kind == "park" -> 4
+            kind == "building_area" || kind == "building" ||
+                kind.startsWith("camera") || kind.startsWith("business") -> 5
+            else -> 1 // anything else the roads layer classified
         }
 
         /**

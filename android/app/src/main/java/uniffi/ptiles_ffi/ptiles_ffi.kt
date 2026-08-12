@@ -5283,7 +5283,13 @@ data class BuildingInfo (
     var `name`: kotlin.String?, 
     var `buildingType`: kotlin.String, 
     var `category`: kotlin.String?, 
-    var `centroid`: LatLon
+    var `centroid`: LatLon, 
+    /**
+     * The footprint ring, when the record carried one. Decoders have always
+     * had it; only the centroid was exposed, which is why the map drew towns
+     * as fields of dots.
+     */
+    var `geometry`: List<LatLon>
 ) {
     
     companion object
@@ -5300,6 +5306,7 @@ public object FfiConverterTypeBuildingInfo: FfiConverterRustBuffer<BuildingInfo>
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterTypeLatLon.read(buf),
+            FfiConverterSequenceTypeLatLon.read(buf),
         )
     }
 
@@ -5308,7 +5315,8 @@ public object FfiConverterTypeBuildingInfo: FfiConverterRustBuffer<BuildingInfo>
             FfiConverterOptionalString.allocationSize(value.`name`) +
             FfiConverterString.allocationSize(value.`buildingType`) +
             FfiConverterOptionalString.allocationSize(value.`category`) +
-            FfiConverterTypeLatLon.allocationSize(value.`centroid`)
+            FfiConverterTypeLatLon.allocationSize(value.`centroid`) +
+            FfiConverterSequenceTypeLatLon.allocationSize(value.`geometry`)
     )
 
     override fun write(value: BuildingInfo, buf: ByteBuffer) {
@@ -5317,6 +5325,7 @@ public object FfiConverterTypeBuildingInfo: FfiConverterRustBuffer<BuildingInfo>
             FfiConverterString.write(value.`buildingType`, buf)
             FfiConverterOptionalString.write(value.`category`, buf)
             FfiConverterTypeLatLon.write(value.`centroid`, buf)
+            FfiConverterSequenceTypeLatLon.write(value.`geometry`, buf)
     }
 }
 

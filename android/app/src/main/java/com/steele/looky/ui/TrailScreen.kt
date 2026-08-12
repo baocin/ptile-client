@@ -157,6 +157,8 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
             // A tap on the map means "let me look at the map".
             onTap = { panelOpen = !panelOpen },
             onViewportChange = { viewport ->
+                // Reload sooner while panning: waiting for a 400 m move meant
+                // the map ran off the edge of its data before fetching more.
                 if (GpxReader.distanceM(dataCenter, viewport) > VIEWPORT_RELOAD_M) {
                     panned = true
                     dataCenter = viewport

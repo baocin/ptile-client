@@ -92,4 +92,20 @@ class MapDetailAndTraceTest {
 
         assertTrue(GpxReader.segments(text).isEmpty())
     }
+
+    @Test fun pavementWaitsForACloseZoomSoTheStreetsShowThrough() {
+        // A town's footways trace every street; at arm's length they hid the
+        // roads underneath.
+        assertFalse(MapDetail.draws("trail:footway", isPoint = false, scale = 1.0f))
+        assertTrue(MapDetail.draws("trail:footway", isPoint = false, scale = MapDetail.FOOTWAYS_ABOVE))
+        // A named path is not pavement and draws with the rest.
+        assertTrue(MapDetail.draws("trail:path", isPoint = false, scale = 1.0f))
+    }
+
+    @Test fun theGroundIsPaintedBeforeWhatSitsOnIt() {
+        assertTrue(MapDetail.layer("water_area") < MapDetail.layer("residential"))
+        assertTrue(MapDetail.layer("building_area") < MapDetail.layer("motorway"))
+        assertTrue(MapDetail.layer("residential") < MapDetail.layer("motorway"))
+        assertTrue(MapDetail.layer("motorway") < MapDetail.layer("business:5"))
+    }
 }
