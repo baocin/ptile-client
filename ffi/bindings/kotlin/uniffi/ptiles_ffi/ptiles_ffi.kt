@@ -1202,7 +1202,7 @@ fun uniffi_ptiles_ffi_fn_method_ptilesstack_indoor_outdoor(`ptr`: Pointer,`lat`:
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_locate(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_ptiles_ffi_fn_method_ptilesstack_offline_route(`ptr`: Pointer,`startLat`: Double,`startLon`: Double,`endLat`: Double,`endLon`: Double,`mode`: RustBuffer.ByValue,`avoidHighways`: Byte,`avoidIntersections`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_ptiles_ffi_fn_method_ptilesstack_offline_route(`ptr`: Pointer,`startLat`: Double,`startLon`: Double,`endLat`: Double,`endLon`: Double,`mode`: RustBuffer.ByValue,`avoidHighways`: Byte,`avoidIntersections`: Byte,`snapRadiusM`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptilesstack_score(`ptr`: Pointer,`fix`: RustBuffer.ByValue,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1538,7 +1538,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_locate() != 32118.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_offline_route() != 61355.toShort()) {
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_offline_route() != 62351.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptilesstack_score() != 35403.toShort()) {
@@ -1571,7 +1571,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_constructor_navigator_new() != 23778.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 23503.toShort()) {
+    if (lib.uniffi_ptiles_ffi_checksum_constructor_ptileslayer_open() != 15911.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_constructor_ptilesstack_new() != 38860.toShort()) {
@@ -3307,7 +3307,7 @@ public object FfiConverterTypeNavigator: FfiConverter<Navigator, Pointer> {
 
 /**
  * One opened `.ptiles` file (local path or `http(s)://` URL), its layer
- * inferred from the filename (`<state>.<layer>.ptiles`), wrapping
+ * inferred from the filename (`<prefix>.<layer>.ptiles`), wrapping
  * `AnyFile` -- see that type's doc comment for why this isn't
  * `PtilesFile<FileSource>` directly anymore.
  */
@@ -3533,7 +3533,7 @@ public interface PtilesLayerInterface {
 
 /**
  * One opened `.ptiles` file (local path or `http(s)://` URL), its layer
- * inferred from the filename (`<state>.<layer>.ptiles`), wrapping
+ * inferred from the filename (`<prefix>.<layer>.ptiles`), wrapping
  * `AnyFile` -- see that type's doc comment for why this isn't
  * `PtilesFile<FileSource>` directly anymore.
  */
@@ -4133,8 +4133,9 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
         
     /**
      * Open a `.ptiles` file, local or remote. `path` must be
-     * `<state>.<layer>.ptiles` (optionally under an `http(s)://` URL) where
-     * `<layer>` is one of `roads`, `buildings_v8`, `business`.
+     * `<prefix>.<layer>.ptiles` (optionally under an `http(s)://` URL) where
+     * `<layer>` is one of `roads`, `buildings_v8`, `business`. The prefix is
+     * not read — name it after whatever the pack covers.
      */
     @Throws(PtilesException::class) fun `open`(`path`: kotlin.String): PtilesLayer {
             return FfiConverterTypePtilesLayer.lift(
@@ -4328,13 +4329,20 @@ public interface PtilesStackInterface {
     /**
      * Compute a bounded route entirely from installed PTiles layers.
      *
-     * The corridor is the endpoint bounding box plus a 1.5 km-ish end cap,
-     * capped by `cells_for_bounds` at 512 H3 cells. That keeps a mistaken
-     * coast-to-coast request from turning into an unbounded download or graph.
-     * Driving uses roads. Trail mode combines pedestrian-legal roads with the
-     * trails layer, so a path can connect to a trailhead through quiet streets.
+     * Corridor width, the disconnected-retry ladder and the snap radius are
+     * `core::CorridorPrefs`, so every binding routes the same way; this call
+     * takes the defaults and only overrides the snap radius. A corridor that
+     * would need more than `MAX_BOUNDS_CELLS` H3 cells is refused rather than
+     * downloaded, so a coast-to-coast request must be split into legs.
+     *
+     * Driving uses roads. Foot mode combines pedestrian-legal roads with the
+     * trails layer, so a path can connect to a trailhead through quiet
+     * streets.
+     *
+     * `snap_radius_m <= 0` uses the per-profile default
+     * (`core::default_snap_radius_m`).
      */
-    fun `offlineRoute`(`startLat`: kotlin.Double, `startLon`: kotlin.Double, `endLat`: kotlin.Double, `endLon`: kotlin.Double, `mode`: OfflineRouteMode, `avoidHighways`: kotlin.Boolean, `avoidIntersections`: kotlin.Boolean): OfflineRoute
+    fun `offlineRoute`(`startLat`: kotlin.Double, `startLon`: kotlin.Double, `endLat`: kotlin.Double, `endLon`: kotlin.Double, `mode`: OfflineRouteMode, `avoidHighways`: kotlin.Boolean, `avoidIntersections`: kotlin.Boolean, `snapRadiusM`: kotlin.Double): OfflineRoute
     
     /**
      * Score `fix` against whichever layers this stack holds, at the fix's
@@ -4523,18 +4531,25 @@ open class PtilesStack: Disposable, AutoCloseable, PtilesStackInterface
     /**
      * Compute a bounded route entirely from installed PTiles layers.
      *
-     * The corridor is the endpoint bounding box plus a 1.5 km-ish end cap,
-     * capped by `cells_for_bounds` at 512 H3 cells. That keeps a mistaken
-     * coast-to-coast request from turning into an unbounded download or graph.
-     * Driving uses roads. Trail mode combines pedestrian-legal roads with the
-     * trails layer, so a path can connect to a trailhead through quiet streets.
+     * Corridor width, the disconnected-retry ladder and the snap radius are
+     * `core::CorridorPrefs`, so every binding routes the same way; this call
+     * takes the defaults and only overrides the snap radius. A corridor that
+     * would need more than `MAX_BOUNDS_CELLS` H3 cells is refused rather than
+     * downloaded, so a coast-to-coast request must be split into legs.
+     *
+     * Driving uses roads. Foot mode combines pedestrian-legal roads with the
+     * trails layer, so a path can connect to a trailhead through quiet
+     * streets.
+     *
+     * `snap_radius_m <= 0` uses the per-profile default
+     * (`core::default_snap_radius_m`).
      */
-    @Throws(PtilesException::class)override fun `offlineRoute`(`startLat`: kotlin.Double, `startLon`: kotlin.Double, `endLat`: kotlin.Double, `endLon`: kotlin.Double, `mode`: OfflineRouteMode, `avoidHighways`: kotlin.Boolean, `avoidIntersections`: kotlin.Boolean): OfflineRoute {
+    @Throws(PtilesException::class)override fun `offlineRoute`(`startLat`: kotlin.Double, `startLon`: kotlin.Double, `endLat`: kotlin.Double, `endLon`: kotlin.Double, `mode`: OfflineRouteMode, `avoidHighways`: kotlin.Boolean, `avoidIntersections`: kotlin.Boolean, `snapRadiusM`: kotlin.Double): OfflineRoute {
             return FfiConverterTypeOfflineRoute.lift(
     callWithPointer {
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptilesstack_offline_route(
-        it, FfiConverterDouble.lower(`startLat`),FfiConverterDouble.lower(`startLon`),FfiConverterDouble.lower(`endLat`),FfiConverterDouble.lower(`endLon`),FfiConverterTypeOfflineRouteMode.lower(`mode`),FfiConverterBoolean.lower(`avoidHighways`),FfiConverterBoolean.lower(`avoidIntersections`),_status)
+        it, FfiConverterDouble.lower(`startLat`),FfiConverterDouble.lower(`startLon`),FfiConverterDouble.lower(`endLat`),FfiConverterDouble.lower(`endLon`),FfiConverterTypeOfflineRouteMode.lower(`mode`),FfiConverterBoolean.lower(`avoidHighways`),FfiConverterBoolean.lower(`avoidIntersections`),FfiConverterDouble.lower(`snapRadiusM`),_status)
 }
     }
     )
@@ -5229,9 +5244,11 @@ public object FfiConverterTypeAdminInfo: FfiConverterRustBuffer<AdminInfo> {
 data class AdminPolygon (
     var `name`: kotlin.String, 
     /**
-     * 4 = state, 6 = county.
+     * OSM admin level, `None` when the file does not record one. Only US
+     * county rings currently carry a recognisable signal (level 6); treat
+     * `None` as "this ring's level is unknown", not as "top level".
      */
-    var `adminLevel`: kotlin.UByte, 
+    var `adminLevel`: kotlin.UByte?, 
     /**
      * Containing state, resolved from the string table. County names repeat
      * across states, so `name` alone does not identify a county.
@@ -5250,7 +5267,7 @@ public object FfiConverterTypeAdminPolygon: FfiConverterRustBuffer<AdminPolygon>
     override fun read(buf: ByteBuffer): AdminPolygon {
         return AdminPolygon(
             FfiConverterString.read(buf),
-            FfiConverterUByte.read(buf),
+            FfiConverterOptionalUByte.read(buf),
             FfiConverterString.read(buf),
             FfiConverterSequenceTypeLatLon.read(buf),
         )
@@ -5258,14 +5275,14 @@ public object FfiConverterTypeAdminPolygon: FfiConverterRustBuffer<AdminPolygon>
 
     override fun allocationSize(value: AdminPolygon) = (
             FfiConverterString.allocationSize(value.`name`) +
-            FfiConverterUByte.allocationSize(value.`adminLevel`) +
+            FfiConverterOptionalUByte.allocationSize(value.`adminLevel`) +
             FfiConverterString.allocationSize(value.`state`) +
             FfiConverterSequenceTypeLatLon.allocationSize(value.`geometry`)
     )
 
     override fun write(value: AdminPolygon, buf: ByteBuffer) {
             FfiConverterString.write(value.`name`, buf)
-            FfiConverterUByte.write(value.`adminLevel`, buf)
+            FfiConverterOptionalUByte.write(value.`adminLevel`, buf)
             FfiConverterString.write(value.`state`, buf)
             FfiConverterSequenceTypeLatLon.write(value.`geometry`, buf)
     }
@@ -7549,7 +7566,11 @@ public object FfiConverterTypeMovementType: FfiConverterRustBuffer<MovementType>
 enum class OfflineRouteMode {
     
     DRIVING,
-    TRAIL;
+    /**
+     * Pedestrian: matches `core::RouteProfile::Foot`, and also merges the
+     * trails layer into the graph when the stack holds one.
+     */
+    FOOT;
     companion object
 }
 

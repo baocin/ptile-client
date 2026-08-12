@@ -38,5 +38,9 @@ fn admin_lookup_open_grows_polygons() {
     let admin = AdminFile::open(source).expect("parse admin file");
     let polys = admin.polygons().expect("decode polygons");
     assert!(!polys.is_empty(), "admin file should carry boundary polygons");
-    assert!(polys.iter().all(|p| p.admin_level == 4));
+    assert!(polys.iter().all(|p| matches!(p.admin_level, Some(4) | Some(6))));
+    // Both levels must be present, otherwise the state-table split silently
+    // collapsed to one class.
+    assert!(polys.iter().any(|p| p.admin_level == Some(4)));
+    assert!(polys.iter().any(|p| p.admin_level == Some(6)));
 }

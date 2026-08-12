@@ -143,6 +143,7 @@ fn offline_route_matches_the_browser_smoke_route() {
             OfflineRouteMode::Driving,
             false,
             false,
+            0.0,
         )
         .expect("native offline route");
     assert!(route.path.len() >= 2, "route has a drawable path");

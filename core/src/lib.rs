@@ -106,9 +106,10 @@ pub use query::{
     try_cell_center,
 };
 pub use route_graph::{
-    RouteFailure, RoutePrefs, RouteProfile, RouteResult, keep_road_class, profile_allows,
-    profile_allows_driving, profile_allows_foot, route_roads, route_roads_diagnostic,
-    route_roads_with, trail_segments,
+    CorridorError, CorridorPrefs, CorridorRoute, RouteFailure, RoutePrefs, RouteProfile,
+    RouteResult, corridor_cells, corridor_margins_deg, default_snap_radius_m, keep_road_class,
+    profile_allows, profile_allows_driving, profile_allows_foot, route_in_corridor, route_roads,
+    route_roads_diagnostic, route_roads_with, trail_segments, widened_corridor_cells,
 };
 pub use scoring::{Candidate, CandidateKind, Fix, ScoringParams, score_candidates};
 pub use viewshed::{ViewBuilding, Visibility, estimate_height, height_or_estimate, viewshed};

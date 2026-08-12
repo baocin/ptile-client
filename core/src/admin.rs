@@ -69,10 +69,14 @@ pub struct AdminStringTables {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AdminPolygon {
     pub name: String,
-    /// 4 = state, 6 = county. The writer stores no level field, so the only
-    /// on-disk signal is the `" County"` suffix `build_admin.py:353` appends to
-    /// every county ring (state names never carry it).
-    pub admin_level: u8,
+    /// OSM admin level, `None` when the file does not say.
+    ///
+    /// The writer stores no level field. [`AdminFile::polygons`] resolves it
+    /// exactly by testing the ring name against the state string table;
+    /// [`decode_polygons`] on its own has no table to test against and falls
+    /// back to the `" County"` suffix, so it reports a parish, borough or
+    /// independent city as unknown rather than misfiling it as top-level.
+    pub admin_level: Option<u8>,
     /// Index into [`AdminStringTables::state`]. County names repeat across
     /// states (two "Davidson County"), so this is the only disambiguator.
     pub state_idx: u8,
@@ -182,7 +186,7 @@ pub fn decode_polygons(data: &[u8]) -> Result<Vec<AdminPolygon>, DecodeError> {
             p += 8;
             coords.push([lon as f64 / 100_000.0, lat as f64 / 100_000.0]);
         }
-        let admin_level = if name.ends_with(" County") { 6 } else { 4 };
+        let admin_level = name.ends_with(" County").then_some(6);
         polygons.push(AdminPolygon {
             name,
             admin_level,
@@ -289,8 +293,21 @@ impl AdminFile {
     }
 
     /// Decode the boundary polygons (decompressed on demand).
+    ///
+    /// The file carries state and sub-state rings in one table with no level
+    /// field. With the string tables in hand the split is exact rather than a
+    /// name-suffix guess: a ring named after a state is level 4, anything else
+    /// is a county-equivalent (parish, borough, census area, independent city).
     pub fn polygons(&self) -> Result<Vec<AdminPolygon>, DecodeError> {
-        decode_polygons(&zstd_decompress(&self.polygons_compressed)?)
+        let mut polys = decode_polygons(&zstd_decompress(&self.polygons_compressed)?)?;
+        for p in &mut polys {
+            p.admin_level = Some(if self.lookup.tables.state.contains(&p.name) {
+                4
+            } else {
+                6
+            });
+        }
+        Ok(polys)
     }
 }
 
@@ -423,12 +440,12 @@ mod tests {
         let polys = decode_polygons(&blob).unwrap();
         assert_eq!(polys.len(), 1);
         assert_eq!(polys[0].name, "Zone");
-        assert_eq!(polys[0].admin_level, 4);
+        assert_eq!(polys[0].admin_level, None);
         assert_eq!(polys[0].coords[0], [-86.79367, 36.16076]);
     }
 
     #[test]
-    fn county_suffix_promotes_admin_level_to_6() {
+    fn only_the_county_suffix_yields_a_level() {
         let ring = |name: &str| {
             let mut blob = 1u32.to_le_bytes().to_vec();
             blob.push(1);
@@ -439,8 +456,9 @@ mod tests {
             blob.extend_from_slice(&0i32.to_le_bytes());
             decode_polygons(&blob).unwrap().remove(0).admin_level
         };
-        assert_eq!(ring("Davidson County"), 6);
-        assert_eq!(ring("Tennessee"), 4);
+        assert_eq!(ring("Davidson County"), Some(6));
+        assert_eq!(ring("Tennessee"), None);
+        assert_eq!(ring("Orleans Parish"), None);
     }
 }
 

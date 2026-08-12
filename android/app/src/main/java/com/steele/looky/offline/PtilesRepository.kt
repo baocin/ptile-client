@@ -501,9 +501,12 @@ class PtilesRepository(context: Context) {
         )
         val route = stack.offlineRoute(
             start.lat, start.lon, end.lat, end.lon,
-            if (trail) OfflineRouteMode.TRAIL else OfflineRouteMode.DRIVING,
+            if (trail) OfflineRouteMode.FOOT else OfflineRouteMode.DRIVING,
             avoidHighways,
             avoidIntersections,
+            // Zero keeps the profile's own snap radius, which is what this
+            // app has always routed with.
+            0.0,
         )
         check(route.path.isNotEmpty()) { "No roads or trails in the downloaded maps here -- download this area in Offline maps" }
         return RouteResult(
@@ -559,7 +562,10 @@ class PtilesRepository(context: Context) {
             ?.map { polygon ->
                 MapFeature(
                     polygon.geometry.map { GeoPoint(it.lat, it.lon) },
-                    if (polygon.adminLevel <= 4u) "admin_state" else "admin_county",
+                    // The level is optional now: a ring the pack cannot
+                    // place exactly is reported unknown rather than
+                    // misfiled as a state.
+                    if (polygon.adminLevel == 4.toUByte()) "admin_state" else "admin_county",
                     polygon.name,
                 )
             }

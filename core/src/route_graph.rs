@@ -831,11 +831,301 @@ pub fn route_roads_diagnostic(
     })
 }
 
+// --- Corridor policy ---------------------------------------------------------
+
+/// Metres in a degree of latitude. A degree of longitude is this shortened by
+/// the cosine of the latitude.
+const M_PER_DEG_LAT: f64 = 111_320.0;
+
+/// How wide a corridor to cut around a pair of endpoints, and what to do when
+/// the graph inside it comes back disconnected.
+///
+/// Every number here was measured against one road network at one latitude,
+/// so they are defaults rather than constants: a boat, a courier working
+/// alleys, or a country with a sparser digitised network can say otherwise.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CorridorPrefs {
+    /// Slack beyond each endpoint, in metres, so a route may leave the direct
+    /// line to reach the road that actually joins the two ends.
+    pub end_cap_m: f64,
+    /// Margin as a fraction of the endpoint separation. The wider of this and
+    /// [`Self::end_cap_m`] wins, so a long route gets a proportionally wider
+    /// corridor.
+    pub span_fraction: f64,
+    /// Corridor widenings to try on a disconnected graph, widest first.
+    ///
+    /// One fixed scale does not work: the cell budget follows the box *area*,
+    /// so 2.5x fits a 100 km north-south corridor (406 cells) and is rejected
+    /// outright for a 50 km diagonal (376 cells at 1x). A rejected widening is
+    /// a silent no-op, so the retry walks down until one fits.
+    pub retry_scales: Vec<f64>,
+    /// How far an endpoint may sit from the nearest routable way. `<= 0` uses
+    /// [`default_snap_radius_m`] for the profile.
+    pub snap_radius_m: f64,
+}
+
+impl Default for CorridorPrefs {
+    fn default() -> Self {
+        Self {
+            end_cap_m: 1_670.0,
+            span_fraction: 0.15,
+            retry_scales: vec![2.5, 2.0, 1.6, 1.3],
+            snap_radius_m: 0.0,
+        }
+    }
+}
+
+/// Snap radius for a profile when the caller does not name one. A car sits
+/// further from the centreline of the road it is on than a walker does from
+/// the path.
+pub fn default_snap_radius_m(profile: RouteProfile) -> f64 {
+    match profile {
+        RouteProfile::Driving => 250.0,
+        RouteProfile::Foot => 120.0,
+    }
+}
+
+/// Corridor half-margins in degrees, `(lat, lon)`.
+///
+/// The longitude margin is divided by the cosine of the midpoint latitude so
+/// the corridor is the same number of metres wide wherever it is cut. A fixed
+/// degree margin loses ~45% of its width between 35°N and 60°N.
+pub fn corridor_margins_deg(
+    start_lat: f64,
+    start_lon: f64,
+    end_lat: f64,
+    end_lon: f64,
+    prefs: &CorridorPrefs,
+) -> (f64, f64) {
+    let mid_lat = (start_lat + end_lat) / 2.0;
+    // Clamped so a polar request widens to a bounded box rather than dividing
+    // by zero; `cells_for_bounds` then refuses it honestly.
+    let shrink = math::cos(mid_lat * (core::f64::consts::PI / 180.0))
+        .abs()
+        .max(0.05);
+    let cap_deg = prefs.end_cap_m / M_PER_DEG_LAT;
+    (
+        cap_deg.max((start_lat - end_lat).abs() * prefs.span_fraction),
+        (cap_deg / shrink).max((start_lon - end_lon).abs() * prefs.span_fraction),
+    )
+}
+
+fn cells_at_scale(
+    start_lat: f64,
+    start_lon: f64,
+    end_lat: f64,
+    end_lon: f64,
+    lat_margin: f64,
+    lon_margin: f64,
+    scale: f64,
+) -> Result<Vec<u64>, crate::query::BoundsError> {
+    crate::query::cells_for_bounds(
+        start_lat.min(end_lat) - lat_margin * scale,
+        start_lon.min(end_lon) - lon_margin * scale,
+        start_lat.max(end_lat) + lat_margin * scale,
+        start_lon.max(end_lon) + lon_margin * scale,
+    )
+}
+
+/// Cells covering the corridor between two endpoints.
+pub fn corridor_cells(
+    start_lat: f64,
+    start_lon: f64,
+    end_lat: f64,
+    end_lon: f64,
+    prefs: &CorridorPrefs,
+) -> Result<Vec<u64>, crate::query::BoundsError> {
+    let (lat_margin, lon_margin) =
+        corridor_margins_deg(start_lat, start_lon, end_lat, end_lon, prefs);
+    cells_at_scale(
+        start_lat, start_lon, end_lat, end_lon, lat_margin, lon_margin, 1.0,
+    )
+}
+
+/// The widest corridor that still fits the cell cap and holds more cells than
+/// `base_cells`. `None` when nothing fits, which means a retry would only
+/// repeat the same work.
+pub fn widened_corridor_cells(
+    start_lat: f64,
+    start_lon: f64,
+    end_lat: f64,
+    end_lon: f64,
+    base_cells: usize,
+    prefs: &CorridorPrefs,
+) -> Option<Vec<u64>> {
+    let (lat_margin, lon_margin) =
+        corridor_margins_deg(start_lat, start_lon, end_lat, end_lon, prefs);
+    prefs.retry_scales.iter().find_map(|scale| {
+        cells_at_scale(
+            start_lat, start_lon, end_lat, end_lon, lat_margin, lon_margin, *scale,
+        )
+        .ok()
+        .filter(|cells| cells.len() > base_cells)
+    })
+}
+
+/// A corridor route plus how many segments had to be decoded to find it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CorridorRoute {
+    pub route: RouteResult,
+    pub decoded_segments: usize,
+}
+
+/// Why [`route_in_corridor`] produced no route: the corridor could not be
+/// built, the caller's fetch failed, or the search itself failed.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CorridorError<E> {
+    Bounds(crate::query::BoundsError),
+    Fetch(E),
+    Route(RouteFailure),
+}
+
+/// Route between two points over whatever segments `fetch` returns for a
+/// corridor of cells, retrying on a wider corridor when the graph is
+/// disconnected.
+///
+/// `fetch` decides which layers contribute — roads alone, or roads plus
+/// trails — and is the only part of this a binding has to supply.
+///
+/// A disconnected corridor means both ends snapped but the road joining them
+/// arcs outside the box: a river crossing or an interchange just past the
+/// edge. Widening pulls it in, but only while the cell cap has room left. A
+/// request whose corridor cannot fit [`crate::query::MAX_BOUNDS_CELLS`] is
+/// refused outright; split it into legs and route each.
+pub fn route_in_corridor<E>(
+    start_lat: f64,
+    start_lon: f64,
+    end_lat: f64,
+    end_lon: f64,
+    prefs: RoutePrefs,
+    corridor: &CorridorPrefs,
+    mut fetch: impl FnMut(&[u64]) -> Result<Vec<RoadSegment>, E>,
+) -> Result<CorridorRoute, CorridorError<E>> {
+    let cells = corridor_cells(start_lat, start_lon, end_lat, end_lon, corridor)
+        .map_err(CorridorError::Bounds)?;
+    let segments = fetch(&cells).map_err(CorridorError::Fetch)?;
+    let snap_m = if corridor.snap_radius_m > 0.0 {
+        corridor.snap_radius_m
+    } else {
+        default_snap_radius_m(prefs.profile)
+    };
+    let mut decoded_segments = segments.len();
+    let mut attempt = route_roads_diagnostic(
+        &segments, &[], start_lat, start_lon, end_lat, end_lon, snap_m, prefs,
+    );
+
+    if attempt == Err(RouteFailure::Disconnected) {
+        if let Some(wider) = widened_corridor_cells(
+            start_lat,
+            start_lon,
+            end_lat,
+            end_lon,
+            cells.len(),
+            corridor,
+        ) {
+            let widened = fetch(&wider).map_err(CorridorError::Fetch)?;
+            if widened.len() > segments.len() {
+                decoded_segments = widened.len();
+                attempt = route_roads_diagnostic(
+                    &widened, &[], start_lat, start_lon, end_lat, end_lon, snap_m, prefs,
+                );
+            }
+        }
+    }
+    Ok(CorridorRoute {
+        route: attempt.map_err(CorridorError::Route)?,
+        decoded_segments,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloc::string::String;
     use alloc::vec;
+
+    fn base_cell_count(start: (f64, f64), end: (f64, f64)) -> usize {
+        corridor_cells(start.0, start.1, end.0, end.1, &CorridorPrefs::default())
+            .expect("the base corridor must fit")
+            .len()
+    }
+
+    #[test]
+    fn a_short_route_widens_by_the_full_step() {
+        let start = (35.0, -88.0);
+        let end = (35.45, -88.0);
+        let base = base_cell_count(start, end);
+
+        let wider = widened_corridor_cells(
+            start.0,
+            start.1,
+            end.0,
+            end.1,
+            base,
+            &CorridorPrefs::default(),
+        )
+        .expect("a short route has room to widen");
+
+        assert!(wider.len() > base);
+    }
+
+    #[test]
+    fn a_diagonal_route_widens_after_the_widest_step_is_rejected() {
+        // ~50 km diagonal: the widest step blows the cell cap, and a single
+        // fixed scale gave up here and left the route disconnected.
+        let start = (35.0, -88.0);
+        let end = (35.315, -87.685);
+        let prefs = CorridorPrefs::default();
+        let base = base_cell_count(start, end);
+        let (lat_margin, lon_margin) =
+            corridor_margins_deg(start.0, start.1, end.0, end.1, &prefs);
+
+        assert!(
+            cells_at_scale(start.0, start.1, end.0, end.1, lat_margin, lon_margin, 2.5).is_err(),
+            "this case exists because the widest step is rejected",
+        );
+
+        let wider = widened_corridor_cells(start.0, start.1, end.0, end.1, base, &prefs)
+            .expect("a smaller widening must still be found");
+        assert!(wider.len() > base);
+        assert!(wider.len() <= crate::query::MAX_BOUNDS_CELLS);
+    }
+
+    #[test]
+    fn a_route_with_no_room_left_reports_no_widening() {
+        let start = (35.0, -88.0);
+        let end = (36.4, -86.6);
+
+        assert!(
+            widened_corridor_cells(start.0, start.1, end.0, end.1, 1, &CorridorPrefs::default())
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn the_longitude_margin_holds_its_width_in_metres_going_north() {
+        let prefs = CorridorPrefs::default();
+        let width_m = |lat: f64| {
+            let (_, lon_margin) = corridor_margins_deg(lat, -88.0, lat, -88.0, &prefs);
+            lon_margin * M_PER_DEG_LAT * math::cos(lat * (core::f64::consts::PI / 180.0))
+        };
+        // A fixed degree margin loses ~45% of its metres between these two.
+        assert!((width_m(35.0) - prefs.end_cap_m).abs() < 1.0);
+        assert!((width_m(60.0) - prefs.end_cap_m).abs() < 1.0);
+    }
+
+    #[test]
+    fn a_polar_request_does_not_blow_up_the_margin() {
+        let (_, lon_margin) = corridor_margins_deg(89.9, 0.0, 89.9, 0.0, &CorridorPrefs::default());
+        assert!(lon_margin.is_finite() && lon_margin < 1.0);
+    }
+
+    #[test]
+    fn the_snap_radius_falls_back_per_profile() {
+        assert_eq!(default_snap_radius_m(RouteProfile::Driving), 250.0);
+        assert_eq!(default_snap_radius_m(RouteProfile::Foot), 120.0);
+    }
 
     fn seg(class: &str, coords: Vec<[f64; 2]>, oneway: Option<&str>) -> RoadSegment {
         RoadSegment {
