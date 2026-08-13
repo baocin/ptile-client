@@ -787,7 +787,8 @@ private fun DeveloperMapScreen() {
         }
         HorizontalDivider()
         OfflineMap(
-            center, visible, center, null, emptyList(), live.recentPoints, Modifier.weight(1f),
+            center, visible, center, null, emptyList(), live.recentPoints,
+            modifier = Modifier.weight(1f),
             onTap = { tap ->
                 scope.launch {
                     // Businesses first, trails second: a tap in town is nearly

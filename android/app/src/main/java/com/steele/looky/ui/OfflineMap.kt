@@ -54,6 +54,7 @@ private val Park = Color(0xFF91AE83)
 private val Building = Color(0xFFB68E73)
 private val Route = Color(0xFF173F35)
 private val Track = Color(0xFFD67246)
+private val TrackDimmed = Color(0x40D67246)
 
 /**
  * Route colours.
@@ -316,6 +317,14 @@ fun OfflineMap(
     destination: GeoPoint?,
     route: List<GeoPoint>,
     trace: List<GeoPoint>,
+    /**
+     * A track drawn behind [trace], pale.
+     *
+     * What a trim is cutting away: the shape of the whole recording stays
+     * visible so the selection can be judged against it, rather than the map
+     * simply losing the parts being excluded.
+     */
+    dimmedTrace: List<GeoPoint> = emptyList(),
     modifier: Modifier = Modifier,
     onLongPress: (GeoPoint) -> Unit = {},
     onTap: (GeoPoint) -> Unit = {},
@@ -470,6 +479,7 @@ fun OfflineMap(
         if (scale >= MapDetail.BUSINESS_LABELS_ABOVE) {
             drawLabels(visible.filter { it.kind.startsWith("business") }, ::project, Business, 26f)
         }
+        line(dimmedTrace, TrackDimmed, 5f)
         line(trace, Track, 7f)
         // Casing under every part, so a split route still reads as one line.
         line(route, Route, 16f)

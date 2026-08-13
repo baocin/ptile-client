@@ -221,14 +221,17 @@ fun RecordingDetailScreen(file: File) {
     var trace by remember(file) { mutableStateOf<RecordedTrace?>(null) }
     var features by remember(file) { mutableStateOf(emptyList<MapFeature>()) }
     var stops by remember(file) { mutableStateOf(emptyList<Pair<TraceSegment, String>>()) }
+    var segments by remember(file) { mutableStateOf(emptyList<TraceSegment>()) }
+    var range by remember(file) { mutableStateOf(0f..1f) }
+    var withSensors by remember(file) { mutableStateOf(false) }
     LaunchedEffect(file) {
         trace = withContext(Dispatchers.IO) { GpxReader.read(file) }
+        segments = withContext(Dispatchers.IO) { GpxReader.readSegments(file) }
     }
     // Named stops, after the track: reading the file and then the buildings and
     // business layers for each stretch is far slower than the map, and the day
     // is legible without them.
-    LaunchedEffect(file) {
-        val segments = withContext(Dispatchers.IO) { GpxReader.readSegments(file) }
+    LaunchedEffect(segments) {
         stops = segments.mapNotNull { segment ->
             repo.placeLabel(segment)?.let { segment to it }
         }
@@ -243,6 +246,17 @@ fun RecordingDetailScreen(file: File) {
         }
     }
     val imperial = remember { com.steele.looky.AppSettings(context).imperialUnits }
+    // The trim decides what the map draws as well as what an export writes:
+    // choosing a window and then seeing the untrimmed day is no way to judge
+    // whether the window is the right one.
+    val timeline = remember(segments) { GpxExport.timeline(segments) }
+    val selection = remember(segments, range) {
+        val from = timeline.firstOrNull()
+        val to = timeline.lastOrNull()
+        if (from == null || to == null) segments
+        else GpxExport.trim(segments, atFraction(from, to, range.start), atFraction(from, to, range.endInclusive))
+    }
+    val selected = remember(selection) { selection.flatMap { it.points } }
     val loaded = trace
     if (loaded == null) {
         Text("Reading ${file.name}…", Modifier.padding(16.dp), color = ForestSoft)
@@ -263,7 +277,8 @@ fun RecordingDetailScreen(file: File) {
             current = null,
             destination = null,
             route = emptyList(),
-            trace = loaded.points,
+            trace = if (selected.isEmpty()) loaded.points else selected,
+            dimmedTrace = if (selected.size == loaded.points.size) emptyList() else loaded.points,
             modifier = Modifier.weight(1f),
         )
         HorizontalDivider()
@@ -278,7 +293,16 @@ fun RecordingDetailScreen(file: File) {
                 Stat("${file.length() / 1024} KB", "SIZE")
             }
             MovementBar(loaded.breakdown, Modifier.padding(top = 12.dp))
-            TrimAndExport(file, loaded)
+            TrimAndExport(
+                file = file,
+                segments = segments,
+                timeline = timeline,
+                selection = selection,
+                range = range,
+                onRange = { range = it },
+                withSensors = withSensors,
+                onSensors = { withSensors = it },
+            )
             Row(
                 Modifier.fillMaxWidth().padding(top = 10.dp).horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -367,26 +391,24 @@ private fun EmptyRecording(file: File) {
  * only thing that survives uninstalling the app.
  */
 @Composable
-private fun TrimAndExport(file: File, trace: RecordedTrace) {
+private fun TrimAndExport(
+    file: File,
+    segments: List<TraceSegment>,
+    timeline: List<Instant>,
+    selection: List<TraceSegment>,
+    range: ClosedFloatingPointRange<Float>,
+    onRange: (ClosedFloatingPointRange<Float>) -> Unit,
+    withSensors: Boolean,
+    onSensors: (Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var segments by remember(file) { mutableStateOf(emptyList<TraceSegment>()) }
-    LaunchedEffect(file) {
-        segments = withContext(Dispatchers.IO) { GpxReader.readSegments(file) }
-    }
-    val timeline = remember(segments) { GpxExport.timeline(segments) }
-    var range by remember(timeline) { mutableStateOf(0f..1f) }
-    var withSensors by remember(file) { mutableStateOf(false) }
     // Only worth offering when the recording actually carries any: files
     // written before the recorder logged sensors have none.
     val hasSensors = remember(segments) { segments.any { segment -> segment.sensors.any { it != null } } }
     val whole = range.start <= 0f && range.endInclusive >= 1f
-
     val from = timeline.firstOrNull()
     val to = timeline.lastOrNull()
-    val selection = remember(segments, range) {
-        if (from == null || to == null) segments else GpxExport.trim(segments, at(from, to, range.start), at(from, to, range.endInclusive))
-    }
     val summary = remember(selection) { summarise(selection) }
     val imperial = remember { com.steele.looky.AppSettings(context).imperialUnits }
 
@@ -409,7 +431,7 @@ private fun TrimAndExport(file: File, trace: RecordedTrace) {
             // instead of trimming.
             RangeSlider(
                 value = range,
-                onValueChange = { range = it },
+                onValueChange = onRange,
                 modifier = Modifier.padding(horizontal = 24.dp),
             )
             Text(
@@ -424,7 +446,7 @@ private fun TrimAndExport(file: File, trace: RecordedTrace) {
                 Modifier.fillMaxWidth().padding(top = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Checkbox(checked = withSensors, onCheckedChange = { withSensors = it })
+                Checkbox(checked = withSensors, onCheckedChange = onSensors)
                 Column(Modifier.padding(start = 4.dp)) {
                     Text("Include sensor data", style = MaterialTheme.typography.bodyMedium, color = Forest)
                     Text(
@@ -448,5 +470,5 @@ private fun TrimAndExport(file: File, trace: RecordedTrace) {
 }
 
 /** Where a slider position falls on a recording's own span. */
-private fun at(from: Instant, to: Instant, fraction: Float): Instant =
+internal fun atFraction(from: Instant, to: Instant, fraction: Float): Instant =
     from.plusMillis(((to.toEpochMilli() - from.toEpochMilli()) * fraction.toDouble()).toLong())
