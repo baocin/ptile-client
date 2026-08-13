@@ -117,6 +117,16 @@ apart. What does erase them is uninstalling, clearing app data, or changing the
 signing key (which forces an uninstall). `android:allowBackup` is left on, so
 Android's own backup is the second line of defence.
 
+Bumping the version changes nothing: installing 0.2.0 (versionCode 2) over
+0.1.0 (versionCode 1) on the validation device kept all eight day files and all
+eleven packs, the oldest dating from four days earlier.
+
+The one upgrade path that does erase everything is a change of signing key.
+Debug builds are signed with the machine's own debug keystore, so an APK built
+on a different machine -- or a move to a release key -- cannot install over an
+existing copy and has to be uninstalled first, taking the data with it. Plan
+that migration before it is forced.
+
 That is still the app's own storage. Export is what produces a copy the user
 owns: the trace detail screen writes GPX through the system file picker, to a
 location the app cannot reach and an uninstall cannot take.
