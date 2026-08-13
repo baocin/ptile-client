@@ -19,7 +19,11 @@ class GpxExportTest {
         </trkseg></trk>
     """.trimIndent()
 
-    private fun at(clock: String) = Instant.parse("2026-08-13T$clock:00Z")
+    /** `08:05` or `08:00:30`, both on the day the fixtures were recorded. */
+    private fun at(clock: String): Instant {
+        val withSeconds = if (clock.count { it == ':' } == 2) clock else "$clock:00"
+        return Instant.parse("2026-08-13T${withSeconds}Z")
+    }
 
     @Test fun everyFixKeepsItsOwnTimestamp() {
         val segments = GpxReader.segments(gpx)
@@ -116,5 +120,56 @@ class GpxExportTest {
 
         assertTrue(written.contains("&amp;"))
         assertTrue(written.contains("&lt;turning&gt;"))
+    }
+
+    private val sensorGpx = """
+        <trk><name>Walking</name><trkseg>
+        <trkpt lat="35.0" lon="-88.0"><time>2026-08-13T08:00:00Z</time><extensions><speed>1.4</speed><accuracy>5.0</accuracy><accel_variance>0.42</accel_variance><accel_freq>1.9</accel_freq><accel_steps>12</accel_steps><gpxtpx:TrackPointExtension><gpxtpx:cad>114</gpxtpx:cad></gpxtpx:TrackPointExtension></extensions></trkpt>
+        <trkpt lat="35.01" lon="-88.0"><time>2026-08-13T08:01:00Z</time><extensions><speed>1.5</speed><accel_variance>0.51</accel_variance></extensions></trkpt>
+        </trkseg></trk>
+    """.trimIndent()
+
+    @Test fun sensorsAreKeptVerbatimRatherThanRemodelled() {
+        // Parsed as raw payload, so a field the exporter was never taught about
+        // still survives the round trip.
+        val segment = GpxReader.segments(sensorGpx).single()
+
+        assertEquals(2, segment.sensors.size)
+        assertTrue(segment.sensors[0]!!.contains("<accel_freq>1.9</accel_freq>"))
+        assertTrue(segment.sensors[0]!!.contains("gpxtpx:cad>114<"))
+        assertTrue(segment.sensors[1]!!.contains("<accel_variance>0.51</accel_variance>"))
+    }
+
+    @Test fun anExportWithoutSensorsIsJustTheTrack() {
+        val written = GpxExport.write(GpxReader.segments(sensorGpx), includeSensors = false)
+
+        assertTrue(written.contains("<trkpt"))
+        assertTrue("no extensions when not asked for", !written.contains("accel_variance"))
+        assertTrue("no unused namespace either", !written.contains("gpxtpx"))
+    }
+
+    @Test fun anExportWithSensorsCarriesThemAndDeclaresTheirNamespaces() {
+        val written = GpxExport.write(GpxReader.segments(sensorGpx), includeSensors = true)
+
+        assertTrue(written.contains("<accel_variance>0.42</accel_variance>"))
+        assertTrue(written.contains("<gpxtpx:cad>114</gpxtpx:cad>"))
+        // A cad element with no declaration makes the whole document invalid.
+        assertTrue("gpxtpx must be declared", written.contains("xmlns:gpxtpx="))
+    }
+
+    @Test fun trimmingCarriesEachFixesOwnSensorsWithIt() {
+        val kept = GpxExport.trim(GpxReader.segments(sensorGpx), at("08:00:30"), at("08:02"))
+            .single()
+
+        assertEquals(1, kept.points.size)
+        assertTrue(kept.sensors.single()!!.contains("0.51"))
+    }
+
+    @Test fun sensorsSurviveAnExportAndReadBackUnchanged() {
+        val original = GpxReader.segments(sensorGpx)
+
+        val reparsed = GpxReader.segments(GpxExport.write(original, includeSensors = true))
+
+        assertEquals(original.map { it.sensors }, reparsed.map { it.sensors })
     }
 }

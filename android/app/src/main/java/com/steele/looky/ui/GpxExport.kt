@@ -11,14 +11,26 @@ import java.time.Instant
  * wants to keep or send is usually a slice of that, so the trim happens before
  * the export rather than in whatever they open it with.
  *
- * The output is GPX 1.1 with nothing but the standard elements. `TraceRecorder`
- * writes a richer file -- accelerometer summaries, road context, battery -- and
- * those extensions are deliberately dropped here: an exported file is for other
- * software, and every consumer understands a track point.
+ * The output is GPX 1.1. By default it carries nothing but the standard
+ * elements, because an exported file is for other software and every consumer
+ * understands a track point. `TraceRecorder` writes a much richer file --
+ * speed, accuracy, accelerometer summaries, cadence -- and those can be kept
+ * on request, for the case where the point of the export is the sensor data.
  */
 object GpxExport {
     private const val HEADER = """<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Looky" xmlns="http://www.topografix.com/GPX/1/1">
+"""
+
+    /**
+     * The recorder's own header, declaring the namespaces its extensions use.
+     *
+     * An export carrying `gpxtpx:cad` without this declaration is not a valid
+     * document, and strict readers reject the whole file rather than the one
+     * element they do not know.
+     */
+    private const val HEADER_WITH_SENSORS = """<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Looky" xmlns="http://www.topografix.com/GPX/1/1" xmlns:rook="https://rookery.local/gpx/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
 """
     private const val FOOTER = "</gpx>\n"
 
@@ -46,6 +58,7 @@ object GpxExport {
             segment.copy(
                 points = points,
                 times = times,
+                sensors = kept.map { segment.sensors.getOrNull(it) },
                 firstFix = times.firstOrNull { it != null },
                 lastFix = times.lastOrNull { it != null },
                 distanceM = GpxReader.pathLengthM(points),
@@ -57,9 +70,16 @@ object GpxExport {
     fun timeline(segments: List<TraceSegment>): List<Instant> =
         segments.flatMap { it.times.filterNotNull() }.sorted()
 
-    /** One `<trk>` per segment, named for how that stretch was travelled. */
-    fun write(segments: List<TraceSegment>): String = buildString {
-        append(HEADER)
+    /**
+     * One `<trk>` per segment, named for how that stretch was travelled.
+     *
+     * `includeSensors` re-emits each fix's recorded extensions -- speed,
+     * accuracy, accelerometer variance, dominant frequency, step count and
+     * cadence. Off by default because most software that opens a GPX wants a
+     * track and nothing else, and the payload roughly triples the file.
+     */
+    fun write(segments: List<TraceSegment>, includeSensors: Boolean = false): String = buildString {
+        append(if (includeSensors) HEADER_WITH_SENSORS else HEADER)
         segments.forEach { segment ->
             if (segment.points.isEmpty()) return@forEach
             append("<trk><name>").append(xml(segment.movement)).append("</name><trkseg>\n")
@@ -67,6 +87,11 @@ object GpxExport {
                 append("<trkpt lat=\"").append(point.lat).append("\" lon=\"").append(point.lon).append("\">")
                 segment.times.getOrNull(index)?.let {
                     append("<time>").append(it).append("</time>")
+                }
+                if (includeSensors) {
+                    segment.sensors.getOrNull(index)?.let {
+                        append("<extensions>").append(it).append("</extensions>")
+                    }
                 }
                 append("</trkpt>\n")
             }

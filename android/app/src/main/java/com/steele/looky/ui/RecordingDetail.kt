@@ -21,6 +21,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.RangeSlider
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -71,6 +72,15 @@ data class TraceSegment(
      * list of pairs because every consumer wants the geometry alone.
      */
     val times: List<Instant?> = emptyList(),
+    /**
+     * Each fix's `<extensions>` payload, verbatim, same length and order.
+     *
+     * Kept as raw XML rather than parsed into fields: the recorder writes
+     * speed, accuracy, three accelerometer summaries and a cadence today and
+     * may write more tomorrow, and an exporter that models them would silently
+     * drop whatever it had not been taught. Null where a fix carried none.
+     */
+    val sensors: List<String?> = emptyList(),
     val firstFix: Instant?,
     val lastFix: Instant?,
     val distanceM: Double,
@@ -100,6 +110,7 @@ object GpxReader {
     private val TRKPT = Regex("""<trkpt lat="([-0-9.]+)" lon="([-0-9.]+)"""")
     private val TRK_NAME = Regex("""<trk><name>([^<]*)</name>""")
     private val TIME = Regex("""<time>([^<]+)</time>""")
+    private val EXTENSIONS = Regex("""<extensions>(.*?)</extensions>""", RegexOption.DOT_MATCHES_ALL)
     private const val EARTH_RADIUS_M = 6_371_000.0
 
     fun parse(text: String): RecordedTrace {
@@ -139,15 +150,18 @@ object GpxReader {
                 val lat = point.groupValues[1].toDoubleOrNull() ?: return@mapNotNull null
                 val lon = point.groupValues[2].toDoubleOrNull() ?: return@mapNotNull null
                 val at = TIME.find(chunk)?.let { runCatching { Instant.parse(it.groupValues[1]) }.getOrNull() }
-                GeoPoint(lat, lon) to at
+                val sensors = EXTENSIONS.find(chunk)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
+                Triple(GeoPoint(lat, lon), at, sensors)
             }
             if (fixes.isEmpty()) return@mapIndexedNotNull null
             val points = fixes.map { it.first }
             val times = fixes.map { it.second }
+            val sensors = fixes.map { it.third }
             TraceSegment(
                 movement = movement,
                 points = points,
                 times = times,
+                sensors = sensors,
                 firstFix = times.firstOrNull { it != null },
                 lastFix = times.lastOrNull { it != null },
                 distanceM = pathLengthM(points),
@@ -362,6 +376,10 @@ private fun TrimAndExport(file: File, trace: RecordedTrace) {
     }
     val timeline = remember(segments) { GpxExport.timeline(segments) }
     var range by remember(timeline) { mutableStateOf(0f..1f) }
+    var withSensors by remember(file) { mutableStateOf(false) }
+    // Only worth offering when the recording actually carries any: files
+    // written before the recorder logged sensors have none.
+    val hasSensors = remember(segments) { segments.any { segment -> segment.sensors.any { it != null } } }
     val whole = range.start <= 0f && range.endInclusive >= 1f
 
     val from = timeline.firstOrNull()
@@ -377,7 +395,7 @@ private fun TrimAndExport(file: File, trace: RecordedTrace) {
         scope.launch {
             withContext(Dispatchers.IO) {
                 context.contentResolver.openOutputStream(target)?.use { out ->
-                    out.write(GpxExport.write(selection).toByteArray())
+                    out.write(GpxExport.write(selection, includeSensors = withSensors).toByteArray())
                 }
             }
         }
@@ -400,6 +418,22 @@ private fun TrimAndExport(file: File, trace: RecordedTrace) {
                 style = MaterialTheme.typography.bodySmall,
                 color = ForestSoft,
             )
+        }
+        if (hasSensors) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = withSensors, onCheckedChange = { withSensors = it })
+                Column(Modifier.padding(start = 4.dp)) {
+                    Text("Include sensor data", style = MaterialTheme.typography.bodyMedium, color = Forest)
+                    Text(
+                        "Speed, accuracy, accelerometer and cadence. Roughly triples the file.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ForestSoft,
+                    )
+                }
+            }
         }
         Button(
             onClick = { save.launch(GpxExport.fileName(file.name, summary.from, summary.to, whole)) },
