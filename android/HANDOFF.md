@@ -109,6 +109,18 @@ layer.
 
 ## GPX and durability expectations
 
+Recordings live in `filesDir/traces` and map packs in `filesDir/ptiles`, both
+internal app storage. Installing a new build over an old one keeps them: the
+validation device has traces from 2026-08-09 that survived roughly twenty
+`adb install -r` cycles, with `firstInstallTime` and `lastUpdateTime` days
+apart. What does erase them is uninstalling, clearing app data, or changing the
+signing key (which forces an uninstall). `android:allowBackup` is left on, so
+Android's own backup is the second line of defence.
+
+That is still the app's own storage. Export is what produces a copy the user
+owns: the trace detail screen writes GPX through the system file picker, to a
+location the app cannot reach and an uninstall cannot take.
+
 The writer follows the Rook GPX 1.1 day-file contract:
 
 - one file per local day, with one `<trk>` per debounced movement type;

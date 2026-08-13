@@ -17,6 +17,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.RangeSlider
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -57,6 +64,13 @@ import kotlin.math.sqrt
 data class TraceSegment(
     val movement: String,
     val points: List<GeoPoint>,
+    /**
+     * When each fix in [points] was recorded, same length and order.
+     *
+     * Null for a fix the writer left untimed. Parallel lists rather than a
+     * list of pairs because every consumer wants the geometry alone.
+     */
+    val times: List<Instant?> = emptyList(),
     val firstFix: Instant?,
     val lastFix: Instant?,
     val distanceM: Double,
@@ -116,18 +130,26 @@ object GpxReader {
             val from = match.range.last + 1
             val to = tracks.getOrNull(index + 1)?.range?.first ?: text.length
             val body = text.substring(from, to)
-            val points = TRKPT.findAll(body).mapNotNull { point ->
-                val lat = point.groupValues[1].toDoubleOrNull()
-                val lon = point.groupValues[2].toDoubleOrNull()
-                if (lat == null || lon == null) null else GeoPoint(lat, lon)
-            }.toList()
-            if (points.isEmpty()) return@mapIndexedNotNull null
-            val times = TIME.findAll(body).mapNotNull { runCatching { Instant.parse(it.groupValues[1]) }.getOrNull() }.toList()
+            // Each fix is read with its own timestamp rather than collecting
+            // the two separately: trimming a recording to a window needs to
+            // know which point a time belongs to, and a `<trkpt>` with no
+            // `<time>` would otherwise shift every later pairing by one.
+            val fixes = body.split("<trkpt").drop(1).mapNotNull { chunk ->
+                val point = TRKPT.find("<trkpt$chunk") ?: return@mapNotNull null
+                val lat = point.groupValues[1].toDoubleOrNull() ?: return@mapNotNull null
+                val lon = point.groupValues[2].toDoubleOrNull() ?: return@mapNotNull null
+                val at = TIME.find(chunk)?.let { runCatching { Instant.parse(it.groupValues[1]) }.getOrNull() }
+                GeoPoint(lat, lon) to at
+            }
+            if (fixes.isEmpty()) return@mapIndexedNotNull null
+            val points = fixes.map { it.first }
+            val times = fixes.map { it.second }
             TraceSegment(
                 movement = movement,
                 points = points,
-                firstFix = times.firstOrNull(),
-                lastFix = times.lastOrNull(),
+                times = times,
+                firstFix = times.firstOrNull { it != null },
+                lastFix = times.lastOrNull { it != null },
                 distanceM = pathLengthM(points),
             )
         }
@@ -242,6 +264,7 @@ fun RecordingDetailScreen(file: File) {
                 Stat("${file.length() / 1024} KB", "SIZE")
             }
             MovementBar(loaded.breakdown, Modifier.padding(top = 12.dp))
+            TrimAndExport(file, loaded)
             Row(
                 Modifier.fillMaxWidth().padding(top = 10.dp).horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -319,3 +342,77 @@ private fun EmptyRecording(file: File) {
         Text("No track points in this file yet.", color = Color(0xFF69716C))
     }
 }
+
+
+/**
+ * Choose a window of a recording and write it out as GPX.
+ *
+ * The window is picked over the recording's own timeline rather than a clock,
+ * so dragging an end lands on a fix that exists. Export goes through the system
+ * file picker: a copy the user owns, outside app storage, which is also the
+ * only thing that survives uninstalling the app.
+ */
+@Composable
+private fun TrimAndExport(file: File, trace: RecordedTrace) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var segments by remember(file) { mutableStateOf(emptyList<TraceSegment>()) }
+    LaunchedEffect(file) {
+        segments = withContext(Dispatchers.IO) { GpxReader.readSegments(file) }
+    }
+    val timeline = remember(segments) { GpxExport.timeline(segments) }
+    var range by remember(timeline) { mutableStateOf(0f..1f) }
+    val whole = range.start <= 0f && range.endInclusive >= 1f
+
+    val from = timeline.firstOrNull()
+    val to = timeline.lastOrNull()
+    val selection = remember(segments, range) {
+        if (from == null || to == null) segments else GpxExport.trim(segments, at(from, to, range.start), at(from, to, range.endInclusive))
+    }
+    val summary = remember(selection) { summarise(selection) }
+    val imperial = remember { com.steele.looky.AppSettings(context).imperialUnits }
+
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
+        val target = uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                context.contentResolver.openOutputStream(target)?.use { out ->
+                    out.write(GpxExport.write(selection).toByteArray())
+                }
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
+        if (timeline.size > 1 && from != null && to != null) {
+            Text("TRIM", style = MaterialTheme.typography.labelLarge, color = ForestSoft)
+            // Inset from the edges: at full width the end thumbs sit inside
+            // the system back-gesture strip, so dragging one leaves the screen
+            // instead of trimming.
+            RangeSlider(
+                value = range,
+                onValueChange = { range = it },
+                modifier = Modifier.padding(horizontal = 24.dp),
+            )
+            Text(
+                "${formatSpan(summary.from, summary.to) ?: "whole recording"} · " +
+                    "${summary.points} fixes · ${formatDistance(summary.distanceM, imperial)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = ForestSoft,
+            )
+        }
+        Button(
+            onClick = { save.launch(GpxExport.fileName(file.name, summary.from, summary.to, whole)) },
+            enabled = summary.points > 0,
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Forest),
+        ) {
+            Text(if (whole) "Export GPX" else "Export trimmed GPX")
+        }
+    }
+}
+
+/** Where a slider position falls on a recording's own span. */
+private fun at(from: Instant, to: Instant, fraction: Float): Instant =
+    from.plusMillis(((to.toEpochMilli() - from.toEpochMilli()) * fraction.toDouble()).toLong())
