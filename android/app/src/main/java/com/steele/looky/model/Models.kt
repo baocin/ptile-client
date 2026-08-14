@@ -30,8 +30,27 @@ data class LiveTraceState(
     /** Wall clock of the last GPS fix and accelerometer sample; 0 means none yet. */
     val lastFixAtMs: Long = 0L,
     val lastAccelAtMs: Long = 0L,
+    /**
+     * Accelerometer samples per second actually delivered; null until measured.
+     *
+     * The configured rate is only a request, so the two are shown separately
+     * rather than the setting being presented as fact.
+     */
+    val accelHz: Double? = null,
     val fixes: List<MotionFix> = emptyList(),
-)
+) {
+    /** No fix yet this session -- every position-derived number is a placeholder. */
+    val awaitingFix: Boolean get() = location == null
+}
+
+/**
+ * Where the map looks while there is no fix.
+ *
+ * Jackson, Tennessee: the pack the first build shipped with. It is a real
+ * place and nothing to do with the user, so anything drawn against it has to
+ * say so rather than let a distance read as a distance from here.
+ */
+val FALLBACK_ANCHOR = GeoPoint(35.73377, -88.03220)
 
 /** A GPS fix reduced to the fields the diagnostics panel averages. */
 data class MotionFix(

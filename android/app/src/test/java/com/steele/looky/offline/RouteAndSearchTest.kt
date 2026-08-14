@@ -4,6 +4,7 @@ import com.steele.looky.model.GeoPoint
 import com.steele.looky.model.MapFeature
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -85,12 +86,6 @@ class RouteAndSearchTest {
         assertEquals(5, PtilesRepository.mergeBusinessHits(hits, limit = 5).size)
     }
 
-    @Test fun theBuildingSampleGridWidensWithTheSpreadButStaysBounded() {
-        assertEquals(3, PtilesRepository.buildingSampleSpan(1))
-        assertEquals(4, PtilesRepository.buildingSampleSpan(2))
-        assertTrue(PtilesRepository.buildingSampleSpan(50) <= 6)
-    }
-
     @Test fun theRingStaysAtTheOnlyValueTheFfiAccepts() {
         // ffi/src/lib.rs::validate_ring rejects anything above 1, and the
         // runCatching blocks in featuresAround turn that error into an empty
@@ -99,25 +94,64 @@ class RouteAndSearchTest {
     }
 
     @Test fun oneSampleCentreWhenThereIsNoSpread() {
-        assertEquals(
-            listOf(GeoPoint(35.0, -88.0)),
-            PtilesRepository.sampleCenters(35.0, -88.0, 0),
+        assertEquals(1, PtilesRepository.sampleCenters(35.0, -88.0, 0).size)
+    }
+
+    @Test fun neighbouringViewportsShareTheirSampleCentres() {
+        // The cache is keyed on the grid, so a pan that keeps most of the
+        // screen must ask for most of the same centres. Unsnapped centres
+        // moved with the viewport and nothing was ever asked for twice.
+        val before = PtilesRepository.sampleCenters(35.0, -88.0, 2)
+        val after = PtilesRepository.sampleCenters(35.004, -88.004, 2)
+
+        assertEquals(before.toSet(), after.toSet())
+        val stepped = PtilesRepository.sampleCenters(35.0 + PtilesRepository.SAMPLE_STEP_LAT, -88.0, 2)
+        assertEquals(20, stepped.intersect(before.toSet()).size)
+    }
+
+    @Test fun theFetchLeadsThePan() {
+        val previous = GeoPoint(35.0, -88.0)
+        val now = GeoPoint(35.0 + PtilesRepository.SAMPLE_STEP_LAT, -88.0)
+        val lead = PtilesRepository.leadCenters(previous, now, 1)
+
+        // One row beyond the far edge in the direction of travel, and nothing
+        // at all when the viewport has not crossed a centre.
+        assertEquals(3, lead.size)
+        assertTrue(lead.all { it.lat > now.lat })
+        assertTrue(PtilesRepository.leadCenters(previous, previous, 1).isEmpty())
+        assertTrue(PtilesRepository.leadCenters(null, now, 1).isEmpty())
+    }
+
+    @Test fun aCellIsCachedPerQuestionAsked() {
+        // Developer mode adds rail, places add businesses: the same ground
+        // decoded without them is not an answer to the question with them.
+        assertNotEquals(
+            PtilesRepository.cacheFlags(developer = false, places = false, skipMinorRoads = false),
+            PtilesRepository.cacheFlags(developer = false, places = true, skipMinorRoads = false),
+        )
+        assertNotEquals(
+            PtilesRepository.cacheFlags(developer = false, places = false, skipMinorRoads = true),
+            PtilesRepository.cacheFlags(developer = false, places = false, skipMinorRoads = false),
         )
     }
 
     @Test fun spreadRingsTheCentreOnEverySideIncludingTheDiagonals() {
         val centers = PtilesRepository.sampleCenters(35.0, -88.0, 1)
+        val centre = centers.first()
 
         assertEquals(9, centers.size)
-        assertEquals(GeoPoint(35.0, -88.0), centers.first())
-        assertTrue(centers.any { it.lat > 35.0 && it.lon == -88.0 })
-        assertTrue(centers.any { it.lat < 35.0 && it.lon == -88.0 })
-        assertTrue(centers.any { it.lon > -88.0 && it.lat == 35.0 })
-        assertTrue(centers.any { it.lon < -88.0 && it.lat == 35.0 })
+        // Snapped to the grid, so the centre is the nearest node rather than
+        // the coordinate itself -- within half a step of it.
+        assertTrue(kotlin.math.abs(centre.lat - 35.0) <= PtilesRepository.SAMPLE_STEP_LAT / 2)
+        assertTrue(kotlin.math.abs(centre.lon + 88.0) <= PtilesRepository.SAMPLE_STEP_LON / 2)
+        assertTrue(centers.any { it.lat > centre.lat && it.lon == centre.lon })
+        assertTrue(centers.any { it.lat < centre.lat && it.lon == centre.lon })
+        assertTrue(centers.any { it.lon > centre.lon && it.lat == centre.lat })
+        assertTrue(centers.any { it.lon < centre.lon && it.lat == centre.lat })
         // The corners are the whole point: on a plus they were 2.7 km from any
         // centre, and a ring reaches about 2 km.
-        assertTrue(centers.any { it.lat > 35.0 && it.lon > -88.0 })
-        assertTrue(centers.any { it.lat < 35.0 && it.lon < -88.0 })
+        assertTrue(centers.any { it.lat > centre.lat && it.lon > centre.lon })
+        assertTrue(centers.any { it.lat < centre.lat && it.lon < centre.lon })
         assertEquals(centers.size, centers.distinct().size)
     }
 
@@ -128,17 +162,39 @@ class RouteAndSearchTest {
         assertTrue(PtilesRepository.SAMPLE_STEP_LON * 91_000 < 4_000)
     }
 
-    @Test fun aFeatureReturnedByTwoOverlappingCentresIsDrawnOnce() {
-        val road = MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.1)), "primary", "Broadway")
+    @Test fun footprintsAreNotRationedAgainstTheRoadNetwork() {
+        // One town's worth of buildings against a city's worth of roads: the
+        // roads must not evict the footprints, and the footprints must not
+        // eat the road budget.
+        val roads = (1..5_000).map {
+            MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.1)), "residential", "St $it")
+        }
+        val buildings = (1..5_000).map {
+            MapFeature(
+                listOf(GeoPoint(35.0, -88.0), GeoPoint(35.0, -88.001), GeoPoint(35.001, -88.001)),
+                "building_area",
+                null,
+            )
+        }
 
-        assertEquals(1, PtilesRepository.dedupeFeatures(listOf(road, road.copy())).size)
+        val capped = PtilesRepository.capFeatures(roads + buildings)
+
+        assertEquals(5_000, capped.count { it.kind == "building_area" })
+        assertEquals(PtilesRepository.MAX_DRAWN_FEATURES, capped.count { it.kind != "building_area" })
     }
 
-    @Test fun twoDistinctRoadsBothSurviveDeduplication() {
-        val first = MapFeature(listOf(GeoPoint(35.0, -88.0), GeoPoint(35.1, -88.1)), "primary", "Broadway")
-        val second = MapFeature(listOf(GeoPoint(36.0, -87.0), GeoPoint(36.1, -87.1)), "primary", "Church St")
+    @Test fun aFeatureBelongsToExactlyOneSampleCentre() {
+        // Ring-1 patches overlap about three to one, so the same road comes
+        // back from several centres. Ownership by first vertex is what keeps
+        // it drawn once without a de-duplication pass over 60,000 features.
+        val road = GeoPoint(35.0, -88.0)
+        val centres = PtilesRepository.sampleCenters(road.lat, road.lon, 2)
 
-        assertEquals(2, PtilesRepository.dedupeFeatures(listOf(first, second)).size)
+        assertEquals(1, centres.count { PtilesRepository.owns(it, road) })
+        // And a road a step away belongs to the neighbour, not to this centre.
+        val away = GeoPoint(road.lat + PtilesRepository.SAMPLE_STEP_LAT, road.lon)
+        assertEquals(1, centres.count { PtilesRepository.owns(it, away) })
+        assertFalse(PtilesRepository.owns(centres.first(), away))
     }
 
     @Test fun hitsSortNearestFirstWhenAnOriginIsKnown() {
@@ -277,12 +333,13 @@ class RouteAndSearchTest {
         // zoom -- the map read as one tile surrounded by paper.
         val near = PtilesRepository.sampleCenters(35.0, -88.0, 1)
         val wide = PtilesRepository.sampleCenters(35.0, -88.0, 2)
+        val centre = near.first()
 
         assertEquals(9, near.size)
         assertEquals(25, wide.size)
         assertTrue(
             "the diagonal must be sampled",
-            near.any { it.lat > 35.0 && it.lon > -88.0 },
+            near.any { it.lat > centre.lat && it.lon > centre.lon },
         )
     }
 

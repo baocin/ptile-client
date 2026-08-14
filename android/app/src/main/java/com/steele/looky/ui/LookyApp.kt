@@ -131,6 +131,22 @@ internal const val SEARCH_DEBOUNCE_MS = 300L
 /** How far the viewport must move before reloading features, in metres. */
 internal const val VIEWPORT_RELOAD_M = 220.0
 
+/**
+ * How far you must move before a search asks the layers again.
+ *
+ * What is near you does not change every second, and re-querying on each fix
+ * rebuilt the results list under the user's finger.
+ */
+internal const val SEARCH_REANCHOR_M = 400.0
+
+/**
+ * Sample spread for the first pass of a two-pass fetch.
+ *
+ * Enough to cover the screen, cheap enough to land in well under a second on a
+ * cold cache. The wide pass follows and replaces it.
+ */
+internal const val NEAR_SPREAD = 1
+
 /** Height cap on the hits-and-stops list before it scrolls inside the card. */
 
 
@@ -500,98 +516,6 @@ private fun SettingsToggle(title: String, subtitle: String, checked: Boolean, on
 }
 
 @Composable
-private fun RecordingsScreen() {
-    val context = LocalContext.current
-    val live by TraceBus.state.collectAsState()
-    val traces = File(context.filesDir, "traces").listFiles().orEmpty().filter { it.extension == "gpx" }
-    var open by remember { mutableStateOf<File?>(null) }
-    open?.let { file ->
-        BackHandler { open = null }
-        RecordingDetailScreen(file)
-        return
-    }
-    // One list of stretches, newest first, across every day file: drove for
-    // twenty minutes, walked for five, sat still for an hour. Which file a
-    // stretch came from is a storage detail, not a heading.
-    var segments by remember { mutableStateOf(emptyList<TraceSegment>()) }
-    val fileNames = traces.map { it.name }.sorted().joinToString()
-    LaunchedEffect(fileNames) {
-        segments = withContext(Dispatchers.IO) {
-            traces.flatMap(GpxReader::readSegments).sortedByDescending { it.lastFix ?: Instant.EPOCH }
-        }
-    }
-    // The open segment grows while you are moving, so re-read the file being
-    // written every time the recorder reports a new fix. Only that one file:
-    // re-parsing the whole history at 1 Hz is not a live view, it is a stall.
-    LaunchedEffect(live.pointsToday, live.traceFile) {
-        val active = live.traceFile?.let(::File)?.takeIf { it.exists() } ?: return@LaunchedEffect
-        val reread = withContext(Dispatchers.IO) { GpxReader.readSegments(active) }
-        segments = (segments.filterNot { it.file?.name == active.name } + reread)
-            .sortedByDescending { it.lastFix ?: Instant.EPOCH }
-    }
-    if (segments.isEmpty()) {
-        EmptyState("Nothing recorded yet", "Start Drive or Trail and the first accurate fix opens a segment.")
-        return
-    }
-    val imperial = remember { AppSettings(context).imperialUnits }
-    val placeRepo = remember { PtilesRepository(context) }
-    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        itemsIndexed(segments) { index, segment ->
-            val recording = index == 0 && live.running && segment.file?.absolutePath == live.traceFile
-            // Where a stretch was spent, when the fixes are evidence of a stop
-            // rather than a pause at a light. Keyed on the segment's own shape
-            // so a growing live segment re-asks as it settles.
-            var place by remember(segment.firstFix, segment.points.size) { mutableStateOf<String?>(null) }
-            LaunchedEffect(segment.firstFix, segment.points.size) {
-                place = placeRepo.placeLabel(segment)
-            }
-            Card(
-                Modifier.clickable { segment.file?.let { open = it } },
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(12.dp).background(movementColor(segment.movement), CircleShape))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            // "Unknown" is the classifier's starting state, not
-                            // a kind of travel; naming it that in a list of
-                            // journeys reads as a bug.
-                            movementLabel(segment.movement, recording),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Forest,
-                        )
-                        Text(
-                            listOfNotNull(
-                                formatSpan(segment.firstFix, segment.lastFix),
-                                place?.let { "near $it" },
-                                formatDistance(segment.distanceM, imperial),
-                                if (segment.points.size == 1) "1 fix" else "${segment.points.size} fixes",
-                            ).joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF69716C),
-                        )
-                    }
-                    segment.file?.let { file ->
-                        Text(
-                            TraceRecorder.dateOf(file)?.toString().orEmpty(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = ForestSoft,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun movementLabel(movement: String, recording: Boolean): String {
-    val name = if (movement.equals("Unknown", ignoreCase = true)) "Unclassified" else movement
-    return if (recording) "$name · now" else name
-}
-
-@Composable
 private fun PacksScreen(currentStateCode: String?, onPacksChanged: () -> Unit) {
     val context = LocalContext.current
     val manager = remember { PackManager(context) }
@@ -888,7 +812,7 @@ private fun DetailRow(label: String, value: String) {
 }
 
 @Composable
-private fun EmptyState(title: String, subtitle: String) {
+internal fun EmptyState(title: String, subtitle: String) {
     Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(72.dp).background(Lime, RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.Route, null, tint = Forest)

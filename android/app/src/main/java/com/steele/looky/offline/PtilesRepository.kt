@@ -28,6 +28,9 @@ data class NearbyContext(
 class PtilesRepository(context: Context) {
     private val appContext = context.applicationContext
     private val manager = PackManager(context)
+    /** A sample centre on the global grid, and what was asked of it. */
+    private data class CellKey(val y: Int, val x: Int, val flags: Int)
+
     private data class CachedLayer(
         val length: Long,
         val modified: Long,
@@ -44,6 +47,35 @@ class PtilesRepository(context: Context) {
     // Empty string is "looked, found nothing": a map cannot hold null, and
     // re-running a lookup that already came back empty is the expensive case.
     private val placeCache = ConcurrentHashMap<Pair<Long, Long>, String>()
+
+    /**
+     * Decoded features for one sample centre, keyed on the global grid.
+     *
+     * Sample centres are snapped to a fixed lat/lon grid rather than laid out
+     * around wherever the viewport happens to sit, so a pan asks for mostly the
+     * same centres the last fetch already decoded and only the leading edge
+     * costs anything. Without it every 220 m nudge re-decoded the whole screen,
+     * which is what a fast pan outran.
+     *
+     * ponytail: an LRU counted in entries, not bytes. A dense city centre is a
+     * few thousand features, so this bound is tens of megabytes at worst --
+     * measure before raising it.
+     */
+    private val cellCache = object : LinkedHashMap<CellKey, List<MapFeature>>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<CellKey, List<MapFeature>>) =
+            size > MAX_CACHED_CELLS
+    }
+
+    /**
+     * Jurisdiction rings for one grid cell.
+     *
+     * The admin pack holds 6,245 rings and the scan runs once per fetch, which
+     * on a pan is the only work left after the feature cache answers.
+     */
+    private val adminCache = ConcurrentHashMap<Pair<Int, Int>, List<MapFeature>>()
+
+    /** Where the previous fetch was centred, so the next one can lead the pan. */
+    @Volatile private var lastFetchCenter: GeoPoint? = null
 
     data class RouteResult(
         val points: List<GeoPoint>,
@@ -108,9 +140,10 @@ class PtilesRepository(context: Context) {
      * which the `runCatching` blocks below turn into an empty map. So coverage
      * is widened by querying ring 1 at several sample centres and merging.
      *
-     * ponytail: `spread` sample centres cost `2 * spread + 1` times the decode
-     * work. If first paint drags, drop the default to 0 before reaching for a
-     * tile cache.
+     * `spread` now comes from the viewport itself (`MapDetail.fetchSpread`),
+     * wide enough to cover the visible bounds plus two res-7 rings past every
+     * edge. That is only affordable because each centre is cached: a fetch a
+     * step to the north is one new row of centres, not a new screenful.
      */
     fun featuresAround(
         lat: Double,
@@ -121,94 +154,139 @@ class PtilesRepository(context: Context) {
         spread: Int = DEFAULT_SPREAD,
         skipMinorRoads: Boolean = false,
     ): List<MapFeature> {
+        val started = System.currentTimeMillis()
+        val here = GeoPoint(lat, lon)
+        val centers = (sampleCenters(lat, lon, spread) + leadCenters(lastFetchCenter, here, spread)).distinct()
+        lastFetchCenter = here
+        val flags = cacheFlags(developer, places, skipMinorRoads)
         val out = mutableListOf<MapFeature>()
-        val centers = sampleCenters(lat, lon, spread)
-        centers.forEach { c ->
+        var decodes = 0
+        centers.forEach { center ->
+            val key = CellKey(gridY(center.lat), gridX(center.lon), flags)
+            synchronized(cellCache) { cellCache[key] }
+                ?.let { out += it; return@forEach }
+            val decoded = decodeAround(center, developer, places, skipMinorRoads)
+            decodes++
+            synchronized(cellCache) { cellCache[key] = decoded }
+            out += decoded
+        }
+        // State and county lines from the admin pack itself. It carries 6,245
+        // rings; the bbox is load-bearing, since the whole table is 611k
+        // vertices and every one of them would cross the FFI.
+        runCatching {
+            val reach = ADMIN_REACH_DEG
+            // ponytail: cleared wholesale rather than aged. A day's driving
+            // is a few dozen entries; anything smarter needs a reason.
+            if (adminCache.size > MAX_CACHED_CELLS) adminCache.clear()
+            out += adminCache.getOrPut(gridY(lat) to gridX(lon)) {
+                adminBoundaries(lat - reach, lon - reach, lat + reach, lon + reach)
+            }
+        }
+        val capped = capFeatures(out)
+        // One line per fetch: how much of the grid the pan re-used, and what
+        // the miss cost. It is the only view of whether the cache is working
+        // on a device, and it is cheap enough to leave switched on.
+        runCatching {
+            android.util.Log.d(
+                "PtilesRepo",
+                "fetch spread=$spread centres=${centers.size} decoded=$decodes " +
+                    "raw=${out.size} drawn=${capped.size} footprints=${capped.count { it.kind == "building_area" }} " +
+                    "ms=${System.currentTimeMillis() - started}",
+            )
+        }
+        return capped
+    }
+
+    /** Everything one sample centre decodes. Cached by [featuresAround]. */
+    private fun decodeAround(
+        center: GeoPoint,
+        developer: Boolean,
+        places: Boolean,
+        skipMinorRoads: Boolean,
+    ): List<MapFeature> {
+        val out = mutableListOf<MapFeature>()
+        val c = center
+        runCatching {
+            layer("roads", c.lat, c.lon)?.roads(c.lat, c.lon, RING)?.forEach { road ->
+                // Pavement and parking aisles are 82.5% of the segments a
+                // city cell decodes, and at a zoom that hides them every
+                // one of those objects is allocated, marshalled across the
+                // FFI, deduped, ranked, and then thrown away.
+                if (skipMinorRoads && road.roadClass in MINOR_ROAD_CLASSES) return@forEach
+                out += MapFeature(
+                    road.geometry.map { GeoPoint(it.lat, it.lon) },
+                    road.roadClass,
+                    road.name,
+                )
+            }
+        }
+        runCatching {
+            layer("water", c.lat, c.lon)?.water(c.lat, c.lon, RING)?.forEach { water ->
+                if (water.geometry.size < 2) return@forEach
+                // geom_type 0 is a polygon -- a lake, a reservoir, a wide
+                // river's bank -- and wants filling, not outlining.
+                val kind = if (water.geomType == 0.toUByte()) "water_area" else "water"
+                out += MapFeature(water.geometry.map { GeoPoint(it.lat, it.lon) }, kind, water.name)
+            }
+        }
+        runCatching {
+            layer("parks", c.lat, c.lon)?.parks(c.lat, c.lon, RING)?.forEach { park ->
+                if (park.geometry.size > 1) out += MapFeature(park.geometry.map { GeoPoint(it.lat, it.lon) }, "park", park.name)
+            }
+        }
+        runCatching {
+            layer("trails", c.lat, c.lon)?.trails(c.lat, c.lon, RING)?.forEach { trail ->
+                val points = trail.geometry.map { GeoPoint(it.lat, it.lon) }
+                if (points.isEmpty()) return@forEach
+                if (trail.isTrailhead) {
+                    out += MapFeature(listOf(points.first()), "trailhead", trail.name)
+                    return@forEach
+                }
+                out += MapFeature(points, "trail:${trail.trailType}", trail.name)
+                // Where a path starts and stops is the thing a walker
+                // squints for; the line alone does not say.
+                out += MapFeature(listOf(points.first()), "trail_end", trail.name)
+                if (points.size > 1) out += MapFeature(listOf(points.last()), "trail_end", trail.name)
+            }
+        }
+        if (places || developer) runCatching {
+            layer("business", c.lat, c.lon)?.businessesNear(c.lat, c.lon, RING, 1_500.0)?.forEach { business ->
+                if (isFlightNode(business.name)) return@forEach
+                out += MapFeature(
+                    listOf(GeoPoint(business.location.lat, business.location.lon)),
+                    "business:${business.categoryIdx}",
+                    business.name,
+                )
+            }
+        }
+        // Camera is a national layer, so the normal state-aware selection
+        // falls through to US.camera.ptiles. It is rendered in both Drive
+        // and Trail whenever installed, not hidden behind developer mode.
+        runCatching {
+            layer("camera", c.lat, c.lon)?.cameras(c.lat, c.lon, RING)?.forEach { camera ->
+                out += cameraMapFeature(camera)
+            }
+        }
+        if (developer) {
             runCatching {
-                layer("roads", c.lat, c.lon)?.roads(c.lat, c.lon, RING)?.forEach { road ->
-                    // Pavement and parking aisles are 82.5% of the segments a
-                    // city cell decodes, and at a zoom that hides them every
-                    // one of those objects is allocated, marshalled across the
-                    // FFI, deduped, ranked, and then thrown away.
-                    if (skipMinorRoads && road.roadClass in MINOR_ROAD_CLASSES) return@forEach
-                    out += MapFeature(
-                        road.geometry.map { GeoPoint(it.lat, it.lon) },
-                        road.roadClass,
-                        road.name,
-                    )
-                }
-            }
-            runCatching {
-                layer("water", c.lat, c.lon)?.water(c.lat, c.lon, RING)?.forEach { water ->
-                    if (water.geometry.size < 2) return@forEach
-                    // geom_type 0 is a polygon -- a lake, a reservoir, a wide
-                    // river's bank -- and wants filling, not outlining.
-                    val kind = if (water.geomType == 0.toUByte()) "water_area" else "water"
-                    out += MapFeature(water.geometry.map { GeoPoint(it.lat, it.lon) }, kind, water.name)
-                }
-            }
-            runCatching {
-                layer("parks", c.lat, c.lon)?.parks(c.lat, c.lon, RING)?.forEach { park ->
-                    if (park.geometry.size > 1) out += MapFeature(park.geometry.map { GeoPoint(it.lat, it.lon) }, "park", park.name)
-                }
-            }
-            runCatching {
-                layer("trails", c.lat, c.lon)?.trails(c.lat, c.lon, RING)?.forEach { trail ->
-                    val points = trail.geometry.map { GeoPoint(it.lat, it.lon) }
-                    if (points.isEmpty()) return@forEach
-                    if (trail.isTrailhead) {
-                        out += MapFeature(listOf(points.first()), "trailhead", trail.name)
-                        return@forEach
-                    }
-                    out += MapFeature(points, "trail:${trail.trailType}", trail.name)
-                    // Where a path starts and stops is the thing a walker
-                    // squints for; the line alone does not say.
-                    out += MapFeature(listOf(points.first()), "trail_end", trail.name)
-                    if (points.size > 1) out += MapFeature(listOf(points.last()), "trail_end", trail.name)
-                }
-            }
-            if (places || developer) runCatching {
-                layer("business", c.lat, c.lon)?.businessesNear(c.lat, c.lon, RING, 1_500.0)?.forEach { business ->
-                    if (isFlightNode(business.name)) return@forEach
-                    out += MapFeature(
-                        listOf(GeoPoint(business.location.lat, business.location.lon)),
-                        "business:${business.categoryIdx}",
-                        business.name,
-                    )
-                }
-            }
-            // Camera is a national layer, so the normal state-aware selection
-            // falls through to US.camera.ptiles. It is rendered in both Drive
-            // and Trail whenever installed, not hidden behind developer mode.
-            runCatching {
-                layer("camera", c.lat, c.lon)?.cameras(c.lat, c.lon, RING)?.forEach { camera ->
-                    out += cameraMapFeature(camera)
-                }
-            }
-            if (developer) {
-                runCatching {
-                    layer("rail", c.lat, c.lon)?.rail(c.lat, c.lon, RING)?.forEach { rail ->
-                        if (rail.geometry.isNotEmpty()) {
-                            out += MapFeature(
-                                rail.geometry.map { GeoPoint(it.lat, it.lon) },
-                                if (rail.geomType == 1.toUByte()) "station" else "rail:${rail.railType}",
-                                rail.name,
-                            )
-                        }
+                layer("rail", c.lat, c.lon)?.rail(c.lat, c.lon, RING)?.forEach { rail ->
+                    if (rail.geometry.isNotEmpty()) {
+                        out += MapFeature(
+                            rail.geometry.map { GeoPoint(it.lat, it.lon) },
+                            if (rail.geomType == 1.toUByte()) "station" else "rail:${rail.railType}",
+                            rail.name,
+                        )
                     }
                 }
             }
         }
-        // Buildings are fetched by explicit point list rather than by ring, so
-        // one widened grid covers every sample centre at once. The footprint
-        // ring comes back with them now; the centroid is the fallback for
-        // records that carry no polygon.
+        // Every footprint in the cell, not the ones a probe grid landed in.
+        // `buildings_at` answers one building per probe point, so the old
+        // whole-viewport grid drew 25 buildings for a town; `buildings` is the
+        // same ring query the other layers use and returns the block.
         runCatching {
-            val buildingLayer = layer("buildings", lat, lon)
-            if (buildingLayer != null) {
-                val span = buildingSampleSpan(spread)
-                val sample = (-span..span).flatMap { y -> (-span..span).map { x -> LatLon(lat + y * 0.003, lon + x * 0.004) } }
-                buildingLayer.buildingsAt(sample).filterNotNull().forEach { building ->
+            layer("buildings", c.lat, c.lon)?.buildings(c.lat, c.lon, RING)
+                ?.forEach { building ->
                     val outline = building.geometry.map { GeoPoint(it.lat, it.lon) }
                     out += if (outline.size > 2) {
                         MapFeature(outline, "building_area", building.name)
@@ -216,16 +294,15 @@ class PtilesRepository(context: Context) {
                         MapFeature(listOf(GeoPoint(building.centroid.lat, building.centroid.lon)), "building", building.name)
                     }
                 }
-            }
         }
-        // State and county lines from the admin pack itself. It carries 6,245
-        // rings; the bbox is load-bearing, since the whole table is 611k
-        // vertices and every one of them would cross the FFI.
-        runCatching {
-            val reach = ADMIN_REACH_DEG
-            out += adminBoundaries(lat - reach, lon - reach, lat + reach, lon + reach)
-        }
-        return capFeatures(dedupeFeatures(out))
+        // A centre keeps only what it owns. Ring-1 patches overlap by about
+        // three to one, so merging them whole meant 62,000 features where the
+        // ground held 20,000, and the de-duplication that followed cost more
+        // than the decode did. Owning by first vertex is exact: every feature
+        // has one, so it lands in exactly one centre and nothing is drawn
+        // twice or lost -- bar features whose owner is outside the fetch, which
+        // is ground the fetch was not covering anyway.
+        return out.filter { owns(center, it.points.first()) }
     }
 
     /**
@@ -619,6 +696,56 @@ class PtilesRepository(context: Context) {
         internal const val DEFAULT_SPREAD = 1
 
         /**
+         * Sample centres held decoded at once.
+         *
+         * The widest fetch is 9x9 centres plus a lead row, so this holds one
+         * full viewport and the ground a pan is about to cross. Past that the
+         * eldest goes, which is the one furthest behind the pan.
+         */
+        internal const val MAX_CACHED_CELLS = 128
+
+        /** True when a point falls in the box a sample centre owns. */
+        internal fun owns(center: GeoPoint, point: GeoPoint): Boolean =
+            gridY(point.lat) == gridY(center.lat) && gridX(point.lon) == gridX(center.lon)
+
+        internal fun gridY(lat: Double): Int = Math.round(lat / SAMPLE_STEP_LAT).toInt()
+
+        internal fun gridX(lon: Double): Int = Math.round(lon / SAMPLE_STEP_LON).toInt()
+
+        /** Which decode a cached cell came from; a cell decoded without the
+         * business layer is not the same answer as one decoded with it. */
+        internal fun cacheFlags(developer: Boolean, places: Boolean, skipMinorRoads: Boolean): Int =
+            (if (developer) 1 else 0) or (if (places) 2 else 0) or (if (skipMinorRoads) 4 else 0)
+
+        /**
+         * One extra row or column of centres ahead of the pan.
+         *
+         * The debounce means a fetch starts only once the viewport settles, so
+         * a fast pan is always chasing its data. Rather than decode more often,
+         * the fetch reaches further the way the user is already going: by the
+         * time the next one runs, its leading edge is a cache hit.
+         */
+        internal fun leadCenters(previous: GeoPoint?, now: GeoPoint, spread: Int): List<GeoPoint> {
+            if (previous == null) return emptyList()
+            val dy = Integer.signum(gridY(now.lat) - gridY(previous.lat))
+            val dx = Integer.signum(gridX(now.lon) - gridX(previous.lon))
+            if (dy == 0 && dx == 0) return emptyList()
+            val y0 = gridY(now.lat)
+            val x0 = gridX(now.lon)
+            val out = mutableListOf<GeoPoint>()
+            if (dy != 0) {
+                for (x in -spread..spread) out += gridPoint(y0 + dy * (spread + 1), x0 + x)
+            }
+            if (dx != 0) {
+                for (y in -spread..spread) out += gridPoint(y0 + y, x0 + dx * (spread + 1))
+            }
+            return out
+        }
+
+        internal fun gridPoint(y: Int, x: Int): GeoPoint =
+            GeoPoint(y * SAMPLE_STEP_LAT, x * SAMPLE_STEP_LON)
+
+        /**
          * Spacing between sample centres, roughly one res-7 cell.
          *
          * A res-7 cell is about 1.4 km across; these are the degree equivalents
@@ -706,6 +833,13 @@ class PtilesRepository(context: Context) {
         internal const val MAX_DRAWN_FEATURES = 3_000
 
         /**
+         * Ceiling on footprints, which have their own budget. Two paths for
+         * the layer whatever its size, so the cost left is projecting the
+         * vertices -- which is why this is six thousand and not three hundred.
+         */
+        internal const val MAX_DRAWN_FOOTPRINTS = 6_000
+
+        /**
          * The newest installed admin pack.
          *
          * Same rule [layerCandidates] applies to state packs: an unversioned
@@ -760,6 +894,18 @@ class PtilesRepository(context: Context) {
             features: List<MapFeature>,
             max: Int = MAX_DRAWN_FEATURES,
         ): List<MapFeature> {
+            // Footprints are budgeted apart from everything else because they
+            // no longer cost like everything else: the renderer draws the whole
+            // layer in two paths, so the price of one more is a projection, not
+            // a stroke. Inside the shared budget they took a tenth of it and a
+            // town came out with three hundred buildings.
+            val footprints = features.filter { it.kind == "building_area" }
+            if (footprints.isNotEmpty()) {
+                val rest = capFeatures(features.filter { it.kind != "building_area" }, max)
+                return rest + footprints
+                    .sortedByDescending { it.points.size }
+                    .take(MAX_DRAWN_FOOTPRINTS)
+            }
             if (features.size <= max) return features
             // Indices, not the features themselves: two stretches of the same
             // street decode to equal values, and a set would collapse them.
@@ -863,48 +1009,35 @@ class PtilesRepository(context: Context) {
             return inside
         }
 
-        /** Half-width of the building sample grid for a given spread. */
-        internal fun buildingSampleSpan(spread: Int): Int = (spread + 2).coerceIn(2, 6)
-
         /**
-         * Query centres for a viewport: the coordinate itself plus `spread`
-         * steps out along each axis.
+         * Query centres for a viewport: the grid node nearest the coordinate
+         * plus `spread` steps out along each axis.
          *
-         * A plus shape rather than a full grid -- the diagonals are largely
-         * reached by the ring around each arm, and a 3x3 grid would cost 9
-         * decodes for coverage 5 mostly provides.
+         * A grid, not a plus. The arms of a plus are a step apart and each ring
+         * reaches about 2 km, so the corners of the viewport sat 2.7 km from
+         * any sample centre and came back empty -- which is why the map read as
+         * one tile of detail with blank paper around it.
+         *
+         * Centres are snapped to a fixed global grid rather than hung off the
+         * coordinate, so the same ground always has the same centre and a pan
+         * re-uses what the last fetch decoded. Unsnapped, every fetch invented
+         * a fresh set of centres and nothing was ever a second time.
          */
         internal fun sampleCenters(lat: Double, lon: Double, spread: Int): List<GeoPoint> {
-            if (spread <= 0) return listOf(GeoPoint(lat, lon))
-            // A grid, not a plus. The arms of a plus are a step apart and each
-            // ring reaches about 2 km, so at the default zoom the corners of
-            // the viewport sat 2.7 km from any sample centre and came back
-            // empty -- at every zoom, which is why the map read as one tile of
-            // detail with blank paper around it.
+            val y0 = gridY(lat)
+            val x0 = gridX(lon)
+            if (spread <= 0) return listOf(gridPoint(y0, x0))
             // Centre first: it is where the user is, and it is the one cell
             // whose absence would be noticed immediately.
-            val out = mutableListOf(GeoPoint(lat, lon))
+            val out = mutableListOf(gridPoint(y0, x0))
             for (y in -spread..spread) {
                 for (x in -spread..spread) {
                     if (x == 0 && y == 0) continue
-                    out += GeoPoint(lat + y * SAMPLE_STEP_LAT, lon + x * SAMPLE_STEP_LON)
+                    out += gridPoint(y0 + y, x0 + x)
                 }
             }
             return out
         }
-
-        /**
-         * Drop features returned by more than one sample centre.
-         *
-         * Neighbouring ring queries share cells, so the same road comes back
-         * several times. Identity is the geometry itself: this API exposes no
-         * stable id, and two features with identical kind, name, length and
-         * endpoints would render identically anyway.
-         */
-        internal fun dedupeFeatures(features: List<MapFeature>): List<MapFeature> =
-            features.distinctBy {
-                listOf(it.kind, it.name, it.points.size, it.points.firstOrNull(), it.points.lastOrNull())
-            }
 
         /**
          * Rank and de-duplicate hits gathered from several state indexes.

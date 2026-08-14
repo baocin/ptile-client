@@ -49,6 +49,19 @@ private val CLOCK = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.syst
  * where that becomes visible: the raw readings, how far back the averages
  * still have data, and how long each input has been quiet.
  */
+/**
+ * Measured rate against the configured one.
+ *
+ * They diverge for reasons the user can act on -- a busy screen, power
+ * management, a hardware rate the platform rounded to -- so the gap is the
+ * diagnostic, and either number alone hides it.
+ */
+internal fun rateLine(measured: Double?, configured: Int): String = when {
+    measured == null -> "$configured Hz asked, nothing measured yet"
+    kotlin.math.abs(measured - configured) < 1.0 -> "%.0f Hz".format(measured)
+    else -> "%.1f Hz arriving, $configured Hz asked".format(measured)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MotionSheet(live: LiveTraceState, settings: AppSettings, nowMs: Long, onDismiss: () -> Unit) {
@@ -89,6 +102,7 @@ internal fun MotionSheet(live: LiveTraceState, settings: AppSettings, nowMs: Lon
             } ?: "—")
             DiagnosticRow("GPS fix", inputAge(live.lastFixAtMs, stale.gpsAgeMs))
             DiagnosticRow("Accelerometer", inputAge(live.lastAccelAtMs, stale.accelAgeMs))
+            DiagnosticRow("Accelerometer rate", rateLine(live.accelHz, settings.accelerometerRateHz))
 
             if (stale.any) {
                 Spacer(Modifier.height(14.dp))
@@ -102,7 +116,17 @@ internal fun MotionSheet(live: LiveTraceState, settings: AppSettings, nowMs: Lon
                 }
                 if (stale.accelStale) {
                     Text(
-                        staleLine("Accelerometer", stale.accelAgeMs, stale.accelLimitMs, "${settings.accelerometerRateHz} Hz"),
+                        // The configured rate is what was asked for, not what
+                        // arrived: the delay is a hint the platform rounds, and
+                        // a saturated looper makes the driver drop samples
+                        // outright. Printing the setting here explained a stall
+                        // with the number that was not happening.
+                        staleLine(
+                            "Accelerometer",
+                            stale.accelAgeMs,
+                            stale.accelLimitMs,
+                            rateLine(live.accelHz, settings.accelerometerRateHz),
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = ForestSoft,
                     )

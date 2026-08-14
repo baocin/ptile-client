@@ -868,6 +868,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -936,6 +938,8 @@ fun uniffi_ptiles_ffi_checksum_method_navigator_turns(
 fun uniffi_ptiles_ffi_checksum_method_navigator_update(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_building(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings_at(
 ): Short
@@ -1135,6 +1139,8 @@ fun uniffi_ptiles_ffi_fn_free_ptileslayer(`ptr`: Pointer,uniffi_out_err: UniffiR
 fun uniffi_ptiles_ffi_fn_constructor_ptileslayer_open(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_building(`ptr`: Pointer,`lat`: Double,`lon`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_buildings(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_buildings_at(`ptr`: Pointer,`points`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1449,6 +1455,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_building() != 45883.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings() != 7593.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings_at() != 9245.toShort()) {
@@ -3321,6 +3330,19 @@ public interface PtilesLayerInterface {
     fun `building`(`lat`: kotlin.Double, `lon`: kotlin.Double): BuildingInfo?
     
     /**
+     * Every building in the cells covering `(lat, lon)` (+ ring-1 neighbours
+     * when `ring == 1`) -- the buildings equivalent of
+     * [`PtilesLayer::roads`].
+     *
+     * [`PtilesLayer::buildings_at`] answers one footprint per probe point, so
+     * a renderer using it draws the buildings its probe grid happened to land
+     * in and no others: a map either samples a town at metre spacing or shows
+     * a handful of its blocks. This returns the block, which is what a map
+     * wants and what the decoder already produces.
+     */
+    fun `buildings`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<BuildingInfo>
+    
+    /**
      * The building at each of `points`, in input order.
      *
      * Grouped by H3 cell internally, so a run of points in the same cell costs
@@ -3631,6 +3653,30 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_building(
         it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Every building in the cells covering `(lat, lon)` (+ ring-1 neighbours
+     * when `ring == 1`) -- the buildings equivalent of
+     * [`PtilesLayer::roads`].
+     *
+     * [`PtilesLayer::buildings_at`] answers one footprint per probe point, so
+     * a renderer using it draws the buildings its probe grid happened to land
+     * in and no others: a map either samples a town at metre spacing or shows
+     * a handful of its blocks. This returns the block, which is what a map
+     * wants and what the decoder already produces.
+     */
+    @Throws(PtilesException::class)override fun `buildings`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<BuildingInfo> {
+            return FfiConverterSequenceTypeBuildingInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_buildings(
+        it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),_status)
 }
     }
     )
@@ -5443,6 +5489,14 @@ data class BusinessInfo (
     var `name`: kotlin.String, 
     var `location`: LatLon, 
     var `categoryIdx`: kotlin.UByte, 
+    /**
+     * The chain a place belongs to, when the record names one.
+     *
+     * Decoded on every business query and, until now, discarded at this
+     * boundary. It is the only alternative name a business carries: someone
+     * searching "Shell" wants the station whose name is "Shell Oil 41762".
+     */
+    var `brand`: kotlin.String?, 
     var `phone`: kotlin.String?, 
     var `website`: kotlin.String?, 
     var `operatingStatus`: kotlin.String, 
@@ -5477,6 +5531,7 @@ public object FfiConverterTypeBusinessInfo: FfiConverterRustBuffer<BusinessInfo>
             FfiConverterUByte.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalUByte.read(buf),
             FfiConverterOptionalString.read(buf),
@@ -5489,6 +5544,7 @@ public object FfiConverterTypeBusinessInfo: FfiConverterRustBuffer<BusinessInfo>
             FfiConverterString.allocationSize(value.`name`) +
             FfiConverterTypeLatLon.allocationSize(value.`location`) +
             FfiConverterUByte.allocationSize(value.`categoryIdx`) +
+            FfiConverterOptionalString.allocationSize(value.`brand`) +
             FfiConverterOptionalString.allocationSize(value.`phone`) +
             FfiConverterOptionalString.allocationSize(value.`website`) +
             FfiConverterString.allocationSize(value.`operatingStatus`) +
@@ -5502,6 +5558,7 @@ public object FfiConverterTypeBusinessInfo: FfiConverterRustBuffer<BusinessInfo>
             FfiConverterString.write(value.`name`, buf)
             FfiConverterTypeLatLon.write(value.`location`, buf)
             FfiConverterUByte.write(value.`categoryIdx`, buf)
+            FfiConverterOptionalString.write(value.`brand`, buf)
             FfiConverterOptionalString.write(value.`phone`, buf)
             FfiConverterOptionalString.write(value.`website`, buf)
             FfiConverterString.write(value.`operatingStatus`, buf)
@@ -8663,6 +8720,34 @@ public object FfiConverterSequenceTypeAdminPolygon: FfiConverterRustBuffer<List<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeAdminPolygon.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeBuildingInfo: FfiConverterRustBuffer<List<BuildingInfo>> {
+    override fun read(buf: ByteBuffer): List<BuildingInfo> {
+        val len = buf.getInt()
+        return List<BuildingInfo>(len) {
+            FfiConverterTypeBuildingInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<BuildingInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeBuildingInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<BuildingInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeBuildingInfo.write(it, buf)
         }
     }
 }

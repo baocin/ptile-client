@@ -42,6 +42,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.steele.looky.model.GeoPoint
+import com.steele.looky.offline.PtilesRepository
 import com.steele.looky.model.MapFeature
 import kotlin.math.cos
 
@@ -224,25 +225,53 @@ internal object MapDetail {
     /**
      * How wide a net to cast for features at this zoom.
      *
-     * The viewport grew by a factor of twelve when the zoom floor dropped to
-     * frame a whole route, and the fetch did not: five sample centres cover
-     * about 8 km, so everything beyond that was blank paper. Zoomed in the
-     * opposite is true -- the old five centres decoded twenty-two cells to
-     * draw three.
+     * Derived from the viewport itself rather than bucketed by zoom: half the
+     * visible latitude span plus [MARGIN_RINGS] res-7 rings, in whole sample
+     * steps. The buckets were a proxy for the viewport and wrong at both ends
+     * -- at the default zoom the fetch stopped inside the screen, so a pan
+     * revealed paper, and zoomed in it decoded twenty-two cells to draw three.
+     *
+     * Latitude, not longitude: on a portrait canvas the latitude span is the
+     * wider of the two in ground terms, so a grid that covers it covers the
+     * width as well.
+     *
+     * ponytail: [MAX_SPREAD] is a flat ceiling, so at the zoom floor (about
+     * 100 km of latitude) the fetch still stops short of the edges. Lifting it
+     * means decoding hundreds of cells for a view that draws arterials only;
+     * the answer there is the lower-detail road band the format already
+     * carries (z04/z05 in `scripts/build_roads.py`), not more res-7 cells.
      */
-    fun fetchSpread(scale: Float): Int = when {
-        scale >= 2.0f -> 0
-        scale >= ARTERIAL_ONLY_BELOW -> 1
-        else -> 2
+    fun fetchSpread(scale: Float): Int {
+        val halfSpan = MapProjection.spanLat(scale) / 2.0
+        val margin = MARGIN_RINGS * R7_STEP_LAT
+        val steps = kotlin.math.ceil((halfSpan + margin) / PtilesRepository.SAMPLE_STEP_LAT)
+        return steps.toInt().coerceIn(1, MAX_SPREAD)
     }
+
+    /**
+     * Res-7 rings fetched beyond every edge of the viewport.
+     *
+     * Two, so a pan of a screen-width lands on ground that is already decoded
+     * rather than on paper waiting for a decode.
+     */
+    const val MARGIN_RINGS = 2
+
+    /** Centre-to-centre spacing of neighbouring res-7 cells, in latitude. */
+    const val R7_STEP_LAT = 0.019
+
+    /** 9x9 sample centres, about 30 km of latitude. See [fetchSpread]. */
+    const val MAX_SPREAD = 4
 
     /**
      * True where pavement and parking aisles are not drawn anyway.
      *
      * They are 82.5% of the segments a city cell decodes, so skipping them is
-     * what makes the wide fetch above affordable.
+     * what makes the wide fetch above affordable: at the opening zoom the
+     * fetch carried 25,000 features across the FFI, ranked them, and then hid
+     * 15,000 of them behind [FOOTWAYS_ABOVE]. The threshold is that same one,
+     * so what is fetched is what is drawn.
      */
-    fun skipsMinorRoads(scale: Float): Boolean = scale < ARTERIAL_ONLY_BELOW
+    fun skipsMinorRoads(scale: Float): Boolean = scale < FOOTWAYS_ABOVE
 
     /** Coarse-zoom jurisdiction lines: state lines survive further out. */
     const val COUNTY_LINES_BELOW = 1.0f
@@ -251,8 +280,26 @@ internal object MapDetail {
     /** Points worth drawing before the rest: they are destinations. */
     private val ALWAYS_POINTS = setOf("trailhead", "trail_end")
 
-    /** Buildings are the densest thing on the map; they arrive last. */
-    const val BUILDINGS_ABOVE = 2.2f
+    /**
+     * Buildings are the densest thing on the map, so they arrived last.
+     *
+     * They now cost two `drawPath` calls for the whole layer rather than two
+     * each, so they can arrive earlier: at 1.4 a town centre reads as blocks
+     * and streets instead of streets alone.
+     */
+    const val BUILDINGS_ABOVE = 1.4f
+
+    /**
+     * Smallest footprint worth a subpath, in pixels.
+     *
+     * Below this a building is a smudge one pixel wide that costs the same to
+     * tessellate as a warehouse. Dropping them is what makes drawing the whole
+     * layer at a wider zoom affordable.
+     */
+    const val MIN_FOOTPRINT_PX = 2.5f
+
+    fun drawsFootprint(widthPx: Float, heightPx: Float): Boolean =
+        maxOf(widthPx, heightPx) >= MIN_FOOTPRINT_PX
 
     /**
      * Sidewalks and footways wait for a close zoom.
@@ -262,7 +309,13 @@ internal object MapDetail {
      * invisible. Named paths and tracks still draw; pavement does not.
      */
     const val FOOTWAYS_ABOVE = 3.0f
-    private val MINOR_TRAILS = setOf("trail:footway", "trail:steps", "trail:sidewalk", "footway", "steps", "sidewalk")
+    private val MINOR_TRAILS = setOf(
+        "trail:footway", "trail:steps", "trail:sidewalk",
+        // The same ways as roads-layer classes, plus the parking aisles and
+        // driveways that come with them. `PtilesRepository.MINOR_ROAD_CLASSES`
+        // is the fetch-side half of this list and must not name less.
+        "footway", "steps", "sidewalk", "service", "path",
+    )
 
     /** Road names first, then business names once there is room to read them. */
     const val ROAD_LABELS_ABOVE = 1.8f
@@ -411,13 +464,38 @@ fun OfflineMap(
             drawPath(path, edge, style = Stroke(width = 1.2f))
         }
 
-        val visible = features.filter { MapDetail.draws(it.kind, it.points.size == 1, scale) }
-        visible.sortedBy { MapDetail.layer(it.kind) }.forEach { feature ->
-            when (feature.kind) {
-                // Lakes, reservoirs, and wide river banks are areas, and read
-                // as water only when they are filled.
-                "water_area" -> { area(feature.points, Water, WaterEdge); return@forEach }
-                "building_area" -> { area(feature.points, Building.copy(alpha = .45f), Building); return@forEach }
+        /**
+         * Every footprint in two paths instead of two each.
+         *
+         * A town is thousands of little rings, and one fill plus one outline
+         * per ring is most of a frame in a place like Jackson. A Compose path
+         * holds as many subpaths as it is given, so the whole layer becomes one
+         * fill and one outline, and anything under a couple of pixels is left
+         * out before it costs a tessellation.
+         */
+        fun footprints(rings: List<MapFeature>) {
+            if (rings.isEmpty()) return
+            val path = Path()
+            rings.forEach { ring ->
+                if (ring.points.size < 3) return@forEach
+                val screen = ring.points.map(::project)
+                val width = screen.maxOf { it.x } - screen.minOf { it.x }
+                val height = screen.maxOf { it.y } - screen.minOf { it.y }
+                if (!MapDetail.drawsFootprint(width, height)) return@forEach
+                path.moveTo(screen.first().x, screen.first().y)
+                screen.drop(1).forEach { path.lineTo(it.x, it.y) }
+                path.close()
+            }
+            drawPath(path, Building.copy(alpha = .45f))
+            drawPath(path, Building, style = Stroke(width = 1.2f))
+        }
+
+        fun drawFeature(feature: MapFeature) {
+            // Lakes, reservoirs, and wide river banks are areas, and read as
+            // water only when they are filled.
+            if (feature.kind == "water_area") {
+                area(feature.points, Water, WaterEdge)
+                return
             }
             if (feature.points.size == 1) {
                 val point = project(feature.points.first())
@@ -453,12 +531,12 @@ fun OfflineMap(
                     }
                     else -> drawCircle(Road, 3.5f, point)
                 }
-                return@forEach
+                return
             }
             if (feature.kind == "admin_county" || feature.kind == "admin_state") {
                 val state = feature.kind == "admin_state"
                 line(feature.points, if (state) AdminStateLine else AdminLine, if (state) 3.5f else 1.8f)
-                return@forEach
+                return
             }
             val isTrail = feature.kind.startsWith("trail") || feature.kind in setOf("path", "footway", "track", "steps")
             val major = feature.kind in setOf("motorway", "trunk", "primary", "secondary")
@@ -472,6 +550,16 @@ fun OfflineMap(
             }
             line(feature.points, color, if (isTrail) 2f else if (major) 5.5f else 3f)
         }
+
+        val visible = features.filter { MapDetail.draws(it.kind, it.points.size == 1, scale) }
+        // Painting order still runs ground, footprints, network, detail -- the
+        // footprints are simply one batch in the middle of it rather than one
+        // more sorted feature each.
+        val (rings, rest) = visible.partition { it.kind == "building_area" }
+        val ordered = rest.sortedBy { MapDetail.layer(it.kind) }
+        ordered.filter { MapDetail.layer(it.kind) == 0 }.forEach(::drawFeature)
+        footprints(rings)
+        ordered.filter { MapDetail.layer(it.kind) > 0 }.forEach(::drawFeature)
         // Road names, where there is room to read one.
         if (scale >= MapDetail.ROAD_LABELS_ABOVE) {
             drawLabels(visible.filter { it.points.size > 1 && MapDetail.isMajor(it.kind) }, ::project, Route, 30f)

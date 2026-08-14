@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -50,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.steele.looky.AppSettings
 import com.steele.looky.location.TraceRecorder
 import com.steele.looky.location.TraceService
+import com.steele.looky.model.FALLBACK_ANCHOR
 import com.steele.looky.model.GeoPoint
 import com.steele.looky.model.LookyMode
 import com.steele.looky.model.MapFeature
@@ -189,10 +192,15 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     val repo = remember { PtilesRepository(context) }
     val scope = rememberCoroutineScope()
     val current = live.location?.let { GeoPoint(it.latitude, it.longitude) }
-    val anchor = current ?: GeoPoint(35.73377, -88.03220)
+    val anchor = current ?: FALLBACK_ANCHOR
     var stops by remember { mutableStateOf(emptyList<Stop>()) }
     var query by remember { mutableStateOf("") }
-    var picker by remember { mutableStateOf<PickerState>(PickerState.Searching) }
+    // Raw hits are held, not the rendered rows: the rows depend on where you
+    // are, and that changes far more often than what is nearby.
+    var hits by remember { mutableStateOf<List<PtilesRepository.BusinessResult>?>(null) }
+    var status by remember { mutableStateOf<PickerState?>(PickerState.Searching) }
+    var searchedAt by remember { mutableStateOf(anchor) }
+    var searchedFor by remember { mutableStateOf("") }
     var features by remember { mutableStateOf(emptyList<MapFeature>()) }
     var route by remember { mutableStateOf<PtilesRepository.RouteResult?>(null) }
     var routeError by remember { mutableStateOf<String?>(null) }
@@ -227,6 +235,24 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     val skipMinorRoads = MapDetail.skipsMinorRoads(mapScale)
     LaunchedEffect(dataCenter.lat, dataCenter.lon, fetchSpread, skipMinorRoads) {
         delay(VIEWPORT_DEBOUNCE_MS)
+        // Two passes. The wide fetch is what makes panning land on ground that
+        // is already decoded, but it is seconds of work on a cold cache, and
+        // for those seconds the screen was blank paper. The narrow pass draws
+        // what is under the user almost immediately, and the wide one replaces
+        // it -- reusing the narrow pass's cells, which the per-centre cache
+        // still holds.
+        if (fetchSpread > NEAR_SPREAD) {
+            features = withContext(Dispatchers.IO) {
+                repo.featuresAround(
+                    dataCenter.lat,
+                    dataCenter.lon,
+                    trails = true,
+                    places = true,
+                    spread = NEAR_SPREAD,
+                    skipMinorRoads = skipMinorRoads,
+                ).filter { it.kind != "building" }
+            }
+        }
         features = withContext(Dispatchers.IO) {
             repo.featuresAround(
                 dataCenter.lat,
@@ -243,33 +269,47 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     // narrows it. Every outcome is named rather than collapsing to an empty
     // list.
     val plannedPath = route?.points.orEmpty()
-    LaunchedEffect(query, anchor.lat, anchor.lon, plannedPath.size) {
-        picker = PickerState.Searching
+    // Queried on the query, not on the fix: re-running per GPS update reset the
+    // scroll and swapped the row under a finger mid-tap. Only a real move asks
+    // the layers again.
+    val movedSinceSearch = GpxReader.distanceM(searchedAt, anchor) > SEARCH_REANCHOR_M
+    LaunchedEffect(query, movedSinceSearch) {
+        if (!movedSinceSearch && hits != null && query == searchedFor) return@LaunchedEffect
+        // Blank the panel only when there is nothing on it.
+        if (hits.isNullOrEmpty()) status = PickerState.Searching
         if (query.isNotBlank()) delay(SEARCH_DEBOUNCE_MS)
-        picker = withContext(Dispatchers.IO) {
-            runCatching { repo.trailsNearby(anchor, query) }.fold(
-                onSuccess = { hits ->
-                    when {
-                        hits == null -> PickerState.NoMaps
-                        hits.isEmpty() && query.isBlank() -> PickerState.NoMatches("any named trail nearby")
-                        hits.isEmpty() -> PickerState.NoMatches(query)
-                        else -> PickerState.Found(
-                            hits.map {
-                                PlaceHit(
-                                    name = it.name,
-                                    point = it.point,
-                                    distanceM = GpxReader.distanceM(anchor, it.point),
-                                    bearingDeg = bearingDeg(anchor, it.point),
-                                    onRoute = nearRoute(plannedPath, it.point, ON_ROUTE_M),
-                                )
-                            }
-                        )
-                    }
-                },
-                onFailure = { PickerState.Failed(it.message ?: "the trails layer could not be read") },
+        val found = withContext(Dispatchers.IO) { runCatching { repo.trailsNearby(anchor, query) } }
+        searchedAt = anchor
+        searchedFor = query
+        found.fold(
+            onSuccess = { result ->
+                hits = result.orEmpty()
+                status = when {
+                    result == null -> PickerState.NoMaps
+                    result.isEmpty() && query.isBlank() -> PickerState.NoMatches("any named trail nearby")
+                    result.isEmpty() -> PickerState.NoMatches(query)
+                    else -> null
+                }
+            },
+            onFailure = {
+                hits = emptyList()
+                status = PickerState.Failed(it.message ?: "the trails layer could not be read")
+            },
+        )
+    }
+    // Distance, bearing and "on your route" are pure functions of a hit and
+    // where you are now, so they follow the fix without another decode.
+    val picker: PickerState = status ?: PickerState.Found(
+        hits.orEmpty().map {
+            PlaceHit(
+                name = it.name,
+                point = it.point,
+                distanceM = GpxReader.distanceM(anchor, it.point),
+                bearingDeg = bearingDeg(anchor, it.point),
+                onRoute = nearRoute(plannedPath, it.point, ON_ROUTE_M),
             )
         }
-    }
+    )
 
     // Off the main thread: the match is every route vertex against every
     // decoded road and trail vertex in the viewport.
@@ -314,6 +354,9 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                         style = MaterialTheme.typography.labelLarge,
                         color = ForestSoft,
                     )
+                    // Outside the search panel: the panel hides once you are
+                    // under way, and that is precisely when a dead fix matters.
+                    if (live.awaitingFix) AwaitingFixNotice(live.running)
                     if (!walking && panelOpen) {
                         OutlinedTextField(
                             value = query,
@@ -347,10 +390,10 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                             HorizontalDivider()
                         }
                         if (hits.isNotEmpty()) {
-                            Column(
-                                Modifier.fillMaxWidth().heightIn(max = RESULTS_MAX_HEIGHT).verticalScroll(rememberScrollState()),
+                            LazyColumn(
+                                Modifier.fillMaxWidth().heightIn(max = RESULTS_MAX_HEIGHT),
                             ) {
-                                hits.forEach { hit ->
+                                items(hits, key = { "${it.name}@${it.point.lat},${it.point.lon}" }) { hit ->
                                     PlaceRow(hit, imperial) {
                                         stops = stops + Stop(hit.name, hit.point)
                                         route = null
@@ -360,7 +403,11 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                             }
                         }
                         Button(
-                            enabled = !routeRunning,
+                            // Without a fix the route would start from
+                            // FALLBACK_ANCHOR, which is a different state to
+                            // most users. Better to wait than to plan from
+                            // somewhere nobody is.
+                            enabled = !routeRunning && !live.awaitingFix,
                             onClick = {
                                 if (!hasLocationPermission(context)) {
                                     onRequestPermissions()
@@ -398,7 +445,7 @@ internal fun TrailScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                                 Spacer(Modifier.width(10.dp))
                                 Text("${(routeProgress * 100).roundToInt()}%")
                             } else {
-                                Text("Start trail")
+                                Text(if (live.awaitingFix) "Waiting for GPS…" else "Start trail")
                             }
                         }
                     }

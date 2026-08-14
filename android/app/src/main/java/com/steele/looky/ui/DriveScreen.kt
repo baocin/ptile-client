@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -49,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.steele.looky.AppSettings
 import com.steele.looky.location.TraceRecorder
 import com.steele.looky.location.TraceService
+import com.steele.looky.model.FALLBACK_ANCHOR
 import com.steele.looky.model.GeoPoint
 import com.steele.looky.model.LookyMode
 import com.steele.looky.model.MapFeature
@@ -62,6 +65,31 @@ import uniffi.ptiles_ffi.NavStateInfo
 import uniffi.ptiles_ffi.Navigator
 import uniffi.ptiles_ffi.TurnInfo
 import kotlin.math.roundToInt
+
+/**
+ * Says the map is not showing where you are.
+ *
+ * Without a fix every position-derived number on these screens -- the map
+ * centre, the distance and bearing on each search hit, the route's first leg
+ * -- is measured from [FALLBACK_ANCHOR], a place in Tennessee. Those numbers
+ * used to render identically to real ones. This is not a spinner: the wait is
+ * genuine and open-ended, and naming what is standing in for the answer is
+ * more use than an animation.
+ */
+@Composable
+internal fun AwaitingFixNotice(running: Boolean) {
+    Surface(color = Color(0xFFFFF3D6), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Forest)
+            Text(
+                if (running) "Waiting for the first GPS fix. Distances are measured from the map's default area, not from you."
+                else "No GPS fix yet. Start recording to place yourself; until then distances are from the map's default area.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF6B4E10),
+            )
+        }
+    }
+}
 
 /**
  * Drive: search businesses, chain stops, route, and follow the turns.
@@ -78,10 +106,15 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     val repo = remember { PtilesRepository(context) }
     val scope = rememberCoroutineScope()
     val current = live.location?.let { GeoPoint(it.latitude, it.longitude) }
-    val anchor = current ?: GeoPoint(35.73377, -88.03220)
+    val anchor = current ?: FALLBACK_ANCHOR
     var stops by remember { mutableStateOf(emptyList<Stop>()) }
     var query by remember { mutableStateOf("") }
-    var picker by remember { mutableStateOf<PickerState>(PickerState.Searching) }
+    // Raw hits are held, not the rendered rows: the rows depend on where you
+    // are, and that changes far more often than what is nearby.
+    var hits by remember { mutableStateOf<List<PtilesRepository.BusinessResult>?>(null) }
+    var status by remember { mutableStateOf<PickerState?>(PickerState.Searching) }
+    var searchedAt by remember { mutableStateOf(anchor) }
+    var searchedFor by remember { mutableStateOf("") }
     var features by remember { mutableStateOf(emptyList<MapFeature>()) }
     var route by remember { mutableStateOf<PtilesRepository.RouteResult?>(null) }
     var routeError by remember { mutableStateOf<String?>(null) }
@@ -110,6 +143,24 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     val skipMinorRoads = MapDetail.skipsMinorRoads(mapScale)
     LaunchedEffect(dataCenter.lat, dataCenter.lon, fetchSpread, skipMinorRoads) {
         delay(VIEWPORT_DEBOUNCE_MS)
+        // Two passes. The wide fetch is what makes panning land on ground that
+        // is already decoded, but it is seconds of work on a cold cache, and
+        // for those seconds the screen was blank paper. The narrow pass draws
+        // what is under the user almost immediately, and the wide one replaces
+        // it -- reusing the narrow pass's cells, which the per-centre cache
+        // still holds.
+        if (fetchSpread > NEAR_SPREAD) {
+            features = withContext(Dispatchers.IO) {
+                repo.featuresAround(
+                    dataCenter.lat,
+                    dataCenter.lon,
+                    trails = true,
+                    places = true,
+                    spread = NEAR_SPREAD,
+                    skipMinorRoads = skipMinorRoads,
+                ).filter { it.kind != "building" }
+            }
+        }
         features = withContext(Dispatchers.IO) {
             repo.featuresAround(
                 dataCenter.lat,
@@ -149,35 +200,53 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
     // matched, no maps here, or a failure -- an empty list used to stand for
     // all four.
     val plannedPath = route?.points.orEmpty()
-    LaunchedEffect(query, anchor.lat, anchor.lon, plannedPath.size) {
-        picker = PickerState.Searching
+    // The layers are queried on the query, not on the fix. Re-running this on
+    // every GPS update rebuilt the list roughly once a second, which reset the
+    // scroll and swapped the row under a finger mid-tap. Only a move far enough
+    // to change what is nearby is worth asking again for.
+    val movedSinceSearch = GpxReader.distanceM(searchedAt, anchor) > SEARCH_REANCHOR_M
+    LaunchedEffect(query, movedSinceSearch) {
+        if (!movedSinceSearch && hits != null && query == searchedFor) return@LaunchedEffect
+        // Blank the panel only when there is nothing on it: replacing a list of
+        // real hits with "Searching..." and back is worse than a stale list.
+        if (hits.isNullOrEmpty()) status = PickerState.Searching
         if (query.isNotBlank()) delay(SEARCH_DEBOUNCE_MS)
-        picker = withContext(Dispatchers.IO) {
+        val found = withContext(Dispatchers.IO) {
             runCatching {
                 if (query.isBlank()) repo.businessesNearby(anchor) else repo.searchBusinesses(query, anchor)
-            }.fold(
-                onSuccess = { hits ->
-                    when {
-                        hits == null -> PickerState.NoMaps
-                        hits.isEmpty() && query.isBlank() -> PickerState.NoMatches("anything nearby")
-                        hits.isEmpty() -> PickerState.NoMatches(query)
-                        else -> PickerState.Found(
-                            hits.map {
-                                PlaceHit(
-                                    name = it.name,
-                                    point = it.point,
-                                    distanceM = GpxReader.distanceM(anchor, it.point),
-                                    bearingDeg = bearingDeg(anchor, it.point),
-                                    onRoute = nearRoute(plannedPath, it.point, ON_ROUTE_M),
-                                )
-                            }
-                        )
-                    }
-                },
-                onFailure = { PickerState.Failed(it.message ?: "the business layer could not be read") },
+            }
+        }
+        searchedAt = anchor
+        searchedFor = query
+        found.fold(
+            onSuccess = { result ->
+                hits = result.orEmpty()
+                status = when {
+                    result == null -> PickerState.NoMaps
+                    result.isEmpty() && query.isBlank() -> PickerState.NoMatches("anything nearby")
+                    result.isEmpty() -> PickerState.NoMatches(query)
+                    else -> null
+                }
+            },
+            onFailure = {
+                hits = emptyList()
+                status = PickerState.Failed(it.message ?: "the business layer could not be read")
+            },
+        )
+    }
+    // Distance, bearing and "on your route" are pure functions of a hit and
+    // where you are now, so they follow the fix without another decode.
+    val picker: PickerState = status ?: PickerState.Found(
+        hits.orEmpty().map {
+            PlaceHit(
+                name = it.name,
+                point = it.point,
+                distanceM = GpxReader.distanceM(anchor, it.point),
+                bearingDeg = bearingDeg(anchor, it.point),
+                onRoute = nearRoute(plannedPath, it.point, ON_ROUTE_M),
             )
         }
-    }
+    )
 
     // What "show all" has to frame: the planned line, every stop on it, and
     // where the driver is now.
@@ -215,6 +284,9 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                         style = MaterialTheme.typography.labelLarge,
                         color = ForestSoft,
                     )
+                    // Outside the search panel: the panel hides once you are
+                    // under way, and that is precisely when a dead fix matters.
+                    if (live.awaitingFix) AwaitingFixNotice(live.running)
                     if (!driving && panelOpen) {
                         OutlinedTextField(
                             value = query,
@@ -248,10 +320,10 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                             HorizontalDivider()
                         }
                         if (hits.isNotEmpty()) {
-                            Column(
-                                Modifier.fillMaxWidth().heightIn(max = RESULTS_MAX_HEIGHT).verticalScroll(rememberScrollState()),
+                            LazyColumn(
+                                Modifier.fillMaxWidth().heightIn(max = RESULTS_MAX_HEIGHT),
                             ) {
-                                hits.forEach { hit ->
+                                items(hits, key = { "${it.name}@${it.point.lat},${it.point.lon}" }) { hit ->
                                     PlaceRow(hit, imperial) {
                                         stops = stops + Stop(hit.name, hit.point)
                                         route = null
@@ -261,7 +333,11 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                             }
                         }
                         Button(
-                            enabled = !routeRunning,
+                            // Without a fix the route would start from
+                            // FALLBACK_ANCHOR, which is a different state to
+                            // most users. Better to wait than to plan from
+                            // somewhere nobody is.
+                            enabled = !routeRunning && !live.awaitingFix,
                             onClick = {
                                 if (!hasLocationPermission(context)) {
                                     onRequestPermissions()
@@ -304,7 +380,7 @@ internal fun DriveScreen(settings: AppSettings, onRequestPermissions: () -> Unit
                                 Spacer(Modifier.width(10.dp))
                                 Text("${(routeProgress * 100).roundToInt()}%")
                             } else {
-                                Text("Start drive")
+                                Text(if (live.awaitingFix) "Waiting for GPS…" else "Start drive")
                             }
                         }
                     }

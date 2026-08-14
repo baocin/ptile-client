@@ -17,14 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.RangeSlider
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -113,8 +106,21 @@ object GpxReader {
     private val EXTENSIONS = Regex("""<extensions>(.*?)</extensions>""", RegexOption.DOT_MATCHES_ALL)
     private const val EARTH_RADIUS_M = 6_371_000.0
 
-    fun parse(text: String): RecordedTrace {
-        val parts = segments(text)
+    fun parse(text: String): RecordedTrace = traceOf(segments(text))
+
+    /**
+     * Roll stretches up into one recording.
+     *
+     * Taken from segments rather than from the text so a day spread over a
+     * drive file, a trail file and the background log is one recording, and so
+     * a screen that already holds the segments does not read the disk twice to
+     * get the totals.
+     *
+     * Distance is the whole path, gaps between stretches included: the recorder
+     * closes one track and opens the next on the same fix interval, so the step
+     * across a boundary is travel, not a seam.
+     */
+    fun traceOf(parts: List<TraceSegment>): RecordedTrace {
         val points = parts.flatMap { it.points }
         return RecordedTrace(
             points = points,
@@ -214,30 +220,39 @@ fun segmentSeconds(segment: TraceSegment): Long? {
 suspend fun PtilesRepository.placeLabel(segment: TraceSegment): String? =
     placeLabel(segment.points, segmentSeconds(segment))
 
+/**
+ * One recording, read from the files a day was written across.
+ *
+ * `title` is what the day is called on the way in -- "Yesterday", a date -- so
+ * the screen does not have to re-derive it from a filename that may be one of
+ * several.
+ */
 @Composable
-fun RecordingDetailScreen(file: File) {
+fun RecordingDetailScreen(files: List<File>, title: String) {
     val context = LocalContext.current
     val repo = remember { PtilesRepository(context) }
-    var trace by remember(file) { mutableStateOf<RecordedTrace?>(null) }
-    var features by remember(file) { mutableStateOf(emptyList<MapFeature>()) }
-    var stops by remember(file) { mutableStateOf(emptyList<Pair<TraceSegment, String>>()) }
-    var segments by remember(file) { mutableStateOf(emptyList<TraceSegment>()) }
-    var range by remember(file) { mutableStateOf(0f..1f) }
-    var withSensors by remember(file) { mutableStateOf(false) }
-    LaunchedEffect(file) {
-        trace = withContext(Dispatchers.IO) { GpxReader.read(file) }
-        segments = withContext(Dispatchers.IO) { GpxReader.readSegments(file) }
+    val key = remember(files) { files.joinToString { it.name } }
+    var features by remember(key) { mutableStateOf(emptyList<MapFeature>()) }
+    var stops by remember(key) { mutableStateOf(emptyList<Pair<TraceSegment, String>>()) }
+    var segments by remember(key) { mutableStateOf<List<TraceSegment>?>(null) }
+    var exporting by remember(key) { mutableStateOf(false) }
+    LaunchedEffect(key) {
+        segments = withContext(Dispatchers.IO) {
+            files.flatMap(GpxReader::readSegments).sortedBy { it.firstFix ?: Instant.EPOCH }
+        }
     }
+    val parts = segments.orEmpty()
+    val trace = remember(parts) { GpxReader.traceOf(parts) }
     // Named stops, after the track: reading the file and then the buildings and
     // business layers for each stretch is far slower than the map, and the day
     // is legible without them.
-    LaunchedEffect(segments) {
-        stops = segments.mapNotNull { segment ->
+    LaunchedEffect(parts) {
+        stops = parts.mapNotNull { segment ->
             repo.placeLabel(segment)?.let { segment to it }
         }
     }
     // The roads the day was travelled on, decoded around the middle of it.
-    val around = trace?.points?.getOrNull((trace?.points?.size ?: 0) / 2)
+    val around = trace.points.getOrNull(trace.points.size / 2)
     LaunchedEffect(around?.lat, around?.lon) {
         val center = around ?: return@LaunchedEffect
         features = withContext(Dispatchers.IO) {
@@ -246,30 +261,19 @@ fun RecordingDetailScreen(file: File) {
         }
     }
     val imperial = remember { com.steele.looky.AppSettings(context).imperialUnits }
-    // The trim decides what the map draws as well as what an export writes:
-    // choosing a window and then seeing the untrimmed day is no way to judge
-    // whether the window is the right one.
-    val timeline = remember(segments) { GpxExport.timeline(segments) }
-    val selection = remember(segments, range) {
-        val from = timeline.firstOrNull()
-        val to = timeline.lastOrNull()
-        if (from == null || to == null) segments
-        else GpxExport.trim(segments, atFraction(from, to, range.start), atFraction(from, to, range.endInclusive))
-    }
-    val selected = remember(selection) { selection.flatMap { it.points } }
-    val loaded = trace
-    if (loaded == null) {
-        Text("Reading ${file.name}…", Modifier.padding(16.dp), color = ForestSoft)
+    if (segments == null) {
+        LoadingState("Reading $title…")
         return
     }
-    if (loaded.points.isEmpty()) {
-        EmptyRecording(file)
+    if (trace.points.isEmpty()) {
+        EmptyRecording(title)
         return
     }
-    val center = loaded.points[loaded.points.size / 2]
-    val totals = GpxReader.totals(loaded.breakdown)
+    val center = trace.points[trace.points.size / 2]
+    val totals = GpxReader.totals(trace.breakdown)
     // Map first, then the breakdown: the shape of the day answers "where was
-    // I" before any number does.
+    // I" before any number does. The map shows the whole recording; what a
+    // trim would select is the export sheet's business.
     Column(Modifier.fillMaxSize()) {
         OfflineMap(
             center = center,
@@ -277,32 +281,26 @@ fun RecordingDetailScreen(file: File) {
             current = null,
             destination = null,
             route = emptyList(),
-            trace = if (selected.isEmpty()) loaded.points else selected,
-            dimmedTrace = if (selected.size == loaded.points.size) emptyList() else loaded.points,
+            trace = trace.points,
             modifier = Modifier.weight(1f),
         )
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(file.nameWithoutExtension, style = MaterialTheme.typography.headlineSmall)
-            formatSpan(loaded.firstFix, loaded.lastFix)?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = ForestSoft)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.headlineSmall)
+                    formatSpan(trace.firstFix, trace.lastFix)?.let {
+                        Text(it, style = MaterialTheme.typography.bodyMedium, color = ForestSoft)
+                    }
+                }
+                FilledTonalButton(onClick = { exporting = true }) { Text("Trim & export") }
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Stat(formatDistance(loaded.distanceM, imperial), "DISTANCE")
-                Stat(loaded.points.size.toString(), "POINTS")
-                Stat("${file.length() / 1024} KB", "SIZE")
+                Stat(formatDistance(trace.distanceM, imperial), "DISTANCE")
+                Stat(trace.points.size.toString(), "POINTS")
+                Stat("${files.sumOf { it.length() } / 1024} KB", "SIZE")
             }
-            MovementBar(loaded.breakdown, Modifier.padding(top = 12.dp))
-            TrimAndExport(
-                file = file,
-                segments = segments,
-                timeline = timeline,
-                selection = selection,
-                range = range,
-                onRange = { range = it },
-                withSensors = withSensors,
-                onSensors = { withSensors = it },
-            )
+            MovementBar(trace.breakdown, Modifier.padding(top = 12.dp))
             Row(
                 Modifier.fillMaxWidth().padding(top = 10.dp).horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -312,7 +310,7 @@ fun RecordingDetailScreen(file: File) {
                         Box(Modifier.size(10.dp).background(movementColor(movement), CircleShape))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "$movement · ${percent(fixes, loaded.points.size)}",
+                            "$movement · ${percent(fixes, trace.points.size)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = Forest,
                         )
@@ -331,6 +329,14 @@ fun RecordingDetailScreen(file: File) {
                 )
             }
         }
+    }
+    if (exporting) {
+        ExportSheet(
+            name = files.firstOrNull()?.name ?: "$title.gpx",
+            segments = parts,
+            features = features,
+            center = center,
+        ) { exporting = false }
     }
 }
 
@@ -374,98 +380,10 @@ private fun Stat(value: String, label: String) {
 }
 
 @Composable
-private fun EmptyRecording(file: File) {
+private fun EmptyRecording(title: String) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(file.nameWithoutExtension, style = MaterialTheme.typography.headlineSmall)
-        Text("No track points in this file yet.", color = Color(0xFF69716C))
-    }
-}
-
-
-/**
- * Choose a window of a recording and write it out as GPX.
- *
- * The window is picked over the recording's own timeline rather than a clock,
- * so dragging an end lands on a fix that exists. Export goes through the system
- * file picker: a copy the user owns, outside app storage, which is also the
- * only thing that survives uninstalling the app.
- */
-@Composable
-private fun TrimAndExport(
-    file: File,
-    segments: List<TraceSegment>,
-    timeline: List<Instant>,
-    selection: List<TraceSegment>,
-    range: ClosedFloatingPointRange<Float>,
-    onRange: (ClosedFloatingPointRange<Float>) -> Unit,
-    withSensors: Boolean,
-    onSensors: (Boolean) -> Unit,
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    // Only worth offering when the recording actually carries any: files
-    // written before the recorder logged sensors have none.
-    val hasSensors = remember(segments) { segments.any { segment -> segment.sensors.any { it != null } } }
-    val whole = range.start <= 0f && range.endInclusive >= 1f
-    val from = timeline.firstOrNull()
-    val to = timeline.lastOrNull()
-    val summary = remember(selection) { summarise(selection) }
-    val imperial = remember { com.steele.looky.AppSettings(context).imperialUnits }
-
-    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
-        val target = uri ?: return@rememberLauncherForActivityResult
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                context.contentResolver.openOutputStream(target)?.use { out ->
-                    out.write(GpxExport.write(selection, includeSensors = withSensors).toByteArray())
-                }
-            }
-        }
-    }
-
-    Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
-        if (timeline.size > 1 && from != null && to != null) {
-            Text("TRIM", style = MaterialTheme.typography.labelLarge, color = ForestSoft)
-            // Inset from the edges: at full width the end thumbs sit inside
-            // the system back-gesture strip, so dragging one leaves the screen
-            // instead of trimming.
-            RangeSlider(
-                value = range,
-                onValueChange = onRange,
-                modifier = Modifier.padding(horizontal = 24.dp),
-            )
-            Text(
-                "${formatSpan(summary.from, summary.to) ?: "whole recording"} · " +
-                    "${summary.points} fixes · ${formatDistance(summary.distanceM, imperial)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = ForestSoft,
-            )
-        }
-        if (hasSensors) {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(checked = withSensors, onCheckedChange = onSensors)
-                Column(Modifier.padding(start = 4.dp)) {
-                    Text("Include sensor data", style = MaterialTheme.typography.bodyMedium, color = Forest)
-                    Text(
-                        "Speed, accuracy, accelerometer and cadence. Roughly triples the file.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ForestSoft,
-                    )
-                }
-            }
-        }
-        Button(
-            onClick = { save.launch(GpxExport.fileName(file.name, summary.from, summary.to, whole)) },
-            enabled = summary.points > 0,
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Forest),
-        ) {
-            Text(if (whole) "Export GPX" else "Export trimmed GPX")
-        }
+        Text(title, style = MaterialTheme.typography.headlineSmall)
+        Text("No track points in this recording yet.", color = Color(0xFF69716C))
     }
 }
 

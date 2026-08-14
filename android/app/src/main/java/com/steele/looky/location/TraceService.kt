@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.SensorManager
 import android.location.Location
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.ActivityCompat
@@ -142,6 +143,10 @@ class TraceService : Service() {
     private var started = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var classificationJob: Job? = null
+    private var deliveryThread: HandlerThread? = null
+
+    private fun deliveryLooper() =
+        (deliveryThread ?: HandlerThread("looky-fixes").also { it.start(); deliveryThread = it }).looper
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -254,11 +259,20 @@ class TraceService : Service() {
         val intervalMs = intervalSeconds.coerceIn(3, 60) * 1_000L
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
             .setMinUpdateIntervalMillis((intervalMs / 2).coerceAtLeast(1_000L))
-            .setMinUpdateDistanceMeters(4f)
+            // No displacement filter. A 4 m one suppressed every fix while the
+            // phone stood still, which is most of a recording: the provider
+            // went silent, the watchdog below then re-subscribed on its 60 s
+            // floor, and the one fix a fresh subscription delivers was the only
+            // thing landing in the file. That reads as a 60 s GPS limit and is
+            // in fact this line. Interval is the throttle; a stationary point
+            // is data, not noise.
             .setWaitForAccurateLocation(false)
             .build()
         try {
-            fused.requestLocationUpdates(request, callback, mainLooper)
+            // Not the main looper. Fixes queued behind the map redrawing arrive
+            // late or not at all, and the service has no reason to touch the UI
+            // thread -- everything it does with a fix is file and flow work.
+            fused.requestLocationUpdates(request, callback, deliveryLooper())
         } catch (e: SecurityException) {
             started = false
             TraceBus.update { it.copy(running = false, error = e.message) }
@@ -325,6 +339,7 @@ class TraceService : Service() {
                 // The 1 Hz timer is the only thing that runs while GPS is
                 // silent, so it is what keeps the staleness clock honest.
                 lastAccelAtMs = motion.lastSampleAtMs,
+                accelHz = motion.deliveredRateHz,
             )
         }
         getSystemService(NotificationManager::class.java).notify(
@@ -377,6 +392,8 @@ class TraceService : Service() {
         if (::recorder.isInitialized) recorder.close()
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
+        deliveryThread?.quitSafely()
+        deliveryThread = null
         scope.cancel()
         TraceBus.update { it.copy(running = false, movement = "Unknown", traceFile = null) }
         super.onDestroy()

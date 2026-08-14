@@ -540,6 +540,12 @@ pub struct BusinessInfo {
     pub name: String,
     pub location: LatLon,
     pub category_idx: u8,
+    /// The chain a place belongs to, when the record names one.
+    ///
+    /// Decoded on every business query and, until now, discarded at this
+    /// boundary. It is the only alternative name a business carries: someone
+    /// searching "Shell" wants the station whose name is "Shell Oil 41762".
+    pub brand: Option<String>,
     pub phone: Option<String>,
     pub website: Option<String>,
     pub operating_status: String,
@@ -1419,6 +1425,44 @@ impl PtilesLayer {
         self.blocks.lock().expect("block cache").clear();
     }
 
+    /// Every building in the cells covering `(lat, lon)` (+ ring-1 neighbours
+    /// when `ring == 1`) -- the buildings equivalent of
+    /// [`PtilesLayer::roads`].
+    ///
+    /// [`PtilesLayer::buildings_at`] answers one footprint per probe point, so
+    /// a renderer using it draws the buildings its probe grid happened to land
+    /// in and no others: a map either samples a town at metre spacing or shows
+    /// a handful of its blocks. This returns the block, which is what a map
+    /// wants and what the decoder already produces.
+    pub fn buildings(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+    ) -> Result<Vec<BuildingInfo>, PtilesError> {
+        if self.kind != LayerKind::BuildingsV8 {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        validate_ring(ring)?;
+        Ok(self
+            .decoded_buildings(lat, lon, ring)?
+            .iter()
+            .map(|b| BuildingInfo {
+                osm_id: b.osm_id,
+                name: b.name.clone(),
+                building_type: b.building_type.clone(),
+                category: b.category.clone(),
+                geometry: b.coords.iter().map(|c| LatLon { lat: c[1], lon: c[0] }).collect(),
+                centroid: LatLon {
+                    lat: b.centroid_lat,
+                    lon: b.centroid_lon,
+                },
+            })
+            .collect())
+    }
+
     /// The building at each of `points`, in input order.
     ///
     /// Grouped by H3 cell internally, so a run of points in the same cell costs
@@ -1721,18 +1765,7 @@ impl PtilesLayer {
         Ok(businesses
             .iter()
             .filter(|b| haversine_distance_m(lat, lon, b.lat, b.lon) <= radius_m)
-            .map(|b| BusinessInfo {
-                osm_id: b.osm_id,
-                name: b.name.clone(),
-                location: LatLon { lat: b.lat, lon: b.lon },
-                category_idx: b.category_idx,
-                phone: b.phone.clone(),
-                website: b.website.clone(),
-                operating_status: b.operating_status.clone(),
-                source_type: b.source_type,
-                source_id: b.source_id.clone(),
-                confidence: b.confidence,
-            })
+            .map(to_business_info)
             .collect())
     }
 
@@ -2387,6 +2420,23 @@ impl PtilesStack {
     }
 }
 
+/// The decoded record as callers across the boundary see it.
+fn to_business_info(b: &ptiles_core::business::Business) -> BusinessInfo {
+    BusinessInfo {
+        osm_id: b.osm_id,
+        name: b.name.clone(),
+        location: LatLon { lat: b.lat, lon: b.lon },
+        category_idx: b.category_idx,
+        brand: b.brand.clone(),
+        phone: b.phone.clone(),
+        website: b.website.clone(),
+        operating_status: b.operating_status.clone(),
+        source_type: b.source_type,
+        source_id: b.source_id.clone(),
+        confidence: b.confidence,
+    }
+}
+
 /// One manoeuvre in a route's turn queue.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct TurnInfo {
@@ -2689,6 +2739,35 @@ mod tests {
         assert_eq!(groups[0].0, cell_for_coord(points[0].lat, points[0].lon));
         assert_eq!(groups[1].0, cell_for_coord(points[1].lat, points[1].lon));
         assert!(PtilesLayer::group_by_cell(&[]).is_empty());
+    }
+
+    /// The brand is the only alternative name a business carries, and it was
+    /// decoded and then dropped at this boundary for as long as the record
+    /// existed.
+    #[test]
+    fn a_business_record_carries_its_brand_across_the_boundary() {
+        let decoded = ptiles_core::business::Business {
+            osm_id: 7,
+            lat: 35.0,
+            lon: -88.0,
+            name: "Shell Oil 41762".to_string(),
+            category_idx: 3,
+            phone: None,
+            website: None,
+            address: None,
+            brand: Some("Shell".to_string()),
+            operating_status: "open".to_string(),
+            emails: Vec::new(),
+            socials: Vec::new(),
+            source_type: None,
+            source_id: None,
+            confidence: None,
+        };
+
+        let exposed = to_business_info(&decoded);
+
+        assert_eq!(exposed.brand.as_deref(), Some("Shell"));
+        assert_eq!(exposed.name, "Shell Oil 41762");
     }
 
     #[test]

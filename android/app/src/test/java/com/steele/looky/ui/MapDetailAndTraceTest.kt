@@ -3,6 +3,7 @@ package com.steele.looky.ui
 import androidx.compose.ui.geometry.Offset
 import com.steele.looky.model.GeoPoint
 import com.steele.looky.model.MapFeature
+import com.steele.looky.offline.PtilesRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -14,8 +15,11 @@ class MapDetailAndTraceTest {
     @Test fun theOpeningViewDrawsEverything() {
         // The map opens at 1.0; anything culled here is culled by default.
         assertTrue(MapDetail.draws("residential", isPoint = false, scale = 1.0f))
-        assertTrue(MapDetail.draws("service", isPoint = false, scale = 1.0f))
         assertTrue(MapDetail.draws("business:5", isPoint = true, scale = 1.0f))
+        // Parking aisles and driveways are the exception, and wait with the
+        // pavement: at 1.0 the view is 8 km tall and they are noise the fetch
+        // would otherwise pay to carry.
+        assertFalse(MapDetail.draws("service", isPoint = false, scale = 1.0f))
     }
 
     @Test fun zoomedOutKeepsThroughRoadsAndDropsTheRest() {
@@ -28,10 +32,8 @@ class MapDetailAndTraceTest {
     }
 
     @Test fun zoomedInDrawsEveryLine() {
-        val near = MapDetail.ARTERIAL_ONLY_BELOW + 0.1f
-
-        assertTrue(MapDetail.draws("residential", isPoint = false, scale = near))
-        assertTrue(MapDetail.draws("service", isPoint = false, scale = near))
+        assertTrue(MapDetail.draws("residential", isPoint = false, scale = MapDetail.ARTERIAL_ONLY_BELOW + 0.1f))
+        assertTrue(MapDetail.draws("service", isPoint = false, scale = MapDetail.FOOTWAYS_ABOVE))
     }
 
     @Test fun pointsWaitForACloserZoomThanLines() {
@@ -216,17 +218,45 @@ class MapDetailAndTraceTest {
     }
 
     @Test fun theFetchWidensAsTheViewGrows() {
-        // Zoomed in, five sample centres decoded twenty-two cells to draw three.
-        assertEquals(0, MapDetail.fetchSpread(4f))
-        assertEquals(1, MapDetail.fetchSpread(1f))
+        assertTrue(MapDetail.fetchSpread(4f) < MapDetail.fetchSpread(1f))
         // Zoomed out far enough to frame a route, one net width leaves blank paper.
-        assertTrue(MapDetail.fetchSpread(0.3f) >= 2)
-        assertTrue(MapDetail.fetchSpread(MapProjection.MIN_SCALE) >= 2)
+        assertTrue(MapDetail.fetchSpread(0.3f) >= 3)
+        assertEquals(MapDetail.MAX_SPREAD, MapDetail.fetchSpread(MapProjection.MIN_SCALE))
+    }
+
+    @Test fun theFetchCoversTheViewportPlusTwoRingsAtEveryZoom() {
+        // The whole point of deriving the spread from the viewport: whatever
+        // the zoom, the fetched grid reaches past the visible edge by the
+        // margin, so a pan lands on decoded ground.
+        listOf(0.5f, 1f, 2f, 6f, 18f).forEach { scale ->
+            val reach = MapDetail.fetchSpread(scale) * PtilesRepository.SAMPLE_STEP_LAT
+            val needed = MapProjection.spanLat(scale) / 2 + MapDetail.MARGIN_RINGS * MapDetail.R7_STEP_LAT
+            assertTrue("scale $scale reaches $reach, needs $needed", reach >= needed)
+        }
+    }
+
+    @Test fun aFootprintTooSmallToSeeIsNotDrawn() {
+        assertFalse(MapDetail.drawsFootprint(1f, 1.5f))
+        assertTrue(MapDetail.drawsFootprint(1f, 12f))
+        assertTrue(MapDetail.drawsFootprint(40f, 30f))
+    }
+
+    @Test fun footprintsArriveOnceTheyAreOneBatchNotOnePathEach() {
+        assertTrue(MapDetail.draws("building_area", isPoint = false, scale = 1.6f))
+        assertFalse(MapDetail.draws("building_area", isPoint = false, scale = 1.2f))
     }
 
     @Test fun pavementIsSkippedExactlyWhereItIsNotDrawn() {
-        assertTrue(MapDetail.skipsMinorRoads(0.5f))
-        assertFalse(MapDetail.draws("footway", isPoint = false, scale = 0.5f))
-        assertFalse(MapDetail.skipsMinorRoads(1.5f))
+        // Fetch and draw must agree, or the fetch pays for features the map
+        // then hides: 15,000 of them at the opening zoom.
+        listOf(0.5f, 1f, 1.5f, 2.9f, 3.5f, 8f).forEach { scale ->
+            PtilesRepository.MINOR_ROAD_CLASSES.forEach { kind ->
+                assertEquals(
+                    "$kind at $scale",
+                    MapDetail.skipsMinorRoads(scale),
+                    !MapDetail.draws(kind, isPoint = false, scale = scale),
+                )
+            }
+        }
     }
 }

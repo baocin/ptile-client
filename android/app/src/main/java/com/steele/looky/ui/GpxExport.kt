@@ -71,6 +71,29 @@ object GpxExport {
         segments.flatMap { it.times.filterNotNull() }.sorted()
 
     /**
+     * What an export will write: the whole recording or one stretch of it,
+     * narrowed further by the trim window.
+     *
+     * A stretch is picked by index rather than by moving the trim onto its
+     * span, because a slider position is a fraction of a day and cannot land
+     * on an exact fix -- picking "the walk" would then drop its first point or
+     * pick up the last of the drive before it. A full window returns the source
+     * untouched for the same reason.
+     */
+    fun select(
+        segments: List<TraceSegment>,
+        stretch: Int?,
+        range: ClosedFloatingPointRange<Float>,
+    ): List<TraceSegment> {
+        val source = stretch?.let { listOfNotNull(segments.getOrNull(it)) } ?: segments
+        if (range.start <= 0f && range.endInclusive >= 1f) return source
+        val line = timeline(source)
+        val from = line.firstOrNull() ?: return source
+        val to = line.lastOrNull() ?: return source
+        return trim(source, atFraction(from, to, range.start), atFraction(from, to, range.endInclusive))
+    }
+
+    /**
      * One `<trk>` per segment, named for how that stretch was travelled.
      *
      * `includeSensors` re-emits each fix's recorded extensions -- speed,
