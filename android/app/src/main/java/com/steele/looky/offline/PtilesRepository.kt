@@ -199,30 +199,37 @@ class PtilesRepository(context: Context) {
         val centers = (sampleCenters(lat, lon, spread) + leadCenters(lastFetchCenter, here, spread)).distinct()
         lastFetchCenter = here
         val flags = cacheFlags(developer, places, skipMinorRoads)
-        val out = mutableListOf<MapFeature>()
+        // Kept per centre rather than merged, so the draw budget can be shared
+        // between cells instead of handed to whichever cell happens to hold
+        // the longest geometry. See [capAcrossCells].
+        val cells = mutableListOf<List<MapFeature>>()
         var decodes = 0
         centers.forEach { center ->
             val key = CellKey(gridY(center.lat), gridX(center.lon), flags)
             synchronized(cellCache) { cellCache[key] }
-                ?.let { out += it; return@forEach }
+                ?.let { cells += it; return@forEach }
             val decoded = decodeAround(center, developer, places, skipMinorRoads)
             decodes++
             synchronized(cellCache) { cellCache[key] = decoded }
-            out += decoded
+            cells += decoded
         }
         // State and county lines from the admin pack itself. It carries 6,245
         // rings; the bbox is load-bearing, since the whole table is 611k
         // vertices and every one of them would cross the FFI.
+        //
+        // Its own cell, so jurisdiction lines are budgeted like anywhere else
+        // rather than competing with the roads of whichever cell they fall in.
         runCatching {
             val reach = ADMIN_REACH_DEG
             // ponytail: cleared wholesale rather than aged. A day's driving
             // is a few dozen entries; anything smarter needs a reason.
             if (adminCache.size > MAX_CACHED_CELLS) adminCache.clear()
-            out += adminCache.getOrPut(gridY(lat) to gridX(lon)) {
+            cells += adminCache.getOrPut(gridY(lat) to gridX(lon)) {
                 adminBoundaries(lat - reach, lon - reach, lat + reach, lon + reach)
             }
         }
-        val capped = capFeatures(out)
+        val out = cells.flatten()
+        val capped = capAcrossCells(cells)
         // One line per fetch: how much of the grid the pan re-used, and what
         // the miss cost. It is the only view of whether the cache is working
         // on a device, and it is cheap enough to leave switched on.
@@ -1129,6 +1136,48 @@ class PtilesRepository(context: Context) {
             // Unused budget goes back to whoever still had features to draw.
             val out = kept + spare.take((max - kept.size).coerceAtLeast(0))
             return out.sorted().map(features::get)
+        }
+
+        /**
+         * Share the draw budget between sample cells before sharing it between
+         * layers.
+         *
+         * [capFeatures] ranks by kind and then by vertex count across the whole
+         * fetch, which is spatially blind: with 49 cells decoding 17,000
+         * features into a 3,000 budget, the survivors are simply the longest
+         * geometry anywhere in the grid. Cells whose features are short lose
+         * everything, so one H3 tile draws and the one beside it is blank
+         * paper -- and a pan that brings in longer geometry evicts a cell that
+         * was on screen a moment ago. The tile did not fail to load; it was
+         * decoded, cached, and then outbid.
+         *
+         * Smallest cell first, each taking an equal share of what is left, so
+         * a cell that cannot use its share hands the remainder to the dense
+         * ones. Downtown still draws more than farmland, but nothing draws
+         * nothing. Footprints keep their own budget: two paths for the layer
+         * however many there are, so they do not compete for strokes.
+         */
+        internal fun capAcrossCells(
+            cells: List<List<MapFeature>>,
+            max: Int = MAX_DRAWN_FEATURES,
+        ): List<MapFeature> {
+            val footprints = cells.asSequence().flatten()
+                .filter { it.kind == "building_area" }
+                .sortedByDescending { it.points.size }
+                .take(MAX_DRAWN_FOOTPRINTS)
+                .toList()
+            val rest = cells
+                .map { cell -> cell.filter { it.kind != "building_area" } }
+                .filter { it.isNotEmpty() }
+            if (rest.sumOf { it.size } <= max) return rest.flatten() + footprints
+            val out = mutableListOf<MapFeature>()
+            var remaining = max
+            rest.sortedBy { it.size }.forEachIndexed { index, cell ->
+                val kept = capFeatures(cell, remaining / (rest.size - index))
+                out += kept
+                remaining -= kept.size
+            }
+            return out + footprints
         }
 
         /**

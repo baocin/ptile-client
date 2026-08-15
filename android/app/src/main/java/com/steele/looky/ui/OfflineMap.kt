@@ -424,7 +424,12 @@ fun MapCanvas(
         // what is under the user almost immediately, and the wide one replaces
         // it -- reusing the narrow pass's cells, which the per-centre cache
         // still holds.
-        if (fetchSpread > NEAR_SPREAD) {
+        //
+        // Only when there is nothing to look at yet. Running it on every pan
+        // replaced a wide screenful with nine cells' worth and then restored
+        // it a second later, which reads as tiles blinking out rather than as
+        // a map loading.
+        if (fetchSpread > NEAR_SPREAD && features.isEmpty()) {
             features = withContext(Dispatchers.IO) {
                 repo.featuresAround(
                     dataCenter.lat,
