@@ -294,6 +294,7 @@ class TraceService : Service() {
             if (jump < 2_000.0) distanceM += jump
         }
         last = Location(fix)
+        AppSettings(this).rememberLastFix(fix.latitude, fix.longitude)
         val appended = recorder.append(fix, result.movement, result.accel, nearby, session)
         TraceBus.update {
             val recent = (it.recentPoints + GeoPoint(fix.latitude, fix.longitude)).takeLast(2_000)
@@ -304,6 +305,7 @@ class TraceService : Service() {
                     speedMps = if (fix.hasSpeed()) fix.speed.toDouble() else null,
                     headingDeg = if (fix.hasBearing()) fix.bearing.toDouble() else null,
                     accuracyM = if (fix.hasAccuracy()) fix.accuracy.toDouble() else null,
+                    movement = result.movement,
                 ),
             )
             it.copy(

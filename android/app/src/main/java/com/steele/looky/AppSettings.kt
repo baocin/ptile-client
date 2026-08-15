@@ -29,6 +29,33 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("imperial_units", true)
         set(value) = prefs.edit().putBoolean("imperial_units", value).apply()
 
+    /**
+     * The last coordinate a fix reported, across launches.
+     *
+     * "Downloads Needed" was decided from the recording service's live fix, so
+     * a fresh launch with every pack installed still accused the user of having
+     * no maps until the first fix landed. Where they were last is a far better
+     * guess than a hardcoded coordinate in Tennessee.
+     */
+    var lastFix: Pair<Double, Double>?
+        get() {
+            val lat = prefs.getFloat("last_fix_lat", Float.NaN)
+            val lon = prefs.getFloat("last_fix_lon", Float.NaN)
+            return if (lat.isNaN() || lon.isNaN()) null else lat.toDouble() to lon.toDouble()
+        }
+        set(value) {
+            if (value == null) return
+            prefs.edit()
+                .putFloat("last_fix_lat", value.first.toFloat())
+                .putFloat("last_fix_lon", value.second.toFloat())
+                .apply()
+        }
+
+    /** Cheap enough to call per fix: a float pair through `apply()`. */
+    fun rememberLastFix(lat: Double, lon: Double) {
+        lastFix = lat to lon
+    }
+
     var avoidHighways: Boolean
         get() = prefs.getBoolean("avoid_highways", false)
         set(value) = prefs.edit().putBoolean("avoid_highways", value).apply()

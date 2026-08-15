@@ -58,6 +58,8 @@ data class MotionFix(
     val speedMps: Double?,
     val headingDeg: Double?,
     val accuracyM: Double?,
+    /** What the classifier called this fix, so a window can say how it was travelled. */
+    val movement: String? = null,
 )
 
 /**
@@ -84,12 +86,36 @@ fun appendFix(history: List<MotionFix>, fix: MotionFix): List<MotionFix> {
 }
 
 /** [samples] is shown alongside [meanMps] so a two-fix average is not read as settled. */
-data class SpeedWindow(val seconds: Int, val samples: Int, val meanMps: Double?)
+/**
+ * [movement] is what the classifier called most of the window.
+ *
+ * A speed without its verdict is ambiguous -- 1.4 m/s is a brisk walk or a car
+ * in a car park -- and the two columns disagreeing is itself the diagnostic
+ * when the classifier is being starved of samples.
+ */
+data class SpeedWindow(
+    val seconds: Int,
+    val samples: Int,
+    val meanMps: Double?,
+    val movement: String? = null,
+)
 
 fun speedWindows(history: List<MotionFix>, nowMs: Long): List<SpeedWindow> =
     SPEED_WINDOWS_S.map { seconds ->
-        val speeds = history.filter { it.atMs >= nowMs - seconds * 1_000L }.mapNotNull { it.speedMps }
-        SpeedWindow(seconds, speeds.size, if (speeds.isEmpty()) null else speeds.average())
+        val inWindow = history.filter { it.atMs >= nowMs - seconds * 1_000L }
+        val speeds = inWindow.mapNotNull { it.speedMps }
+        SpeedWindow(
+            seconds = seconds,
+            samples = speeds.size,
+            meanMps = if (speeds.isEmpty()) null else speeds.average(),
+            // The commonest verdict, not the latest: one stray classification
+            // in a minute of driving should not relabel the minute.
+            movement = inWindow.mapNotNull { it.movement }
+                .groupingBy { it }
+                .eachCount()
+                .maxByOrNull { it.value }
+                ?.key,
+        )
     }
 
 /** Ages of -1 mean the input has produced nothing at all this session. */

@@ -188,7 +188,16 @@ fun LookyApp(
     LaunchedEffect(initialStateCode) {
         if (currentLat == null && initialStateCode != null) currentStateCode = initialStateCode
     }
-    LaunchedEffect(currentLat, currentLon, mapsRevision) {
+    // Fall back to where the last fix was: coverage is a fact about the packs
+    // and a coordinate, and the app knows one long before the service delivers
+    // a live fix. Judging it on the live fix alone made a fully stocked phone
+    // read "Downloads Needed" on every launch.
+    val remembered = remember { settings.lastFix }
+    val coverageLat = currentLat ?: remembered?.first
+    val coverageLon = currentLon ?: remembered?.second
+    LaunchedEffect(coverageLat, coverageLon, mapsRevision) {
+        val currentLat = coverageLat
+        val currentLon = coverageLon
         if (currentLat == null || currentLon == null) {
             mapsReady = false
         } else {

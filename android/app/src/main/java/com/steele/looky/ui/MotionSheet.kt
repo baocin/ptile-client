@@ -5,6 +5,11 @@ import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -147,10 +152,27 @@ internal fun MotionSheet(live: LiveTraceState, settings: AppSettings, nowMs: Lon
                     )
                     Text(
                         window.meanMps?.let { formatSpeed(it, imperial) } ?: "—",
-                        Modifier.width(110.dp),
+                        Modifier.width(100.dp),
                         style = MaterialTheme.typography.bodyLarge,
                         color = Forest,
                     )
+                    // The verdict beside the speed, because either alone is
+                    // ambiguous: 1.4 m/s is a brisk walk or a car in a car
+                    // park, and the two disagreeing is how a starved
+                    // classifier shows itself.
+                    Row(Modifier.width(112.dp), verticalAlignment = Alignment.CenterVertically) {
+                        window.movement?.let { movement ->
+                            Box(Modifier.size(8.dp).background(movementColor(movement), CircleShape))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                movement,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Forest,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                     Text(
                         if (window.samples == 1) "1 fix" else "${window.samples} fixes",
                         style = MaterialTheme.typography.labelMedium,

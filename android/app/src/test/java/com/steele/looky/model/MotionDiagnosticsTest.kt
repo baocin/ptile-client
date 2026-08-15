@@ -82,4 +82,26 @@ class MotionDiagnosticsTest {
     @Test fun bothInputsFreshMeansNoWarning() {
         assertFalse(motionStaleness(10_000L, 9_500L, 9_900L, 3, 50).any)
     }
+
+    @Test fun aWindowReportsHowItWasTravelled() {
+        val now = 10_000L
+        val history = listOf(
+            MotionFix(now - 9_000, 22.0, null, null, "Driving"),
+            MotionFix(now - 2_000, 21.0, null, null, "Driving"),
+            MotionFix(now - 1_000, 1.3, null, null, "Walking"),
+        )
+
+        val windows = speedWindows(history, now)
+
+        // One stray verdict must not relabel a minute of driving.
+        assertEquals("Driving", windows.first { it.seconds == 13 }.movement)
+        assertEquals("Walking", windows.first { it.seconds == 1 }.movement)
+    }
+
+    @Test fun aWindowWithNoVerdictSaysNothingRatherThanGuessing() {
+        val now = 5_000L
+        val history = listOf(MotionFix(now - 1_000, 2.0, null, null, null))
+
+        assertNull(speedWindows(history, now).first().movement)
+    }
 }
