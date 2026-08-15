@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -240,7 +241,18 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
     var trail by remember {
         mutableStateOf(TraceBus.state.value.session == TraceRecorder.SESSION_TRAIL)
     }
-    var stops by remember { mutableStateOf(emptyList<Stop>()) }
+    // Restored from disk, because a journey outlives the screen: the recorder
+    // keeps writing from its service while the activity is gone, and an app
+    // reopened at a junction must come back to the same destinations rather
+    // than to an empty search box.
+    var stops by remember {
+        mutableStateOf(
+            settings.activeJourney.map { (at, label) -> Stop(label, GeoPoint(at.first, at.second)) },
+        )
+    }
+    LaunchedEffect(stops) {
+        settings.activeJourney = stops.map { (it.point.lat to it.point.lon) to it.label }
+    }
     var query by remember { mutableStateOf("") }
     // Raw hits are held, not the rendered rows: the rows depend on where you
     // are, and that changes far more often than what is nearby.
@@ -448,7 +460,21 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
     // where the traveller is now.
     val fitPoints = plannedPath + stops.map { it.point } + listOfNotNull(current)
 
-    Box(Modifier.fillMaxSize()) {
+    // The panel's size is decided from the screen it is on, not from constants
+    // tuned on a portrait phone. Landscape leaves about 345 dp of height, and
+    // fixed maxima for the stop list and the results overflowed it: the panel
+    // ran under the live metrics bar and the destination could not be reached.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val shortScreen = maxHeight < 600.dp
+        // In landscape the metrics bar moves out of the panel's column rather
+        // than sitting on top of it, so the panel gets the whole height.
+        val panelMax = if (shortScreen) maxHeight else maxHeight - LIVE_METRICS_ROOM
+        // Landscape is wide and short, so the panel takes a column beside the
+        // map instead of a band across the top of it: full width would leave
+        // it about 130 dp tall, which is a search field and nothing else.
+        val panelWidth = if (shortScreen) maxWidth * 0.45f else maxWidth
+        val stopsMax = if (shortScreen) panelMax * 0.28f else STOPS_MAX_HEIGHT
+        val resultsMax = if (shortScreen) panelMax * 0.42f else RESULTS_MAX_HEIGHT
         OfflineMap(
             center = anchor,
             features = features,
@@ -472,7 +498,15 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
             fitPoints = fitPoints,
             fitKey = fitKey,
         )
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(
+            Modifier.width(panelWidth)
+                .padding(16.dp)
+                .heightIn(max = panelMax)
+                // Only where it cannot fit: a scrollable panel on a tall
+                // screen would swallow drags meant for the map behind it.
+                .then(if (shortScreen) Modifier.verticalScroll(rememberScrollState()) else Modifier),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .96f))) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -534,7 +568,7 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
                         val rows = (picker as? PickerState.Found)?.hits.orEmpty()
                         if (stops.isNotEmpty()) {
                             Column(
-                                Modifier.fillMaxWidth().heightIn(max = STOPS_MAX_HEIGHT).verticalScroll(rememberScrollState()),
+                                Modifier.fillMaxWidth().heightIn(max = stopsMax).verticalScroll(rememberScrollState()),
                             ) {
                                 StopList(
                                     stops = stops,
@@ -546,7 +580,7 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
                         }
                         if (rows.isNotEmpty()) {
                             LazyColumn(
-                                Modifier.fillMaxWidth().heightIn(max = RESULTS_MAX_HEIGHT),
+                                Modifier.fillMaxWidth().heightIn(max = resultsMax),
                             ) {
                                 items(rows, key = { "${it.name}@${it.point.lat},${it.point.lon}" }) { hit ->
                                     PlaceRow(hit, imperial) {
@@ -650,6 +684,13 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
             onFit = { fitKey++ },
             onRecenter = { panned = false; dataCenter = anchor; recenterKey++ },
         )
-        LiveMetrics(imperial, Modifier.align(Alignment.BottomCenter))
+        LiveMetrics(
+            imperial,
+            if (shortScreen) {
+                Modifier.align(Alignment.BottomEnd).width(maxWidth - panelWidth)
+            } else {
+                Modifier.align(Alignment.BottomCenter)
+            },
+        )
     }
 }

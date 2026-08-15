@@ -56,6 +56,42 @@ class AppSettings(context: Context) {
         lastFix = lat to lon
     }
 
+    /**
+     * The destination chain of a journey in progress, across launches.
+     *
+     * Navigation outlives the screen showing it: the recorder keeps writing
+     * from a foreground service whether or not the activity exists, so an app
+     * killed in a pocket and reopened at a junction must come back to the same
+     * route rather than to an empty search box. Only the stops are kept -- the
+     * route, the turn list and the navigator are all derived, and recomputing
+     * them from the current position is more correct than restoring a path
+     * that was planned from where the phone used to be.
+     *
+     * Stored as `lat,lon,label` per line. A label may contain a comma, so it
+     * is last and the split is bounded.
+     */
+    var activeJourney: List<Pair<Pair<Double, Double>, String>>
+        get() = prefs.getString("active_journey", "").orEmpty()
+            .lineSequence()
+            .mapNotNull { line ->
+                val parts = line.split(",", limit = 3)
+                if (parts.size < 3) return@mapNotNull null
+                val lat = parts[0].toDoubleOrNull() ?: return@mapNotNull null
+                val lon = parts[1].toDoubleOrNull() ?: return@mapNotNull null
+                (lat to lon) to parts[2]
+            }
+            .toList()
+        set(value) = prefs.edit()
+            .putString(
+                "active_journey",
+                value.joinToString("\n") { (at, label) ->
+                    // A newline in a name would split one stop into two, and
+                    // the label is free text from the layer.
+                    "${at.first},${at.second},${label.replace('\n', ' ')}"
+                },
+            )
+            .apply()
+
     var avoidHighways: Boolean
         get() = prefs.getBoolean("avoid_highways", false)
         set(value) = prefs.edit().putBoolean("avoid_highways", value).apply()

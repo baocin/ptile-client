@@ -25,6 +25,17 @@ data class NearbyContext(
     val roadDistanceM: Double?,
 )
 
+/**
+ * A routing failure already phrased for the person who asked for it.
+ *
+ * The cause is kept so [PtilesRepository.isSplittableFailure] still sees the
+ * original enum name: the message shown and the message matched on are not the
+ * same string any more.
+ */
+internal class RoutingProblem(message: String, cause: Throwable?) :
+    IllegalStateException(message, cause)
+
+
 class PtilesRepository(context: Context) {
     private val appContext = context.applicationContext
     private val manager = PackManager(context)
@@ -764,22 +775,41 @@ class PtilesRepository(context: Context) {
             camera = layer("camera", start.lat, start.lon),
             addresses = null,
         )
-        val route = stack.offlineRoute(
-            start.lat, start.lon, end.lat, end.lon,
-            if (trail) OfflineRouteMode.FOOT else OfflineRouteMode.DRIVING,
-            avoidHighways,
-            avoidIntersections,
-            // Zero keeps the profile's own snap radius, which is what this
-            // app has always routed with.
-            0.0,
-        )
-        check(route.path.isNotEmpty()) { "No roads or trails in the downloaded maps here -- download this area in Offline maps" }
-        return RouteResult(
-            route.path.map { GeoPoint(it.lat, it.lon) },
-            route.distanceM,
-            route.durationS,
-            route.decodedSegments.toInt(),
-        )
+        // Widen the snap rather than fail on it. An unsnapped endpoint almost
+        // never means "unreachable": a business is pinned on its building
+        // centroid or in the middle of its car park, and 250 m of driving
+        // default does not span a retail lot. Each rung is a fresh graph build
+        // over segments already decoded, so a rescue costs milliseconds and a
+        // failure costs four of them.
+        var lastFailure: Exception? = null
+        for (snap in SNAP_LADDER_M) {
+            val route = try {
+                stack.offlineRoute(
+                    start.lat, start.lon, end.lat, end.lon,
+                    if (trail) OfflineRouteMode.FOOT else OfflineRouteMode.DRIVING,
+                    avoidHighways,
+                    avoidIntersections,
+                    snap,
+                )
+            } catch (e: Exception) {
+                lastFailure = e
+                // Only an unsnapped endpoint is worth another rung. A wider
+                // snap adds no roads, so a disconnected graph stays
+                // disconnected and the corridor retry is what has to fix it.
+                if (!isSnapFailure(e)) throw RoutingProblem(explain(e, start, end, trail), e)
+                continue
+            }
+            check(route.path.isNotEmpty()) {
+                "No roads or trails in the downloaded maps here -- download this area in Offline maps"
+            }
+            return RouteResult(
+                route.path.map { GeoPoint(it.lat, it.lon) },
+                route.distanceM,
+                route.durationS,
+                route.decodedSegments.toInt(),
+            )
+        }
+        throw RoutingProblem(explain(lastFailure, start, end, trail), lastFailure)
     }
 
     /**
@@ -966,6 +996,69 @@ class PtilesRepository(context: Context) {
          * usually no room to widen, and where there was room the extra
          * segments did not bridge the gap.
          */
+        /**
+         * Snap radii tried in turn before an endpoint is called unreachable.
+         *
+         * Starts at the profile default (0 means "ask core", 250 m driving /
+         * 120 m foot) and ends at a kilometre, which is about as far as a
+         * destination can sit from a road and still be somewhere a person
+         * walks in from -- a state park visitor centre, a mine site, a
+         * lakeside cabin.
+         */
+        internal val SNAP_LADDER_M = listOf(0.0, 500.0, 1_000.0)
+
+        /** True when the endpoint could not be attached to any way. */
+        internal fun isSnapFailure(error: Throwable): Boolean =
+            "notsnapped" in flatten(error).replace(" ", "")
+
+        /**
+         * What a routing failure means, in the terms of the person reading it.
+         *
+         * The FFI reports the enum variant -- `Disconnected`, `EndNotSnapped`
+         * -- which names the mechanism and answers nothing. Each one has a
+         * likely cause and a different thing to do about it, and the two that
+         * look identical from inside the router ("no road joins these" and "we
+         * did not load the road that does") are told apart here, by whether
+         * the endpoints are in the same pack.
+         */
+        internal fun explain(
+            error: Throwable?,
+            start: GeoPoint,
+            end: GeoPoint,
+            trail: Boolean,
+            sameCoverage: Boolean = true,
+        ): String {
+            val message = flatten(error)
+            val km = distanceM(start, end) / 1_000.0
+            return when {
+                "startnotsnapped" in message.replace(" ", "") ->
+                    "No road within a kilometre of where you are. If you are off-road, " +
+                        "start from somewhere nearer a road."
+                "endnotsnapped" in message.replace(" ", "") ->
+                    if (trail) "No trail or path within a kilometre of that destination."
+                    else "No road within a kilometre of that destination. It may only be " +
+                        "reachable by a track or on foot."
+                "disconnected" in message && !sameCoverage ->
+                    "The maps stop before the destination. Download the state it is in, " +
+                        "then route again."
+                "disconnected" in message ->
+                    "No connected road between these two points in the downloaded maps. " +
+                        "Over ${km.toInt()} km this usually means a gap in the map data " +
+                        "rather than no road at all."
+                "bounding box" in message ->
+                    "That leg is too long to route in one piece. Add a stop partway."
+                "no roads layer" in message || "empty" in message ->
+                    "No map data downloaded here. Get this area in Offline maps."
+                else -> "Offline route failed: ${error?.message ?: "unknown error"}"
+            }
+        }
+
+        private fun flatten(error: Throwable?): String =
+            generateSequence(error, Throwable::cause)
+                .mapNotNull { it.message }
+                .joinToString(" ")
+                .lowercase()
+
         internal fun isSplittableFailure(error: Throwable): Boolean {
             val message = generateSequence(error, Throwable::cause)
                 .mapNotNull { it.message }
@@ -1389,15 +1482,61 @@ class PtilesRepository(context: Context) {
          * places -- about a metre, well under the spacing of two real stores.
          */
         /**
-         * Flight numbers that ride along in the business layer.
+         * Carrier codes that begin a flight designator.
          *
-         * OSM aeroway import leaves nodes named `AA 1234`, `DL2201`, `UA 45`:
-         * a gate's departure, not a place. They are never what a search for a
-         * business meant, and they crowd out real hits near an airport.
+         * A closed list, because the alphabetic part is the only thing telling
+         * `DL 1656` from `BAS 128`. The previous rule accepted any two or three
+         * capitals, and measured against TN.business (829,528 named records) it
+         * deleted 232 names of which 174 were real places -- `BAC 41`, `AMB
+         * 210`, `HWY 385`, `ACT 1` -- while missing 807 actual flights, because
+         * almost every one carries its route and so failed the anchored match.
          */
-        private val FLIGHT_NODE = Regex("""^[A-Z]{2,3}\s?\d{1,4}[A-Z]?$""")
+        private const val CARRIERS = "AA|DL|UA|WN|AS|B6|F9|NK|G4|HA|SY|AC|WS|9E|OO|YX|MQ|QX|ZW|EV|YV"
 
-        internal fun isFlightNode(name: String): Boolean = FLIGHT_NODE.matches(name.trim())
+        /**
+         * A flight number, with or without the route that usually follows.
+         *
+         * The shapes in the data: `DL3208`, `AA 1087`, `UA6157 To DEN`,
+         * `DL 1656 - BNA to DTW`, `AA3908 BNA - ORD`, `AA 2903 CHA/DFW`,
+         * `AA 2999 (TYS > ORD)`, `AA 2926 CHA/DFW Seat 11A`. Anything after the
+         * number is ignored rather than described, since it is free text and
+         * the designator alone is already decisive.
+         */
+        private val FLIGHT_NODE = Regex("""^(?:$CARRIERS)\s?\d{1,4}[A-Z]?(?:\b.*)?$""")
+
+        /** `Delta Flight 973 - MCI to ATL`: the same node, spelled out. */
+        private val SPELLED_FLIGHT = Regex(
+            """\b(?:Delta|American|United|Southwest|Alaska|JetBlue|Frontier|Spirit|""" +
+                """Allegiant|Hawaiian|Envoy|Republic|SkyWest)\s+(?:Air\s?lines?\s+)?Flight\s+\d+""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /**
+         * Airside furniture: `Gate 5`, `Gate B12`, `Concourse C`, `Terminal 2`.
+         *
+         * 204 of them in Tennessee alone, every one inside an airport (Memphis
+         * 97, Nashville 71, Knoxville 16, Chattanooga 8). Nobody navigating to
+         * an airport wants its gates as destinations, and a phone in the
+         * terminal sees nothing else. The trailing number is required, which is
+         * what keeps `Gate Communications` -- a real business -- out of it.
+         */
+        private val AIRSIDE = Regex(
+            """^(?:gate|concourse|stand|apron|terminal|pier)\s*[-#]?\s*[A-Z]?\d{1,3}[A-Z]?$""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /**
+         * Names that are an airport's internal plumbing rather than places.
+         *
+         * There is no aeroway layer to test proximity against -- no builder
+         * emits one -- so this is decided by name alone. That turns out to be
+         * enough: the names it catches cluster on the airports by themselves
+         * (BNA, MEM, TYS, CHA), which is the evidence that the rule is not
+         * catching anything else.
+         */
+        internal fun isFlightNode(name: String): Boolean = name.trim().let {
+            FLIGHT_NODE.matches(it) || SPELLED_FLIGHT.containsMatchIn(it) || AIRSIDE.matches(it)
+        }
 
         /**
          * How much a name looks like what was typed, 0 (not at all) to 1.

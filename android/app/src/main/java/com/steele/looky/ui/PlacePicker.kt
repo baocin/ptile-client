@@ -129,6 +129,13 @@ internal fun nearRoute(route: List<GeoPoint>, point: GeoPoint, metres: Double): 
 /** Hits scroll in their own box, so the stop chain below always shows. */
 internal val RESULTS_MAX_HEIGHT = 170.dp
 internal val STOPS_MAX_HEIGHT = 160.dp
+
+/**
+ * Height the live metrics bar and the nav bar need at the bottom of the
+ * Journey screen, so the panel above them can be bounded rather than running
+ * underneath.
+ */
+internal val LIVE_METRICS_ROOM = 108.dp
 internal val STOP_ROW_HEIGHT = 52.dp
 
 /** How near a planned route a hit must be to count as "on your route". */

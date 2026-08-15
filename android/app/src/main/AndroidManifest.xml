@@ -18,10 +18,20 @@
         android:roundIcon="@drawable/ic_looky"
         android:supportsRtl="true"
         android:theme="@style/Theme.Looky">
+        <!--
+            Rotating the phone used to restart the activity, which threw away
+            the whole Compose tree: the destination chain, the route, the turn
+            list and the map viewport all reset to a cold Journey screen. The
+            layout is built from the measured size rather than from
+            orientation-specific resources, so there is nothing to reload and
+            handling the change in-process is the whole fix. Process death is a
+            separate matter; see AppSettings.activeJourney.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.Looky">
+            android:theme="@style/Theme.Looky"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|fontScale|uiMode|navigation|keyboard">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
