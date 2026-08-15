@@ -38,7 +38,6 @@ import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -120,7 +119,7 @@ import java.io.File
 import java.time.Instant
 import kotlin.math.roundToInt
 
-private enum class Screen { DRIVE, TRAIL, MORE, RECORDINGS, PACKS, SETTINGS, DEVELOPER }
+private enum class Screen { JOURNEY, MORE, RECORDINGS, PACKS, SETTINGS, DEVELOPER }
 
 /** Settle time before a panned viewport triggers a PTiles decode. */
 internal const val VIEWPORT_DEBOUNCE_MS = 220L
@@ -163,9 +162,9 @@ fun LookyApp(
     var mapsRevision by remember { mutableIntStateOf(0) }
     var mapsReady by remember { mutableStateOf(false) }
     var currentStateCode by remember { mutableStateOf<String?>(null) }
-    var screen by remember {
-        mutableStateOf(if (settings.activeMode == LookyMode.TRAIL) Screen.TRAIL else Screen.DRIVE)
-    }
+    // Drive and trail are one destination with a sort, and the screen reads the
+    // remembered mode itself to pick the initial sort.
+    var screen by remember { mutableStateOf(Screen.JOURNEY) }
     var showMotion by remember { mutableStateOf(false) }
     // Staleness is the absence of updates, so nothing in the bus will wake the
     // warning icon up. Its own clock has to.
@@ -209,11 +208,11 @@ fun LookyApp(
             mapsReady = coverage.second
         }
     }
-    val root = screen in setOf(Screen.DRIVE, Screen.TRAIL, Screen.MORE)
+    val root = screen in setOf(Screen.JOURNEY, Screen.MORE)
     // Back walks up the app instead of leaving it. Only Drive, the home
     // screen, hands the gesture back to the system.
-    BackHandler(screen != Screen.DRIVE) {
-        screen = if (root) Screen.DRIVE else Screen.MORE
+    BackHandler(screen != Screen.JOURNEY) {
+        screen = if (root) Screen.JOURNEY else Screen.MORE
     }
     Scaffold(
         topBar = {
@@ -297,25 +296,13 @@ fun LookyApp(
         },
         bottomBar = {
             if (root) NavigationBar(containerColor = Color.White) {
-                // Tabs navigate only. Starting the service here re-labelled a
-                // running Drive session as Trail the moment the Trail tab was
-                // opened, so Trail read as in-progress when the user was just
-                // looking. Recording starts from the Start button or the
-                // Settings toggle -- the two places it is actually asked for.
-                // One session records at a time, so the other mode's tab greys
-                // out while a drive or trail is running. Background recording
-                // is nobody's session and blocks neither tab.
+                // Recording starts from the Start button or the Settings
+                // toggle -- the two places it is actually asked for -- never
+                // from arriving on a tab.
                 NavigationBarItem(
-                    selected = screen == Screen.DRIVE,
-                    enabled = live.session != TraceRecorder.SESSION_TRAIL || !live.running,
-                    onClick = { screen = Screen.DRIVE },
-                    icon = { Icon(Icons.Rounded.DirectionsCar, null) }, label = { Text("Drive") },
-                )
-                NavigationBarItem(
-                    selected = screen == Screen.TRAIL,
-                    enabled = live.session != TraceRecorder.SESSION_DRIVE || !live.running,
-                    onClick = { screen = Screen.TRAIL },
-                    icon = { Icon(Icons.Rounded.Terrain, null) }, label = { Text("Trail") },
+                    selected = screen == Screen.JOURNEY,
+                    onClick = { screen = Screen.JOURNEY },
+                    icon = { Icon(Icons.Rounded.DirectionsCar, null) }, label = { Text("Journey") },
                 )
                 NavigationBarItem(
                     selected = screen == Screen.MORE,
@@ -328,8 +315,7 @@ fun LookyApp(
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (screen) {
-                Screen.DRIVE -> DriveScreen(settings, onRequestPermissions) { screen = Screen.PACKS }
-                Screen.TRAIL -> TrailScreen(settings, onRequestPermissions) { screen = Screen.PACKS }
+                Screen.JOURNEY -> JourneyScreen(settings, onRequestPermissions) { screen = Screen.PACKS }
                 Screen.MORE -> MoreScreen(settings) { screen = it }
                 Screen.RECORDINGS -> RecordingsScreen()
                 Screen.PACKS -> PacksScreen(currentStateCode) { mapsRevision++ }

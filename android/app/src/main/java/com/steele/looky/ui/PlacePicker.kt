@@ -35,11 +35,11 @@ import com.steele.looky.model.GeoPoint
 import kotlin.math.roundToInt
 
 /**
- * Pieces both Drive and Trail draw, with no behaviour of their own.
+ * Pieces the journey screen draws, with no behaviour of their own.
  *
- * The two modes are separate paths -- what to search, what to route, what to
- * record -- but a row is a row and a drag is a drag. These take their contents
- * as arguments and decide nothing.
+ * Drive and trail sort still differ in what is searched, what is routed, and
+ * what is recorded -- but a row is a row and a drag is a drag. These take their
+ * contents as arguments and decide nothing.
  */
 
 /** A place on a route. The last one in the list is the destination. */
@@ -71,7 +71,8 @@ internal sealed interface PickerState {
  * `bearingDeg` is the straight-line direction to it, and `onRoute` marks a hit
  * that is barely a detour from the route already planned -- the two things
  * that decide whether a place is worth stopping at, which a distance alone
- * does not say.
+ * does not say. `note` is why the row is in this list when that is not obvious
+ * from its name: the park a business stands in, on a trail-sorted list.
  */
 internal data class PlaceHit(
     val name: String,
@@ -79,6 +80,7 @@ internal data class PlaceHit(
     val distanceM: Double,
     val bearingDeg: Double = 0.0,
     val onRoute: Boolean = false,
+    val note: String? = null,
 )
 
 /** Bearing from one point to another, degrees clockwise from north. */
@@ -119,6 +121,7 @@ internal fun PlaceRow(hit: PlaceHit, imperial: Boolean, onAdd: () -> Unit) {
             Text(
                 listOfNotNull(
                     "${formatDistance(hit.distanceM, imperial)} ${compassPoint(hit.bearingDeg)}",
+                    hit.note,
                     if (hit.onRoute) "on your route" else null,
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,

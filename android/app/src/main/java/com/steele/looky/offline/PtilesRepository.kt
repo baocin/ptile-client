@@ -84,7 +84,24 @@ class PtilesRepository(context: Context) {
         val decodedSegments: Int,
     )
 
-    data class BusinessResult(val name: String, val point: GeoPoint, val score: Int)
+    /**
+     * One searchable place, from whichever layer produced it.
+     *
+     * `brand` is the chain a place belongs to and is scored alongside the
+     * primary name, so "Shell" finds "Shell Oil 41762". `note` is what the row
+     * says about why this hit is here -- the park it stands in, in trail sort.
+     * Both are absent on most records and on every hit from a name index.
+     */
+    data class BusinessResult(
+        val name: String,
+        val point: GeoPoint,
+        val score: Int,
+        val brand: String? = null,
+        val note: String? = null,
+    )
+
+    /** A park polygon near the user, with the distance from them to it. */
+    data class NearbyPark(val name: String, val ring: List<GeoPoint>, val distanceM: Double)
 
     private fun layer(suffix: String, lat: Double, lon: Double): PtilesLayer? {
         val state = currentStateCode(lat, lon)
@@ -335,7 +352,7 @@ class PtilesRepository(context: Context) {
             emptyList()
         } else {
             nearLayer.businessesNear(origin.lat, origin.lon, RING, SEARCH_NEARBY_RADIUS_M)
-                .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), score = 0) }
+                .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), score = 0, brand = it.brand) }
         }
         val perIndex = (limit * SEARCH_OVERFETCH).coerceAtMost(SEARCH_MAX_FETCH)
         val statewide = indexes.flatMap { file ->
@@ -364,7 +381,7 @@ class PtilesRepository(context: Context) {
         // different thing again, and is left to throw.
         val layer = layer("business", origin.lat, origin.lon) ?: return null
         val hits = layer.businessesNear(origin.lat, origin.lon, RING, radiusM)
-            .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), score = 0) }
+            .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), score = 0, brand = it.brand) }
         return mergeBusinessHits(hits, limit, origin)
     }
 
@@ -409,6 +426,58 @@ class PtilesRepository(context: Context) {
         // orders what a typed query returns.
         if (needle.isNotEmpty()) return rankByNameAndDistance(needle, nearestPerTrail, origin, limit)
         return mergeBusinessHits(nearestPerTrail, limit, origin)
+    }
+
+    /**
+     * The named park polygons around a point, scored by how far away they are.
+     *
+     * Decoded over a sweep of sample centres because one ring-1 query reaches
+     * about 2 km and a park boundary worth scoping to is routinely further out
+     * than that. Rings from overlapping centres repeat, so the same park is
+     * dropped by name and first vertex before it is measured.
+     *
+     * ponytail: the sweep is [PARK_SCOPE_SPREAD] wide, roughly 7 km, not the
+     * 15 miles [PARK_SCOPE_RADIUS_M] allows. It covers the 8 km the business
+     * sweep itself reaches, so nothing searchable is scoped out by it -- but a
+     * park further away than the sweep is invisible rather than merely distant.
+     * Widen the sweep, at 4 more ring queries per step, if statewide-index hits
+     * in far parks start mattering.
+     */
+    fun parksAround(origin: GeoPoint): List<NearbyPark> {
+        val rings = sampleCenters(origin.lat, origin.lon, PARK_SCOPE_SPREAD).flatMap { c ->
+            runCatching { layer("parks", c.lat, c.lon)?.parks(c.lat, c.lon, RING).orEmpty() }
+                .getOrDefault(emptyList())
+        }.mapNotNull { park ->
+            val name = park.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val ring = park.geometry.map { GeoPoint(it.lat, it.lon) }
+            if (ring.size < 3) null else name to ring
+        }.distinctBy { (name, ring) -> Triple(name, ring.first().lat, ring.first().lon) }
+        return parkScope(rings, origin)
+    }
+
+    /**
+     * The journey picker's results, in the order the chosen sort wants them.
+     *
+     * Drive is the business search it has always been. Trail puts named trails
+     * and trailheads first and then keeps only the businesses standing inside a
+     * park that [parkScope] considers yours -- the walk-in-the-park case the
+     * whole sort exists for, rather than every shop within the same radius.
+     *
+     * Null means no layer covers here, which is the one outcome downloading
+     * fixes; an empty list means the layers answered and matched nothing.
+     */
+    fun journeyResults(
+        origin: GeoPoint,
+        query: String,
+        trailSort: Boolean,
+        limit: Int = SEARCH_LIMIT,
+    ): List<BusinessResult>? {
+        val places = if (query.isBlank()) businessesNearby(origin, limit = limit)
+        else searchBusinesses(query, origin, limit)
+        if (!trailSort) return places
+        val trails = trailsNearby(origin, query, limit)
+        if (trails == null && places == null) return null
+        return rankTrailFirst(trails.orEmpty(), places.orEmpty(), parksAround(origin), limit)
     }
 
     /**
@@ -985,13 +1054,18 @@ class PtilesRepository(context: Context) {
         }
 
         /**
-         * Whether a point falls inside a footprint ring, by ray casting.
+         * Whether a point falls inside a closed ring, by ray casting.
          *
          * The FFI already picks the building containing a point, but not
          * whether it contained it or merely had a centroid within 50 m, and
-         * those deserve different confidence. Degrees are compared directly:
-         * a building spans metres, where the latitude scaling is a rounding
-         * error on a containment test.
+         * those deserve different confidence. Park scoping asks the same
+         * question of a much bigger ring. Degrees are compared directly: the
+         * test is a parity count, and scaling longitude scales both sides of
+         * every comparison equally.
+         *
+         * A ring is treated as simple: a park with an inholding punched out of
+         * it reads as solid, because the layer hands back one ring per feature
+         * and says nothing about which are holes.
          */
         internal fun containsPoint(ring: List<GeoPoint>, point: GeoPoint): Boolean {
             if (ring.size < 3) return false
@@ -1007,6 +1081,92 @@ class PtilesRepository(context: Context) {
                 j = i
             }
             return inside
+        }
+
+        /**
+         * How wide the park sweep reaches, in sample-centre steps.
+         *
+         * Two steps is about 7 km, which covers the 8 km a typed business
+         * search sweeps and costs 25 ring queries. See [parksAround].
+         */
+        internal const val PARK_SCOPE_SPREAD = 2
+
+        /** The 15 miles the product asks for, in metres. */
+        internal const val PARK_SCOPE_RADIUS_M = 24_140.0
+
+        /**
+         * Which parks count as "the park you are in or near".
+         *
+         * Measured to the polygon, never to the centroid. A centroid answers a
+         * question about a park's middle, and the parks worth scoping to are
+         * the ones whose middle is nowhere near you: stand at a trailhead on
+         * the edge of a national park and its centroid is twenty miles off,
+         * while a pocket park across the street wins on a measure that has
+         * nothing to do with where either park's edge is.
+         *
+         * So: inside beats near, and near is a straight radius.
+         *
+         * - Standing inside any park, that park is the scope and nothing else
+         *   is. Distance is zero there, so a large park does not lose to a
+         *   small neighbour, and a walker in a national park is not offered the
+         *   town's businesses.
+         * - Otherwise every park within [PARK_SCOPE_RADIUS_M] of its boundary
+         *   is in scope, nearest first. This is deliberately one rule for
+         *   national and regional parks alike: a small county park two miles
+         *   away is in scope because it is two miles away, and a national park
+         *   twenty miles away is out for the same reason. Park size is not
+         *   consulted, because the layer does not classify parks reliably
+         *   enough to make it mean anything, and boundary distance already
+         *   captures what "closest" was reaching for.
+         *
+         * Distance is to ring vertices rather than to the segments between
+         * them, so a boundary drawn as a long straight run reads as further
+         * away than it is, by up to half the vertex spacing. OSM park rings are
+         * dense; a heavily simplified one is the case to watch.
+         */
+        internal fun parkScope(
+            parks: List<Pair<String, List<GeoPoint>>>,
+            origin: GeoPoint,
+            radiusM: Double = PARK_SCOPE_RADIUS_M,
+        ): List<NearbyPark> {
+            val measured = parks.map { (name, ring) -> NearbyPark(name, ring, ringDistanceM(ring, origin)) }
+            val inside = measured.filter { it.distanceM == 0.0 }
+            if (inside.isNotEmpty()) return inside
+            return measured.filter { it.distanceM <= radiusM }.sortedBy { it.distanceM }
+        }
+
+        /** Metres from a point to a ring: zero inside it, else the nearest vertex. */
+        internal fun ringDistanceM(ring: List<GeoPoint>, point: GeoPoint): Double {
+            if (ring.isEmpty()) return Double.MAX_VALUE
+            if (containsPoint(ring, point)) return 0.0
+            return kotlin.math.sqrt(ring.minOf { flatDistance2(point, it) })
+        }
+
+        /** The scoped park a point stands in, when it stands in one. */
+        internal fun parkContaining(scope: List<NearbyPark>, point: GeoPoint): String? =
+            scope.firstOrNull { containsPoint(it.ring, point) }?.name
+
+        /**
+         * Trail sort's order: paths first, then places inside a scoped park.
+         *
+         * Trails keep the order [trailsNearby] gave them -- trailheads ahead of
+         * plain paths on a blank query, resemblance on a typed one. Businesses
+         * follow in the order the business search ranked them, minus every one
+         * standing outside the parks [parkScope] chose, and each labelled with
+         * the park it is in so a row says why it is on a trail list at all.
+         */
+        internal fun rankTrailFirst(
+            trails: List<BusinessResult>,
+            businesses: List<BusinessResult>,
+            scope: List<NearbyPark>,
+            limit: Int,
+        ): List<BusinessResult> {
+            val inPark = businesses.mapNotNull { hit ->
+                parkContaining(scope, hit.point)?.let { hit.copy(note = "in $it") }
+            }
+            return (trails + inPark)
+                .distinctBy { Triple(it.name, round5(it.point.lat), round5(it.point.lon)) }
+                .take(limit)
         }
 
         /**
@@ -1083,6 +1243,24 @@ class PtilesRepository(context: Context) {
             return maxOf(whole, best * 0.95)
         }
 
+        /**
+         * The better of what was typed against the name and against the brand.
+         *
+         * A chain's records are named for the site -- "Shell Oil 41762",
+         * "Kroger Fuel Center #705" -- and searched for by the chain. The brand
+         * is the only alternative name a business record carries, so matching
+         * it is the difference between finding a station and finding nothing.
+         *
+         * Recall is not uniform, and cannot be made so here: the statewide name
+         * index (`{STATE}.business_name_index.ptiles`) is bucketed by the first
+         * letter of the *primary* name and carries no brand at all, so brand
+         * matching only reaches hits from the spatial sweep around the user --
+         * about 8 km. "Shell" finds the badly-named station down the road and
+         * misses its twin across the state.
+         */
+        internal fun bestSimilarity(query: String, name: String, brand: String?): Double =
+            maxOf(nameSimilarity(query, name), brand?.let { nameSimilarity(query, it) } ?: 0.0)
+
         /** 1 minus normalised Levenshtein distance. */
         internal fun editRatio(a: String, b: String): Double {
             if (a.isEmpty() || b.isEmpty()) return 0.0
@@ -1121,7 +1299,7 @@ class PtilesRepository(context: Context) {
         ): List<BusinessResult> = hits
             .asSequence()
             .filterNot { isFlightNode(it.name) }
-            .map { it to nameSimilarity(query, it.name) }
+            .map { it to bestSimilarity(query, it.name, it.brand) }
             .filter { (_, similarity) -> similarity >= MIN_NAME_SIMILARITY }
             .map { (hit, similarity) ->
                 val km = origin?.let { kotlin.math.sqrt(flatDistance2(it, hit.point)) / 1_000.0 } ?: 0.0

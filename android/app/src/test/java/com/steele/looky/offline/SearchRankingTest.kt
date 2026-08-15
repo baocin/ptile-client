@@ -52,6 +52,25 @@ class SearchRankingTest {
         assertTrue(ranked.first().point.lat < 35.1)
     }
 
+    @Test fun aChainIsFoundByItsBrandNotOnlyItsSiteName() {
+        val ranked = PtilesRepository.rankByNameAndDistance(
+            query = "shell",
+            hits = listOf(at("Shell Oil 41762", 1.0).copy(brand = "Shell"), at("Dollar General", 0.2)),
+            origin = here,
+            limit = 10,
+        )
+
+        assertEquals(listOf("Shell Oil 41762"), ranked.map { it.name })
+    }
+
+    @Test fun aBrandlessRecordIsScoredOnItsNameAlone() {
+        assertEquals(
+            PtilesRepository.nameSimilarity("shell", "Shell Oil 41762"),
+            PtilesRepository.bestSimilarity("shell", "Shell Oil 41762", brand = null),
+            0.0,
+        )
+    }
+
     @Test fun nonMatchesAreDroppedRatherThanRanked() {
         val ranked = PtilesRepository.rankByNameAndDistance(
             query = "kroger",

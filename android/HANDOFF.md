@@ -60,9 +60,19 @@ every pack that follows.
 
 ### Drive and Trail
 
-Drive and Trail are separate screens, not one screen with a flag. Drive
-searches the business layers and follows turn-by-turn; Trail searches only the
-trails layer and shows a walk summary. Both build a chain of stops -- the last
+Drive and Trail are one screen with a sort toggle, defaulting to Drive. Drive
+searches the business layers and follows turn-by-turn; Trail ranks named trails
+and trailheads first, then businesses inside a park polygon, and shows a walk
+summary with a surface legend instead of a turn card. The toggle is disabled
+while a journey is recording, because the day file has already committed to
+being a drive or a walk.
+
+Park scope in trail sort: parks you are standing inside win outright, otherwise
+every park whose boundary is within 15 miles, nearest first, measured to the
+polygon rather than the centroid. Park size and type are never consulted, so a
+county park two miles away outranks a national park twenty. The honest reach is
+smaller than 15 miles -- parks are decoded from a sample sweep of about 7 km,
+so a park further out is invisible rather than merely distant. Both build a chain of stops -- the last
 one is the destination -- and both record to their own GPX day file, with an
 always-on background log continuing between journeys.
 
