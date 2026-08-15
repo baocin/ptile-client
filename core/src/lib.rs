@@ -84,7 +84,7 @@ pub use roads::{
     Intersection, RoadSegment, decode_road_block, decode_roads, intersection_type_name,
 };
 pub use signals::{Signal, decode_signals};
-pub use trails::{TrailFeature, decode_trails, trail_is_developed};
+pub use trails::{TrailFeature, TrailHit, decode_trails, search_trails, trail_is_developed};
 pub use nav::{
     LOOKAHEAD_M, MIN_TURN_DEG, Maneuver, NavState, OFF_ROUTE_M, Turn, bearing_delta,
     cumulative_m, name_turn, navigate, turn_queue,

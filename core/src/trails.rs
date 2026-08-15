@@ -9,12 +9,17 @@
 //! reading a trail record with the rail decoder consumes the surface byte as
 //! flags and then misreads the rest of the block.
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::business_search::{fold_loose, score_match};
 use crate::codec::{
     DecodeError, decode_varint, read_i32, read_u8, read_u16, tables, zigzag_decode,
 };
+use crate::file::{FileError, PtilesFile};
+use crate::proximity::haversine_distance_m;
+use crate::source::PtilesSource;
 
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -139,6 +144,129 @@ pub fn decode_trails(data: &[u8]) -> Result<Vec<TrailFeature>, DecodeError> {
     }
 
     Ok(features)
+}
+
+/// One named trail matched by [`search_trails`], reported at the point on it
+/// nearest the searcher.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct TrailHit {
+    pub name: String,
+    /// The vertex of the trail nearest the origin -- for a long trail, the end
+    /// you would actually walk in from, not an arbitrary first point.
+    pub lat: f64,
+    pub lon: f64,
+    pub distance_m: f64,
+    pub is_trailhead: bool,
+    /// Same scale as [`crate::BusinessHit::score`]: 2 exact, 1 prefix, 0 substring.
+    pub score: u8,
+}
+
+/// Name search across an entire `{ST}.trails_v1.ptiles` file.
+///
+/// Trails have no name-index sidecar -- nothing like
+/// `{ST}.business_name_index.ptiles` is built for them -- so a spatial sweep
+/// was the only reach a caller had, and a trail beyond the sweep was invisible
+/// rather than merely distant. This is the brute-force answer
+/// ([`crate::search_business_brute_force`] is the precedent), and it is
+/// affordable because the layer is small: Tennessee's is 2.9 MB against the
+/// business layer's 54 MB.
+///
+/// Unlike the business brute force there is no early exit at `limit`. Block
+/// order is geographic, so stopping early would return whichever corner of the
+/// state the index happens to start in and call it the best match. The whole
+/// file is scanned, then hits are ranked by match quality and distance and
+/// truncated -- which is only sane because the file is small enough to read in
+/// full. `limit` bounds what crosses the FFI, not what is read.
+///
+/// One row per trail *name*: a single path decodes as many segments and often
+/// appears in several blocks, and the row kept is the one whose vertex is
+/// nearest `(origin_lat, origin_lon)`.
+pub fn search_trails<S: PtilesSource>(
+    file: &PtilesFile<S>,
+    query: &str,
+    origin_lat: f64,
+    origin_lon: f64,
+    limit: usize,
+) -> Result<Vec<TrailHit>, FileError> {
+    // The loose fold, not the index one: this scan consults no bucket, so it
+    // can afford to ignore punctuation -- which is most of the difference
+    // between what a person types and what OSM stored.
+    let query_folded = fold_loose(query.trim());
+    if query_folded.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    // Keyed by folded name so the dedupe is a map lookup, not a linear scan of
+    // what is already held: a one-letter query matches thousands of records.
+    let mut best: BTreeMap<String, TrailHit> = BTreeMap::new();
+
+    // One decompression per *block*, not per index entry. A trails file packs
+    // several cells into one merged block, so the 7,246 entries of the
+    // Tennessee index name only 906 blocks -- reading per entry decompressed
+    // each of them eight times over, and cost 280 ms against 46.
+    let mut blocks: Vec<(u64, u64)> = Vec::new(); // (block offset, a cell in it)
+    for entry in file.index() {
+        if blocks.last().map(|(off, _)| *off) != Some(entry.block_offset) {
+            blocks.push((entry.block_offset, entry.h3_cell));
+        }
+    }
+    let merged = file.has_merged_blocks();
+
+    for (_, cell) in blocks {
+        let Some(block) = file.read_block(cell)? else {
+            continue;
+        };
+        // A merged block opens with a cell table, so its records have to be
+        // sliced out cell by cell; decoding the raw block reads that table as
+        // trail records and yields garbage names.
+        let mut records = Vec::new();
+        if merged {
+            for id in crate::merged::cell_ids(&block)? {
+                if let Some(slice) = crate::merged::cell_slice(&block, id)? {
+                    records.append(&mut decode_trails(slice)?);
+                }
+            }
+        } else {
+            records = decode_trails(&block)?;
+        }
+        for trail in records {
+            let Some(name) = trail.name.filter(|n| !n.trim().is_empty()) else {
+                continue;
+            };
+            let folded = fold_loose(&name);
+            let Some(score) = score_match(&folded, &query_folded) else {
+                continue;
+            };
+            let Some((lon, lat, distance_m)) = trail
+                .coords
+                .iter()
+                .map(|c| (c[0], c[1], haversine_distance_m(origin_lat, origin_lon, c[1], c[0])))
+                .min_by(|a, b| a.2.total_cmp(&b.2))
+            else {
+                continue;
+            };
+            let hit = TrailHit {
+                name,
+                lat,
+                lon,
+                distance_m,
+                is_trailhead: trail.geom_type == 1,
+                score,
+            };
+            match best.get(&folded) {
+                Some(held) if held.distance_m <= hit.distance_m => {}
+                _ => {
+                    best.insert(folded, hit);
+                }
+            }
+        }
+    }
+
+    let mut hits: Vec<TrailHit> = best.into_values().collect();
+    hits.sort_by(|a, b| b.score.cmp(&a.score).then(a.distance_m.total_cmp(&b.distance_m)));
+    hits.truncate(limit);
+    Ok(hits)
 }
 
 #[cfg(test)]
@@ -274,6 +402,66 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "std")]
+    fn two_block_file() -> PtilesFile<crate::source::MemorySource> {
+        use crate::fixtures::{ptiles_v1, trail_record};
+        // Two cells, and the far one first: block order is the trap the
+        // whole-file scan exists to avoid.
+        let far = trail_record(1, 0, 8, 0, &[(36.5, -82.0), (36.51, -82.01)], Some("Cumberland Trail"));
+        let near = [
+            trail_record(1, 0, 8, 0, &[(35.61, -88.81), (35.62, -88.82)], Some("Cypress Greenway")),
+            // The same path in two stretches: one row, at the nearer vertex.
+            trail_record(1, 0, 8, 0, &[(35.90, -88.90)], Some("Cumberland Trail")),
+            trail_record(1, 0, 8, 0, &[(35.70, -88.85)], Some("Cumberland Trail")),
+            trail_record(1, 0, 8, 0, &[(35.63, -88.83)], None),
+        ]
+        .concat();
+        let bytes = ptiles_v1(b"PTILEST", &[(1u64, far), (2u64, near)]);
+        PtilesFile::open(crate::source::MemorySource(bytes)).expect("open synthetic trails file")
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn scan_reaches_a_block_a_spatial_sweep_would_never_touch() {
+        let file = two_block_file();
+        let hits = search_trails(&file, "cumberland", 35.6145, -88.8139, 10).unwrap();
+        assert_eq!(hits.len(), 1, "one row per trail name, not one per segment");
+        assert_eq!(hits[0].name, "Cumberland Trail");
+        // The nearest of the three "Cumberland Trail" records wins, and it is
+        // ~10 km out -- past any ring sweep, and still found.
+        assert!((hits[0].lat - 35.70).abs() < 1e-9, "{hits:?}");
+        assert!(hits[0].distance_m > 1_000.0 && hits[0].distance_m < 30_000.0, "{hits:?}");
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn punctuation_and_case_do_not_hide_a_trail() {
+        use crate::fixtures::{ptiles_v1, trail_record};
+        let rec = trail_record(1, 0, 8, 0, &[(35.7, -88.8)], Some("St. Mary's Loop"));
+        let file = PtilesFile::open(crate::source::MemorySource(ptiles_v1(
+            b"PTILEST",
+            &[(1u64, rec)],
+        )))
+        .unwrap();
+        for q in ["st marys loop", "ST. MARY'S", "st. marys"] {
+            assert_eq!(
+                search_trails(&file, q, 35.6, -88.8, 5).unwrap().len(),
+                1,
+                "{q} found nothing",
+            );
+        }
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn unnamed_ways_and_non_matches_stay_out() {
+        let file = two_block_file();
+        assert!(search_trails(&file, "greenway", 35.6145, -88.8139, 10).unwrap().len() == 1);
+        assert!(search_trails(&file, "zzz", 35.6145, -88.8139, 10).unwrap().is_empty());
+        assert!(search_trails(&file, "   ", 35.6145, -88.8139, 10).unwrap().is_empty());
+        assert!(search_trails(&file, "trail", 35.6145, -88.8139, 0).unwrap().is_empty());
+    }
+
     // The reason trails needs its own decoder: the rail decoder reads the
     // surface byte where it expects flags, so it cannot round-trip a trail.
     #[test]
@@ -284,3 +472,4 @@ mod tests {
         assert!(as_rail.is_empty() || as_rail[0].name.as_deref() != Some("Highline "));
     }
 }
+

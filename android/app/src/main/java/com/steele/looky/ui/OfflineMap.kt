@@ -38,6 +38,9 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -360,6 +363,116 @@ internal object MapDetail {
     }
 
     fun isMajor(kind: String): Boolean = kind in MAJOR
+}
+
+/**
+ * [OfflineMap] together with the PTiles fetch that feeds it.
+ *
+ * Every map in the app wants the same thing: the features under the viewport,
+ * as many cells wide as the zoom calls for, refreshed when the user pans away
+ * from what was decoded. Only the journey map ever did that. The recording,
+ * export and developer maps each fetched once, at the default spread, around a
+ * point chosen before the map was framed -- so a day-long drive drew roads
+ * around its midpoint and paper at both ends, and panning the developer map
+ * revealed nothing at all.
+ *
+ * The fetch belongs here rather than in each caller because the thing that
+ * decides how wide to cast the net -- [MapDetail.fetchSpread] against the live
+ * scale -- is only known to the map. Callers pass overlays and get the base
+ * map right by default.
+ */
+@Composable
+fun MapCanvas(
+    repo: PtilesRepository,
+    center: GeoPoint,
+    modifier: Modifier = Modifier,
+    current: GeoPoint? = null,
+    destination: GeoPoint? = null,
+    route: List<GeoPoint> = emptyList(),
+    trace: List<GeoPoint> = emptyList(),
+    dimmedTrace: List<GeoPoint> = emptyList(),
+    /** Decodes the layers only the developer map shows (buildings, cameras, rail). */
+    developer: Boolean = false,
+    /** Which decoded features to draw. The raw set still reaches [onFeatures]. */
+    filter: (MapFeature) -> Boolean = { it.kind != "building" },
+    /** Everything decoded, before [filter] -- for callers that count or group it. */
+    onFeatures: (List<MapFeature>) -> Unit = {},
+    onLongPress: (GeoPoint) -> Unit = {},
+    onTap: (GeoPoint) -> Unit = {},
+    recenterKey: Int = 0,
+    routeParts: List<Pair<List<GeoPoint>, Color>> = emptyList(),
+    fitPoints: List<GeoPoint> = emptyList(),
+    fitKey: Int = 0,
+) {
+    var features by remember { mutableStateOf(emptyList<MapFeature>()) }
+    var dataCenter by remember(recenterKey) { mutableStateOf(center) }
+    var mapScale by remember(recenterKey) { mutableFloatStateOf(1f) }
+    // Once the view has been moved -- by a drag or by a fit -- it stops
+    // following the caller's centre, or the next GPS fix would drag the data
+    // back under a viewport the user had pointed somewhere else.
+    var moved by remember(recenterKey) { mutableStateOf(false) }
+
+    LaunchedEffect(center.lat, center.lon) { if (!moved) dataCenter = center }
+
+    val fetchSpread = MapDetail.fetchSpread(mapScale)
+    val skipMinorRoads = MapDetail.skipsMinorRoads(mapScale)
+    LaunchedEffect(dataCenter.lat, dataCenter.lon, fetchSpread, skipMinorRoads, developer) {
+        delay(VIEWPORT_DEBOUNCE_MS)
+        // Two passes. The wide fetch is what makes panning land on ground that
+        // is already decoded, but it is seconds of work on a cold cache, and
+        // for those seconds the screen is blank paper. The narrow pass draws
+        // what is under the user almost immediately, and the wide one replaces
+        // it -- reusing the narrow pass's cells, which the per-centre cache
+        // still holds.
+        if (fetchSpread > NEAR_SPREAD) {
+            features = withContext(Dispatchers.IO) {
+                repo.featuresAround(
+                    dataCenter.lat,
+                    dataCenter.lon,
+                    trails = true,
+                    developer = developer,
+                    places = true,
+                    spread = NEAR_SPREAD,
+                    skipMinorRoads = skipMinorRoads,
+                )
+            }.also(onFeatures)
+        }
+        features = withContext(Dispatchers.IO) {
+            repo.featuresAround(
+                dataCenter.lat,
+                dataCenter.lon,
+                trails = true,
+                developer = developer,
+                places = true,
+                spread = fetchSpread,
+                skipMinorRoads = skipMinorRoads,
+            )
+        }.also(onFeatures)
+    }
+
+    OfflineMap(
+        center = center,
+        features = features.filter(filter),
+        current = current,
+        destination = destination,
+        route = route,
+        trace = trace,
+        dimmedTrace = dimmedTrace,
+        modifier = modifier,
+        onLongPress = onLongPress,
+        onTap = onTap,
+        onViewportChange = { viewport, scale ->
+            mapScale = scale
+            if (GpxReader.distanceM(dataCenter, viewport) > VIEWPORT_RELOAD_M) {
+                moved = true
+                dataCenter = viewport
+            }
+        },
+        recenterKey = recenterKey,
+        routeParts = routeParts,
+        fitPoints = fitPoints,
+        fitKey = fitKey,
+    )
 }
 
 @Composable

@@ -33,7 +33,8 @@ use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business_versioned, decode_road_block,
     decode_roads, haversine_distance_m, nearest_intersection as core_nearest_intersection,
     nearest_road as core_nearest_road, neighbor_cells, point_in_polygon, score_candidates,
-    search_business_indexed, trail_is_developed as core_trail_is_developed,
+    search_business_indexed, search_trails as core_search_trails,
+    trail_is_developed as core_trail_is_developed,
     route_in_corridor, trail_segments as core_trail_segments,
     CorridorError, CorridorPrefs, RoutePrefs, RouteProfile,
     Building, Business, Candidate as CoreCandidate, CandidateKind as CoreCandidateKind, FileSource,
@@ -570,6 +571,22 @@ pub struct BusinessSearchHit {
     pub name: String,
     pub category_idx: u8,
     pub location: LatLon,
+    /// 2 = exact (case-insensitive) name match, 1 = prefix, 0 = substring.
+    pub score: u8,
+}
+
+/// One hit from [`PtilesLayer::search_trails`]: a named trail somewhere in the
+/// whole installed pack, reported at the point on it nearest the searcher.
+///
+/// Trails have no name-index sidecar, so unlike [`BusinessSearchHit`] this
+/// comes off a scan of the entire layer -- which is why it carries the
+/// distance the scan already measured rather than making the caller redo it.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TrailSearchHit {
+    pub name: String,
+    pub location: LatLon,
+    pub distance_m: f64,
+    pub is_trailhead: bool,
     /// 2 = exact (case-insensitive) name match, 1 = prefix, 0 = substring.
     pub score: u8,
 }
@@ -1261,6 +1278,22 @@ impl PtilesLayer {
         let result = match &self.file {
             AnyFile::File(f) => search_business_indexed(f, query, limit),
             AnyFile::Http(f) => search_business_indexed(f, query, limit),
+        };
+        result.map_err(|e| PtilesError::Decode { message: e.to_string() })
+    }
+
+    /// Same dispatch problem as [`Self::search_business_indexed_dispatch`]:
+    /// `core::search_trails` wants a concrete `PtilesFile<S>`.
+    fn search_trails_dispatch(
+        &self,
+        query: &str,
+        lat: f64,
+        lon: f64,
+        limit: usize,
+    ) -> Result<Vec<ptiles_core::TrailHit>, PtilesError> {
+        let result = match &self.file {
+            AnyFile::File(f) => core_search_trails(f, query, lat, lon, limit),
+            AnyFile::Http(f) => core_search_trails(f, query, lat, lon, limit),
         };
         result.map_err(|e| PtilesError::Decode { message: e.to_string() })
     }
@@ -1977,6 +2010,39 @@ impl PtilesLayer {
                 name: h.name.clone(),
                 category_idx: h.category_idx,
                 location: LatLon { lat: h.lat, lon: h.lon },
+                score: h.score,
+            })
+            .collect())
+    }
+
+    /// Trail name search across the whole `{ST}.trails_v1.ptiles` file.
+    ///
+    /// The counterpart to [`PtilesLayer::search_business`] for trails, and a
+    /// scan rather than an index lookup: no name-index sidecar is built for
+    /// trails, so a ring sweep was the only reach a caller had and a trail
+    /// past it was invisible rather than distant. Measured on the published
+    /// 2.9 MB Tennessee pack (7,246 index entries in 906 merged blocks):
+    /// 46-62 ms per query on a desktop, whatever the query matches.
+    ///
+    /// One row per trail name, at the vertex nearest `(lat, lon)`, ranked by
+    /// match quality then distance. `limit` caps what crosses the FFI; the
+    /// file is read in full either way. Trails-layer only.
+    pub fn search_trails(
+        &self,
+        query: String,
+        lat: f64,
+        lon: f64,
+        limit: u32,
+    ) -> Result<Vec<TrailSearchHit>, PtilesError> {
+        self.require(LayerKind::Trails)?;
+        Ok(self
+            .search_trails_dispatch(&query, lat, lon, limit as usize)?
+            .into_iter()
+            .map(|h| TrailSearchHit {
+                name: h.name,
+                location: LatLon { lat: h.lat, lon: h.lon },
+                distance_m: h.distance_m,
+                is_trailhead: h.is_trailhead,
                 score: h.score,
             })
             .collect())

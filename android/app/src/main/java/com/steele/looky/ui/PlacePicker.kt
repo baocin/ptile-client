@@ -55,10 +55,31 @@ internal fun List<Stop>.move(from: Int, to: Int): List<Stop> {
 /** What a search box currently has to say. */
 internal sealed interface PickerState {
     data object Searching : PickerState
-    data class Found(val hits: List<PlaceHit>) : PickerState
 
-    /** The query ran and matched nothing. Not an error, and not a blank box. */
-    data class NoMatches(val query: String) : PickerState
+    /**
+     * Hits, and how far out they were taken from.
+     *
+     * `reachM` is what the panel is allowed to promise and `more` is how many
+     * hits the same search is holding further away. Between them a row of
+     * results stops implying that the rest of the world was looked at.
+     */
+    data class Found(
+        val hits: List<PlaceHit>,
+        val reachM: Double? = null,
+        val more: Int = 0,
+    ) : PickerState
+
+    /**
+     * The query ran and matched nothing. Not an error, and not a blank box.
+     *
+     * `reachM` says how far that "nothing" was true for, so a user can tell an
+     * empty neighbourhood from an empty country.
+     */
+    data class NoMatches(
+        val query: String,
+        val reachM: Double? = null,
+        val more: Int = 0,
+    ) : PickerState
 
     /** No layer covers here, which is the one thing downloading fixes. */
     data object NoMaps : PickerState
@@ -132,16 +153,58 @@ internal fun PlaceRow(hit: PlaceHit, imperial: Boolean, onAdd: () -> Unit) {
     }
 }
 
-/** The picker's message when it has hits to show or a reason it has none. */
+/**
+ * How far a search actually reached, in the units the user reads.
+ *
+ * Rounded to whole miles or kilometres: the reach is a rung on a ladder, not a
+ * measurement, and "within 25 miles" is the promise being made.
+ */
+internal fun reachLabel(reachM: Double, imperial: Boolean): String = if (imperial) {
+    val miles = reachM / 1_609.344
+    if (miles < 1) "within a mile" else "within ${Math.round(miles)} miles"
+} else {
+    val km = reachM / 1_000.0
+    if (km < 1) "within a kilometre" else "within ${Math.round(km)} km"
+}
+
+/**
+ * The picker's message when it has hits to show or a reason it has none.
+ *
+ * Every message that can be said honestly says how far it was true for, and
+ * offers to go further whenever the search is already holding hits it did not
+ * show. Silence about reach is what made an empty list read as "there is
+ * nothing there".
+ */
 @Composable
-internal fun PickerMessage(state: PickerState, onFixMaps: () -> Unit) {
+internal fun PickerMessage(
+    state: PickerState,
+    onFixMaps: () -> Unit,
+    imperial: Boolean = true,
+    onSearchFarther: (() -> Unit)? = null,
+) {
+    val farther: @Composable (Int) -> Unit = { more ->
+        if (more > 0 && onSearchFarther != null) {
+            Text(
+                "Search farther ($more more)",
+                Modifier.clickable(onClick = onSearchFarther),
+                style = MaterialTheme.typography.bodySmall,
+                color = Clay,
+            )
+        }
+    }
     when (state) {
         is PickerState.Searching -> Text("Searching…", style = MaterialTheme.typography.bodySmall, color = ForestSoft)
-        is PickerState.NoMatches -> Text(
-            "Nothing matched \"${state.query}\"",
-            style = MaterialTheme.typography.bodySmall,
-            color = ForestSoft,
-        )
+        is PickerState.NoMatches -> {
+            Text(
+                listOfNotNull(
+                    "Nothing matched \"${state.query}\"",
+                    state.reachM?.let { reachLabel(it, imperial) },
+                ).joinToString(" "),
+                style = MaterialTheme.typography.bodySmall,
+                color = ForestSoft,
+            )
+            farther(state.more)
+        }
         is PickerState.NoMaps -> Text(
             "No maps downloaded for this area. Tap to fix.",
             Modifier.clickable(onClick = onFixMaps),
@@ -153,7 +216,16 @@ internal fun PickerMessage(state: PickerState, onFixMaps: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = Clay,
         )
-        is PickerState.Found -> Unit
+        is PickerState.Found -> {
+            state.reachM?.let {
+                Text(
+                    reachLabel(it, imperial),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ForestSoft,
+                )
+            }
+            farther(state.more)
+        }
     }
 }
 

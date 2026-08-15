@@ -249,6 +249,14 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
     var searchedAt by remember { mutableStateOf(anchor) }
     var searchedFor by remember { mutableStateOf("") }
     var searchedTrail by remember { mutableStateOf(trail) }
+    // Where the radius ladder starts. Zero is "near first, widen until there is
+    // enough"; tapping "Search farther" pushes the floor out a rung, and past
+    // the last rung the ceiling is gone and the installed packs answer whole.
+    var fromRung by remember { mutableIntStateOf(0) }
+    var searchedRung by remember { mutableIntStateOf(0) }
+    var settledRung by remember { mutableIntStateOf(0) }
+    var reach by remember { mutableStateOf<Double?>(null) }
+    var beyond by remember { mutableIntStateOf(0) }
     var features by remember { mutableStateOf(emptyList<MapFeature>()) }
     var route by remember { mutableStateOf<PtilesRepository.RouteResult?>(null) }
     var routeError by remember { mutableStateOf<String?>(null) }
@@ -294,6 +302,10 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
     }
 
     LaunchedEffect(anchor.lat, anchor.lon) { if (!panned) dataCenter = anchor }
+
+    // A new query starts near again. Having asked to search farther for one
+    // thing is no reason to open the next search a hundred miles out.
+    LaunchedEffect(query, trail) { fromRung = 0 }
 
     val fetchSpread = MapDetail.fetchSpread(mapScale)
     val skipMinorRoads = MapDetail.skipsMinorRoads(mapScale)
@@ -362,27 +374,40 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
     // mid-tap. Only a move far enough to change what is nearby is worth asking
     // again for.
     val movedSinceSearch = GpxReader.distanceM(searchedAt, anchor) > SEARCH_REANCHOR_M
-    LaunchedEffect(query, trail, movedSinceSearch) {
-        if (!movedSinceSearch && hits != null && query == searchedFor && trail == searchedTrail) return@LaunchedEffect
+    LaunchedEffect(query, trail, movedSinceSearch, fromRung) {
+        if (!movedSinceSearch && hits != null && query == searchedFor && trail == searchedTrail &&
+            fromRung == searchedRung
+        ) {
+            return@LaunchedEffect
+        }
         // Blank the panel only when there is nothing on it: replacing a list of
         // real hits with "Searching..." and back is worse than a stale list.
         if (hits.isNullOrEmpty()) status = PickerState.Searching
         if (query.isNotBlank()) delay(SEARCH_DEBOUNCE_MS)
         val sort = trail
+        val rung = fromRung
         val found = withContext(Dispatchers.IO) {
-            runCatching { repo.journeyResults(anchor, query, trailSort = sort) }
+            runCatching { repo.journeyResults(anchor, query, trailSort = sort, fromRung = rung) }
         }
         searchedAt = anchor
         searchedFor = query
         searchedTrail = sort
+        searchedRung = rung
         found.fold(
             onSuccess = { result ->
-                hits = result.orEmpty()
+                hits = result?.hits.orEmpty()
+                reach = result?.reachM
+                beyond = result?.beyondReach ?: 0
+                // The rung this settled on, not the one asked for: widening
+                // stops as soon as a rung has enough, so "farther" has to mean
+                // the one after that or it lands on the same answer again.
+                settledRung = result?.rungIndex ?: rung
                 status = when {
                     result == null -> PickerState.NoMaps
-                    result.isEmpty() && query.isBlank() ->
+                    result.hits.isEmpty() && query.isBlank() ->
                         PickerState.NoMatches(if (sort) "any trail or park nearby" else "anything nearby")
-                    result.isEmpty() -> PickerState.NoMatches(query)
+                    result.hits.isEmpty() ->
+                        PickerState.NoMatches(query, result.reachM, result.beyondReach)
                     else -> null
                 }
             },
@@ -404,7 +429,11 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
                 onRoute = nearRoute(plannedPath, it.point, ON_ROUTE_M),
                 note = it.note,
             )
-        }
+        },
+        // Only a typed query widens, so only a typed query has a reach worth
+        // stating; a blank box is a browse of what is around you.
+        reachM = reach.takeIf { query.isNotBlank() },
+        more = if (query.isNotBlank()) beyond else 0,
     )
 
     // Off the main thread: the match is every route vertex against every
@@ -493,7 +522,12 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
                             label = { Text("Search") },
                             placeholder = { Text(if (trail) "Trail or Park Name" else "Business Name") },
                         )
-                        PickerMessage(picker, onOpenMaps)
+                        PickerMessage(
+                            picker,
+                            onOpenMaps,
+                            imperial = imperial,
+                            onSearchFarther = { fromRung = settledRung + 1 },
+                        )
                         // Stops first, then a divider, then hits: what you have
                         // already chosen outranks what you are still browsing,
                         // and sharing one scroll box hid it entirely.

@@ -232,7 +232,6 @@ fun RecordingDetailScreen(files: List<File>, title: String) {
     val context = LocalContext.current
     val repo = remember { PtilesRepository(context) }
     val key = remember(files) { files.joinToString { it.name } }
-    var features by remember(key) { mutableStateOf(emptyList<MapFeature>()) }
     var stops by remember(key) { mutableStateOf(emptyList<Pair<TraceSegment, String>>()) }
     var segments by remember(key) { mutableStateOf<List<TraceSegment>?>(null) }
     var exporting by remember(key) { mutableStateOf(false) }
@@ -251,15 +250,6 @@ fun RecordingDetailScreen(files: List<File>, title: String) {
             repo.placeLabel(segment)?.let { segment to it }
         }
     }
-    // The roads the day was travelled on, decoded around the middle of it.
-    val around = trace.points.getOrNull(trace.points.size / 2)
-    LaunchedEffect(around?.lat, around?.lon) {
-        val center = around ?: return@LaunchedEffect
-        features = withContext(Dispatchers.IO) {
-            repo.featuresAround(center.lat, center.lon, trails = true, places = true)
-                .filter { it.kind != "building" }
-        }
-    }
     val imperial = remember { com.steele.looky.AppSettings(context).imperialUnits }
     if (segments == null) {
         LoadingState("Reading $title…")
@@ -275,14 +265,15 @@ fun RecordingDetailScreen(files: List<File>, title: String) {
     // I" before any number does. The map shows the whole recording; what a
     // trim would select is the export sheet's business.
     Column(Modifier.fillMaxSize()) {
-        OfflineMap(
+        // Framed on the whole recording, and the data follows the frame: a
+        // day-long drive is far wider than one fetch around its midpoint.
+        MapCanvas(
+            repo = repo,
             center = center,
-            features = features,
-            current = null,
-            destination = null,
-            route = emptyList(),
             trace = trace.points,
             modifier = Modifier.weight(1f),
+            fitPoints = trace.points,
+            fitKey = trace.points.size,
         )
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -334,7 +325,6 @@ fun RecordingDetailScreen(files: List<File>, title: String) {
         ExportSheet(
             name = files.firstOrNull()?.name ?: "$title.gpx",
             segments = parts,
-            features = features,
             center = center,
         ) { exporting = false }
     }

@@ -86,8 +86,37 @@ pub(crate) fn fold_name(s: &str) -> String {
     stripped.to_lowercase().replace('ß', "ss")
 }
 
+/// [`fold_name`], plus punctuation dropped and runs of space collapsed, so
+/// `St. Mary's` and `St Marys` fold alike.
+///
+/// Deliberately NOT used by either business path. The name-index sidecar's
+/// buckets were built with [`fold_name`]'s rule, and a fold that can change a
+/// name's first character (`'Round the Mountain` -> `round the mountain`) would
+/// look in the wrong bucket of a pack already on the user's phone. This is for
+/// searches that read a layer whole and consult no bucket at all --
+/// [`crate::search_trails`].
+pub(crate) fn fold_loose(s: &str) -> String {
+    let folded = fold_name(s);
+    let mut out = String::with_capacity(folded.len());
+    let mut pending_space = false;
+    for c in folded.chars() {
+        if c.is_alphanumeric() {
+            if pending_space && !out.is_empty() {
+                out.push(' ');
+            }
+            pending_space = false;
+            out.push(c);
+        } else if c != '\'' && c != '\u{2019}' {
+            pending_space = true;
+        }
+        // Apostrophes vanish rather than separate: `Mary's` is one word, and
+        // splitting it made `marys` stop matching.
+    }
+    out
+}
+
 /// Score a match between two already-[`fold_name`]-normalized strings.
-fn score_match(name_folded: &str, query_folded: &str) -> Option<u8> {
+pub(crate) fn score_match(name_folded: &str, query_folded: &str) -> Option<u8> {
     if query_folded.is_empty() {
         return None;
     }

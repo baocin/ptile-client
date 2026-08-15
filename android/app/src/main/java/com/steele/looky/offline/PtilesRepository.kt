@@ -74,6 +74,9 @@ class PtilesRepository(context: Context) {
      */
     private val adminCache = ConcurrentHashMap<Pair<Int, Int>, List<MapFeature>>()
 
+    /** Park rings for one grid cell: 225 ring queries, so they are kept. */
+    private val parkCache = ConcurrentHashMap<Pair<Int, Int>, List<Pair<String, List<GeoPoint>>>>()
+
     /** Where the previous fetch was centred, so the next one can lead the pan. */
     @Volatile private var lastFetchCenter: GeoPoint? = null
 
@@ -98,6 +101,26 @@ class PtilesRepository(context: Context) {
         val score: Int,
         val brand: String? = null,
         val note: String? = null,
+    )
+
+    /**
+     * A search's results and the reach they were taken from.
+     *
+     * The reach is the promise the panel is allowed to make. `beyondReach` is
+     * how many more hits the same search already holds further out -- the
+     * difference between "there is nothing there" and "there is more, further
+     * away", which an empty list on its own could never tell.
+     */
+    data class SearchOutcome(
+        val hits: List<BusinessResult>,
+        val reachM: Double,
+        val beyondReach: Int,
+        /**
+         * Which rung of [SEARCH_LADDER_M] this reach is, so a caller offering
+         * "search farther" knows which one comes next. Past the last rung there
+         * is no ceiling left and this is the ladder's size.
+         */
+        val rungIndex: Int = 0,
     )
 
     /** A park polygon near the user, with the distance from them to it. */
@@ -343,25 +366,29 @@ class PtilesRepository(context: Context) {
     ): List<BusinessResult>? {
         if (query.isBlank() || limit <= 0) return emptyList()
         val indexes = nameIndexFiles()
-        val nearLayer = origin?.let { layer("business", it.lat, it.lon) }
+        // Every pack covering the point, not the first: a user standing eight
+        // miles from a state line has half of what is near them in the other
+        // state's pack, and a search that consulted one of the two called the
+        // rest of the map empty.
+        val nearLayers = origin?.let { covering("business", it.lat, it.lon) }.orEmpty()
         // Null, not empty: "nothing installed to search" and "nothing matched"
         // are different answers, and only one of them is the user's to fix.
-        if (indexes.isEmpty() && nearLayer == null) return null
+        if (indexes.isEmpty() && nearLayers.isEmpty()) return null
 
-        val nearby = if (origin == null || nearLayer == null) {
-            emptyList()
-        } else {
-            nearLayer.businessesNear(origin.lat, origin.lon, RING, SEARCH_NEARBY_RADIUS_M)
+        val nearby = if (origin == null) emptyList() else nearLayers.flatMap { near ->
+            near.businessesNear(origin.lat, origin.lon, RING, SEARCH_NEARBY_RADIUS_M)
                 .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), score = 0, brand = it.brand) }
         }
         val perIndex = (limit * SEARCH_OVERFETCH).coerceAtMost(SEARCH_MAX_FETCH)
         val statewide = indexes.flatMap { file ->
-            runCatching {
-                openCached(file)
-                    ?.searchBusiness(query, perIndex.toUInt())
-                    ?.map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), it.score.toInt()) }
-                    .orEmpty()
-            }.getOrDefault(emptyList())
+            queryVariants(query).flatMap { variant ->
+                runCatching {
+                    openCached(file)
+                        ?.searchBusiness(variant, perIndex.toUInt())
+                        ?.map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), it.score.toInt()) }
+                        .orEmpty()
+                }.getOrDefault(emptyList())
+            }
         }
         return rankByNameAndDistance(query, nearby + statewide, origin, limit)
     }
@@ -379,9 +406,12 @@ class PtilesRepository(context: Context) {
     ): List<BusinessResult>? {
         // Null when no business layer covers here -- a decode failure is a
         // different thing again, and is left to throw.
-        val layer = layer("business", origin.lat, origin.lon) ?: return null
-        val hits = layer.businessesNear(origin.lat, origin.lon, RING, radiusM)
-            .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), score = 0, brand = it.brand) }
+        val layers = covering("business", origin.lat, origin.lon)
+        if (layers.isEmpty()) return null
+        val hits = layers.flatMap { layer ->
+            layer.businessesNear(origin.lat, origin.lon, RING, radiusM)
+                .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), score = 0, brand = it.brand) }
+        }
         return mergeBusinessHits(hits, limit, origin)
     }
 
@@ -402,10 +432,12 @@ class PtilesRepository(context: Context) {
         limit: Int = SEARCH_LIMIT,
     ): List<BusinessResult>? {
         val needle = query.trim()
+        if (needle.isNotEmpty()) return trailsMatching(origin, needle, limit)
         val centers = sampleCenters(origin.lat, origin.lon, DEFAULT_SPREAD)
-        val layers = centers.mapNotNull { c -> layer("trails", c.lat, c.lon)?.let { c to it } }
-        if (layers.isEmpty()) return null
-        val hits = layers.flatMap { (c, layer) ->
+        val packs = layersFor("trails")
+        val queries = centers.flatMap { c -> packs.filter { it.covers(c.lat, c.lon) }.map { c to it } }
+        if (queries.isEmpty()) return null
+        val hits = queries.flatMap { (c, layer) ->
             layer.trails(c.lat, c.lon, RING)
         }.mapNotNull { trail ->
             val name = trail.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
@@ -424,8 +456,48 @@ class PtilesRepository(context: Context) {
         // "Stones River Greenwy" is the only spelling forgiveness available.
         // The trailhead-first tiebreak is given up with it; distance already
         // orders what a typed query returns.
-        if (needle.isNotEmpty()) return rankByNameAndDistance(needle, nearestPerTrail, origin, limit)
         return mergeBusinessHits(nearestPerTrail, limit, origin)
+    }
+
+    /**
+     * Named trails anywhere in the installed packs, not merely within a sweep.
+     *
+     * A ring sweep is the wrong instrument past a few kilometres and there is
+     * no trail name index to widen it with, so a typed query scans the trails
+     * pack whole (`core::search_trails`). Measured on the published 2.9 MB
+     * Tennessee pack -- 7,246 index entries, 906 merged blocks -- that is
+     * 46-62 ms per query on a desktop and about a fifth of a second on the
+     * emulator, once per query rather than once per fix.
+     *
+     * The FFI has already kept one row per name at the vertex nearest the
+     * origin and ranked them; [rankByNameAndDistance] re-ranks with the
+     * spelling forgiveness the FFI's exact/prefix/substring scoring does not
+     * have, which is what finds "Stones River Greenwy".
+     */
+    fun trailsMatching(
+        origin: GeoPoint,
+        query: String,
+        limit: Int = SEARCH_LIMIT,
+    ): List<BusinessResult>? {
+        val layers = layersFor("trails")
+        if (layers.isEmpty()) return null
+        // Overfetched, because the FFI ranks on exact/prefix/substring alone
+        // and a misspelling only survives the re-rank if it was returned.
+        val fetch = (limit * SEARCH_OVERFETCH).coerceAtMost(SEARCH_MAX_FETCH).toUInt()
+        val hits = layers.flatMap { layer ->
+            queryVariants(query).flatMap { variant ->
+                runCatching {
+                    layer.searchTrails(variant, origin.lat, origin.lon, fetch).map {
+                        BusinessResult(
+                            it.name,
+                            GeoPoint(it.location.lat, it.location.lon),
+                            score = if (it.isTrailhead) 1 else 0,
+                        )
+                    }
+                }.getOrDefault(emptyList())
+            }
+        }
+        return rankByNameAndDistance(query, hits, origin, limit)
     }
 
     /**
@@ -436,22 +508,30 @@ class PtilesRepository(context: Context) {
      * than that. Rings from overlapping centres repeat, so the same park is
      * dropped by name and first vertex before it is measured.
      *
-     * ponytail: the sweep is [PARK_SCOPE_SPREAD] wide, roughly 7 km, not the
-     * 15 miles [PARK_SCOPE_RADIUS_M] allows. It covers the 8 km the business
-     * sweep itself reaches, so nothing searchable is scoped out by it -- but a
-     * park further away than the sweep is invisible rather than merely distant.
-     * Widen the sweep, at 4 more ring queries per step, if statewide-index hits
-     * in far parks start mattering.
+     * The sweep now reaches as far as the rule claims: [PARK_SCOPE_SPREAD]
+     * covers [PARK_SCOPE_RADIUS_M], so a park 14 miles out is ranked low rather
+     * than missing. That costs 225 ring queries instead of 25, which is why the
+     * packs are resolved once instead of per centre and the answer is held per
+     * grid cell -- a search runs on every keystroke, and standing still asks
+     * the same question every time.
      */
     fun parksAround(origin: GeoPoint): List<NearbyPark> {
-        val rings = sampleCenters(origin.lat, origin.lon, PARK_SCOPE_SPREAD).flatMap { c ->
-            runCatching { layer("parks", c.lat, c.lon)?.parks(c.lat, c.lon, RING).orEmpty() }
-                .getOrDefault(emptyList())
-        }.mapNotNull { park ->
-            val name = park.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val ring = park.geometry.map { GeoPoint(it.lat, it.lon) }
-            if (ring.size < 3) null else name to ring
-        }.distinctBy { (name, ring) -> Triple(name, ring.first().lat, ring.first().lon) }
+        // The rings are what the sweep costs, and they are the same for anyone
+        // standing in this grid cell. Scoping them is arithmetic, and is
+        // redone against the true origin every call.
+        if (parkCache.size > MAX_CACHED_CELLS) parkCache.clear()
+        val rings = parkCache.getOrPut(gridY(origin.lat) to gridX(origin.lon)) {
+            val packs = layersFor("parks")
+            sampleCenters(origin.lat, origin.lon, PARK_SCOPE_SPREAD).flatMap { c ->
+                runCatching {
+                    packs.filter { it.covers(c.lat, c.lon) }.flatMap { it.parks(c.lat, c.lon, RING) }
+                }.getOrDefault(emptyList())
+            }.mapNotNull { park ->
+                val name = park.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val ring = park.geometry.map { GeoPoint(it.lat, it.lon) }
+                if (ring.size < 3) null else name to ring
+            }.distinctBy { (name, ring) -> Triple(name, ring.first().lat, ring.first().lon) }
+        }
         return parkScope(rings, origin)
     }
 
@@ -471,13 +551,21 @@ class PtilesRepository(context: Context) {
         query: String,
         trailSort: Boolean,
         limit: Int = SEARCH_LIMIT,
-    ): List<BusinessResult>? {
+        fromRung: Int = 0,
+    ): SearchOutcome? {
         val places = if (query.isBlank()) businessesNearby(origin, limit = limit)
         else searchBusinesses(query, origin, limit)
-        if (!trailSort) return places
-        val trails = trailsNearby(origin, query, limit)
-        if (trails == null && places == null) return null
-        return rankTrailFirst(trails.orEmpty(), places.orEmpty(), parksAround(origin), limit)
+        val ranked = if (!trailSort) {
+            places ?: return null
+        } else {
+            val trails = trailsNearby(origin, query, limit)
+            if (trails == null && places == null) return null
+            rankTrailFirst(trails.orEmpty(), places.orEmpty(), parksAround(origin), limit)
+        }
+        // A blank box is a browse of what is around you, and its reach is the
+        // sweep's, not the ladder's. Widening only makes sense against a query.
+        if (query.isBlank()) return SearchOutcome(ranked, NEARBY_RADIUS_M, 0)
+        return widenToEnough(ranked, origin, fromRung)
     }
 
     /**
@@ -583,6 +671,30 @@ class PtilesRepository(context: Context) {
             Navigator(path.map { LatLon(it.lat, it.lon) }, roads, TURN_NAME_RADIUS_M)
         }.getOrNull()
     }
+
+    /**
+     * Every installed pack of one kind, opened, newest version of each first.
+     *
+     * [layer] answers "which pack covers this point" and is the right call for
+     * a lookup. This is for the searches that mean to read whole packs, where
+     * re-resolving per query centre would list the pack directory hundreds of
+     * times over.
+     */
+    private fun layersFor(suffix: String): List<PtilesLayer> =
+        layerCandidates(manager.packsDir.listFiles().orEmpty(), suffix, stateHint)
+            .mapNotNull(::openCached)
+
+    /**
+     * Every installed pack of one kind that covers a point.
+     *
+     * [layer] stops at the first, which is the right answer for "which road am
+     * I on" and the wrong one for a search: state packs meet at a line the user
+     * has no reason to know about, and near it half of what is nearby lives in
+     * the neighbour's pack. Hits from two packs at the same place are one place,
+     * and the searches dedupe on name and position before showing anything.
+     */
+    private fun covering(suffix: String, lat: Double, lon: Double): List<PtilesLayer> =
+        layersFor(suffix).filter { it.covers(lat, lon) }
 
     private fun nameIndexFiles(): List<File> = manager.packsDir.listFiles()
         .orEmpty()
@@ -859,6 +971,22 @@ class PtilesRepository(context: Context) {
         /** How far a typed search sweeps the spatial layer before the index. */
         internal const val SEARCH_NEARBY_RADIUS_M = 8_000.0
 
+        /**
+         * The radii a search widens through, in metres: 25, 100, 400 and
+         * 1,000 miles.
+         *
+         * The data behind a typed query is not swept -- the business name index
+         * is statewide and the trail scan reads its pack whole -- so widening
+         * is a matter of how far out results are worth showing, not of asking
+         * again. Each rung is checked in turn and the first with
+         * [ENOUGH_RESULTS] wins; failing that the ceiling does, and anything
+         * past the ceiling waits for the user to ask for it.
+         */
+        internal val SEARCH_LADDER_M = listOf(40_234.0, 160_934.0, 643_738.0, 1_609_344.0)
+
+        /** Hits inside a rung that make it worth stopping at. */
+        internal const val ENOUGH_RESULTS = 5
+
         /** Below this, a name is not a match however lenient the scoring. */
         internal const val MIN_NAME_SIMILARITY = 0.55
 
@@ -867,6 +995,9 @@ class PtilesRepository(context: Context) {
 
         /** Similarity points the full falloff distance costs a hit. */
         internal const val DISTANCE_WEIGHT = 0.45
+
+        /** Similarity points each tenfold past the falloff costs a hit. */
+        internal const val FAR_WEIGHT = 0.25
 
         /**
          * How far around the viewport administrative rings are fetched.
@@ -1227,9 +1358,74 @@ class PtilesRepository(context: Context) {
          * finds Waffle House. Anything under [MIN_NAME_SIMILARITY] is not a
          * match at all -- fuzzy without a floor returns the whole layer.
          */
+        /**
+         * Spellings of the same word, collapsed to one token.
+         *
+         * American place and trail names are written both ways and searched for
+         * either -- "St Marys" for "Saint Mary's", "Mt Leconte" for "Mount
+         * LeConte", "Cedar Crk" for "Cedar Creek". Each pair maps to a single
+         * token so both sides of a comparison land on it.
+         *
+         * `st` is deliberately both Saint and Street. They collapse together,
+         * which makes "Main Street" and "Main St" the same and "Saint Marys"
+         * and "St Marys" the same; the cost is that "Main Saint" would match
+         * "Main Street", and no such place is being searched for.
+         */
+        private val NAME_ALIASES = mapOf(
+            "saint" to "st", "street" to "st",
+            "mount" to "mt", "mountain" to "mtn",
+            "fort" to "ft", "creek" to "cr", "crk" to "cr",
+            "north" to "n", "south" to "s", "east" to "e", "west" to "w",
+            "road" to "rd", "drive" to "dr", "lane" to "ln", "avenue" to "ave",
+            "trail" to "trl", "highway" to "hwy",
+            "parkway" to "pkwy", "junction" to "jct", "national" to "natl",
+        )
+
+        /**
+         * A name reduced to what a person means by it: lower case, `&` spelt
+         * out, punctuation gone, and every word in [NAME_ALIASES] on its
+         * canonical spelling.
+         *
+         * Query-side only, and applied to both strings of a comparison, so it
+         * needs nothing rebuilt. The name-index sidecar's buckets are keyed on
+         * `core::business_search::fold_name`'s rule and a pack already on the
+         * phone cannot be re-bucketed; what this changes is which of the hits
+         * that come back rank as matches, never which bucket is opened.
+         */
+        internal fun normalizeName(value: String): String = value
+            .lowercase()
+            .replace("&", " and ")
+            .map { if (it.isLetterOrDigit()) it else if (it == '\'' || it == '’') "" else " " }
+            .joinToString("")
+            .split(' ')
+            .filter { it.isNotEmpty() }
+            .joinToString(" ") { NAME_ALIASES[it] ?: it }
+
+        /**
+         * The spellings of a query worth asking the layers for.
+         *
+         * Scoring forgives spelling, but only among rows that came back at all,
+         * and both far-reaching paths match literally: the name index is a
+         * bucketed substring match and the trail scan a substring match over
+         * the whole layer. So "St Marys" has to be asked as "Saint Marys" too,
+         * or the row is never in the list to be scored. Two probes at most --
+         * each one is a block fetch, or on trails a scan.
+         */
+        internal fun queryVariants(query: String): List<String> {
+            val trimmed = query.trim()
+            if (trimmed.isEmpty()) return emptyList()
+            val expanded = trimmed.split(' ').joinToString(" ") { word ->
+                NAME_ALIASES.entries.firstOrNull { (long, short) ->
+                    word.equals(short, ignoreCase = true) && long.length > short.length
+                }?.key ?: word
+            }
+            return if (expanded.equals(trimmed, ignoreCase = true)) listOf(trimmed)
+            else listOf(trimmed, expanded)
+        }
+
         internal fun nameSimilarity(query: String, name: String): Double {
-            val q = query.trim().lowercase()
-            val n = name.trim().lowercase()
+            val q = normalizeName(query)
+            val n = normalizeName(name)
             if (q.isEmpty() || n.isEmpty()) return 0.0
             if (q == n) return 1.0
             if (n.startsWith(q)) return 0.92
@@ -1285,11 +1481,25 @@ class PtilesRepository(context: Context) {
         }
 
         /**
-         * Rank by resemblance, pulled toward the user by distance.
+         * How much distance costs a hit, in similarity points.
          *
-         * A perfect match forty kilometres away scores below a close-enough
-         * one on this street: [DISTANCE_WEIGHT] is how much of a similarity
-         * point the full [DISTANCE_FALLOFF_KM] is worth.
+         * Two parts. Up to [DISTANCE_FALLOFF_KM] it is linear and worth
+         * [DISTANCE_WEIGHT] -- a perfect match forty kilometres away scores
+         * below a close-enough one on this street. Past that it keeps creeping,
+         * [FAR_WEIGHT] per tenfold, because a flat penalty made every hit
+         * beyond the falloff equally distant and let an exact match six hundred
+         * miles out sit above a prefix match down the road. It never becomes a
+         * cutoff: the far hit ranks last, which is the point of searching
+         * exhaustively rather than merely widely.
+         */
+        internal fun distancePenalty(km: Double): Double {
+            val near = (km.coerceAtMost(DISTANCE_FALLOFF_KM) / DISTANCE_FALLOFF_KM) * DISTANCE_WEIGHT
+            val over = (km - DISTANCE_FALLOFF_KM).coerceAtLeast(0.0)
+            return near + FAR_WEIGHT * kotlin.math.log10(1.0 + over / DISTANCE_FALLOFF_KM)
+        }
+
+        /**
+         * Rank by resemblance, pulled toward the user by [distancePenalty].
          */
         internal fun rankByNameAndDistance(
             query: String,
@@ -1303,8 +1513,7 @@ class PtilesRepository(context: Context) {
             .filter { (_, similarity) -> similarity >= MIN_NAME_SIMILARITY }
             .map { (hit, similarity) ->
                 val km = origin?.let { kotlin.math.sqrt(flatDistance2(it, hit.point)) / 1_000.0 } ?: 0.0
-                val penalty = (km.coerceAtMost(DISTANCE_FALLOFF_KM) / DISTANCE_FALLOFF_KM) * DISTANCE_WEIGHT
-                Triple(hit, similarity - penalty, km)
+                Triple(hit, similarity - distancePenalty(km), km)
             }
             .sortedWith(compareByDescending<Triple<BusinessResult, Double, Double>> { it.second }.thenBy { it.third })
             .map { it.first }
@@ -1333,6 +1542,62 @@ class PtilesRepository(context: Context) {
                 .sortedWith(order)
                 .distinctBy { Triple(it.name, round5(it.point.lat), round5(it.point.lon)) }
                 .take(limit)
+        }
+
+        /**
+         * Widen a ranked list until it has enough to be worth showing.
+         *
+         * Near first: the rungs are walked in order and the first holding
+         * [ENOUGH_RESULTS] is the answer, so a town's worth of matches is never
+         * buried under a better-spelt one three hundred miles away. Nothing is
+         * discarded on the way -- what falls outside the chosen rung is counted
+         * and reported, because "no results" and "no results near you" are
+         * different answers and only one of them is true.
+         *
+         * `fromRung` is where the walk starts, which is how "search farther"
+         * works: past the last rung there is no ceiling left, and the whole of
+         * the installed packs answers.
+         */
+        internal fun widenToEnough(
+            hits: List<BusinessResult>,
+            origin: GeoPoint,
+            fromRung: Int = 0,
+            ladder: List<Double> = SEARCH_LADDER_M,
+            enough: Int = ENOUGH_RESULTS,
+        ): SearchOutcome {
+            val rungs = ladder.drop(fromRung).ifEmpty { listOf(Double.MAX_VALUE) }
+            val measured = hits.map { it to distanceM(origin, it.point) }
+            rungs.forEachIndexed { step, reach ->
+                val within = measured.count { it.second <= reach }
+                if (within >= enough || step == rungs.lastIndex) {
+                    return SearchOutcome(
+                        measured.filter { it.second <= reach }.map { it.first },
+                        reach,
+                        measured.size - within,
+                        (fromRung + step).coerceAtMost(ladder.size),
+                    )
+                }
+            }
+            // Unreachable: the loop returns on its last iteration.
+            return SearchOutcome(hits, rungs.last(), 0, ladder.size)
+        }
+
+        /**
+         * Metres between two points, on a sphere.
+         *
+         * [flatDistance2] is enough to sort by and is what ranking uses, but a
+         * reach the panel prints as "within 25 miles" is a promise, and flat
+         * earth is off by percent at the far end of a ladder that runs to a
+         * thousand.
+         */
+        internal fun distanceM(from: GeoPoint, to: GeoPoint): Double {
+            val r = 6_371_000.0
+            val dLat = Math.toRadians(to.lat - from.lat)
+            val dLon = Math.toRadians(to.lon - from.lon)
+            val a = kotlin.math.sin(dLat / 2).let { it * it } +
+                cos(Math.toRadians(from.lat)) * cos(Math.toRadians(to.lat)) *
+                kotlin.math.sin(dLon / 2).let { it * it }
+            return 2 * r * kotlin.math.asin(kotlin.math.sqrt(a).coerceAtMost(1.0))
         }
 
         /** Squared metres, flat-earth. Ranking never needs the real thing. */

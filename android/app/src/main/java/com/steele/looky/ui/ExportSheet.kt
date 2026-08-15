@@ -35,7 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.steele.looky.AppSettings
 import com.steele.looky.model.GeoPoint
-import com.steele.looky.model.MapFeature
+import com.steele.looky.offline.PtilesRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,7 +61,6 @@ private val SHEET_MAP_HEIGHT = 240.dp
 internal fun ExportSheet(
     name: String,
     segments: List<TraceSegment>,
-    features: List<MapFeature>,
     center: GeoPoint,
     onDismiss: () -> Unit,
 ) {
@@ -110,12 +109,9 @@ internal fun ExportSheet(
             Text("Export GPX", style = MaterialTheme.typography.headlineSmall, color = Forest)
             Text(name, style = MaterialTheme.typography.bodyMedium, color = ForestSoft)
             Spacer(Modifier.height(12.dp))
-            OfflineMap(
+            MapCanvas(
+                repo = remember { PtilesRepository(context) },
                 center = center,
-                features = features,
-                current = null,
-                destination = null,
-                route = emptyList(),
                 trace = selected,
                 // The whole recording stays behind the selection: a window can
                 // only be judged against what it is leaving out.

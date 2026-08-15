@@ -870,6 +870,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -986,6 +988,8 @@ fun uniffi_ptiles_ffi_checksum_method_ptileslayer_rail(
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_roads(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_search_trails(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_trails(
 ): Short
@@ -1187,6 +1191,8 @@ fun uniffi_ptiles_ffi_fn_method_ptileslayer_rail(`ptr`: Pointer,`lat`: Double,`l
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_roads(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(`ptr`: Pointer,`query`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_trails(`ptr`: Pointer,`query`: RustBuffer.ByValue,`lat`: Double,`lon`: Double,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_trails(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1527,6 +1533,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business() != 23326.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_trails() != 46632.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_trails() != 45930.toShort()) {
@@ -3533,6 +3542,22 @@ public interface PtilesLayerInterface {
     fun `searchBusiness`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit>
     
     /**
+     * Trail name search across the whole `{ST}.trails_v1.ptiles` file.
+     *
+     * The counterpart to [`PtilesLayer::search_business`] for trails, and a
+     * scan rather than an index lookup: no name-index sidecar is built for
+     * trails, so a ring sweep was the only reach a caller had and a trail
+     * past it was invisible rather than distant. Measured on the published
+     * 2.9 MB Tennessee pack (7,246 index entries in 906 merged blocks):
+     * 46-62 ms per query on a desktop, whatever the query matches.
+     *
+     * One row per trail name, at the vertex nearest `(lat, lon)`, ranked by
+     * match quality then distance. `limit` caps what crosses the FFI; the
+     * file is read in full either way. Trails-layer only.
+     */
+    fun `searchTrails`(`query`: kotlin.String, `lat`: kotlin.Double, `lon`: kotlin.Double, `limit`: kotlin.UInt): List<TrailSearchHit>
+    
+    /**
      * Every trail in the cell containing `(lat, lon)`, plus ring-1 neighbors
      * when `ring == 1`. Trails-layer only.
      */
@@ -4115,6 +4140,33 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(
         it, FfiConverterString.lower(`query`),FfiConverterUInt.lower(`limit`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Trail name search across the whole `{ST}.trails_v1.ptiles` file.
+     *
+     * The counterpart to [`PtilesLayer::search_business`] for trails, and a
+     * scan rather than an index lookup: no name-index sidecar is built for
+     * trails, so a ring sweep was the only reach a caller had and a trail
+     * past it was invisible rather than distant. Measured on the published
+     * 2.9 MB Tennessee pack (7,246 index entries in 906 merged blocks):
+     * 46-62 ms per query on a desktop, whatever the query matches.
+     *
+     * One row per trail name, at the vertex nearest `(lat, lon)`, ranked by
+     * match quality then distance. `limit` caps what crosses the FFI; the
+     * file is read in full either way. Trails-layer only.
+     */
+    @Throws(PtilesException::class)override fun `searchTrails`(`query`: kotlin.String, `lat`: kotlin.Double, `lon`: kotlin.Double, `limit`: kotlin.UInt): List<TrailSearchHit> {
+            return FfiConverterSequenceTypeTrailSearchHit.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_search_trails(
+        it, FfiConverterString.lower(`query`),FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUInt.lower(`limit`),_status)
 }
     }
     )
@@ -7248,6 +7300,61 @@ public object FfiConverterTypeTrailInfo: FfiConverterRustBuffer<TrailInfo> {
 
 
 /**
+ * One hit from [`PtilesLayer::search_trails`]: a named trail somewhere in the
+ * whole installed pack, reported at the point on it nearest the searcher.
+ *
+ * Trails have no name-index sidecar, so unlike [`BusinessSearchHit`] this
+ * comes off a scan of the entire layer -- which is why it carries the
+ * distance the scan already measured rather than making the caller redo it.
+ */
+data class TrailSearchHit (
+    var `name`: kotlin.String, 
+    var `location`: LatLon, 
+    var `distanceM`: kotlin.Double, 
+    var `isTrailhead`: kotlin.Boolean, 
+    /**
+     * 2 = exact (case-insensitive) name match, 1 = prefix, 0 = substring.
+     */
+    var `score`: kotlin.UByte
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTrailSearchHit: FfiConverterRustBuffer<TrailSearchHit> {
+    override fun read(buf: ByteBuffer): TrailSearchHit {
+        return TrailSearchHit(
+            FfiConverterString.read(buf),
+            FfiConverterTypeLatLon.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TrailSearchHit) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterTypeLatLon.allocationSize(value.`location`) +
+            FfiConverterDouble.allocationSize(value.`distanceM`) +
+            FfiConverterBoolean.allocationSize(value.`isTrailhead`) +
+            FfiConverterUByte.allocationSize(value.`score`)
+    )
+
+    override fun write(value: TrailSearchHit, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterTypeLatLon.write(value.`location`, buf)
+            FfiConverterDouble.write(value.`distanceM`, buf)
+            FfiConverterBoolean.write(value.`isTrailhead`, buf)
+            FfiConverterUByte.write(value.`score`, buf)
+    }
+}
+
+
+
+/**
  * One manoeuvre in a route's turn queue.
  */
 data class TurnInfo (
@@ -9028,6 +9135,34 @@ public object FfiConverterSequenceTypeTrailInfo: FfiConverterRustBuffer<List<Tra
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeTrailInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeTrailSearchHit: FfiConverterRustBuffer<List<TrailSearchHit>> {
+    override fun read(buf: ByteBuffer): List<TrailSearchHit> {
+        val len = buf.getInt()
+        return List<TrailSearchHit>(len) {
+            FfiConverterTypeTrailSearchHit.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TrailSearchHit>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTrailSearchHit.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TrailSearchHit>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTrailSearchHit.write(it, buf)
         }
     }
 }

@@ -648,15 +648,11 @@ private fun DeveloperMapScreen() {
     var enabledGroups by remember { mutableStateOf(groups.toSet()) }
     LaunchedEffect(center) {
         val snapshot = withContext(Dispatchers.IO) {
-            Triple(
-                repo.featuresAround(center.lat, center.lon, true, developer = true),
-                repo.currentStateCode(center.lat, center.lon),
-                repo.nearbyRoadContext(center.lat, center.lon).second.roadName,
-            )
+            repo.currentStateCode(center.lat, center.lon) to
+                repo.nearbyRoadContext(center.lat, center.lon).second.roadName
         }
-        features = snapshot.first
-        stateCode = snapshot.second
-        nearestRoad = snapshot.third
+        stateCode = snapshot.first
+        nearestRoad = snapshot.second
     }
     fun group(feature: com.steele.looky.model.MapFeature): String = when {
         feature.kind.startsWith("trail") || feature.kind in setOf("path", "footway", "track", "steps") -> "Trails"
@@ -705,8 +701,14 @@ private fun DeveloperMapScreen() {
             )
         }
         HorizontalDivider()
-        OfflineMap(
-            center, visible, center, null, emptyList(), live.recentPoints,
+        MapCanvas(
+            repo = repo,
+            center = center,
+            current = center,
+            trace = live.recentPoints,
+            developer = true,
+            filter = { group(it) in enabledGroups },
+            onFeatures = { features = it },
             modifier = Modifier.weight(1f),
             onTap = { tap ->
                 scope.launch {
