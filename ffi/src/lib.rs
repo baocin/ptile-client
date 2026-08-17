@@ -1839,6 +1839,39 @@ impl PtilesLayer {
     /// Businesses within `radius_m` of `(lat, lon)`, searching the
     /// containing cell (plus ring-1 neighbors when `ring == 1`).
     /// Business-layer only.
+    /// The categories this pack names for itself, if it carries them.
+    ///
+    /// Empty for every pack published so far: the table is new, and a client
+    /// that gets nothing back has to keep showing the raw index rather than
+    /// pretend. Reading it is what lets `business:94` become `plane` -- the
+    /// number alone means nothing outside the pack that wrote it, because the
+    /// builder ranks categories by frequency within one state's build.
+    pub fn categories(&self) -> Result<Vec<CategoryInfo>, PtilesError> {
+        if self.kind != LayerKind::Business {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        // `AnyFile` is an enum over the two source types, so the read has to
+        // pick a side rather than be generic over one.
+        let table = match &self.file {
+            AnyFile::File(f) => ptiles_core::categories::read_category_table(f),
+            AnyFile::Http(f) => ptiles_core::categories::read_category_table(f),
+        }
+        .map_err(|e| PtilesError::Decode { message: e.to_string() })?;
+        let Some(table) = table else { return Ok(Vec::new()) };
+        Ok(table
+            .categories
+            .iter()
+            .map(|c| CategoryInfo {
+                index: c.index,
+                label: c.label.clone(),
+                group: table.group_name(c).to_string(),
+                truncated: table.is_truncated(c.index),
+            })
+            .collect())
+    }
+
     pub fn businesses_near(
         &self,
         lat: f64,
@@ -2593,6 +2626,19 @@ impl PtilesStack {
 }
 
 /// The decoded record as callers across the boundary see it.
+/// One category a pack names for itself.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CategoryInfo {
+    /// The value a record's `category_idx` carries.
+    pub index: u8,
+    /// Canonical snake_case leaf, e.g. `church`, `gas_station`.
+    pub label: String,
+    /// Coarse family, in the pack's own vocabulary.
+    pub group: String,
+    /// True for the index meaning "categorised, but past the 254 that fit".
+    pub truncated: bool,
+}
+
 fn to_business_info(b: &ptiles_core::business::Business) -> BusinessInfo {
     BusinessInfo {
         osm_id: b.osm_id,

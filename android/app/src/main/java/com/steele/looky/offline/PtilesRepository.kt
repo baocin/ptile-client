@@ -39,6 +39,12 @@ internal class RoutingProblem(message: String, cause: Throwable?) :
     IllegalStateException(message, cause)
 
 
+/**
+ * A category as the pack that holds it describes: the canonical label, its
+ * coarse family, and whether it is the catch-all the truncated tail lands in.
+ */
+data class BusinessCategory(val label: String, val group: String, val truncated: Boolean)
+
 class PtilesRepository(context: Context) {
     private val appContext = context.applicationContext
     private val manager = PackManager(context)
@@ -886,6 +892,37 @@ class PtilesRepository(context: Context) {
             ?.let { runCatching { AdminLayer.open(it.absolutePath) }.getOrNull() }
             ?.also { adminLayer = it }
     }
+
+    /**
+     * What a business record's category byte means, in the pack's own words.
+     *
+     * The byte alone means nothing outside the file that wrote it: the builder
+     * ranks categories by frequency within one state's build, so the same
+     * number is a different category in another state and, as measured, in
+     * another build of the same state. Packs now carry their own table, and
+     * this reads it.
+     *
+     * Null when the pack predates the table, which is every published file so
+     * far -- the caller keeps showing the raw index rather than inventing a
+     * name for it.
+     */
+    fun categoryOf(index: UByte, at: GeoPoint): BusinessCategory? {
+        val layer = layer("business", at.lat, at.lon) ?: return null
+        val path = layerPath("business", at) ?: return null
+        val table = categoryTables.getOrPut(path) {
+            runCatching { layer.categories() }.getOrDefault(emptyList())
+                .associateBy({ it.index }, { BusinessCategory(it.label, it.group, it.truncated) })
+        }
+        return table[index]
+    }
+
+    /** The file a layer lookup would open, as the cache key for its table. */
+    private fun layerPath(suffix: String, at: GeoPoint): String? =
+        layerCandidates(manager.packsDir.listFiles().orEmpty(), suffix, currentStateCode(at.lat, at.lon))
+            .firstOrNull { openCached(it)?.covers(at.lat, at.lon) == true }
+            ?.absolutePath
+
+    private val categoryTables = mutableMapOf<String, Map<UByte, BusinessCategory>>()
 
     fun installedLayers(): List<File> = manager.packs().flatMap { it.layers }
 

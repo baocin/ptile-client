@@ -135,6 +135,28 @@ impl CategoryTable {
     }
 }
 
+/// Read and parse the category table a file carries, if it has one.
+///
+/// Wraps the header's `aux_offset`/`aux_length` so callers do not each repeat
+/// the range read and the "no aux at all" case, which is every pack published
+/// so far.
+#[cfg(feature = "std")]
+pub fn read_category_table<S: crate::source::PtilesSource>(
+    file: &crate::file::PtilesFile<S>,
+) -> Result<Option<CategoryTable>, DecodeError> {
+    let header = file.header();
+    if header.aux_offset == 0 || header.aux_length == 0 {
+        return Ok(None);
+    }
+    let mut buf = alloc::vec![0u8; header.aux_length as usize];
+    if file.source().read_exact_at(header.aux_offset, &mut buf).is_err() {
+        // A pack whose aux section cannot be read is a pack without one, as
+        // far as anything asking for a label is concerned.
+        return Ok(None);
+    }
+    parse_category_table(&buf)
+}
+
 /// Parse the aux section of a business pack.
 ///
 /// Returns `Ok(None)` for a pack written before this section existed, which is

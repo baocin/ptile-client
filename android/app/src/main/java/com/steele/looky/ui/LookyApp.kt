@@ -104,6 +104,7 @@ import com.steele.looky.model.motionStaleness
 import com.steele.looky.offline.PackManager
 import com.steele.looky.offline.MapDownloadProgress
 import com.steele.looky.offline.MapPackDownloader
+import com.steele.looky.offline.BusinessCategory
 import com.steele.looky.offline.PtilesRepository
 import uniffi.ptiles_ffi.BusinessInfo
 import uniffi.ptiles_ffi.TrailInfo
@@ -724,7 +725,13 @@ private fun DeveloperMapScreen() {
         )
     }
     selected?.let { business ->
-        BusinessSheet(business) { selected = null }
+        val category = remember(business) {
+            repo.categoryOf(
+                business.categoryIdx,
+                GeoPoint(business.location.lat, business.location.lon),
+            )
+        }
+        BusinessSheet(business, category) { selected = null }
     }
     selectedTrail?.let { trail ->
         TrailSheet(trail) { selectedTrail = null }
@@ -769,7 +776,11 @@ private fun TrailSheet(trail: TrailInfo, onDismiss: () -> Unit) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BusinessSheet(business: BusinessInfo, onDismiss: () -> Unit) {
+private fun BusinessSheet(
+    business: BusinessInfo,
+    category: BusinessCategory? = null,
+    onDismiss: () -> Unit,
+) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
@@ -786,7 +797,17 @@ private fun BusinessSheet(business: BusinessInfo, onDismiss: () -> Unit) {
                 color = ForestSoft,
             )
             Spacer(Modifier.height(14.dp))
-            DetailRow("Category index", business.categoryIdx.toString())
+            // The pack's own word for the category where it carries one. The
+            // index alone is meaningless outside the file that wrote it, so
+            // showing it is what a reader falls back to, not what it prefers.
+            when {
+                category == null ->
+                    DetailRow("Category index", business.categoryIdx.toString())
+                category.truncated ->
+                    DetailRow("Category", "not recorded (past the 254 a pack holds)")
+                else ->
+                    DetailRow("Category", "${category.label.replace('_', ' ')} · ${category.group.replace('_', ' ')}")
+            }
             DetailRow("Operating status", business.operatingStatus)
             business.phone?.let { DetailRow("Phone", it) }
             business.website?.let { DetailRow("Website", it) }

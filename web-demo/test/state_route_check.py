@@ -25,11 +25,8 @@ START = (40.7128, -74.0060, 16)   # Hudson waterfront: inside NJ's bbox
 INTO_NY = (40.7900, -73.9300, 16)  # upper Manhattan: NJ holds none of this
 
 
-def main():
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        sys.exit("needs playwright: pip install playwright && playwright install chromium")
+def check_pan_into_ny():
+    from playwright.sync_api import sync_playwright
 
     httpd = serve(WEB_DEMO, 0)
     base = f"http://127.0.0.1:{httpd.server_address[1]}/index.html"
@@ -69,7 +66,58 @@ def main():
     print(f"opened in {started_in}, panned into Manhattan -> {state}, {count} buildings")
     assert state == "NY", f"still serving {state} over Manhattan"
     assert count > 0, "switched state but drew nothing"
-    print("ok")
+    print("ok: released the wrong state")
+
+
+def check_no_flap():
+    """Standing still must not keep changing the answer.
+
+    The release is driven by a coverage miss, and a miss is recorded against
+    whichever state was current when it happened -- so a rule that only ever
+    rejects the current state can hand the map back and forth for as long as
+    the user leaves it alone. This sits on one point over the NJ/NY line and
+    nudges it, which fires moveend without meaningfully moving.
+    """
+    httpd = serve(WEB_DEMO, 0)
+    base = f"http://127.0.0.1:{httpd.server_address[1]}/index.html"
+    lat, lon, zoom = START
+
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        page = browser.new_context(viewport={"width": 1400, "height": 900}).new_page()
+        page.goto(f"{base}#lat={lat}&lon={lon}&zoom={zoom}", wait_until="load", timeout=90_000)
+        page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
+        page.wait_for_timeout(2500)
+        page.evaluate(ENABLE, "chkBldgs")
+        page.click("#btnPtiles")
+        page.wait_for_timeout(4000)
+
+        seen = [page.evaluate("() => window.__ptiles.state()")]
+        for i in range(8):
+            # Under a metre each time: same cell, same ground, same answer.
+            page.evaluate("([a, b, c]) => window.__ptiles.setView(a, b, c)",
+                          [lat + 0.000005 * (i % 2), lon, zoom])
+            page.wait_for_timeout(1500)
+            s = page.evaluate("() => window.__ptiles.state()")
+            if s != seen[-1]:
+                seen.append(s)
+        browser.close()
+
+    print("states while standing still:", " -> ".join(seen))
+    # One settling change is legitimate -- the first coverage answer arrives
+    # only once an index is open. A second means it is oscillating.
+    assert len(seen) <= 2, f"state flapped: {seen}"
+    print("ok: no flap")
+
+
+def main():
+    try:
+        import playwright.sync_api  # noqa: F401
+    except ImportError:
+        sys.exit("needs playwright: pip install playwright && playwright install chromium")
+    check_pan_into_ny()
+    check_no_flap()
 
 
 if __name__ == "__main__":

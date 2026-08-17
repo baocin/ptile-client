@@ -872,6 +872,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -931,6 +935,8 @@ fun uniffi_ptiles_ffi_checksum_method_addresslayer_addresses_at(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_addresslayer_find_address(
 ): Short
+fun uniffi_ptiles_ffi_checksum_method_addresslayer_search_address(
+): Short
 fun uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_adminlayer_polygons_in(
@@ -952,6 +958,8 @@ fun uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count(
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_categories(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache(
 ): Short
@@ -1116,6 +1124,8 @@ fun uniffi_ptiles_ffi_fn_method_addresslayer_addresses_at(`ptr`: Pointer,`lat`: 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_addresslayer_find_address(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`housenumber`: RustBuffer.ByValue,`street`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_addresslayer_search_address(`ptr`: Pointer,`housenumber`: RustBuffer.ByValue,`street`: RustBuffer.ByValue,`near`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_clone_adminlayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_ptiles_ffi_fn_free_adminlayer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1155,6 +1165,8 @@ fun uniffi_ptiles_ffi_fn_method_ptileslayer_cached_block_count(`ptr`: Pointer,un
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_cameras(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,`rangeM`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_categories(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_clear_cache(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -1448,6 +1460,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_addresslayer_find_address() != 59852.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_ptiles_ffi_checksum_method_addresslayer_search_address() != 40552.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_ptiles_ffi_checksum_method_adminlayer_admin_at() != 29916.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1469,7 +1484,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_buildings_at() != 9245.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near() != 42704.toShort()) {
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_businesses_near() != 63968.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cached_block_count() != 57569.toShort()) {
@@ -1479,6 +1494,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_cameras_seeing() != 15491.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_categories() != 47525.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_clear_cache() != 14397.toShort()) {
@@ -2465,6 +2483,18 @@ public interface AddressLayerInterface {
      */
     fun `findAddress`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `housenumber`: kotlin.String, `street`: kotlin.String): List<AddressRecord>
     
+    /**
+     * Forward geocode with no point required: "919 Broadway" -> where it is.
+     *
+     * [`Self::find_address`] needs a `(lat, lon)` to search around, which
+     * makes it a filter over a place you already found rather than a way to
+     * find one. This walks the whole file. `near` is optional and only
+     * changes cost and ordering: with it, cells are read nearest-first and
+     * the walk stops once no unread cell can beat the worst hit held
+     * (measured on Tennessee: 14.7 s without, 0.17 s with).
+     */
+    fun `searchAddress`(`housenumber`: kotlin.String, `street`: kotlin.String, `near`: LatLon?, `limit`: kotlin.UInt): List<AddressRecord>
+    
     companion object
 }
 
@@ -2582,6 +2612,29 @@ open class AddressLayer: Disposable, AutoCloseable, AddressLayerInterface
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_addresslayer_find_address(
         it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),FfiConverterString.lower(`housenumber`),FfiConverterString.lower(`street`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Forward geocode with no point required: "919 Broadway" -> where it is.
+     *
+     * [`Self::find_address`] needs a `(lat, lon)` to search around, which
+     * makes it a filter over a place you already found rather than a way to
+     * find one. This walks the whole file. `near` is optional and only
+     * changes cost and ordering: with it, cells are read nearest-first and
+     * the walk stops once no unread cell can beat the worst hit held
+     * (measured on Tennessee: 14.7 s without, 0.17 s with).
+     */
+    @Throws(PtilesException::class)override fun `searchAddress`(`housenumber`: kotlin.String, `street`: kotlin.String, `near`: LatLon?, `limit`: kotlin.UInt): List<AddressRecord> {
+            return FfiConverterSequenceTypeAddressRecord.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_addresslayer_search_address(
+        it, FfiConverterString.lower(`housenumber`),FfiConverterString.lower(`street`),FfiConverterOptionalTypeLatLon.lower(`near`),FfiConverterUInt.lower(`limit`),_status)
 }
     }
     )
@@ -3364,11 +3417,6 @@ public interface PtilesLayerInterface {
      */
     fun `buildingsAt`(`points`: List<LatLon>): List<BuildingInfo?>
     
-    /**
-     * Businesses within `radius_m` of `(lat, lon)`, searching the
-     * containing cell (plus ring-1 neighbors when `ring == 1`).
-     * Business-layer only.
-     */
     fun `businessesNear`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `radiusM`: kotlin.Double): List<BusinessInfo>
     
     /**
@@ -3390,6 +3438,20 @@ public interface PtilesLayerInterface {
      * reads the buildings layer too, when that matters. Camera-layer only.
      */
     fun `camerasSeeing`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `rangeM`: kotlin.Double): List<CameraViewInfo>
+    
+    /**
+     * Businesses within `radius_m` of `(lat, lon)`, searching the
+     * containing cell (plus ring-1 neighbors when `ring == 1`).
+     * Business-layer only.
+     * The categories this pack names for itself, if it carries them.
+     *
+     * Empty for every pack published so far: the table is new, and a client
+     * that gets nothing back has to keep showing the raw index rather than
+     * pretend. Reading it is what lets `business:94` become `plane` -- the
+     * number alone means nothing outside the pack that wrote it, because the
+     * builder ranks categories by frequency within one state's build.
+     */
+    fun `categories`(): List<CategoryInfo>
     
     /**
      * Drop the block cache, keeping the layer open.
@@ -3733,11 +3795,6 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     
 
     
-    /**
-     * Businesses within `radius_m` of `(lat, lon)`, searching the
-     * containing cell (plus ring-1 neighbors when `ring == 1`).
-     * Business-layer only.
-     */
     @Throws(PtilesException::class)override fun `businessesNear`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte, `radiusM`: kotlin.Double): List<BusinessInfo> {
             return FfiConverterSequenceTypeBusinessInfo.lift(
     callWithPointer {
@@ -3796,6 +3853,31 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     uniffiRustCallWithError(PtilesException) { _status ->
     UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_cameras_seeing(
         it, FfiConverterDouble.lower(`lat`),FfiConverterDouble.lower(`lon`),FfiConverterUByte.lower(`ring`),FfiConverterDouble.lower(`rangeM`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Businesses within `radius_m` of `(lat, lon)`, searching the
+     * containing cell (plus ring-1 neighbors when `ring == 1`).
+     * Business-layer only.
+     * The categories this pack names for itself, if it carries them.
+     *
+     * Empty for every pack published so far: the table is new, and a client
+     * that gets nothing back has to keep showing the raw index rather than
+     * pretend. Reading it is what lets `business:94` become `plane` -- the
+     * number alone means nothing outside the pack that wrote it, because the
+     * builder ranks categories by frequency within one state's build.
+     */
+    @Throws(PtilesException::class)override fun `categories`(): List<CategoryInfo> {
+            return FfiConverterSequenceTypeCategoryInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_categories(
+        it, _status)
 }
     }
     )
@@ -5245,12 +5327,28 @@ public object FfiConverterTypeAdaptiveMotionUpdate: FfiConverterRustBuffer<Adapt
 
 
 /**
- * One decoded address (`{osm_id, housenumber, street}`; location is the cell).
+ * One decoded address.
+ *
+ * `location` is `None` only for v1 files, which stored no per-record position
+ * -- every published file is v2 or later. This record used to omit the
+ * position entirely, which made the whole mobile surface unable to answer
+ * "where is this address", the question v2 exists to answer.
+ *
+ * `source` names the corpus the record came from (`osm`, `nad`,
+ * `openaddresses`, or `unknown` for a byte a newer builder wrote). v1 and v2
+ * files predate the merged layer, so everything in them reports `osm`.
  */
 data class AddressRecord (
     var `osmId`: kotlin.Long, 
     var `housenumber`: kotlin.String, 
-    var `street`: kotlin.String
+    var `street`: kotlin.String, 
+    var `location`: LatLon?, 
+    var `source`: kotlin.String, 
+    /**
+     * `APT B`, `STE 300`, `LOT 4` -- empty when the record names a whole
+     * building. v4 and later; earlier files folded units away as duplicates.
+     */
+    var `unit`: kotlin.String
 ) {
     
     companion object
@@ -5265,19 +5363,28 @@ public object FfiConverterTypeAddressRecord: FfiConverterRustBuffer<AddressRecor
             FfiConverterLong.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalTypeLatLon.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
         )
     }
 
     override fun allocationSize(value: AddressRecord) = (
             FfiConverterLong.allocationSize(value.`osmId`) +
             FfiConverterString.allocationSize(value.`housenumber`) +
-            FfiConverterString.allocationSize(value.`street`)
+            FfiConverterString.allocationSize(value.`street`) +
+            FfiConverterOptionalTypeLatLon.allocationSize(value.`location`) +
+            FfiConverterString.allocationSize(value.`source`) +
+            FfiConverterString.allocationSize(value.`unit`)
     )
 
     override fun write(value: AddressRecord, buf: ByteBuffer) {
             FfiConverterLong.write(value.`osmId`, buf)
             FfiConverterString.write(value.`housenumber`, buf)
             FfiConverterString.write(value.`street`, buf)
+            FfiConverterOptionalTypeLatLon.write(value.`location`, buf)
+            FfiConverterString.write(value.`source`, buf)
+            FfiConverterString.write(value.`unit`, buf)
     }
 }
 
@@ -5880,6 +5987,62 @@ public object FfiConverterTypeCandidate: FfiConverterRustBuffer<Candidate> {
             FfiConverterOptionalString.write(value.`name`, buf)
             FfiConverterDouble.write(value.`distanceM`, buf)
             FfiConverterDouble.write(value.`score`, buf)
+    }
+}
+
+
+
+/**
+ * The decoded record as callers across the boundary see it.
+ * One category a pack names for itself.
+ */
+data class CategoryInfo (
+    /**
+     * The value a record's `category_idx` carries.
+     */
+    var `index`: kotlin.UByte, 
+    /**
+     * Canonical snake_case leaf, e.g. `church`, `gas_station`.
+     */
+    var `label`: kotlin.String, 
+    /**
+     * Coarse family, in the pack's own vocabulary.
+     */
+    var `group`: kotlin.String, 
+    /**
+     * True for the index meaning "categorised, but past the 254 that fit".
+     */
+    var `truncated`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCategoryInfo: FfiConverterRustBuffer<CategoryInfo> {
+    override fun read(buf: ByteBuffer): CategoryInfo {
+        return CategoryInfo(
+            FfiConverterUByte.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CategoryInfo) = (
+            FfiConverterUByte.allocationSize(value.`index`) +
+            FfiConverterString.allocationSize(value.`label`) +
+            FfiConverterString.allocationSize(value.`group`) +
+            FfiConverterBoolean.allocationSize(value.`truncated`)
+    )
+
+    override fun write(value: CategoryInfo, buf: ByteBuffer) {
+            FfiConverterUByte.write(value.`index`, buf)
+            FfiConverterString.write(value.`label`, buf)
+            FfiConverterString.write(value.`group`, buf)
+            FfiConverterBoolean.write(value.`truncated`, buf)
     }
 }
 
@@ -8465,6 +8628,38 @@ public object FfiConverterOptionalTypeBuildingInfo: FfiConverterRustBuffer<Build
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeLatLon: FfiConverterRustBuffer<LatLon?> {
+    override fun read(buf: ByteBuffer): LatLon? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeLatLon.read(buf)
+    }
+
+    override fun allocationSize(value: LatLon?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeLatLon.allocationSize(value)
+        }
+    }
+
+    override fun write(value: LatLon?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeLatLon.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeLocationSample: FfiConverterRustBuffer<LocationSample?> {
     override fun read(buf: ByteBuffer): LocationSample? {
         if (buf.get().toInt() == 0) {
@@ -8995,6 +9190,34 @@ public object FfiConverterSequenceTypeCandidate: FfiConverterRustBuffer<List<Can
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeCandidate.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCategoryInfo: FfiConverterRustBuffer<List<CategoryInfo>> {
+    override fun read(buf: ByteBuffer): List<CategoryInfo> {
+        val len = buf.getInt()
+        return List<CategoryInfo>(len) {
+            FfiConverterTypeCategoryInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CategoryInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCategoryInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CategoryInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCategoryInfo.write(it, buf)
         }
     }
 }

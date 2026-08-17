@@ -935,7 +935,7 @@ function BusinessReader(file) {
 BusinessReader.fromUrl = async function(url, state) {
   var reader = new BusinessReader(await openPtilesRemote(url));
   // Attached, not fetched per record: the table is one small file per state.
-  reader.categories = state ? await businessCategories(state) : [];
+  reader.categories = state ? await businessCategories(state) : null;
   return reader;
 };
 BusinessReader.prototype._decodeBlock = async function(entry) {
@@ -958,15 +958,16 @@ BusinessReader.prototype._decodeBlock = async function(entry) {
 BusinessReader.prototype._decodeRecords = function(raw, entry) {
   if (!raw) return [];
   var version = this.file.header.version;
-  var cats = this.categories || [];
+  var cats = this.categories;
   var cellHex = (entry.h3Cell !== undefined ? entry.h3Cell : entry.h3_cell).toString(16);
   return wasm.decode_business_versioned(raw, version, cellHex).map(function(b) {
     return {
       uid: b.osm_id,
       name: b.name,
-      // Resolved against {ST}.business_categories.json, which *is* published --
-      // an earlier comment here claimed no sidecar existed anywhere. The raw
-      // index is kept as a fallback when the sidecar is a different vintage.
+      // Resolved against the table the pack carries, falling back to the
+      // published sidecar for the packs that predate it. The raw index is what
+      // is shown when neither names the category, since the number alone means
+      // nothing outside the file that wrote it.
       category: categoryLabel(cats, b.category_idx)
         || (b.category_idx ? "(cat:" + b.category_idx + ")" : ""),
       brand: b.brand || "",
@@ -2150,35 +2151,100 @@ function stateUrl(state, layer) {
   return PTILES_BASE + state + "." + layerFile(layer) + ".ptiles";
 }
 
-// `{ST}.business_categories.json` -- the vocabulary for a record's category_idx,
-// published next to the layers (11 KB for TN). Fetched once per state; a failure
-// caches an empty table, because an unlabelled category is cosmetic and must not
-// fail the lookup around it.
+// What a record's `category_idx` means.
+//
+// Preferred source is the business pack itself: it carries a `PTCT` table in
+// its aux section giving index, coarse group and canonical label, plus a build
+// stamp. That is the only source that cannot be wrong, because the numbering
+// is a frequency rank within one state's build -- the same index is a
+// different category in another state and, as measured, in another build of
+// the same state (the flight category is 94 in the published TN pack and 96 in
+// a sidecar built from a different snapshot).
+//
+// `{ST}.business_categories.json` is the fallback, and is what every pack
+// published so far needs: the table is new and no file carries it yet. It is
+// also the thing that can disagree with the pack it is read against, which is
+// why it is second and not first.
 var categoryTables = {};
+
+function parseCategoryAux(bytes) {
+  // magic PTCT, version 2, build stamp, group vocabulary, then the entries.
+  if (!bytes || bytes.length < 6) return null;
+  if (bytes[0] !== 0x50 || bytes[1] !== 0x54 || bytes[2] !== 0x43 || bytes[3] !== 0x54) return null;
+  if (bytes[4] !== 2) return null;  // a newer table is refused, not guessed at
+  var at = 5;
+  var stampLen = bytes[at]; at += 1;
+  var decoder = new TextDecoder();
+  var buildId = decoder.decode(bytes.subarray(at, at + stampLen)); at += stampLen;
+  var groupCount = bytes[at]; at += 1;
+  var groups = [];
+  for (var g = 0; g < groupCount; g++) {
+    var glen = bytes[at]; at += 1;
+    groups.push(decoder.decode(bytes.subarray(at, at + glen))); at += glen;
+  }
+  var count = bytes[at] | (bytes[at + 1] << 8); at += 2;
+  var byIndex = {};
+  for (var i = 0; i < count; i++) {
+    var index = bytes[at], group = bytes[at + 1], len = bytes[at + 2]; at += 3;
+    var label = decoder.decode(bytes.subarray(at, at + len)); at += len;
+    byIndex[index] = { label: label, group: groups[group] || "other" };
+  }
+  return { buildId: buildId, byIndex: byIndex, groups: groups };
+}
+
 function businessCategories(state) {
   // Guarded rather than assumed: the readers above are defined earlier in this
   // file than the `var` initialiser, and function declarations hoist while
   // assignments do not.
   if (!categoryTables) categoryTables = {};
   if (!categoryTables[state]) {
-    categoryTables[state] = fetch(PTILES_BASE + state + ".business_categories.json")
-      .then(function(r) { return r.ok ? r.json() : { categories: [] }; })
-      .then(function(j) { return Array.isArray(j && j.categories) ? j.categories : []; })
-      .catch(function() { return []; });
+    categoryTables[state] = (async function() {
+      try {
+        await wasmInit;
+        var src = P.httpSource(stateUrl(state, "business"));
+        var headerBytes = await src.readLive(0, 255);
+        var h = wasm.parse_header(headerBytes);
+        if (h.aux_offset && h.aux_length) {
+          var aux = await src.read(Number(h.aux_offset), Number(h.aux_offset) + h.aux_length - 1);
+          var table = parseCategoryAux(aux);
+          if (table) return table;
+        }
+      } catch (e) {
+        // A pack that cannot be read for its table is one without a table.
+      }
+      // Fallback: the published sidecar, 1-based against a bare array.
+      try {
+        var r = await fetch(PTILES_BASE + state + ".business_categories.json");
+        var j = r.ok ? await r.json() : null;
+        var names = Array.isArray(j && j.categories) ? j.categories : [];
+        var byIndex = {};
+        names.forEach(function(name, i) {
+          if (typeof name === "string" && name.trim()) {
+            byIndex[i + 1] = { label: name.split(">").pop().trim(), group: "" };
+          }
+        });
+        return { buildId: null, byIndex: byIndex, groups: [] };
+      } catch (e) {
+        // An unlabelled category is cosmetic and must not fail the lookup
+        // around it.
+        return { buildId: null, byIndex: {}, groups: [] };
+      }
+    })();
   }
   return categoryTables[state];
 }
 
-// The index is 1-based: the builder assigns `i + 1` over a 0-based array, so 0
-// means "no category" and n names categories[n - 1]. Reading it 0-based labels
-// every record with its neighbour's category and nothing errors. Names arrive as
-// either a taxonomy path ("Business and Professional Services > Office") or a
-// bare slug ("church_cathedral"); both reduce to the last segment.
-function categoryLabel(names, idx) {
-  if (!idx || !names || idx > names.length) return "";
-  var raw = names[idx - 1];
-  if (typeof raw !== "string" || !raw.trim()) return "";
-  return raw.split(">").pop().trim().replace(/_/g, " ");
+// The label for a record's category byte.
+//
+// 0 is the source having given no category. 255 is one it gave that ranked
+// past the 254 the field holds -- known, and not which -- which used to be
+// written as 0 and so was indistinguishable from absence.
+function categoryLabel(table, idx) {
+  if (!idx || !table || !table.byIndex) return "";
+  var entry = table.byIndex[idx];
+  if (!entry) return "";
+  if (idx === 255) return "other";
+  return String(entry.label || "").replace(/_/g, " ");
 }
 
 // US.admin.ptiles carries no per-cell blocks: its `aux` section is one flat
