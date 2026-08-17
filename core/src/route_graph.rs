@@ -991,13 +991,17 @@ impl Default for CorridorPrefs {
             span_fraction: 0.15,
             retry_scales: vec![2.5, 2.0, 1.6, 1.3],
             snap_radius_m: 0.0,
-            // 9 km each side: wide enough for a highway to bow away from the
-            // straight line between two towns, narrow enough that a 250 km
-            // corridor still fits the 512-cell cap.
-            max_margin_m: 9_000.0,
-            // Room for a ~250 km leg. Beyond that the corridor is better
-            // served by a coarser road band than by more res-7 cells.
-            max_cells: 2_048,
+            // 18 km each side. A bounding box got this width for free on a
+            // long route -- it is as tall as the route's own latitude span --
+            // and narrowing to 9 km around the line made Jackson to Nashville
+            // 25% longer, because the corridor no longer held the road that
+            // actually goes there. Corners are no longer decoded, so the
+            // width can be spent where the route is.
+            max_margin_m: 18_000.0,
+            // A capsule 36 km wide and 400 km long. Beyond that the corridor
+            // is better served by a coarser road band than by more res-7
+            // cells.
+            max_cells: 4_096,
         }
     }
 }
@@ -1082,10 +1086,82 @@ pub fn corridor_cells(
 ) -> Result<Vec<u64>, crate::query::BoundsError> {
     let (lat_margin, lon_margin) =
         corridor_margins_deg(start_lat, start_lon, end_lat, end_lon, prefs);
-    cells_at_scale(
+    cells_along(
         start_lat, start_lon, end_lat, end_lon, lat_margin, lon_margin, 1.0, prefs.max_cells,
     )
 }
+
+/// Cells within the margin of the *line* between two points.
+///
+/// The corridor used to be an axis-aligned bounding box, which is the same
+/// thing only for a route that runs due north or due east. On a diagonal the
+/// box holds roughly twice the area the corridor does, all of it decoded and
+/// none of it used: Nashville to Knoxville (258 km, almost due east) fit and
+/// routed in a second, while Nashville to Chattanooga (182 km, south-east)
+/// was refused for needing more than 2,048 cells. A route failing because of
+/// its *bearing* is not a limit anybody can reason about.
+///
+/// Walking the line and taking the cells near it keeps the same margin and
+/// drops the corners. The step is half a cell so no cell between two samples
+/// is missed, and each sample contributes the rings that cover the margin.
+fn cells_along(
+    start_lat: f64,
+    start_lon: f64,
+    end_lat: f64,
+    end_lon: f64,
+    lat_margin: f64,
+    lon_margin: f64,
+    scale: f64,
+    max_cells: usize,
+) -> Result<Vec<u64>, crate::query::BoundsError> {
+    use crate::query::{cell_for_coord, neighbor_cells};
+
+    let lat_reach = lat_margin * scale;
+    let lon_reach = lon_margin * scale;
+    // Res-7 cells are ~2.4 km across; a ring per 0.019 deg of margin covers it.
+    let rings = (lat_reach.max(lon_reach * 0.8) / R7_STEP_LAT).ceil().max(1.0) as usize;
+    let span = ((end_lat - start_lat).abs()).max((end_lon - start_lon).abs());
+    let steps = ((span / (R7_STEP_LAT / 2.0)).ceil() as usize).max(1);
+
+    let mut seen = BTreeMap::new();
+    let mut frontier = Vec::new();
+    for step in 0..=steps {
+        let t = step as f64 / steps as f64;
+        let lat = start_lat + (end_lat - start_lat) * t;
+        let lon = start_lon + (end_lon - start_lon) * t;
+        let cell = cell_for_coord(lat, lon);
+        if seen.insert(cell, 0usize).is_none() {
+            frontier.push(cell);
+        }
+    }
+    // Grow outwards `rings` times, which is cheaper than testing every cell in
+    // the bounding box against the line.
+    for ring in 1..=rings {
+        let mut next = Vec::new();
+        for cell in frontier.drain(..) {
+            for neighbor in neighbor_cells(cell) {
+                if seen.insert(neighbor, ring).is_none() {
+                    next.push(neighbor);
+                }
+            }
+        }
+        if seen.len() > max_cells {
+            return Err(crate::query::BoundsError::TooManyCells {
+                min_lat: crate::query::OrderedF64(start_lat.min(end_lat) - lat_reach),
+                min_lon: crate::query::OrderedF64(start_lon.min(end_lon) - lon_reach),
+                max_lat: crate::query::OrderedF64(start_lat.max(end_lat) + lat_reach),
+                max_lon: crate::query::OrderedF64(start_lon.max(end_lon) + lon_reach),
+                max: max_cells,
+            });
+        }
+        frontier = next;
+    }
+    Ok(seen.into_keys().collect())
+}
+
+/// Latitude step between neighbouring res-7 cell centres, as used to turn a
+/// margin in degrees into a ring count.
+const R7_STEP_LAT: f64 = 0.019;
 
 /// The widest corridor that still fits the cell cap and holds more cells than
 /// `base_cells`. `None` when nothing fits, which means a retry would only
