@@ -113,6 +113,22 @@ impl CategoryTable {
         self.get(index).map(|c| c.label.as_str())
     }
 
+    /// Every index carrying this canonical label.
+    ///
+    /// More than one, sometimes. The builder folds two vocabularies to one
+    /// leaf, so a state holding both `Landmarks and Outdoors > Park` and a
+    /// bare `park` ranks them separately and writes two indices with the same
+    /// label. Anything asking "all the parks" has to match the label across
+    /// indices rather than pick one, which is the whole reason this is a
+    /// method and not a reverse map the caller builds and gets wrong.
+    pub fn indices_for(&self, label: &str) -> Vec<u8> {
+        self.categories
+            .iter()
+            .filter(|c| c.label == label)
+            .map(|c| c.index)
+            .collect()
+    }
+
     /// Whether this record's category was known but ranked past the 254 the
     /// field holds.
     ///
@@ -234,6 +250,21 @@ mod tests {
         assert_eq!(tn.label(94), Some("plane"));
         assert_eq!(ga.label(94), Some("elementary_school"));
         assert_ne!(tn.build_id, ga.build_id);
+    }
+
+    /// Two spellings of one thing rank separately and both keep the label.
+    #[test]
+    fn a_label_can_sit_at_more_than_one_index() {
+        let parsed = parse_category_table(&table(
+            &[(1, "park", 5), (2, "park", 5), (3, "gas_station", 8)],
+            "x",
+        ))
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(parsed.indices_for("park"), vec![1, 2]);
+        assert_eq!(parsed.indices_for("gas_station"), vec![3]);
+        assert!(parsed.indices_for("nothing_like_it").is_empty());
     }
 
     /// A tail category and an absent one are different answers.
