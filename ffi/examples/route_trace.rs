@@ -18,6 +18,19 @@ fn main() {
         let result = stack.offline_route(
             la1, lo1, la2, lo2, ptiles_ffi::OfflineRouteMode::Driving, false, false, 0.0,
         );
+        // Does the route ride the highway? Compare free-flow duration with and
+        // without the highway penalty: if they agree, no highway was used.
+        let penalised = stack.offline_route(
+            la1, lo1, la2, lo2, ptiles_ffi::OfflineRouteMode::Driving, true, false, 0.0,
+        );
+        if let (Ok(a), Ok(b)) = (&result, &penalised) {
+            println!(
+                "                    highways: normal {:.0} min / {:.1} km, avoided {:.0} min / {:.1} km{}",
+                a.duration_s / 60.0, a.distance_m / 1000.0,
+                b.duration_s / 60.0, b.distance_m / 1000.0,
+                if (a.distance_m - b.distance_m).abs() < 1.0 { "  (identical -- no highway in play)" } else { "" },
+            );
+        }
         match result {
             Ok(r) => println!(
                 "{label:>16} {km:6.1} km  ->  routed {:.1} km, {} segments decoded",

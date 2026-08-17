@@ -161,11 +161,17 @@ fn a_wider_snap_radius_rescues_an_endpoint_beside_the_road() {
     assert!(generous.is_ok(), "200 m from the road is reachable: {generous:?}");
 }
 
-/// A trailhead served by a forest track is unroutable by car not because it is
-/// far away but because `track` is not a driving class. The failure is
-/// `EndNotSnapped`, and no snap radius fixes it -- the class filter does.
+/// A trailhead served by a forest track is reachable by car, because that is
+/// how you reach a trailhead.
+///
+/// `track` used to be excluded from driving outright, which reported
+/// `EndNotSnapped` for a destination 47 m from something drivable and
+/// accounted for most unsnapped endpoints in a 138-route sample. It is
+/// included at 12 km/h -- reachable, never attractive -- and
+/// [`keep_road_class`] still drops it from the corridor middle, so it can
+/// serve an endpoint without becoming a through route.
 #[test]
-fn a_destination_served_only_by_a_track_never_snaps_for_driving() {
+fn a_destination_served_only_by_a_track_can_be_driven_to() {
     let track = run("track", 36.0, -86.0, 6, 0.001);
 
     let driving = route_roads_diagnostic(
@@ -176,8 +182,41 @@ fn a_destination_served_only_by_a_track_never_snaps_for_driving() {
         RoutePrefs { profile: RouteProfile::Foot, ..PREFS },
     );
 
-    assert_eq!(driving, Err(RouteFailure::EmptyGraph), "no driving edge survives the filter");
-    assert!(on_foot.is_ok(), "the same track walks fine: {on_foot:?}");
+    assert!(driving.is_ok(), "a track has to be drivable at the ends: {driving:?}");
+    assert!(on_foot.is_ok(), "and still walkable: {on_foot:?}");
+}
+
+/// But never as a through route: in the middle of a corridor only the
+/// arterial spine survives, which is what stops a route being sent down a
+/// farm track for 40 km.
+#[test]
+fn a_track_is_not_a_through_route() {
+    assert!(ptiles_core::keep_road_class("track", false), "fine at an end");
+    assert!(!ptiles_core::keep_road_class("track", true), "not in the middle");
+    assert!(ptiles_core::keep_road_class("primary", true), "the spine stays");
+}
+
+/// The endpoints are snapped as a pair, so a nearer dead end loses to a
+/// slightly further street that can actually be left.
+#[test]
+fn snapping_prefers_a_connected_street_over_a_nearer_island() {
+    // An isolated stub 20 m from the destination, and the through road 60 m
+    // away that actually reaches the start.
+    let through = run("residential", 36.0, -86.0, 12, 0.001);
+    let island = seg("residential", vec![[-85.9895, 36.0006], [-85.9885, 36.0006]]);
+
+    let with_island = route_roads_diagnostic(
+        &[through.clone(), island], &[], 36.0, -86.0, 36.0006, -85.989, 120.0, PREFS,
+    );
+    let without = route_roads_diagnostic(
+        &[through], &[], 36.0, -86.0, 36.0006, -85.989, 120.0, PREFS,
+    );
+
+    assert!(without.is_ok(), "the through road alone routes: {without:?}");
+    assert!(
+        with_island.is_ok(),
+        "a nearer disconnected stub must not capture the snap: {with_island:?}",
+    );
 }
 
 // --- what the corridor loader does about it --------------------------------

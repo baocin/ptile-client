@@ -14,6 +14,9 @@ import uniffi.ptiles_ffi.TrailInfo
 import uniffi.ptiles_ffi.LatLon
 import uniffi.ptiles_ffi.Navigator
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -819,7 +822,7 @@ class PtilesRepository(context: Context) {
      * single route. `onLegDone(completed, total)` reports that progress so the
      * caller can show a real percentage instead of an indeterminate spinner.
      */
-    fun offlineRouteVia(
+    suspend fun offlineRouteVia(
         start: GeoPoint,
         waypoints: List<GeoPoint>,
         end: GeoPoint,
@@ -827,15 +830,23 @@ class PtilesRepository(context: Context) {
         avoidHighways: Boolean,
         avoidIntersections: Boolean,
         onLegDone: (Int, Int) -> Unit = { _, _ -> },
-    ): RouteResult {
+    ): RouteResult = coroutineScope {
         val legs = routeLegs(start, waypoints, end)
-        val results = legs.mapIndexed { index, (from, to) ->
-            val snappedFrom = snapForRoute(from, trail) ?: from
-            val snappedTo = snapForRoute(to, trail) ?: to
-            offlineRoute(snappedFrom, snappedTo, trail, avoidHighways, avoidIntersections)
-                .also { onLegDone(index + 1, legs.size) }
-        }
-        return joinLegs(results)
+        // Legs are independent -- each is its own corridor, its own graph and
+        // its own search -- so they run at once rather than one after another.
+        // A four-stop route used to cost the sum of its legs; it now costs the
+        // slowest one. The FFI holds no mutable state across a call, and the
+        // per-cell decode cache is already synchronized.
+        val done = java.util.concurrent.atomic.AtomicInteger()
+        val results = legs.map { (from, to) ->
+            async(Dispatchers.IO) {
+                val snappedFrom = snapForRoute(from, trail) ?: from
+                val snappedTo = snapForRoute(to, trail) ?: to
+                offlineRoute(snappedFrom, snappedTo, trail, avoidHighways, avoidIntersections)
+                    .also { onLegDone(done.incrementAndGet(), legs.size) }
+            }
+        }.awaitAll()
+        joinLegs(results)
     }
 
     /**

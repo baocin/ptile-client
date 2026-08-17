@@ -230,6 +230,16 @@ pub fn profile_allows_driving(class: &str) -> bool {
             | "residential"
             | "living_street"
             | "service"
+            // A driveway or forest track is not a road you travel on, but it
+            // is often the only thing within reach of where you are going: a
+            // trailhead, a farm, a lakeside cabin. Excluding it produced
+            // `EndNotSnapped` for a destination 47 m from something drivable.
+            //
+            // Safe to include only because [`keep_road_class`] drops it from
+            // the corridor middle, so it can serve an endpoint without ever
+            // becoming a through route -- and at 12 km/h it loses to anything
+            // paved that also reaches the door.
+            | "track"
     )
 }
 
@@ -273,6 +283,9 @@ fn default_speed_kmh(class: &str) -> f64 {
         "residential" => 20.0,
         "living_street" => 8.0,
         "service" => 10.0,
+        // Slow on purpose: reachable, never attractive. See
+        // `profile_allows_driving`.
+        "track" => 12.0,
         _ => 15.0,
     }
 }
@@ -560,6 +573,86 @@ fn nearest_node(g: &Graph, lat: f64, lon: f64, snap_m: f64) -> Option<usize> {
     best
 }
 
+
+/// Endpoints snapped to the nearest node *in a shared connected component*.
+///
+/// Returns the pair minimising the sum of the two snap distances among
+/// components that hold a candidate for both ends, so a slightly further
+/// street beats a nearer dead end. Falls back to reporting which end could not
+/// be snapped at all, which is a different problem with a different message.
+fn snap_pair(
+    g: &Graph,
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+    snap_m: f64,
+) -> Result<(usize, usize), RouteFailure> {
+    let component = components(g);
+    // Per component: the nearest candidate for each end, if any.
+    let mut best: BTreeMap<u32, (Option<(usize, f64)>, Option<(usize, f64)>)> = BTreeMap::new();
+    let mut any_start = false;
+    let mut any_end = false;
+    for (i, c) in g.coords_geo.iter().enumerate() {
+        let d1 = haversine_distance_m(lat1, lon1, c[1], c[0]);
+        let d2 = haversine_distance_m(lat2, lon2, c[1], c[0]);
+        if d1 > snap_m && d2 > snap_m {
+            continue;
+        }
+        let entry = best.entry(component[i]).or_insert((None, None));
+        if d1 <= snap_m {
+            any_start = true;
+            if entry.0.is_none_or(|(_, best_d)| d1 < best_d) {
+                entry.0 = Some((i, d1));
+            }
+        }
+        if d2 <= snap_m {
+            any_end = true;
+            if entry.1.is_none_or(|(_, best_d)| d2 < best_d) {
+                entry.1 = Some((i, d2));
+            }
+        }
+    }
+    let mut chosen: Option<(usize, usize, f64)> = None;
+    for (_, (start, end)) in best {
+        if let (Some((s, ds)), Some((e, de))) = (start, end) {
+            if chosen.is_none_or(|(_, _, best_sum)| ds + de < best_sum) {
+                chosen = Some((s, e, ds + de));
+            }
+        }
+    }
+    match chosen {
+        Some((s, e, _)) => Ok((s, e)),
+        // Nothing in reach at all is a snap failure; something in reach at
+        // both ends but never in the same component is a real disconnection.
+        None if !any_start => Err(RouteFailure::StartNotSnapped),
+        None if !any_end => Err(RouteFailure::EndNotSnapped),
+        None => Err(RouteFailure::Disconnected),
+    }
+}
+
+/// Connected-component id per node, by union-find over the adjacency.
+fn components(g: &Graph) -> Vec<u32> {
+    let n = g.adj.len();
+    let mut parent: Vec<u32> = (0..n as u32).collect();
+    fn find(parent: &mut Vec<u32>, mut x: u32) -> u32 {
+        while parent[x as usize] != x {
+            parent[x as usize] = parent[parent[x as usize] as usize];
+            x = parent[x as usize];
+        }
+        x
+    }
+    for (from, edges) in g.adj.iter().enumerate() {
+        for (to, _) in edges {
+            let (a, b) = (find(&mut parent, from as u32), find(&mut parent, *to));
+            if a != b {
+                parent[a as usize] = b;
+            }
+        }
+    }
+    (0..n as u32).map(|i| find(&mut parent, i)).collect()
+}
+
 fn haversine_h(dst_lat: f64, dst_lon: f64, coords: &[[f64; 2]], node: usize) -> Weight {
     let c = coords[node];
     let meters = haversine_distance_m(dst_lat, dst_lon, c[1], c[0]);
@@ -798,8 +891,14 @@ pub fn route_roads_diagnostic(
     if g.adj.is_empty() {
         return Err(RouteFailure::EmptyGraph);
     }
-    let src = nearest_node(&g, lat1, lon1, snap_m).ok_or(RouteFailure::StartNotSnapped)?;
-    let dst = nearest_node(&g, lat2, lon2, snap_m).ok_or(RouteFailure::EndNotSnapped)?;
+    // Snap to the nearest pair of nodes that can actually reach each other.
+    //
+    // Taking the nearest node to each end independently is how a route fails
+    // on a technicality: a destination beside a farm track snaps onto it, the
+    // track joins nothing, and the answer comes back `Disconnected` even
+    // though the street 40 m further on would have routed. Choosing the pair
+    // by component costs one pass over the edges and turns those into routes.
+    let (src, dst) = snap_pair(&g, lat1, lon1, lat2, lon2, snap_m)?;
     let (nodes, w) = if g.adj.len() > BI_ASTAR_MIN_NODES {
         bi_astar(&g.adj, &g.coords_geo, src, dst, lat1, lon1, lat2, lon2)
     } else {
