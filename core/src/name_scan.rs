@@ -84,6 +84,26 @@ pub struct NameScan {
 }
 
 impl NameScan {
+    /// Read the section out of a file that carries one.
+    ///
+    /// Wraps the header's `aux_offset`/`aux_length` so a caller does not
+    /// repeat the range read, and so "this file has no scan section" -- which
+    /// is every published file today -- is `Ok(None)` rather than an error.
+    #[cfg(feature = "std")]
+    pub fn read<S: crate::source::PtilesSource>(
+        file: &crate::file::PtilesFile<S>,
+    ) -> Result<Option<NameScan>, DecodeError> {
+        let header = file.header();
+        if header.aux_offset == 0 || header.aux_length == 0 {
+            return Ok(None);
+        }
+        let mut buf = alloc::vec![0u8; header.aux_length as usize];
+        if file.source().read_exact_at(header.aux_offset, &mut buf).is_err() {
+            return Ok(None);
+        }
+        NameScan::parse(&buf)
+    }
+
     /// Parse the section, decompressing both halves.
     pub fn parse(aux: &[u8]) -> Result<Option<NameScan>, DecodeError> {
         if aux.len() < 13 || &aux[..4] != NAME_SCAN_MAGIC {

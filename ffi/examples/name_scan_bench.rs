@@ -1,15 +1,15 @@
-//! Search every business name in a state, and time it.
+//! Search every business name in a state, through the file's own header.
+use ptiles_core::file::PtilesFile;
 use ptiles_core::name_scan::NameScan;
+use ptiles_core::source::FileSource;
 
 fn main() {
     let path = std::env::args().nth(1).unwrap();
-    let bytes = std::fs::read(&path).unwrap();
-    println!("section on disk: {:.2} MB", bytes.len() as f64 / 1e6);
-
     let opened = std::time::Instant::now();
-    let scan = NameScan::parse(&bytes).unwrap().expect("a section");
+    let file = PtilesFile::open(FileSource::open(&path).unwrap()).unwrap();
+    let scan = NameScan::read(&file).unwrap().expect("a scan section");
     println!(
-        "parsed {} names in {} ms (decompress, once per session)",
+        "{} names, read and decompressed in {} ms (once per session)",
         scan.len(),
         opened.elapsed().as_millis(),
     );
@@ -21,7 +21,7 @@ fn main() {
             "{query:>10}: {:>3} hits in {:>4} ms   {}",
             hits.len(),
             started.elapsed().as_millis(),
-            hits.first().map(|h| h.name.clone()).unwrap_or_default(),
+            hits.first().map(|h| format!("{} at {:.4},{:.4}", h.name, h.lat, h.lon)).unwrap_or_default(),
         );
     }
 }
