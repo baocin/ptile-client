@@ -218,21 +218,12 @@ class RouteAndSearchTest {
         assertEquals("Far exact", PtilesRepository.mergeBusinessHits(hits, limit = 10).first().name)
     }
 
-    @Test fun flightNumbersFromTheAerowayImportAreNotBusinesses() {
-        assertTrue(PtilesRepository.isFlightNode("AA 1234"))
-        assertTrue(PtilesRepository.isFlightNode("DL2201"))
-        assertFalse(PtilesRepository.isFlightNode("Gate A12 Cafe"))
-        assertFalse(PtilesRepository.isFlightNode("Waffle House"))
-    }
-
-    @Test fun flightNodesAreDroppedFromMergedHits() {
-        val hits = listOf(
-            PtilesRepository.BusinessResult("AA 1234", GeoPoint(35.0, -88.0), score = 2),
-            PtilesRepository.BusinessResult("Airport Diner", GeoPoint(35.0, -88.0), score = 1),
-        )
-
-        assertEquals(listOf("Airport Diner"), PtilesRepository.mergeBusinessHits(hits, limit = 10).map { it.name })
-    }
+    /**
+     * Flights and gates are gone before a hit reaches Kotlin: the rule lives in
+     * `core::flight_nodes`, applied to every decoded block and to indexed
+     * search, so the client no longer carries its own copy to drift from.
+     * Covered by `core/src/flight_nodes.rs`.
+     */
 
     @Test fun bothCorridorFailuresAreWorthSplittingFor() {
         assertTrue(

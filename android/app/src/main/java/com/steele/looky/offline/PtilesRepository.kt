@@ -309,7 +309,6 @@ class PtilesRepository(context: Context) {
         }
         if (places || developer) runCatching {
             layer("business", c.lat, c.lon)?.businessesNear(c.lat, c.lon, RING, 1_500.0)?.forEach { business ->
-                if (isFlightNode(business.name)) return@forEach
                 out += MapFeature(
                     listOf(GeoPoint(business.location.lat, business.location.lon)),
                     "business:${business.categoryIdx}",
@@ -621,7 +620,7 @@ class PtilesRepository(context: Context) {
             val inside = containsPoint(building.geometry.map { GeoPoint(it.lat, it.lon) }, at)
             val radius = if (inside) INSIDE_PLACE_RADIUS_M else BESIDE_PLACE_RADIUS_M
             val centre = GeoPoint(building.centroid.lat, building.centroid.lon)
-            businessAt(centre, radius)?.name?.takeIf { it.isNotBlank() && !isFlightNode(it) }
+            businessAt(centre, radius)?.name?.takeIf { it.isNotBlank() }
                 ?.let { return it }
             building.name?.takeIf { it.isNotBlank() }?.let { return it }
         }
@@ -1481,62 +1480,6 @@ class PtilesRepository(context: Context) {
          * a border, so identity is name plus coordinate rounded to 5 decimal
          * places -- about a metre, well under the spacing of two real stores.
          */
-        /**
-         * Carrier codes that begin a flight designator.
-         *
-         * A closed list, because the alphabetic part is the only thing telling
-         * `DL 1656` from `BAS 128`. The previous rule accepted any two or three
-         * capitals, and measured against TN.business (829,528 named records) it
-         * deleted 232 names of which 174 were real places -- `BAC 41`, `AMB
-         * 210`, `HWY 385`, `ACT 1` -- while missing 807 actual flights, because
-         * almost every one carries its route and so failed the anchored match.
-         */
-        private const val CARRIERS = "AA|DL|UA|WN|AS|B6|F9|NK|G4|HA|SY|AC|WS|9E|OO|YX|MQ|QX|ZW|EV|YV"
-
-        /**
-         * A flight number, with or without the route that usually follows.
-         *
-         * The shapes in the data: `DL3208`, `AA 1087`, `UA6157 To DEN`,
-         * `DL 1656 - BNA to DTW`, `AA3908 BNA - ORD`, `AA 2903 CHA/DFW`,
-         * `AA 2999 (TYS > ORD)`, `AA 2926 CHA/DFW Seat 11A`. Anything after the
-         * number is ignored rather than described, since it is free text and
-         * the designator alone is already decisive.
-         */
-        private val FLIGHT_NODE = Regex("""^(?:$CARRIERS)\s?\d{1,4}[A-Z]?(?:\b.*)?$""")
-
-        /** `Delta Flight 973 - MCI to ATL`: the same node, spelled out. */
-        private val SPELLED_FLIGHT = Regex(
-            """\b(?:Delta|American|United|Southwest|Alaska|JetBlue|Frontier|Spirit|""" +
-                """Allegiant|Hawaiian|Envoy|Republic|SkyWest)\s+(?:Air\s?lines?\s+)?Flight\s+\d+""",
-            RegexOption.IGNORE_CASE,
-        )
-
-        /**
-         * Airside furniture: `Gate 5`, `Gate B12`, `Concourse C`, `Terminal 2`.
-         *
-         * 204 of them in Tennessee alone, every one inside an airport (Memphis
-         * 97, Nashville 71, Knoxville 16, Chattanooga 8). Nobody navigating to
-         * an airport wants its gates as destinations, and a phone in the
-         * terminal sees nothing else. The trailing number is required, which is
-         * what keeps `Gate Communications` -- a real business -- out of it.
-         */
-        private val AIRSIDE = Regex(
-            """^(?:gate|concourse|stand|apron|terminal|pier)\s*[-#]?\s*[A-Z]?\d{1,3}[A-Z]?$""",
-            RegexOption.IGNORE_CASE,
-        )
-
-        /**
-         * Names that are an airport's internal plumbing rather than places.
-         *
-         * There is no aeroway layer to test proximity against -- no builder
-         * emits one -- so this is decided by name alone. That turns out to be
-         * enough: the names it catches cluster on the airports by themselves
-         * (BNA, MEM, TYS, CHA), which is the evidence that the rule is not
-         * catching anything else.
-         */
-        internal fun isFlightNode(name: String): Boolean = name.trim().let {
-            FLIGHT_NODE.matches(it) || SPELLED_FLIGHT.containsMatchIn(it) || AIRSIDE.matches(it)
-        }
 
         /**
          * How much a name looks like what was typed, 0 (not at all) to 1.
@@ -1696,7 +1639,6 @@ class PtilesRepository(context: Context) {
             limit: Int,
         ): List<BusinessResult> = hits
             .asSequence()
-            .filterNot { isFlightNode(it.name) }
             .map { it to bestSimilarity(query, it.name, it.brand) }
             .filter { (_, similarity) -> similarity >= MIN_NAME_SIMILARITY }
             .map { (hit, similarity) ->
@@ -1726,8 +1668,7 @@ class PtilesRepository(context: Context) {
                     .thenBy { it.name }
             }
             return hits
-                .filterNot { isFlightNode(it.name) }
-                .sortedWith(order)
+                    .sortedWith(order)
                 .distinctBy { Triple(it.name, round5(it.point.lat), round5(it.point.lon)) }
                 .take(limit)
         }

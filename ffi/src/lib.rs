@@ -1175,6 +1175,10 @@ impl PtilesLayer {
                 })?;
             businesses.append(&mut b);
         }
+        // Flight numbers and gates are dropped here rather than by each caller:
+        // an OSM-derived business layer carries a departure board, and around
+        // an airport it is most of what a spatial query returns.
+        ptiles_core::flight_nodes::drop_flight_nodes(&mut businesses, |b| b.name.as_str());
         Ok(businesses)
     }
 

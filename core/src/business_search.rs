@@ -307,6 +307,12 @@ fn match_records(
     let mut hits: Vec<BusinessHit> = records
         .into_iter()
         .filter_map(|rec| {
+            // The sidecar is built from the same source as the layer, so it
+            // carries the departure board too: before this, typing "DL"
+            // returned 38 Delta flights out of 40 hits.
+            if crate::flight_nodes::is_flight_node(&rec.name) {
+                return None;
+            }
             let name_folded = fold_name(&rec.name);
             score_match(&name_folded, query_folded).map(|score| BusinessHit {
                 name: rec.name,
@@ -374,6 +380,11 @@ pub fn search_business_brute_force<S: PtilesSource>(
         };
         let records = crate::business::decode_business(&block)?;
         for biz in records {
+            // A departure board is not a set of destinations. Typing "DL"
+            // otherwise returned a screenful of Delta flights.
+            if crate::flight_nodes::is_flight_node(&biz.name) {
+                continue;
+            }
             let name_folded = fold_name(&biz.name);
             if let Some(score) = score_match(&name_folded, &query_folded) {
                 hits.push(BusinessHit {

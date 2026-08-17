@@ -16,6 +16,7 @@ pub mod codec;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures;
 pub mod file;
+pub mod flight_nodes;
 pub mod header;
 #[cfg(feature = "http")]
 pub mod http_source;
