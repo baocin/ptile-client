@@ -795,6 +795,16 @@ impl LayerKind {
         };
         match base {
             "roads" => Some(LayerKind::Roads),
+            // The highways pack is a roads pack holding only the through
+            // network -- `scripts/build_us_highways.py` writes it with the
+            // same `PTILESR` magic and the same record layout, keeping
+            // motorway, trunk and primary with their links. 1.6 MB against
+            // 33 MB for a state.
+            //
+            // It has been published and in the client's download list the
+            // whole time, and could not be opened: the layer kind is inferred
+            // from the filename and nothing here knew the word.
+            "highways" => Some(LayerKind::Roads),
             // `trails_v1` and `buildings_v8` need no arm of their own: the
             // `_v<N>` strip above already reduces them to `trails`/`buildings`.
             "buildings" => Some(LayerKind::BuildingsV8),
@@ -2174,6 +2184,9 @@ pub struct AddressRecord {
     pub street: String,
     pub location: Option<LatLon>,
     pub source: String,
+    /// `APT B`, `STE 300`, `LOT 4` -- empty when the record names a whole
+    /// building. v4 and later; earlier files folded units away as duplicates.
+    pub unit: String,
 }
 
 impl From<CoreAddressRecord> for AddressRecord {
@@ -2187,6 +2200,7 @@ impl From<CoreAddressRecord> for AddressRecord {
                 _ => None,
             },
             source: r.source.name().to_string(),
+            unit: r.unit,
         }
     }
 }

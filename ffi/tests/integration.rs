@@ -943,3 +943,24 @@ fn a_real_intersection_names_itself() {
         );
     }
 }
+
+/// The highways pack is a roads pack: `scripts/build_us_highways.py` writes it
+/// with the same `PTILESR` magic, holding only the through network.
+///
+/// It has been published (1.6 MB a state, against 33 MB for roads) and listed
+/// in the Android downloader the whole time, and could not be opened at all --
+/// the layer kind is inferred from the filename and nothing knew the word. A
+/// pack the client downloads and cannot open is the quietest kind of missing
+/// feature.
+#[test]
+fn a_highways_pack_is_recognised_as_roads() {
+    let Some(roads) = any_roads_path() else { return };
+    let named = std::env::temp_dir().join("TN.highways_v2.ptiles");
+    std::fs::copy(&roads, &named).expect("copy fixture under a highways name");
+
+    let layer = PtilesLayer::open(named.to_string_lossy().to_string());
+    let opened = layer.is_ok();
+    let _ = std::fs::remove_file(&named);
+
+    assert!(opened, "a highways pack must open as roads");
+}

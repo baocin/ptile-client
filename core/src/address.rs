@@ -57,6 +57,14 @@ pub struct AddressRecord {
     /// predate the bulk sources entirely, so their records are all
     /// [`AddressSource::Osm`] by construction rather than by a stored byte.
     pub source: AddressSource,
+    /// Sub-address within the building -- `APT B`, `STE 300`, `LOT 4` -- or
+    /// empty when the record names a whole building.
+    ///
+    /// v4 and later only. Before it, the merge folded every unit at one
+    /// address onto a single point, which is most of what NAD ships: 22% of
+    /// its rows carry a unit, and 5% of OpenAddresses' do. Those records were
+    /// not merely unlabelled, they were dropped as duplicates of each other.
+    pub unit: String,
 }
 
 /// Which corpus an address came from.
@@ -194,7 +202,8 @@ pub fn index_search(index: &[AddressIndexEntry], cell: u64) -> Option<&AddressIn
 /// `centre_micro` is the block's `(center_lon, center_lat)` in 1e-5 degrees,
 /// present on v2 and later files, whose records carry `i16 off_lon, off_lat`
 /// between the osm_id and the strings. Pass `None` for a v1 file, which has no
-/// such bytes. `with_source` adds the v3 provenance byte after the offsets.
+/// such bytes. `version` decides the rest of the framing: v3 adds a provenance
+/// byte after the offsets, v4 a unit string after the street.
 ///
 /// This used to take the slice alone and read the strings straight after the
 /// osm_id. On a v2 record that lands on the coordinate bytes: `off_lon` is
@@ -204,8 +213,10 @@ pub fn index_search(index: &[AddressIndexEntry], cell: u64) -> Option<&AddressIn
 pub fn decode_address_cell(
     slice: &[u8],
     centre_micro: Option<(i32, i32)>,
-    with_source: bool,
+    version: u8,
 ) -> Result<Vec<AddressRecord>, DecodeError> {
+    let with_source = version >= 3;
+    let with_unit = version >= 4;
     let mut records = Vec::new();
     let mut p = 0usize;
     let mut prev_osm_id = 0i64;
@@ -245,6 +256,14 @@ pub fn decode_address_cell(
         p += c;
         let (street, c) = decode_string_u16(slice, p)?;
         p += c;
+        // v4's unit, last so that a v3 record is a prefix of a v4 one.
+        let unit = if with_unit {
+            let (u, c) = decode_string_u16(slice, p)?;
+            p += c;
+            u
+        } else {
+            String::new()
+        };
         records.push(AddressRecord {
             osm_id,
             housenumber,
@@ -252,6 +271,7 @@ pub fn decode_address_cell(
             lat,
             lon,
             source,
+            unit,
         });
     }
     Ok(records)
@@ -262,7 +282,7 @@ pub fn decode_address_cell(
 /// `cell_count × (u64 cell_id, u32 rel_offset)`, then record data; a cell's
 /// records span `rel_offset[i]..rel_offset[i+1]` (or record-data end).
 /// `version` must come from the file header: v2 and later carry per-record
-/// positions, v3 adds a provenance byte, v1 has neither. The block itself does
+/// positions, v3 adds a provenance byte, v4 a unit string, v1 has none of it. The block itself does
 /// not say, and guessing wrong silently mangles the other format -- so the
 /// caller, which read the header, is made to answer.
 pub fn merged_block_cell_slice(
@@ -355,11 +375,7 @@ pub fn merged_block_cell_slice(
     } else {
         None
     };
-    Ok(Some(decode_address_cell(
-        &block[start..stop],
-        centre,
-        version >= 3,
-    )?))
+    Ok(Some(decode_address_cell(&block[start..stop], centre, version)?))
 }
 
 /// Canonical form of a street name for matching: case- and accent-folded by
@@ -687,7 +703,7 @@ mod tests {
         ))
         .unwrap();
         let centre = (-8_452_193i32, 3_536_743i32); // block header, 1e-5 deg
-        let recs = decode_address_cell(&bytes, Some(centre), false).unwrap();
+        let recs = decode_address_cell(&bytes, Some(centre), 2).unwrap();
         assert_eq!(recs.len(), 2, "python reads 2 records from this cell");
 
         assert_eq!(recs[0].osm_id, 568_392_734);
@@ -712,7 +728,7 @@ mod tests {
             "/../test-fixtures/golden/address_v2.cell.bin"
         ))
         .unwrap();
-        assert!(decode_address_cell(&bytes, None, false).is_err());
+        assert!(decode_address_cell(&bytes, None, 1).is_err());
     }
 
     #[test]
@@ -721,7 +737,7 @@ mod tests {
         slice.extend(record(1000, 0, "100", "Broadway"));
         slice.extend(record(1005, 1000, "102", "Broadway"));
         // The `record` helper builds v1-shaped bytes (no coordinates).
-        let recs = decode_address_cell(&slice, None, false).unwrap();
+        let recs = decode_address_cell(&slice, None, 1).unwrap();
         assert_eq!(recs.len(), 2);
         assert_eq!(
             recs[0],
@@ -732,6 +748,7 @@ mod tests {
                 lat: None,
                 lon: None,
                 source: AddressSource::Osm,
+                unit: String::new(),
             }
         );
         assert_eq!(recs[1].osm_id, 1005);
@@ -739,14 +756,14 @@ mod tests {
 
     #[test]
     fn empty_cell_slice_is_empty() {
-        assert!(decode_address_cell(&[], None, false).unwrap().is_empty());
+        assert!(decode_address_cell(&[], None, 1).unwrap().is_empty());
     }
 
     #[test]
     fn truncated_record_errors_not_panic() {
         // Valid varint then a truncated u16 length.
         let slice = [0x02u8, 0x05];
-        assert!(decode_address_cell(&slice, None, false).is_err());
+        assert!(decode_address_cell(&slice, None, 1).is_err());
     }
 
     #[test]

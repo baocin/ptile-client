@@ -85,10 +85,10 @@ fn every_prefix_of_address_fixture_sections_never_panics() {
             // (i16 lon/lat offsets from a block centre) and v3 (offsets plus
             // a provenance byte). A truncation that only trips one arm still
             // has to not panic in the others.
-            let _ = ptiles_core::decode_address_cell(d, None, false);
-            let _ = ptiles_core::decode_address_cell(d, Some((-8_679_367, 3_616_248)), false);
-            let _ = ptiles_core::decode_address_cell(d, Some((-8_679_367, 3_616_248)), true);
-            for version in [1u8, 2, 3] {
+            let _ = ptiles_core::decode_address_cell(d, None, 1);
+            let _ = ptiles_core::decode_address_cell(d, Some((-8_679_367, 3_616_248)), 2);
+            let _ = ptiles_core::decode_address_cell(d, Some((-8_679_367, 3_616_248)), 3);
+            for version in [1u8, 2, 3, 4] {
                 let _ = ptiles_core::address::merged_block_cell_slice(d, 0, version);
             }
         });

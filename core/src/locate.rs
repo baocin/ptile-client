@@ -535,6 +535,7 @@ mod tests {
             lat: Some(lat),
             lon: Some(lon),
             source: Default::default(),
+            unit: String::new(),
         }
     }
 
@@ -749,6 +750,7 @@ mod tests {
             lat: None,
             lon: None,
             source: Default::default(),
+            unit: String::new(),
         };
         assert!(nearest_address(36.0, -86.795, &[v1], ADDRESS_THRESHOLD_M).is_none());
     }
