@@ -17,9 +17,13 @@
 //! mirror of this file and its tests use the same fixtures.
 //!
 //! Measured against the published `TN.business.ptiles` (829,528 named
-//! records) this drops 1,086 names, and they cluster on BNA (506), MEM (380),
-//! TYS (69) and CHA (27) -- which is the evidence it is not catching anything
-//! else. Proximity to an airport is deliberately *not* used: no builder emits
+//! records) this drops 1,234 names, and they cluster on BNA, MEM, TYS and CHA
+//! -- which is the evidence it is not catching anything else. It is the
+//! weaker half of the rule: the records belong to one category, and the names
+//! recognise only 922 of the 1,710 records in it. The builder drops the whole
+//! category, which the client cannot do -- a pack carries a category *index*,
+//! renumbered per state and even between builds of the same state, and never
+//! a label. Proximity to an airport is deliberately *not* used: no builder emits
 //! an aeroway layer, so there is nothing to measure against, and 45 of the
 //! names caught are flights logged nowhere near one.
 

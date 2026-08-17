@@ -75,6 +75,17 @@ pub enum AddressSource {
 }
 
 impl AddressSource {
+    /// Stable lower-case name, for JSON output and FFI records where an enum
+    /// would force every consumer to carry its own mapping.
+    pub fn name(&self) -> &'static str {
+        match self {
+            AddressSource::Osm => "osm",
+            AddressSource::Nad => "nad",
+            AddressSource::OpenAddresses => "openaddresses",
+            AddressSource::Unknown(_) => "unknown",
+        }
+    }
+
     pub fn from_byte(b: u8) -> AddressSource {
         match b {
             0 => AddressSource::Osm,
