@@ -41,6 +41,15 @@ use crate::DecodeError;
 /// Magic of the category table section.
 pub const CATEGORY_AUX_MAGIC: &[u8; 4] = b"PTCT";
 
+/// The byte a record carries when its category is known but did not fit.
+///
+/// Only 254 categories fit in the field. The rest of the tail used to be
+/// written as 0 -- the same value as "no category at all" -- so 37% of
+/// Tennessee's records read as uncategorised and nobody could say how many of
+/// them had a category that simply ranked too low. Packs built since carry
+/// 255 for those, and 0 means what it says again.
+pub const CATEGORY_OTHER: u8 = 255;
+
 /// Coarse families, in the order the builder writes their index.
 ///
 /// The group is the part worth comparing across packs: two states will not
@@ -98,11 +107,21 @@ impl CategoryTable {
 
     /// The label for a record's byte, or `None` when the pack does not name it.
     ///
-    /// Index 0 has never meant a category -- it is what the builder writes for
-    /// a record with none, and (until the truncation was made visible) also for
-    /// one whose category ranked below the 254 a byte can hold.
+    /// Index 0 is not a category: it is what the builder writes for a record
+    /// the source left uncategorised.
     pub fn label(&self, index: u8) -> Option<&str> {
         self.get(index).map(|c| c.label.as_str())
+    }
+
+    /// Whether this record's category was known but ranked past the 254 the
+    /// field holds.
+    ///
+    /// Worth asking separately from [`Self::label`], because "we know this is
+    /// something, and not which" is a different answer from "the source said
+    /// nothing" -- and in an older pack the two are indistinguishable, which
+    /// is why they are separated at all.
+    pub fn is_truncated(&self, index: u8) -> bool {
+        index == CATEGORY_OTHER
     }
 }
 
@@ -215,6 +234,23 @@ mod tests {
         assert_eq!(tn.label(94), Some("plane"));
         assert_eq!(ga.label(94), Some("elementary_school"));
         assert_ne!(tn.build_id, ga.build_id);
+    }
+
+    /// A tail category and an absent one are different answers.
+    #[test]
+    fn truncation_no_longer_looks_like_absence() {
+        let parsed = parse_category_table(&table(
+            &[(1, "church", 2), (CATEGORY_OTHER, "other", 9)],
+            "x",
+        ))
+        .unwrap()
+        .unwrap();
+
+        assert!(parsed.is_truncated(CATEGORY_OTHER));
+        assert!(!parsed.is_truncated(0), "0 is the source saying nothing");
+        assert!(!parsed.is_truncated(1));
+        // And it is named, or the byte resolves to nothing at all.
+        assert_eq!(parsed.label(CATEGORY_OTHER), Some("other"));
     }
 
     #[test]
