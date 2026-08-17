@@ -35,3 +35,7 @@ __pycache__/
 .wrangler/
 artifacts/
 Archive.zip
+
+# Generated at deploy by ptiles/scripts/build_state_cell_index.py from
+# US.admin.ptiles -- 3.5 MB of derived data with a build step, not a source file.
+/web-demo/lib/state_cells.bin

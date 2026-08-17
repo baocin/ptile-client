@@ -27,6 +27,33 @@ DEST="$BUCKET/ptiles"
 # heuristic freshness and can serve a stale page for hours.
 CACHE="no-cache"
 
+# The state-cell routing table is derived data, not source: 3.5 MB built from
+# US.admin.ptiles, and stale only when that file changes. Without it the page
+# still loads and routes by bounding box -- which is what put NJ's file over
+# Manhattan and left El Paso blank -- so a deploy that cannot build it and has
+# no copy to fall back on is stopped rather than shipped quietly degraded.
+PTILES_REPO="${PTILES_REPO:-$HOME/kino/projects/ptiles}"
+ADMIN="${ADMIN_PTILES:-/mnt/core/timeline-ptiles-cache/tiles/US.admin.ptiles}"
+CELLS="$(dirname "$0")/lib/state_cells.bin"
+BUILDER="$PTILES_REPO/scripts/build_state_cell_index.py"
+
+if [ -f "$BUILDER" ] && [ -f "$ADMIN" ]; then
+  if [ ! -f "$CELLS" ] || [ "$ADMIN" -nt "$CELLS" ]; then
+    echo "==> building state cell index (from $(basename "$ADMIN"))"
+    python3 "$BUILDER" --admin "$ADMIN" \
+      --index-html "$(dirname "$0")/index.html" --out "$CELLS"
+  else
+    echo "==> state cell index up to date"
+  fi
+elif [ -f "$CELLS" ]; then
+  echo "==> WARNING: cannot rebuild state cell index (no $BUILDER or $ADMIN);"
+  echo "    shipping the existing $(du -h "$CELLS" | cut -f1) copy"
+else
+  echo "==> ERROR: no state cell index and nothing to build it from."
+  echo "    Need $BUILDER and $ADMIN, or set PTILES_REPO / ADMIN_PTILES."
+  exit 1
+fi
+
 echo "==> building $SITE"
 (cd "$SITE" && python3 build.py >/dev/null)
 

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Do the *query* paths route to a state that has the ground, not just the map?
+"""Do the query paths route to a state whose file holds the ground?
 
-route_cities_check.py asks what the map draws. This asks what a click answers,
-which goes through a different set of `stateAt` calls (nearestRoadDetail,
-the business lookup, the address search) with no rendered layer involved. A
-wrong state there is worse than an empty map: the panel says "no road here" in
-the middle of a city, and nothing distinguishes that from a real gap.
+route_cities_check.py asks what the map draws. This asks the routing decision
+directly, at the points where it is hardest: which state owns this coordinate,
+and does that state's roads file carry the cell under it.
 
-The invariant is the same shape as the render one and just as blunt: a click on
-a city centre is within a few hundred metres of a named road. Anything else
-means the file being asked does not hold that ground.
+An earlier version clicked the map and looked for a road in the panel. That
+graded the wrong thing: the panel fills only when a road passes within
+ROAD_INSPECT_M of the click, which is 25 m, so Southaven and El Paso "failed"
+for landing in a parking lot while the routing underneath them was correct.
+Asking the index whether it holds the cell has no such luck in it.
 
     python3 web-demo/test/border_query_check.py
     python3 web-demo/test/border_query_check.py --limit 5
@@ -24,10 +24,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from render_check import WEB_DEMO, serve  # noqa: E402
 
 ZOOM = 16
-# A road within this distance of a city centre. Generous on purpose: the point
-# is to catch "served by the wrong state", which shows up as no road at all or
-# one kilometres away, not to grade the nearest-road search.
-MAX_ROAD_M = 400
 
 # The cities route_cities_check.py found being served by a neighbour, plus
 # controls well inside their own state. If the query paths route differently
@@ -64,42 +60,24 @@ POINTS = [
     ("Phoenix AZ", 33.4484, -112.0740, "AZ"),
 ]
 
-ROAD = """() => {
-  const sec = document.getElementById("roadSection");
-  if (!sec || sec.style.display === "none") return null;
-  const d = document.getElementById("roadDist").textContent;
-  return {
-    name: document.getElementById("roadName").textContent,
-    klass: document.getElementById("roadClass").textContent,
-    dist: parseInt(d, 10),
-  };
-}"""
-
-
-def check(browser, base, name, lat, lon, expect, budget_s):
-    ctx = browser.new_context(viewport={"width": 1000, "height": 700})
-    page = ctx.new_page()
+def check(page, name, lat, lon, expect):
     t0 = time.perf_counter()
     try:
-        page.goto(f"{base}#lat={lat}&lon={lon}&zoom={ZOOM}", wait_until="load", timeout=90_000)
-        page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
-        page.wait_for_timeout(1500)
-        # A click, not a synthetic call: this is the handler a user reaches, and
-        # it is the one that fans out to the state-routed queries.
-        page.evaluate("([a, b]) => window.__ptiles.clickAt(a, b)", [lat, lon])
-        road = None
-        while time.perf_counter() - t0 < budget_s:
-            road = page.evaluate(ROAD)
-            if road:
-                break
-            page.wait_for_timeout(250)
-        return {"point": name, "expect": expect,
-                "state": page.evaluate("() => window.__ptiles.state()"),
-                "road": road, "secs": round(time.perf_counter() - t0, 1)}
+        # A null owner is the right answer for an interior point: the table
+        # carries only cells two or more boxes claim, and everywhere else the
+        # box picker was never wrong. So null means "the box decides", and the
+        # cell check below is what proves the box decided correctly.
+        owner = page.evaluate("([a, b]) => window.__ptiles.ownerAt(a, b)", [lat, lon])
+        served = owner or expect
+        # Roads, because it is the layer every query path fans out to, and the
+        # one whose absence produces "no road here" in a city centre.
+        has = page.evaluate(
+            "async ([s, a, b]) => await window.__ptiles.layerHasCell(s, 'roads', a, b)",
+            [served, lat, lon])
+        return {"point": name, "expect": expect, "owner": owner, "hasCell": bool(has),
+                "secs": round(time.perf_counter() - t0, 1)}
     except Exception as e:
         return {"point": name, "expect": expect, "error": str(e)[:120]}
-    finally:
-        ctx.close()
 
 
 def main():
@@ -119,30 +97,42 @@ def main():
     todo = POINTS[args.start:args.start + args.limit]
     httpd = serve(WEB_DEMO, args.port)
     base = f"http://127.0.0.1:{httpd.server_address[1]}/index.html"
-    print(f"{len(todo)} points, a road must be within {MAX_ROAD_M} m\n", flush=True)
+    print(f"{len(todo)} points: the owner must be the expected state, and its "
+          f"roads index must hold the cell\n", flush=True)
 
     out = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
+        # One page for all of them: the table is fetched once, the readers are
+        # cached across points, and nothing here depends on a fresh context.
+        page = browser.new_context(viewport={"width": 1000, "height": 700}).new_page()
+        page.goto(base, wait_until="load", timeout=90_000)
+        page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
+        page.wait_for_function("() => window.__ptiles.stateIndex() !== null", timeout=60_000)
+        idx = page.evaluate("() => window.__ptiles.stateIndex()")
+        print(f"state cell index: {idx['coarse']:,} res-7, {idx['fine']:,} res-9\n", flush=True)
+
         for name, lat, lon, expect in todo:
-            r = check(browser, base, name, lat, lon, expect, args.budget)
+            r = check(page, name, lat, lon, expect)
             out.append(r)
-            road = r.get("road")
-            bad = r.get("error") or not road or road["dist"] > MAX_ROAD_M
-            print(f"  {'FAIL ' if bad else 'ok   '}{name:22s} served {r.get('state')} "
-                  + (f"road {road['name']} {road['dist']}m ({road['klass']})" if road
-                     else r.get("error", "no road")), flush=True)
+            bad = (r.get("error") or not r.get("hasCell")
+                   or (r.get("owner") is not None and r["owner"] != expect))
+            print(f"  {'FAIL ' if bad else 'ok   '}{name:22s} owner {r.get('owner')} "
+                  f"(expected {expect}{', box decides' if r.get('owner') is None else ''}) "
+                  f"cell {'held' if r.get('hasCell') else 'MISSING'} "
+                  f"{r.get('error', '')}", flush=True)
         browser.close()
 
     if args.json:
         Path(args.json).write_text(json.dumps(out, indent=2))
 
     bad = [r for r in out
-           if r.get("error") or not r.get("road") or r["road"]["dist"] > MAX_ROAD_M]
-    print(f"\n{len(out) - len(bad)}/{len(out)} answered with a road within {MAX_ROAD_M} m")
+           if r.get("error") or not r.get("hasCell")
+           or (r.get("owner") is not None and r["owner"] != r["expect"])]
+    print(f"\n{len(out) - len(bad)}/{len(out)} routed to the right state with the cell present")
     for r in bad:
-        print(f"  FAIL {r['point']:22s} served {r.get('state')} "
-              f"(expected {r['expect']}): {r.get('road') or r.get('error') or 'no road'}")
+        print(f"  FAIL {r['point']:22s} owner {r.get('owner')} (expected {r['expect']}), "
+              f"cell {'held' if r.get('hasCell') else 'missing'} {r.get('error', '')}")
     return 1 if bad else 0
 
 

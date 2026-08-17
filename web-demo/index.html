@@ -623,37 +623,52 @@ var STATE_BBOX = {
 // lib/state_cells.bin is the answer for exactly the cells where the boxes
 // disagree -- 581,237 of the admin grid's 1.79M, every cell that falls inside
 // two or more state boxes -- built by scripts/build_state_cell_index.py in the
-// ptiles repo from US.admin.ptiles. 2.8 MB raw, ~75 KB over the wire once the
-// CDN gzips it (delta-coded cell ids compress to almost nothing), against 28 MB
-// for the admin grid this replaces for routing purposes.
+// ptiles repo from US.admin.ptiles. It is generated at deploy, not committed.
+//
+// A res-7 cell is ~5 km across, which is not fine enough for a town on the
+// line: Southaven, Jeffersonville and Evansville each sit in a cell the grid
+// gives to the neighbour, whose file has none of their streets. So the table
+// carries a second section -- 191,537 res-9 children (~180 m) of the 32,177
+// cells that straddle a state edge, but only the children that disagree with
+// their parent. 3.5 MB raw, ~177 KB over the wire once gzipped, against 28 MB
+// for the admin grid this replaces for routing.
 //
 // Loaded in the background: until it arrives, and for any cell it does not
 // carry, the old box logic answers. Nothing waits on it.
-var stateCells = null;   // { cells: BigUint64Array, codes: Uint8Array, names: [] }
+var stateCells = null;   // { fine, coarse: { cells, codes }, names }
 
 var stateCellsReady = (async function() {
   try {
     var buf = new Uint8Array(await (await fetch("lib/state_cells.bin")).arrayBuffer());
-    if (String.fromCharCode(buf[0], buf[1], buf[2], buf[3]) !== "PSCI" || buf[4] !== 1) return;
+    if (String.fromCharCode(buf[0], buf[1], buf[2], buf[3]) !== "PSCI") return;
+    var version = buf[4];
+    if (version !== 1 && version !== 2) return;
     var nStates = buf[5], pos = 6, names = [];
     for (var i = 0; i < nStates; i++, pos += 2) {
       names.push(String.fromCharCode(buf[pos], buf[pos + 1]));
     }
-    var count = new DataView(buf.buffer, buf.byteOffset).getUint32(pos, true);
-    pos += 4;
-    var cells = new BigUint64Array(count), codes = new Uint8Array(count), cell = 0n;
-    for (var e = 0; e < count; e++) {
-      var shift = 0n, delta = 0n, b;
-      do {
-        b = buf[pos++];
-        delta |= BigInt(b & 0x7f) << shift;
-        shift += 7n;
-      } while (b & 0x80);
-      cell += delta;
-      cells[e] = cell;
-      codes[e] = buf[pos++];
+    var dv = new DataView(buf.buffer, buf.byteOffset);
+    var count7 = dv.getUint32(pos, true); pos += 4;
+    var count9 = version === 2 ? dv.getUint32(pos, true) : 0;
+    if (version === 2) pos += 4;
+
+    function section(count) {
+      var cells = new BigUint64Array(count), codes = new Uint8Array(count), cell = 0n;
+      for (var e = 0; e < count; e++) {
+        var shift = 0n, delta = 0n, b;
+        do {
+          b = buf[pos++];
+          delta |= BigInt(b & 0x7f) << shift;
+          shift += 7n;
+        } while (b & 0x80);
+        cell += delta;
+        cells[e] = cell;
+        codes[e] = buf[pos++];
+      }
+      return { cells: cells, codes: codes };
     }
-    stateCells = { cells: cells, codes: codes, names: names };
+    var coarse = section(count7), fine = section(count9);
+    stateCells = { coarse: coarse, fine: fine, names: names };
   } catch (e) {
     // A missing or corrupt table is a downgrade, not a failure: the box logic
     // below still routes, just as badly as it did before.
@@ -661,18 +676,33 @@ var stateCellsReady = (async function() {
   }
 })();
 
-// The state owning this cell, or null when the table has no opinion. Cells are
-// sorted, so this is a binary search over a typed array -- no Map of 581k
-// BigInt keys, which costs tens of megabytes to hold.
-function stateForCell(cell) {
-  if (!stateCells) return null;
-  var lo = 0, hi = stateCells.cells.length - 1;
+function lookupCell(section, cell) {
+  var lo = 0, hi = section.cells.length - 1;
   while (lo <= hi) {
-    var mid = (lo + hi) >> 1, c = stateCells.cells[mid];
-    if (c === cell) return stateCells.names[stateCells.codes[mid]];
+    var mid = (lo + hi) >> 1, c = section.cells[mid];
+    if (c === cell) return section.codes[mid];
     if (c < cell) lo = mid + 1; else hi = mid - 1;
   }
-  return null;
+  return -1;
+}
+
+// The state that owns this point, or null when the table has no opinion.
+//
+// The res-9 section is asked first and is the only one that can be right about
+// a border town; the res-7 section answers everywhere else along a box overlap.
+// Both are sorted, so each is a binary search over a typed array -- no Map of
+// three-quarters of a million BigInt keys, which costs tens of megabytes to hold.
+function stateOwnerAt(lat, lon) {
+  if (!stateCells || CELL_MASK == null) return null;
+  try {
+    var fine = lookupCell(stateCells.fine, BigInt("0x" + h3.latLngToCell(lat, lon, 9)));
+    if (fine >= 0) return stateCells.names[fine];
+    var coarse = lookupCell(stateCells.coarse,
+      BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & CELL_MASK);
+    return coarse >= 0 ? stateCells.names[coarse] : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 // State files that were open at a cell and did not contain it, as "ST:cell".
@@ -729,15 +759,10 @@ function stateAt(lat, lon) {
   // came from. Ask the cell table before guessing: it was built from the admin
   // grid and is right by construction, including for the cases stickiness and
   // nearest-centre both get wrong (Manhattan, El Paso, Kansas City).
-  if (stateCells && CELL_MASK != null) {
-    try {
-      var owner = stateForCell(BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & CELL_MASK);
-      if (owner && hits.indexOf(owner) >= 0) return owner;
-      // An owner outside the box hits means the boxes are wrong about this
-      // point, not the grid -- serve the file that actually holds the ground.
-      if (owner && STATE_CENTERS[owner]) return owner;
-    } catch (e) { /* fall through to the boxes */ }
-  }
+  var owner = stateOwnerAt(lat, lon);
+  // An owner outside the box hits means the boxes are wrong about this point,
+  // not the grid -- serve the file that actually holds the ground.
+  if (owner && STATE_CENTERS[owner]) return owner;
 
   // ponytail: stay on current when still in its bbox (Memphis is in TN+AR)
   //
@@ -3554,11 +3579,9 @@ function stateAtForce(lat, lon) {
   // Same table stateAt uses. A route's endpoint states come through here, so
   // leaving it on nearest-centre meant a trip starting in Manhattan opened the
   // NJ roads file and had no edges to start from.
-  if (hits.length > 1 && stateCells && CELL_MASK != null) {
-    try {
-      var owner = stateForCell(BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & CELL_MASK);
-      if (owner && STATE_CENTERS[owner]) return owner;
-    } catch (e) { /* fall through to the boxes */ }
+  if (hits.length > 1) {
+    var owned = stateOwnerAt(lat, lon);
+    if (owned && STATE_CENTERS[owned]) return owned;
   }
   var best = null, bestD = Infinity;
   for (var i = 0; i < hits.length; i++) {
@@ -3608,10 +3631,9 @@ function highwayBackboneFor(state) {
     setStatus("Route: open " + state + " highway guide…");
     var rdr = await highwaysReaderFor(state);
     var cells = rdr.file.entries.map(function(e) { return e.h3Cell.toString(16); });
-    if (cells.length > ROUTE_HIGHWAY_MAX_CELLS) {
-      throw new Error(state + " highway guide has " + cells.length
-        + " cells; budget is " + ROUTE_HIGHWAY_MAX_CELLS);
-    }
+    // The budget is checked on the union in highwayGuideFor, not here. It read
+    // "bound the aggregate" while bounding one state at a time, so a four-state
+    // trip could load four guides just under the cap each and hold 4x it.
     return { list: cells, set: new Set(cells), cells: cells.length, state: state };
   })().catch(function(e) {
     highwayBackbones[state] = null;
@@ -3728,6 +3750,16 @@ async function highwayGuideFor(states) {
       // One state over budget, or unpublished, must not lose the others: a
       // partial guide still beats no guided retry at all.
       console.warn("highway guide unavailable", states[i], e.message);
+      continue;
+    }
+    // One budget for the whole guide, however many states it spans. Adding a
+    // state that would blow it is refused rather than truncated: half a state's
+    // highways is a guide with a hole in the middle, which sends the corridor
+    // somewhere worse than no guide at all.
+    if (list.length + g.list.length > ROUTE_HIGHWAY_MAX_CELLS) {
+      console.warn("highway guide budget: skipping " + states[i] + " ("
+        + g.list.length + " cells, " + list.length + " already held, budget "
+        + ROUTE_HIGHWAY_MAX_CELLS + ")");
       continue;
     }
     for (var j = 0; j < g.list.length; j++) {
@@ -7008,6 +7040,23 @@ window.__ptiles = {
     });
   },
   state: function() { return currentState; },
+  // The routing table, for tests: whether it is loaded, how big, and what it
+  // says about a point. Without this a failing border case cannot be told
+  // apart from a table that had not finished parsing when the test clicked.
+  stateIndex: function() {
+    return stateCells
+      ? { coarse: stateCells.coarse.cells.length, fine: stateCells.fine.cells.length }
+      : null;
+  },
+  ownerAt: function(lat, lon) { return stateOwnerAt(lat, lon); },
+  // Does this state's file hold the cell under this point? The honest test of
+  // a routing decision: the click path's own answer depends on landing within
+  // ROAD_INSPECT_M of a centreline, which is 25 m, so a test built on it grades
+  // where the click fell rather than which file was opened.
+  layerHasCell: async function(state, layer, lat, lon) {
+    var f = await openPtilesRemote(stateUrl(state, layer));
+    return f.cellMap.has(BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & CELL_MASK);
+  },
   openRemote: function(u) { return openPtilesRemote(u); },
   openCoarse: function(u) { return CoarseReader.open(u); },
   intersectionAt: function(lat, lon) { return queryIntersection(lat, lon); },
