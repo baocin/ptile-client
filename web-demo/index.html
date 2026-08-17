@@ -6284,37 +6284,93 @@ async function runLocate(lat, lon) {
   return res;
 }
 
+// Set when a bounded search found nothing, so the next identical Find widens
+// to the whole state instead of repeating the same bounded pass.
+var geoWideQuery = null;
+
 async function runGeocode(query) {
   if (!query.trim()) return [];
-  setStatus("searching addresses in view...");
   geoLayer.clearLayers();
-  var b = map.getBounds();
   var ad = await geoReader(currentState, "address");
   if (!ad) { setStatus("address layer unavailable"); return []; }
 
-  // The cells on screen, plus the ring around the centre. A res-7 cell is
-  // roughly 5 km across, so at street zoom the whole viewport sits inside one
-  // cell -- and an address a block away can be in the next one, which made
-  // "find 919 Broadway" miss while standing on it. The address layer has no
-  // name index, so this stays a bounded local scan rather than a state-wide
-  // one; the ring is what makes that bound cover what the user can see.
+  // Whole-state search, paid for a block at a time.
   //
-  // cells_for_bounds hands back hex strings, not numbers -- BigInt("87264d10...")
-  // throws without the 0x, which is what normCell exists to get right.
-  var seen = {}, cells = [];
-  wasm.cells_for_bounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
-    .concat(cellsAroundHex(map.getCenter().lat, map.getCenter().lng))
-    .forEach(function(c) {
-      var k = normCell(c);
-      if (!seen[k]) { seen[k] = 1; cells.push(k); }
-    });
-  var CAP = 24;
-  var truncated = cells.length > CAP;
-  cells = cells.slice(0, CAP);
+  // This used to scan the cells on screen, capped at 24, which made the Find
+  // box a viewport filter: typing an address while looking at the other end of
+  // the state found nothing, and said "no match in the N cells on screen" as
+  // though that were an answer. The address layer still has no name index, so
+  // a real search has to visit cells -- but it can visit them in the right
+  // order. core hands back every cell ordered by how close its index bounding
+  // box could possibly be to the map centre, and the walk stops as soon as no
+  // unread cell can beat the worst hit already held. A match near the centre
+  // costs one or two blocks; a match across the state costs more, which is the
+  // honest price and no longer a wrong answer.
+  var LIMIT = 25;
+  // Distance ceiling, because the hit-count bound alone does not bind. Cells
+  // are read nearest-first and the walk may stop once LIMIT hits are held, but
+  // a rare query never reaches LIMIT: "919 Broadway" has two matches in all of
+  // Tennessee, so the bound never fires and the search reads all 20,767 cells
+  // and 29.6 MB. Measured. A browser cannot spend that on a keystroke.
+  //
+  // So the first pass covers a metro-sized radius (25 km: a miss costs ~1 MB
+  // rather than the 4 MB a 60 km pass measured), and a second Find on the
+  // same query -- offered in the status line -- lifts it. That keeps the common
+  // case at a few blocks while still making the whole state reachable, which
+  // the old viewport scan never was at any price.
+  var NEAR_RADIUS_M = 25000;
+  var radius = (geoWideQuery === query.trim().toLowerCase()) ? Infinity : NEAR_RADIUS_M;
+  var centre = map.getCenter();
+  var order;
+  try {
+    order = wasm.address_cells_by_distance(ad.file.indexBytes, centre.lat, centre.lng) || [];
+  } catch (e) {
+    setStatus("address index unreadable: " + errText(e, 80), true);
+    return [];
+  }
 
-  var addrs = [];
-  for (var i = 0; i < cells.length; i++) addrs = addrs.concat(await addressesInCell(ad, cells[i]));
-  var hits = wasm.geocode_addresses(query, addrs, 25) || [];
+  var hits = [], scanned = 0, bytes = 0, truncated = false, nearestHitM = Infinity;
+  for (var i = 0; i < order.length; i++) {
+    var ref = order[i];
+    // Bound on distance, not on count: stopping at LIMIT hits would return an
+    // arbitrary subset whenever fewer than LIMIT matches sit nearby.
+    if (ref.distance_m > radius) { truncated = true; break; }
+    // Once something is found, stop looking far past it. A Find box wants the
+    // nearest matches, and the LIMIT bound alone almost never fires: "919
+    // Broadway" has two matches in Tennessee, so without this the search reads
+    // every cell inside the radius -- 2,324 cells and 6.1 MB from Nashville,
+    // to return a match 1 km away. Tightening to a few times the best distance
+    // costs a duplicate far across the state, which is not what the box is for.
+    if (hits.length && ref.distance_m > nearestHitM * 3 + 3000) { truncated = true; break; }
+    if (hits.length >= LIMIT) {
+      var worst = 0;
+      for (var h = 0; h < hits.length; h++) {
+        var d = haversineM(centre.lat, centre.lng, hits[h].lat, hits[h].lon);
+        if (d > worst) worst = d;
+      }
+      if (ref.distance_m > worst) break;
+    }
+    var recs = await addressesInCell(ad, normCell(ref.cell_hex));
+    scanned++;
+    bytes += ref.block_length;
+    if (!recs.length) continue;
+    var found = wasm.geocode_addresses(query, recs, LIMIT) || [];
+    for (var f = 0; f < found.length; f++) {
+      hits.push(found[f]);
+      var d = haversineM(centre.lat, centre.lng, found[f].lat, found[f].lon);
+      if (d < nearestHitM) nearestHitM = d;
+    }
+    if (scanned % 8 === 0) {
+      setStatus("searching " + currentState + ": " + scanned + " cells, "
+        + hits.length + " match" + (hits.length === 1 ? "" : "es") + " so far");
+    }
+  }
+
+  hits.sort(function(a, b) {
+    return haversineM(centre.lat, centre.lng, a.lat, a.lon)
+         - haversineM(centre.lat, centre.lng, b.lat, b.lon);
+  });
+  hits = hits.slice(0, LIMIT);
 
   hits.forEach(function(h) {
     L.circleMarker([h.lat, h.lon], {radius:5, color:"#3fb950", weight:2, fillOpacity:0.7})
@@ -6322,11 +6378,18 @@ async function runGeocode(query) {
   });
   geoLayer.addTo(map);
   if (hits.length) map.setView([hits[0].lat, hits[0].lon], Math.max(map.getZoom(), 17));
+  // Remember the query only when a wider pass could still help, so pressing
+  // Find again means "look further" rather than "search everything twice".
+  geoWideQuery = (!hits.length && truncated) ? query.trim().toLowerCase() : null;
+
   setStatus(hits.length
-    ? hits.length + " match" + (hits.length === 1 ? "" : "es") + " in view"
-        + (truncated ? " (searched the first " + CAP + " cells on screen)" : "")
-    : "no match in the " + cells.length + " cells on screen"
-        + (truncated ? " -- zoom in, the search is capped at " + CAP + " cells" : ""));
+    ? hits.length + " match" + (hits.length === 1 ? "" : "es")
+        + " (nearest first, " + scanned + " of " + order.length + " cells read, "
+        + Math.round(bytes / 1024) + " KiB)"
+    : truncated
+      ? "no match within " + Math.round(NEAR_RADIUS_M / 1000) + " km ("
+          + scanned + " cells read) -- press Find again to search all of " + currentState
+      : "no match anywhere in " + currentState + " (" + scanned + " cells read)");
   return hits;
 }
 

@@ -8,7 +8,7 @@
 //! Like the router, this takes already-decoded features. I/O and cell selection
 //! stay with the caller; this module only measures.
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::address::AddressRecord;
@@ -454,7 +454,7 @@ pub fn match_addresses(
     }
     // A leading run of digits is a house number; the rest is the street.
     let digits: String = q.chars().take_while(|c| c.is_ascii_digit()).collect();
-    let street_q = q[digits.len()..].trim().to_string();
+    let street_q = crate::address::fold_street_for_match(q[digits.len()..].trim());
 
     let mut hits: Vec<NearbyAddress> = addresses
         .iter()
@@ -462,7 +462,9 @@ pub fn match_addresses(
             if !digits.is_empty() && a.housenumber.to_lowercase() != digits {
                 return None;
             }
-            let street = a.street.to_lowercase();
+            // Folded on both sides so "Beale Street" and "Beale St" are the
+            // same street -- see address::fold_street_for_match.
+            let street = crate::address::fold_street_for_match(&a.street);
             if !street_q.is_empty() && !street.contains(&street_q) {
                 return None;
             }
@@ -484,8 +486,8 @@ pub fn match_addresses(
     // Prefix matches on the street first, then shorter names: "Broadway"
     // should outrank "West Broadway Circle" for the query "broadway".
     hits.sort_by(|a, b| {
-        let ap = a.street.to_lowercase().starts_with(&street_q);
-        let bp = b.street.to_lowercase().starts_with(&street_q);
+        let ap = crate::address::fold_street_for_match(&a.street).starts_with(&street_q);
+        let bp = crate::address::fold_street_for_match(&b.street).starts_with(&street_q);
         bp.cmp(&ap).then(a.street.len().cmp(&b.street.len()))
     });
     hits.truncate(limit);

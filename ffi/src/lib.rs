@@ -2191,6 +2191,30 @@ impl AddressLayer {
             .collect())
     }
 
+    /// Forward geocode with no point required: "919 Broadway" -> where it is.
+    ///
+    /// [`Self::find_address`] needs a `(lat, lon)` to search around, which
+    /// makes it a filter over a place you already found rather than a way to
+    /// find one. This walks the whole file. `near` is optional and only
+    /// changes cost and ordering: with it, cells are read nearest-first and
+    /// the walk stops once no unread cell can beat the worst hit held
+    /// (measured on Tennessee: 14.7 s without, 0.17 s with).
+    pub fn search_address(
+        &self,
+        housenumber: String,
+        street: String,
+        near: Option<LatLon>,
+        limit: u32,
+    ) -> Result<Vec<AddressRecord>, PtilesError> {
+        let hint = near.map(|p| (p.lat, p.lon));
+        let records = match &self.file {
+            AnyAddress::File(f) => f.search_address(&housenumber, &street, hint, limit as usize),
+            AnyAddress::Http(f) => f.search_address(&housenumber, &street, hint, limit as usize),
+        }
+        .map_err(|e| PtilesError::Decode { message: e.to_string() })?;
+        Ok(records.into_iter().map(AddressRecord::from).collect())
+    }
+
     /// Forward lookup: addresses near `(lat, lon)` matching `housenumber` +
     /// `street` (accent/case-insensitive).
     pub fn find_address(

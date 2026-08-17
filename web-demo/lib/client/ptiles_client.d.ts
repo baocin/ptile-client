@@ -201,6 +201,20 @@ export function accel_stats(x: Float32Array, y: Float32Array, z: Float32Array, s
 export function address_cell(block_bytes: Uint8Array, cell_hex: string, version: number): any;
 
 /**
+ * Address cells ordered by how close they could possibly be to `(lat, lon)`,
+ * nearest first, each with what a caller needs to fetch its block.
+ *
+ * This is the browser's half of a whole-file forward geocode. `search_address`
+ * in core walks every cell, which is right for a local file and hopeless over
+ * HTTP -- Tennessee's v3 file is 31 MB. Ordering by the index's own bounding
+ * boxes lets the page fetch one block at a time, nearest first, and stop as
+ * soon as no unread cell can beat what it already has. The distance is
+ * returned so the caller can apply that bound without re-deriving the
+ * geometry; the generic index entries JS parses drop the bbox entirely.
+ */
+export function address_cells_by_distance(index_bytes: Uint8Array, lat: number, lon: number): any;
+
+/**
  * Signed difference between two bearings, degrees, positive to the right.
  */
 export function bearing_delta(from_deg: number, to_deg: number): number;
@@ -866,6 +880,7 @@ export interface InitOutput {
     readonly adaptivemotionsession_setIntent: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly adaptivemotionsession_tick: (a: number, b: number) => [number, number, number];
     readonly address_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly address_cells_by_distance: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
     readonly adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly bearing_delta: (a: number, b: number) => number;

@@ -427,7 +427,13 @@ export function createPtiles(wasm) {
     const layout = wasm.parse_index_layout(headerBytes, indexBytes);
     const entries = wasm.index_entries_absolute(headerBytes, indexBytes);
 
-    return new Layer(source, header, entries, layout, dict);
+    const layer = new Layer(source, header, entries, layout, dict);
+    // Kept because the parsed entries drop the per-cell bounding box: the
+    // 38-byte merged index carries one, IndexEntry does not model it, and a
+    // whole-file address search needs it to order cells by distance without
+    // fetching any blocks (wasm.address_cells_by_distance parses these bytes).
+    layer.indexBytes = indexBytes;
+    return layer;
   }
 
   // ---------------------------------------------------------------- coarse

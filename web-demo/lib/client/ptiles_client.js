@@ -468,6 +468,32 @@ export function address_cell(block_bytes, cell_hex, version) {
 }
 
 /**
+ * Address cells ordered by how close they could possibly be to `(lat, lon)`,
+ * nearest first, each with what a caller needs to fetch its block.
+ *
+ * This is the browser's half of a whole-file forward geocode. `search_address`
+ * in core walks every cell, which is right for a local file and hopeless over
+ * HTTP -- Tennessee's v3 file is 31 MB. Ordering by the index's own bounding
+ * boxes lets the page fetch one block at a time, nearest first, and stop as
+ * soon as no unread cell can beat what it already has. The distance is
+ * returned so the caller can apply that bound without re-deriving the
+ * geometry; the generic index entries JS parses drop the bbox entirely.
+ * @param {Uint8Array} index_bytes
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {any}
+ */
+export function address_cells_by_distance(index_bytes, lat, lon) {
+    const ptr0 = passArray8ToWasm0(index_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.address_cells_by_distance(ptr0, len0, lat, lon);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Signed difference between two bearings, degrees, positive to the right.
  * @param {number} from_deg
  * @param {number} to_deg

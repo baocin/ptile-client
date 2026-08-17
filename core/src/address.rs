@@ -362,10 +362,63 @@ pub fn merged_block_cell_slice(
     )?))
 }
 
+/// Canonical form of a street name for matching: case- and accent-folded by
+/// [`crate::business_search::fold_name`], then with the type and direction
+/// words reduced to one spelling each.
+///
+/// Matching was raw substring, which is asymmetric in a way that loses real
+/// answers. Memphis has both `Beale St` and `BEALE Street` in the same block:
+/// searching "Beale St" returned 122 records because it is a substring of
+/// both, while "Beale Street" returned 71 -- typing the street type in full
+/// silently dropped 51 addresses. The sources cannot be made to agree upstream
+/// either, since they are three different corpora with three conventions.
+pub fn fold_street_for_match(s: &str) -> String {
+    let folded = crate::business_search::fold_name(s);
+    let mut out = String::new();
+    for word in folded.split_whitespace() {
+        let canon = match word {
+            "street" | "st" => "st",
+            "avenue" | "ave" | "av" => "ave",
+            "road" | "rd" => "rd",
+            "drive" | "dr" => "dr",
+            "lane" | "ln" => "ln",
+            "court" | "ct" => "ct",
+            "boulevard" | "blvd" => "blvd",
+            "highway" | "hwy" => "hwy",
+            "parkway" | "pkwy" => "pkwy",
+            "circle" | "cir" => "cir",
+            "place" | "pl" => "pl",
+            "terrace" | "ter" => "ter",
+            "trail" | "trl" => "trl",
+            "square" | "sq" => "sq",
+            "north" | "n" => "n",
+            "south" | "s" => "s",
+            "east" | "e" => "e",
+            "west" | "w" => "w",
+            "northeast" | "ne" => "ne",
+            "northwest" | "nw" => "nw",
+            "southeast" | "se" => "se",
+            "southwest" | "sw" => "sw",
+            other => other,
+        };
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(canon);
+    }
+    out
+}
+
 /// Distance from a point to a cell's index bounding box, in metres; zero when
 /// the point is inside it. Used to visit cells nearest-first without
 /// decompressing anything -- the index is the only geometry available up front.
-fn bbox_distance_m(entry: &AddressIndexEntry, lat: f64, lon: f64) -> f64 {
+///
+/// Public because the browser needs the same ordering: it cannot afford
+/// [`AddressFile::search_address`]'s whole-file walk over HTTP, so it fetches
+/// blocks in this order and stops on the same bound. The generic `IndexEntry`
+/// the JS side parses drops the bounding box, so without this the page would
+/// have to re-derive the geometry itself.
+pub fn bbox_distance_m(entry: &AddressIndexEntry, lat: f64, lon: f64) -> f64 {
     let (min_lat, max_lat) = (entry.min_lat as f64 / 1e5, entry.max_lat as f64 / 1e5);
     let (min_lon, max_lon) = (entry.min_lon as f64 / 1e5, entry.max_lon as f64 / 1e5);
     let clamped_lat = lat.clamp(min_lat.min(max_lat), max_lat.max(min_lat));
@@ -514,7 +567,7 @@ impl<S: PtilesSource> AddressFile<S> {
         limit: usize,
     ) -> Result<Vec<AddressRecord>, FileError> {
         let hn = crate::business_search::fold_name(housenumber.trim());
-        let st = crate::business_search::fold_name(street.trim());
+        let st = fold_street_for_match(street.trim());
         // With neither part supplied every record matches, which is a file
         // dump rather than a search.
         if hn.is_empty() && st.is_empty() || limit == 0 {
@@ -555,7 +608,7 @@ impl<S: PtilesSource> AddressFile<S> {
                 if !hn.is_empty() && crate::business_search::fold_name(&r.housenumber) != hn {
                     continue;
                 }
-                if !st.is_empty() && !crate::business_search::fold_name(&r.street).contains(&st) {
+                if !st.is_empty() && !fold_street_for_match(&r.street).contains(&st) {
                     continue;
                 }
                 out.push(r);
@@ -580,13 +633,13 @@ impl<S: PtilesSource> AddressFile<S> {
         street: &str,
     ) -> Result<Vec<AddressRecord>, FileError> {
         let hn = crate::business_search::fold_name(housenumber.trim());
-        let st = crate::business_search::fold_name(street.trim());
+        let st = fold_street_for_match(street.trim());
         let all = self.addresses_at(lat, lon, ring)?;
         Ok(all
             .into_iter()
             .filter(|r| {
                 crate::business_search::fold_name(&r.housenumber) == hn
-                    && crate::business_search::fold_name(&r.street).contains(&st)
+                    && fold_street_for_match(&r.street).contains(&st)
             })
             .collect())
     }

@@ -1622,6 +1622,47 @@ pub fn address_cell(block_bytes: &[u8], cell_hex: &str, version: u8) -> Result<J
     to_js(&records)
 }
 
+/// Address cells ordered by how close they could possibly be to `(lat, lon)`,
+/// nearest first, each with what a caller needs to fetch its block.
+///
+/// This is the browser's half of a whole-file forward geocode. `search_address`
+/// in core walks every cell, which is right for a local file and hopeless over
+/// HTTP -- Tennessee's v3 file is 31 MB. Ordering by the index's own bounding
+/// boxes lets the page fetch one block at a time, nearest first, and stop as
+/// soon as no unread cell can beat what it already has. The distance is
+/// returned so the caller can apply that bound without re-deriving the
+/// geometry; the generic index entries JS parses drop the bbox entirely.
+#[wasm_bindgen]
+pub fn address_cells_by_distance(index_bytes: &[u8], lat: f64, lon: f64) -> Result<JsValue, JsValue> {
+    let mut index = ptiles_core::address::parse_v2_index(index_bytes)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    index.retain(|e| e.block_length > 0);
+    index.sort_by(|a, b| {
+        ptiles_core::address::bbox_distance_m(a, lat, lon)
+            .total_cmp(&ptiles_core::address::bbox_distance_m(b, lat, lon))
+    });
+    let out: Vec<AddressCellRef> = index
+        .iter()
+        .map(|e| AddressCellRef {
+            cell_hex: format!("{:x}", e.h3_cell),
+            block_offset: e.block_offset as f64,
+            block_length: e.block_length,
+            feature_count: e.feature_count,
+            distance_m: ptiles_core::address::bbox_distance_m(e, lat, lon),
+        })
+        .collect();
+    to_js(&out)
+}
+
+#[derive(serde::Serialize)]
+struct AddressCellRef {
+    cell_hex: String,
+    block_offset: f64,
+    block_length: u32,
+    feature_count: u16,
+    distance_m: f64,
+}
+
 /// Name for an `intersection_type` byte, from the format's own vocabulary:
 /// `traffic_signals` | `stop` | `give_way` | `roundabout` | `junction`.
 ///

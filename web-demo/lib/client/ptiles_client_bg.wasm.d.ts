@@ -17,6 +17,7 @@ export const adaptivemotionsession_setCapabilities: (a: number, b: any, c: numbe
 export const adaptivemotionsession_setIntent: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const adaptivemotionsession_tick: (a: number, b: number) => [number, number, number];
 export const address_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+export const address_cells_by_distance: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const adminreader_admin_at: (a: number, b: number, c: number) => [number, number, number];
 export const adminreader_new: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const bearing_delta: (a: number, b: number) => number;

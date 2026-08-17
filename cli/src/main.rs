@@ -322,7 +322,13 @@ fn main() {
         query_peek.as_deref(),
         Some("address") | Some("address-find") | Some("address-search")
     ) {
-        let ring: u32 = args.opt_value_from_str("--ring").unwrap_or(None).unwrap_or(0);
+        // Default 1, not 0. A point near a cell edge has its neighbours'
+        // addresses closer than its own cell's far side, and the builder and
+        // this reader use different H3 implementations that disagree about
+        // which side of a boundary such a point falls on -- measured at 0.00
+        // to 0.04% of records per state, always into an adjacent cell. Ring 0
+        // is what turns that into a missed address.
+        let ring: u32 = args.opt_value_from_str("--ring").unwrap_or(None).unwrap_or(1);
         let find = if query_peek.as_deref() == Some("address-find") {
             let number: String = args.value_from_str("--number").unwrap_or_else(|e| {
                 eprintln!("ptiles-cli: --query address-find requires --number ({e})");
