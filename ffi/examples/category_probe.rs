@@ -69,6 +69,27 @@ fn main() {
         }
     }
     println!("  total swept: {swept}");
+    // Cross-check the sidecar mapping against unambiguous categories.
+    for probe in [1u8, 2, 94] {
+        let mut names: Vec<String> = Vec::new();
+        for cell in file.index().iter().map(|e| e.h3_cell).collect::<Vec<_>>() {
+            let Some(block) = file.read_block(cell).unwrap() else { continue };
+            let Ok(records) = ptiles_core::decode_business_versioned(&block, version, cell) else {
+                continue;
+            };
+            for b in records {
+                if b.category_idx == probe && !b.name.trim().is_empty() {
+                    names.push(b.name.clone());
+                }
+            }
+        }
+        names.sort();
+        names.dedup();
+        println!("cat{probe}: {} distinct names, e.g.", names.len());
+        for n in names.iter().step_by((names.len() / 6).max(1)).take(6) {
+            println!("    {n}");
+        }
+    }
     // What is category 94, exactly?
     let mut cat94: Vec<(String, bool)> = Vec::new();
     for cell in file.index().iter().map(|e| e.h3_cell).collect::<Vec<_>>() {
