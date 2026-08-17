@@ -33,6 +33,7 @@ fn main() {
     }
 
     let layer = ptiles_ffi::PtilesLayer::open(roads).unwrap();
+    let probe = layer.clone();
     let stack = ptiles_ffi::PtilesStack::with_layers(
         Some(layer), None, None, None, None, None, None, None,
     );
@@ -92,8 +93,53 @@ fn main() {
                     if d > gap { gap = d }
                 }
                 if gap > worst_gap { worst_gap = gap }
-                if gap > 3_000.0 {
-                    problems.push(format!("jumps {:.1} km between consecutive points ({direct:.0} km trip)", gap / 1000.0));
+                // A long hop between consecutive points is not by itself a
+                // fault: OSM only needs a vertex where a way bends, so a
+                // straight motorway legitimately runs 6 km between vertices.
+                // What matters is whether the straight line we draw actually
+                // lies on a road. Sample the chord and ask.
+                if gap > 2_000.0 {
+                    let at = path
+                        .windows(2)
+                        .max_by(|x, y| {
+                            haversine(x[0].lat, x[0].lon, x[1].lat, x[1].lon)
+                                .partial_cmp(&haversine(y[0].lat, y[0].lon, y[1].lat, y[1].lon))
+                                .unwrap()
+                        })
+                        .unwrap();
+                    let mut worst_off = 0.0_f64;
+                    let mut nothing_there = 0;
+                    let (mut wlat, mut wlon) = (0.0, 0.0);
+                    for step in 1..=4 {
+                        let t = step as f64 / 5.0;
+                        let lat = at[0].lat + (at[1].lat - at[0].lat) * t;
+                        let lon = at[0].lon + (at[1].lon - at[0].lon) * t;
+                        match probe.nearest_road(lat, lon) {
+                            Ok(Some(n)) => {
+                                if n.distance_m > worst_off {
+                                    worst_off = n.distance_m;
+                                    wlat = lat;
+                                    wlon = lon;
+                                }
+                            }
+                            _ => {
+                                nothing_there += 1;
+                                wlat = lat;
+                                wlon = lon;
+                            }
+                        }
+                    }
+                    if nothing_there > 0 {
+                        problems.push(format!(
+                            "{:.1} km hop with no road under {nothing_there}/4 samples ({direct:.0} km trip) at {wlat:.5},{wlon:.5}",
+                            gap / 1000.0,
+                        ));
+                    } else if worst_off > 150.0 {
+                        problems.push(format!(
+                            "{:.1} km hop drawn {:.0} m off the nearest way ({direct:.0} km trip) at {wlat:.5},{wlon:.5}",
+                            gap / 1000.0, worst_off,
+                        ));
+                    }
                 }
                 // 3. Is the distance physically possible and not absurd?
                 if km + 0.5 < direct {

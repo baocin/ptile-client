@@ -599,23 +599,58 @@ fn snap_pair(
     let mut best: BTreeMap<u32, (Option<(usize, f64)>, Option<(usize, f64)>)> = BTreeMap::new();
     let mut any_start = false;
     let mut any_end = false;
-    for (i, c) in g.coords_geo.iter().enumerate() {
-        let d1 = haversine_distance_m(lat1, lon1, c[1], c[0]);
-        let d2 = haversine_distance_m(lat2, lon2, c[1], c[0]);
+    let mut offer = |node: usize, d1: f64, d2: f64, any_start: &mut bool, any_end: &mut bool| {
         if d1 > snap_m && d2 > snap_m {
-            continue;
+            return;
         }
-        let entry = best.entry(component[i]).or_insert((None, None));
+        let entry = best.entry(component[node]).or_insert((None, None));
         if d1 <= snap_m {
-            any_start = true;
+            *any_start = true;
             if entry.0.is_none_or(|(_, best_d)| d1 < best_d) {
-                entry.0 = Some((i, d1));
+                entry.0 = Some((node, d1));
             }
         }
         if d2 <= snap_m {
-            any_end = true;
+            *any_end = true;
             if entry.1.is_none_or(|(_, best_d)| d2 < best_d) {
-                entry.1 = Some((i, d2));
+                entry.1 = Some((node, d2));
+            }
+        }
+    };
+    for (i, c) in g.coords_geo.iter().enumerate() {
+        let d1 = haversine_distance_m(lat1, lon1, c[1], c[0]);
+        let d2 = haversine_distance_m(lat2, lon2, c[1], c[0]);
+        offer(i, d1, d2, &mut any_start, &mut any_end);
+    }
+    // Vertices alone are not the road. OSM puts a vertex only where a way
+    // bends, so a straight trunk can run 2 km between them and be invisible
+    // from its own middle -- a driver parked halfway along one was told there
+    // was no road within a kilometre. Measure to the *edge* as well, and offer
+    // whichever end of it is nearer.
+    for (from, edges) in g.adj.iter().enumerate() {
+        let a = g.coords_geo[from];
+        for (to, _) in edges {
+            let b = g.coords_geo[*to as usize];
+            let d1 = distance_to_segment_m(lat1, lon1, a, b);
+            let d2 = distance_to_segment_m(lat2, lon2, a, b);
+            if d1 > snap_m && d2 > snap_m {
+                continue;
+            }
+            // Offer only the end of the edge nearer to each query point, and
+            // score it by how near the *road* passes. Offering both ends with
+            // the edge's distance made every endpoint of a long edge look
+            // equally close, so start and end could land on the same node and
+            // the route came back with zero length.
+            let nearer = |lat: f64, lon: f64| {
+                let da = haversine_distance_m(lat, lon, a[1], a[0]);
+                let db = haversine_distance_m(lat, lon, b[1], b[0]);
+                if da <= db { from } else { *to as usize }
+            };
+            if d1 <= snap_m {
+                offer(nearer(lat1, lon1), d1, f64::MAX, &mut any_start, &mut any_end);
+            }
+            if d2 <= snap_m {
+                offer(nearer(lat2, lon2), f64::MAX, d2, &mut any_start, &mut any_end);
             }
         }
     }
@@ -628,6 +663,10 @@ fn snap_pair(
         }
     }
     match chosen {
+        // A pair that collapsed to one node is not a route: it means both ends
+        // snapped to the same place, which is a snap failure dressed up as a
+        // zero-length success.
+        Some((s, e, _)) if s == e => Err(RouteFailure::EndNotSnapped),
         Some((s, e, _)) => Ok((s, e)),
         // Nothing in reach at all is a snap failure; something in reach at
         // both ends but never in the same component is a real disconnection.
@@ -635,6 +674,20 @@ fn snap_pair(
         None if !any_end => Err(RouteFailure::EndNotSnapped),
         None => Err(RouteFailure::Disconnected),
     }
+}
+
+/// Metres from a point to a `[lon, lat]` segment, not merely to its ends.
+fn distance_to_segment_m(lat: f64, lon: f64, a: [f64; 2], b: [f64; 2]) -> f64 {
+    // Flat approximation over the length of one road segment, which is metres
+    // to kilometres: far cheaper than a great-circle cross-track and wrong by
+    // centimetres at this scale.
+    let kx = math::cos(lat * (core::f64::consts::PI / 180.0));
+    let (px, py) = ((lon - a[0]) * kx, lat - a[1]);
+    let (vx, vy) = ((b[0] - a[0]) * kx, b[1] - a[1]);
+    let len2 = vx * vx + vy * vy;
+    let t = if len2 <= 0.0 { 0.0 } else { ((px * vx + py * vy) / len2).clamp(0.0, 1.0) };
+    let (cx, cy) = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
+    haversine_distance_m(lat, lon, cy, cx)
 }
 
 /// Connected-component id per node, by union-find over the adjacency.
