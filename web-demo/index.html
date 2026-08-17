@@ -613,6 +613,68 @@ var STATE_BBOX = {
   UT:[36.9,-114.1,42.1,-109], VT:[42.7,-73.5,45.1,-71.4], VA:[36.5,-83.7,39.5,-75.1], WA:[45.5,-124.9,49.1,-116.9],
   WV:[37.1,-82.7,40.7,-77.6], WI:[42.4,-92.9,47.1,-86.2], WY:[40.9,-111.1,45.1,-104]
 };
+// Which state actually owns a border cell.
+//
+// Bounding boxes overlap by tens of kilometres, so along every line the box
+// test alone is a coin toss and nearest-centre does not break the tie: NJ's
+// centre is closer to upper Manhattan than NY's is. A 125-city sweep had 25
+// cities served by a neighbour's file, two of them drawing nothing at all.
+//
+// lib/state_cells.bin is the answer for exactly the cells where the boxes
+// disagree -- 581,237 of the admin grid's 1.79M, every cell that falls inside
+// two or more state boxes -- built by scripts/build_state_cell_index.py in the
+// ptiles repo from US.admin.ptiles. 2.8 MB raw, ~75 KB over the wire once the
+// CDN gzips it (delta-coded cell ids compress to almost nothing), against 28 MB
+// for the admin grid this replaces for routing purposes.
+//
+// Loaded in the background: until it arrives, and for any cell it does not
+// carry, the old box logic answers. Nothing waits on it.
+var stateCells = null;   // { cells: BigUint64Array, codes: Uint8Array, names: [] }
+
+var stateCellsReady = (async function() {
+  try {
+    var buf = new Uint8Array(await (await fetch("lib/state_cells.bin")).arrayBuffer());
+    if (String.fromCharCode(buf[0], buf[1], buf[2], buf[3]) !== "PSCI" || buf[4] !== 1) return;
+    var nStates = buf[5], pos = 6, names = [];
+    for (var i = 0; i < nStates; i++, pos += 2) {
+      names.push(String.fromCharCode(buf[pos], buf[pos + 1]));
+    }
+    var count = new DataView(buf.buffer, buf.byteOffset).getUint32(pos, true);
+    pos += 4;
+    var cells = new BigUint64Array(count), codes = new Uint8Array(count), cell = 0n;
+    for (var e = 0; e < count; e++) {
+      var shift = 0n, delta = 0n, b;
+      do {
+        b = buf[pos++];
+        delta |= BigInt(b & 0x7f) << shift;
+        shift += 7n;
+      } while (b & 0x80);
+      cell += delta;
+      cells[e] = cell;
+      codes[e] = buf[pos++];
+    }
+    stateCells = { cells: cells, codes: codes, names: names };
+  } catch (e) {
+    // A missing or corrupt table is a downgrade, not a failure: the box logic
+    // below still routes, just as badly as it did before.
+    console.warn("[ptiles] state cell index unavailable: " + e.message);
+  }
+})();
+
+// The state owning this cell, or null when the table has no opinion. Cells are
+// sorted, so this is a binary search over a typed array -- no Map of 581k
+// BigInt keys, which costs tens of megabytes to hold.
+function stateForCell(cell) {
+  if (!stateCells) return null;
+  var lo = 0, hi = stateCells.cells.length - 1;
+  while (lo <= hi) {
+    var mid = (lo + hi) >> 1, c = stateCells.cells[mid];
+    if (c === cell) return stateCells.names[stateCells.codes[mid]];
+    if (c < cell) lo = mid + 1; else hi = mid - 1;
+  }
+  return null;
+}
+
 // State files that were open at a cell and did not contain it, as "ST:cell".
 // Without this the release below flaps: over water or empty ground every
 // candidate misses, so each switch makes the next state the one to reject.
@@ -661,6 +723,22 @@ function stateAt(lat, lon) {
     if (lat >= b[0] && lat <= b[2] && lon >= b[1] && lon <= b[3]) hits.push(s);
   }
   if (!hits.length) return null;
+  if (hits.length === 1) return hits[0];
+
+  // More than one box claims this point, which is where every wrong answer
+  // came from. Ask the cell table before guessing: it was built from the admin
+  // grid and is right by construction, including for the cases stickiness and
+  // nearest-centre both get wrong (Manhattan, El Paso, Kansas City).
+  if (stateCells && CELL_MASK != null) {
+    try {
+      var owner = stateForCell(BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & CELL_MASK);
+      if (owner && hits.indexOf(owner) >= 0) return owner;
+      // An owner outside the box hits means the boxes are wrong about this
+      // point, not the grid -- serve the file that actually holds the ground.
+      if (owner && STATE_CENTERS[owner]) return owner;
+    } catch (e) { /* fall through to the boxes */ }
+  }
+
   // ponytail: stay on current when still in its bbox (Memphis is in TN+AR)
   //
   // Stickiness assumes the current state's files cover wherever the map
@@ -3473,6 +3551,15 @@ function stateAtForce(lat, lon) {
     if (lat >= bb[0] && lat <= bb[2] && lon >= bb[1] && lon <= bb[3]) hits.push(s);
   }
   if (!hits.length) return null;
+  // Same table stateAt uses. A route's endpoint states come through here, so
+  // leaving it on nearest-centre meant a trip starting in Manhattan opened the
+  // NJ roads file and had no edges to start from.
+  if (hits.length > 1 && stateCells && CELL_MASK != null) {
+    try {
+      var owner = stateForCell(BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & CELL_MASK);
+      if (owner && STATE_CENTERS[owner]) return owner;
+    } catch (e) { /* fall through to the boxes */ }
+  }
   var best = null, bestD = Infinity;
   for (var i = 0; i < hits.length; i++) {
     var c = STATE_CENTERS[hits[i]].center;
@@ -3622,8 +3709,39 @@ async function roadRefGuidedPlan(state, a, b) {
   return { plan: plan, attempted: true, crawl: crawl };
 }
 
-async function highwayGuidedPlan(state, a, b) {
-  var guide = await highwayBackboneFor(state);
+// The guide for a trip, which is one state's highway cells or several unioned.
+//
+// This took a single state, and its caller only ran when the trip stayed in
+// one -- so every long drive that crossed a line skipped the guided retry
+// entirely and reported "disconnected". Nashville to Louisville, Chattanooga
+// to Atlanta, Reno to Sacramento and Fargo to Sioux Falls all failed both
+// directions for that reason alone. Highway cells from either side of a border
+// sit adjacent on the same res-7 grid, so the BFS below crosses the seam with
+// no special case once both sets are in the same bag.
+async function highwayGuideFor(states) {
+  var list = [], set = new Set();
+  for (var i = 0; i < states.length; i++) {
+    var g = null;
+    try {
+      g = await highwayBackboneFor(states[i]);
+    } catch (e) {
+      // One state over budget, or unpublished, must not lose the others: a
+      // partial guide still beats no guided retry at all.
+      console.warn("highway guide unavailable", states[i], e.message);
+      continue;
+    }
+    for (var j = 0; j < g.list.length; j++) {
+      if (!set.has(g.list[j])) { set.add(g.list[j]); list.push(g.list[j]); }
+    }
+  }
+  if (!list.length) return null;
+  return { list: list, set: set, cells: list.length, state: states.join("+") };
+}
+
+async function highwayGuidedPlan(states, a, b) {
+  var guide = await highwayGuideFor(
+    Object.prototype.toString.call(states) === "[object Array]" ? states : [states]);
+  if (!guide) return null;
   var start = nearestGuideCell(guide, a.lat, a.lon);
   var goal = nearestGuideCell(guide, b.lat, b.lon);
   if (!start || !goal) return null;
@@ -4361,14 +4479,21 @@ async function runRoute(a, b) {
   var guidedPlan = null;
   var refGuide = null;
   var guideStates = pack ? pack.states : statesAlong(a.lat, a.lon, b.lat, b.lon);
+  // Four states is the cap: each one costs a highway index, and a line long
+  // enough to cross five has bigger problems than guidance.
   if (!result && attempt.failure === "disconnected" && distM >= 80000
-      && guideStates.length === 1) {
-    setStatus("Route: follow highway ref…");
-    refGuide = await roadRefGuidedPlan(guideStates[0], a, b);
-    guidedPlan = refGuide.plan;
-    if (!guidedPlan && !refGuide.attempted) {
+      && guideStates.length >= 1 && guideStates.length <= 4) {
+    // The ref crawl follows one route number through one state's roads, so it
+    // stays single-state -- it is the origin state's shot at the answer. The
+    // highway-index corridor below takes every state the line crosses.
+    if (guideStates.length === 1) {
+      setStatus("Route: follow highway ref…");
+      refGuide = await roadRefGuidedPlan(guideStates[0], a, b);
+      guidedPlan = refGuide.plan;
+    }
+    if (!guidedPlan && (guideStates.length > 1 || !refGuide.attempted)) {
       setStatus("Route: highway-index corridor…");
-      guidedPlan = await highwayGuidedPlan(guideStates[0], a, b);
+      guidedPlan = await highwayGuidedPlan(guideStates, a, b);
     }
     if (guidedPlan) {
       pack = await loadRouteCorridor(
