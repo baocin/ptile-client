@@ -30,6 +30,7 @@ pub mod admin;
 pub mod buildings;
 pub mod business;
 pub mod business_search;
+pub mod categories;
 pub mod camera;
 pub mod ev;
 pub mod environment;
