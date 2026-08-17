@@ -210,7 +210,15 @@ fn every_state_address_file_decodes_and_round_trips() {
     for abbr in STATES {
         // Named explicitly rather than globbed: the directory is NFS and has
         // been observed timing out on a listing.
-        let path = dir.join(format!("{abbr}.address_v3.ptiles"));
+        // v4 when it exists, v3 otherwise: the units rebuild lands one state
+        // at a time, and a harness that only knows one filename reports the
+        // other half of a rebuild as missing files.
+        let v4 = dir.join(format!("{abbr}.address_v4.ptiles"));
+        let path = if v4.is_file() {
+            v4
+        } else {
+            dir.join(format!("{abbr}.address_v3.ptiles"))
+        };
         if !path.is_file() {
             missing.push(abbr);
             continue;

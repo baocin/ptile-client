@@ -28,3 +28,10 @@
 # and imports it, which leaves this behind.
 __pycache__/
 *.pyc
+
+# Build/tool output that showed up as untracked noise during the address work.
+# Wrangler's cache, an ad-hoc archive, and the artifacts/ directory are all
+# regenerable; tracking them only makes `git status` unreadable.
+.wrangler/
+artifacts/
+Archive.zip

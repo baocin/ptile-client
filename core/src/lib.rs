@@ -25,6 +25,7 @@ pub mod source;
 pub mod versions;
 
 pub mod address;
+pub mod address_name_index;
 pub mod admin;
 pub mod buildings;
 pub mod business;
@@ -119,6 +120,7 @@ pub use coarse::{
     CELL_FILLER_BITS, CoarseBracket, CoarseIndex, CoarseSample, normalize_cell,
     parse as parse_coarse_index,
 };
+pub use address_name_index::{AddressNameIndex, StreetCells};
 pub use file::{BlockOffsetBase, FileError, IndexLayout, PtilesFile, index_layout};
 pub use header::Header;
 #[cfg(feature = "http")]

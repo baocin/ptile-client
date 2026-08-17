@@ -21,11 +21,11 @@ this can gate a publish.
 import argparse
 import concurrent.futures
 import struct
+import os
+import re
 import sys
 import urllib.error
 import urllib.request
-
-DEFAULT_BASE = "https://maps.mydatatimeline.com/maps"
 
 # The host rejects urllib's default User-Agent.
 UA = "Mozilla/5.0 (ptiles-client conformance check)"
@@ -33,9 +33,43 @@ UA = "Mozilla/5.0 (ptiles-client conformance check)"
 ENTRY_SIZE_V1, ENTRY_SIZE_V2 = 19, 38
 KNOWN = (ENTRY_SIZE_V1, ENTRY_SIZE_V2)
 
-PER_STATE = ["roads", "water", "business", "buildings_v8", "parks", "rail",
-             "places", "address", "highways"]
-NATIONAL = ["US.signals", "US.camera", "US.admin"]
+INDEX_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "..", "web-demo", "index.html")
+
+
+def demo_config():
+    """The base URL and layer filenames the *page* uses, read from the page.
+
+    These were hardcoded here and drifted: this file checked
+    `maps/TN.address.ptiles` (PTILESA v1) while index.html fetched
+    `maps/2026-08-07/TN.address_v2.ptiles` (PTILESD v2). A conformance run that
+    verifies files nobody serves is worse than no run at all, and a deploy
+    checked against the wrong snapshot is how the wrong version ships.
+
+    Parsed rather than duplicated so the page stays the single source of truth;
+    it is the thing users actually load.
+    """
+    with open(INDEX_HTML, encoding="utf-8") as f:
+        html = f.read()
+    m = re.search(r'var\s+PTILES_BASE\s*=\s*"([^"]+)"', html)
+    if not m:
+        sys.exit(f"could not find PTILES_BASE in {INDEX_HTML}")
+    base = m.group(1).rstrip("/")
+    m = re.search(r"var\s+LAYER_FILES\s*=\s*\{(.*?)\};", html, re.S)
+    if not m:
+        sys.exit(f"could not find LAYER_FILES in {INDEX_HTML}")
+    stems = dict(re.findall(r'(\w+)\s*:\s*"([^"]+)"', m.group(1)))
+    return base, stems
+
+
+DEMO_BASE, DEMO_LAYERS = demo_config()
+DEFAULT_BASE = DEMO_BASE
+
+# Per-state layers, named as the page names them (roads_v2, address_v2, ...).
+PER_STATE = [DEMO_LAYERS[k] for k in
+             ["roads", "water", "business", "buildings", "parks", "rail",
+              "places", "address", "highways"] if k in DEMO_LAYERS]
+NATIONAL = [f"US.{DEMO_LAYERS.get(k, k)}" for k in ["signals", "camera", "admin"]]
 
 
 def fetch(url, start, end):

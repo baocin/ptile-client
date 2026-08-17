@@ -99,6 +99,12 @@ pub const SUPPORTED_FORMATS: &[FormatEntry] = &[
         notes: "{STATE}.address_v2.ptiles as published since the builder stopped truncating PTILESA2 to the admin magic. v2 records carry i16 cell-relative coordinates, v3 adds a one-byte source (0=osm, 1=nad, 2=openaddresses) for the merged bulk-address layer, v4 a unit string after the street (APT B, STE 300) which earlier versions folded away as duplicates; v1 has none of it. Older published address files still say PTILESA and are accepted under that entry",
     },
     FormatEntry {
+        magic: b"PTILESY",
+        file_kind: "address_name_index",
+        versions: &[1],
+        notes: "sidecar {STATE}.address_name_index.ptiles from scripts/build_address_name_index.py: 28 buckets keyed by the first letter of a folded street name, each holding `u16 len | street | varint cell_count | deltas`. Ordinary v1 19-byte index so PtilesFile reads it unchanged. Turns a forward geocode from a whole-file scan into one bucket plus the cells that street is actually in",
+    },
+    FormatEntry {
         magic: b"PTILESX",
         file_kind: "business_name_index",
         versions: &[1],

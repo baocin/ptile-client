@@ -282,6 +282,15 @@ fn main() {
     let lat_opt: Option<f64> = args.opt_value_from_str("--lat").unwrap_or(None);
     let lon_opt: Option<f64> = args.opt_value_from_str("--lon").unwrap_or(None);
 
+    // `--query address-streets`: every distinct street in the file with the
+    // cells it appears in. Exists so the name-index builder does not have to
+    // reimplement the record framing in Python -- the duplicate-implementation
+    // problem the wasm work removed, reintroduced by the back door.
+    if query_peek.as_deref() == Some("address-streets") {
+        run_address_streets(&path);
+        return;
+    }
+
     if query_peek.as_deref() == Some("address-search") {
         let number: String = args.opt_value_from_str("--number").unwrap_or(None).unwrap_or_default();
         let street: String = args.opt_value_from_str("--street").unwrap_or(None).unwrap_or_default();
@@ -294,7 +303,8 @@ fn main() {
             (Some(la), Some(lo)) => Some((la, lo)),
             _ => None,
         };
-        run_address_search(&path, &number, &street, near, limit);
+        let index: Option<String> = args.opt_value_from_str("--name-index").unwrap_or(None);
+        run_address_search(&path, &number, &street, near, limit, index.as_deref());
         return;
     }
 
@@ -525,6 +535,60 @@ fn run_address_query(path_or_url: &str, lat: f64, lon: f64, ring: u8, find: Opti
     }
 }
 
+/// House numbers compare folded, the same way the library matches them.
+fn street_number_fold(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
+/// `--query address-streets`: `{"streets": [{"street", "cells": [...]}]}`.
+fn run_address_streets(path_or_url: &str) {
+    let result = if is_url(path_or_url) {
+        HttpSource::open(path_or_url)
+            .map_err(|e| e.to_string())
+            .and_then(address_streets_result)
+    } else {
+        FileSource::open(path_or_url)
+            .map_err(|e| e.to_string())
+            .and_then(address_streets_result)
+    };
+    match result {
+        Ok(v) => println!("{}", serde_json::to_string(&v).unwrap()),
+        Err(e) => {
+            eprintln!("ptiles-cli: address streets failed for {path_or_url:?}: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
+fn address_streets_result<S: PtilesSource>(source: S) -> Result<Value, String> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let file = AddressFile::open(source).map_err(|e| e.to_string())?;
+    let mut by_street: BTreeMap<String, BTreeSet<u64>> = BTreeMap::new();
+    for entry in file.index().to_vec() {
+        if entry.block_length == 0 {
+            continue;
+        }
+        let records = file
+            .addresses_in_cell(entry.h3_cell)
+            .map_err(|e| e.to_string())?;
+        for r in records {
+            if r.street.trim().is_empty() {
+                continue;
+            }
+            by_street
+                .entry(r.street)
+                .or_default()
+                .insert(entry.h3_cell);
+        }
+    }
+    let streets: Vec<Value> = by_street
+        .into_iter()
+        .map(|(street, cells)| json!({"street": street, "cells": cells.iter().collect::<Vec<_>>()}))
+        .collect();
+    Ok(json!({"streets": streets}))
+}
+
 /// `--query address-search`: forward geocode over the whole file, with an
 /// optional `--lat/--lon` hint that orders the walk and the results.
 fn run_address_search(
@@ -533,15 +597,16 @@ fn run_address_search(
     street: &str,
     near: Option<(f64, f64)>,
     limit: usize,
+    index_path: Option<&str>,
 ) {
     let result = if is_url(path_or_url) {
         HttpSource::open(path_or_url)
             .map_err(|e| e.to_string())
-            .and_then(|s| address_search_result(s, number, street, near, limit))
+            .and_then(|s| address_search_result(s, number, street, near, limit, index_path))
     } else {
         FileSource::open(path_or_url)
             .map_err(|e| e.to_string())
-            .and_then(|s| address_search_result(s, number, street, near, limit))
+            .and_then(|s| address_search_result(s, number, street, near, limit, index_path))
     };
     match result {
         Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap()),
@@ -558,11 +623,56 @@ fn address_search_result<S: PtilesSource>(
     street: &str,
     near: Option<(f64, f64)>,
     limit: usize,
+    index_path: Option<&str>,
 ) -> Result<Value, String> {
     let file = AddressFile::open(source).map_err(|e| e.to_string())?;
-    let records = file
-        .search_address(number, street, near, limit)
-        .map_err(|e| e.to_string())?;
+    // With the name-index sidecar this stops being a scan: one bucket read
+    // names the cells that street is in, and only those blocks are decoded.
+    let records = match index_path {
+        Some(p) => {
+            let idx = ptiles_core::AddressNameIndex::open(
+                FileSource::open(p).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+            let cells = idx.cells_for_street(street).map_err(|e| e.to_string())?;
+            let hn = street_number_fold(number);
+            // The index narrows *cells*, it does not filter records: a cell
+            // that contains Broadway contains every other street in it too.
+            // Without this the fast path answered "919 Archer Street" to a
+            // query for "919 Broadway" -- right cells, wrong records.
+            let st = ptiles_core::address::fold_street_for_match(street.trim());
+            let mut hits = Vec::new();
+            for cell in cells {
+                for r in file.addresses_in_cell(cell).map_err(|e| e.to_string())? {
+                    if !hn.is_empty() && street_number_fold(&r.housenumber) != hn {
+                        continue;
+                    }
+                    if !st.is_empty()
+                        && !ptiles_core::address::fold_street_for_match(&r.street).contains(&st)
+                    {
+                        continue;
+                    }
+                    hits.push(r);
+                }
+            }
+            if let Some((lat, lon)) = near {
+                hits.sort_by(|a, b| {
+                    let d = |r: &ptiles_core::address::AddressRecord| match (r.lat, r.lon) {
+                        (Some(rl), Some(ro)) => {
+                            ptiles_core::haversine_distance_m(lat, lon, rl, ro)
+                        }
+                        _ => f64::INFINITY,
+                    };
+                    d(a).total_cmp(&d(b))
+                });
+            }
+            hits.truncate(limit);
+            hits
+        }
+        None => file
+            .search_address(number, street, near, limit)
+            .map_err(|e| e.to_string())?,
+    };
     let addresses: Vec<Value> = records
         .iter()
         .map(|r| {
@@ -573,6 +683,7 @@ fn address_search_result<S: PtilesSource>(
                 "lat": r.lat,
                 "lon": r.lon,
                 "source": r.source.name(),
+                "unit": r.unit,
             })
         })
         .collect();
@@ -603,6 +714,7 @@ fn address_result<S: PtilesSource>(
                 "lat": r.lat,
                 "lon": r.lon,
                 "source": r.source.name(),
+                "unit": r.unit,
             })
         })
         .collect();

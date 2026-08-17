@@ -6481,6 +6481,14 @@ window.__ptiles = {
                  offsetBase: f.offsetBase.kind, entries: f.entries.length } : null;
   },
   view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; },
+  // Move the map from a harness. The page reads #lat/#lon/#zoom only at load
+  // and has no hashchange handler, so without this a benchmark cannot measure
+  // what panning costs -- only a first render, which is the one case where
+  // every cache is cold and the answer is always "the network".
+  setView: function(lat, lon, zoom) {
+    map.setView([lat, lon], zoom == null ? map.getZoom() : zoom);
+    return { center: map.getCenter(), zoom: map.getZoom() };
+  },
   // The business record the panel is currently showing, as decoded -- not as
   // rendered. The panel can only say "nothing here", which is exactly what a
   // record decoded to the wrong coordinates looks like, so the test needs the
