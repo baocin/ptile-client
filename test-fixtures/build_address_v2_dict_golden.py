@@ -173,10 +173,14 @@ def build(version, stem):
         index_bytes.extend(
             encode_index_entry_v2(
                 h3_cell=cell_id,
-                min_lon=cell_centre_micro(cell_id)[0],
-                min_lat=cell_centre_micro(cell_id)[1],
-                max_lon=cell_centre_micro(cell_id)[0],
-                max_lat=cell_centre_micro(cell_id)[1],
+                # The real bounds of this cell's records, as the builder
+                # writes them. A degenerate bbox (centre repeated) would make
+                # every record read as "outside" its own cell, which is what a
+                # whole-file search uses to order cells by distance.
+                min_lon=min(round(a[4] * 100000) for a in addrs),
+                min_lat=min(round(a[3] * 100000) for a in addrs),
+                max_lon=max(round(a[4] * 100000) for a in addrs),
+                max_lat=max(round(a[3] * 100000) for a in addrs),
                 block_offset=blocks_offset,
                 block_length=len(compressed),
                 feature_count=len(addrs),
