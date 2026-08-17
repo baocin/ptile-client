@@ -50,24 +50,6 @@ pub const CATEGORY_AUX_MAGIC: &[u8; 4] = b"PTCT";
 /// 255 for those, and 0 means what it says again.
 pub const CATEGORY_OTHER: u8 = 255;
 
-/// Coarse families, in the order the builder writes their index.
-///
-/// The group is the part worth comparing across packs: two states will not
-/// agree on a number for `Taqueria`, but both call it dining. Kept in step
-/// with `ptiles/categories.py::GROUPS`.
-pub const GROUPS: [&str; 10] = [
-    "arts_and_entertainment",
-    "business_and_professional_services",
-    "community_and_government",
-    "dining_and_drinking",
-    "health_and_medicine",
-    "landmarks_and_outdoors",
-    "retail",
-    "sports_and_recreation",
-    "travel_and_transportation",
-    "other",
-];
-
 /// One category: the byte a record stores, and what it means.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Category {
@@ -75,15 +57,8 @@ pub struct Category {
     pub index: u8,
     /// Canonical snake_case leaf, e.g. `church`, `gas_station`.
     pub label: String,
-    /// Index into [`GROUPS`]; out-of-range values read as `other`.
+    /// Position in the table's own [`CategoryTable::groups`].
     pub group: u8,
-}
-
-impl Category {
-    /// The coarse family this category belongs to.
-    pub fn group_name(&self) -> &'static str {
-        GROUPS.get(self.group as usize).copied().unwrap_or("other")
-    }
 }
 
 /// A pack's own account of its categories.
@@ -95,6 +70,14 @@ pub struct CategoryTable {
     /// over the same input agree. A sidecar carrying a different stamp is from
     /// a different build and its numbering cannot be trusted against this file.
     pub build_id: String,
+    /// The coarse families this pack uses, in the order its entries refer to.
+    ///
+    /// Read from the file rather than compiled in. Version 1 of this section
+    /// wrote a bare group byte against a list held in the reader, which is the
+    /// same mistake the section exists to fix, one level up: two lists in two
+    /// languages that must agree, where a divergence shifts every group
+    /// silently and nothing says so. It never shipped.
+    pub groups: Vec<String>,
     pub categories: Vec<Category>,
 }
 
@@ -111,6 +94,17 @@ impl CategoryTable {
     /// the source left uncategorised.
     pub fn label(&self, index: u8) -> Option<&str> {
         self.get(index).map(|c| c.label.as_str())
+    }
+
+    /// The coarse family of a category, in the pack's own vocabulary.
+    ///
+    /// The group is the part worth comparing across packs: two states will not
+    /// agree on a number for `taqueria`, but both call it dining.
+    pub fn group_name(&self, category: &Category) -> &str {
+        self.groups
+            .get(category.group as usize)
+            .map(String::as_str)
+            .unwrap_or("other")
     }
 
     /// Every index carrying this canonical label.
@@ -152,7 +146,7 @@ pub fn parse_category_table(aux: &[u8]) -> Result<Option<CategoryTable>, DecodeE
     let mut at = 4usize;
     let version = *aux.get(at).ok_or(DecodeError::UnexpectedEof { offset: at, needed: 1 })?;
     at += 1;
-    if version != 1 {
+    if version != 2 {
         // A newer table is not readable, and guessing at it would produce
         // labels rather than an error, which is the failure this whole section
         // exists to prevent.
@@ -167,6 +161,23 @@ pub fn parse_category_table(aux: &[u8]) -> Result<Option<CategoryTable>, DecodeE
         .map_err(|_| DecodeError::UnexpectedEof { offset: at, needed: stamp_len })?
         .to_string();
     at += stamp_len;
+
+    let group_count = *aux
+        .get(at)
+        .ok_or(DecodeError::UnexpectedEof { offset: at, needed: 1 })? as usize;
+    at += 1;
+    let mut groups = Vec::with_capacity(group_count);
+    for _ in 0..group_count {
+        let len = *aux
+            .get(at)
+            .ok_or(DecodeError::UnexpectedEof { offset: at, needed: 1 })? as usize;
+        at += 1;
+        let raw = aux
+            .get(at..at + len)
+            .ok_or(DecodeError::UnexpectedEof { offset: at, needed: len })?;
+        at += len;
+        groups.push(core::str::from_utf8(raw).unwrap_or("other").to_string());
+    }
 
     let count_bytes = aux
         .get(at..at + 2)
@@ -194,7 +205,7 @@ pub fn parse_category_table(aux: &[u8]) -> Result<Option<CategoryTable>, DecodeE
             categories.push(Category { index, label: label.to_string(), group });
         }
     }
-    Ok(Some(CategoryTable { build_id, categories }))
+    Ok(Some(CategoryTable { build_id, groups, categories }))
 }
 
 #[cfg(test)]
@@ -202,11 +213,18 @@ mod tests {
     use super::*;
     use alloc::vec;
 
+    const TEST_GROUPS: [&str; 3] = ["dining_and_drinking", "retail", "other"];
+
     fn table(entries: &[(u8, &str, u8)], stamp: &str) -> Vec<u8> {
         let mut out = CATEGORY_AUX_MAGIC.to_vec();
-        out.push(1);
+        out.push(2);
         out.push(stamp.len() as u8);
         out.extend_from_slice(stamp.as_bytes());
+        out.push(TEST_GROUPS.len() as u8);
+        for group in TEST_GROUPS {
+            out.push(group.len() as u8);
+            out.extend_from_slice(group.as_bytes());
+        }
         out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
         for (index, label, group) in entries {
             out.push(*index);
@@ -219,14 +237,17 @@ mod tests {
 
     #[test]
     fn a_pack_names_its_own_categories() {
-        let bytes = table(&[(1, "church", 2), (94, "plane", 8)], "d7660c794a51");
+        let bytes = table(&[(1, "church", 0), (94, "plane", 1)], "d7660c794a51");
 
         let parsed = parse_category_table(&bytes).unwrap().expect("a table");
 
         assert_eq!(parsed.build_id, "d7660c794a51");
         assert_eq!(parsed.label(1), Some("church"));
         assert_eq!(parsed.label(94), Some("plane"));
-        assert_eq!(parsed.get(94).unwrap().group_name(), "travel_and_transportation");
+        // The vocabulary came out of the file, not out of this crate.
+        assert_eq!(parsed.groups, TEST_GROUPS);
+        let plane = parsed.get(94).unwrap();
+        assert_eq!(parsed.group_name(plane), "retail");
     }
 
     /// Every pack published so far has no such section, and that is not a
@@ -240,10 +261,10 @@ mod tests {
     /// The whole point: the pack's own numbering, not a sidecar's.
     #[test]
     fn the_same_index_can_mean_different_things_in_two_packs() {
-        let tn = parse_category_table(&table(&[(94, "plane", 8)], "aaa"))
+        let tn = parse_category_table(&table(&[(94, "plane", 1)], "aaa"))
             .unwrap()
             .unwrap();
-        let ga = parse_category_table(&table(&[(94, "elementary_school", 2)], "bbb"))
+        let ga = parse_category_table(&table(&[(94, "elementary_school", 0)], "bbb"))
             .unwrap()
             .unwrap();
 
@@ -256,7 +277,7 @@ mod tests {
     #[test]
     fn a_label_can_sit_at_more_than_one_index() {
         let parsed = parse_category_table(&table(
-            &[(1, "park", 5), (2, "park", 5), (3, "gas_station", 8)],
+            &[(1, "park", 1), (2, "park", 1), (3, "gas_station", 1)],
             "x",
         ))
         .unwrap()
@@ -271,7 +292,7 @@ mod tests {
     #[test]
     fn truncation_no_longer_looks_like_absence() {
         let parsed = parse_category_table(&table(
-            &[(1, "church", 2), (CATEGORY_OTHER, "other", 9)],
+            &[(1, "church", 0), (CATEGORY_OTHER, "other", 2)],
             "x",
         ))
         .unwrap()
@@ -286,7 +307,7 @@ mod tests {
 
     #[test]
     fn an_unknown_index_has_no_label() {
-        let parsed = parse_category_table(&table(&[(1, "church", 2)], "x"))
+        let parsed = parse_category_table(&table(&[(1, "church", 0)], "x"))
             .unwrap()
             .unwrap();
 
@@ -297,15 +318,15 @@ mod tests {
     /// A newer table is refused rather than guessed at.
     #[test]
     fn a_future_version_reads_as_absent() {
-        let mut bytes = table(&[(1, "church", 2)], "x");
-        bytes[4] = 2;
+        let mut bytes = table(&[(1, "church", 0)], "x");
+        bytes[4] = 3;
 
         assert_eq!(parse_category_table(&bytes).unwrap(), None);
     }
 
     #[test]
     fn a_truncated_table_errors_rather_than_inventing_entries() {
-        let bytes = table(&[(1, "church", 2), (2, "diner", 3)], "x");
+        let bytes = table(&[(1, "church", 0), (2, "diner", 0)], "x");
 
         assert!(parse_category_table(&bytes[..bytes.len() - 3]).is_err());
     }
@@ -327,25 +348,44 @@ mod tests {
     /// two languages, which is precisely the pair that drifts silently.
     #[test]
     fn the_builders_own_bytes_parse() {
-        let written: [u8; 51] = [
-            80, 84, 67, 84, 1, 12, 53, 101, 102, 100, 56, 48, 48, 54, 51, 50, 57, 51, 3, 0, 1, 2,
-            6, 99, 104, 117, 114, 99, 104, 2, 8, 11, 103, 97, 115, 95, 115, 116, 97, 116, 105, 111,
-            110, 94, 8, 5, 112, 108, 97, 110, 101,
+        let written: [u8; 267] = [
+            80, 84, 67, 84, 2, 12, 53, 101, 102, 100, 56, 48, 48, 54, 51, 50, 57, 51,
+            10, 22, 97, 114, 116, 115, 95, 97, 110, 100, 95, 101, 110, 116, 101, 114, 116, 97,
+            105, 110, 109, 101, 110, 116, 34, 98, 117, 115, 105, 110, 101, 115, 115, 95, 97, 110,
+            100, 95, 112, 114, 111, 102, 101, 115, 115, 105, 111, 110, 97, 108, 95, 115, 101, 114,
+            118, 105, 99, 101, 115, 24, 99, 111, 109, 109, 117, 110, 105, 116, 121, 95, 97, 110,
+            100, 95, 103, 111, 118, 101, 114, 110, 109, 101, 110, 116, 19, 100, 105, 110, 105, 110,
+            103, 95, 97, 110, 100, 95, 100, 114, 105, 110, 107, 105, 110, 103, 19, 104, 101, 97,
+            108, 116, 104, 95, 97, 110, 100, 95, 109, 101, 100, 105, 99, 105, 110, 101, 22, 108,
+            97, 110, 100, 109, 97, 114, 107, 115, 95, 97, 110, 100, 95, 111, 117, 116, 100, 111,
+            111, 114, 115, 6, 114, 101, 116, 97, 105, 108, 21, 115, 112, 111, 114, 116, 115, 95,
+            97, 110, 100, 95, 114, 101, 99, 114, 101, 97, 116, 105, 111, 110, 25, 116, 114, 97,
+            118, 101, 108, 95, 97, 110, 100, 95, 116, 114, 97, 110, 115, 112, 111, 114, 116, 97,
+            116, 105, 111, 110, 5, 111, 116, 104, 101, 114, 4, 0, 1, 2, 6, 99, 104, 117,
+            114, 99, 104, 2, 8, 11, 103, 97, 115, 95, 115, 116, 97, 116, 105, 111, 110, 94,
+            8, 5, 112, 108, 97, 110, 101, 255, 9, 5, 111, 116, 104, 101, 114,
         ];
 
         let parsed = parse_category_table(&written).unwrap().expect("a table");
 
         assert_eq!(parsed.build_id, "5efd80063293");
-        assert_eq!(parsed.categories.len(), 3);
+        // Three categories plus the `other` the truncated tail lands in.
+        assert_eq!(parsed.categories.len(), 4);
+        // The vocabulary is the builder's, read out of its bytes.
+        assert_eq!(parsed.groups.len(), 10);
+        assert_eq!(parsed.groups[0], "arts_and_entertainment");
+
         // The path vocabulary reduced to its leaf, and placed by its root.
         assert_eq!(parsed.label(1), Some("church"));
-        assert_eq!(parsed.get(1).unwrap().group_name(), "community_and_government");
+        assert_eq!(parsed.group_name(parsed.get(1).unwrap()), "community_and_government");
         // The bare vocabulary, placed by hand in ptiles/categories.py.
         assert_eq!(parsed.label(2), Some("gas_station"));
-        assert_eq!(parsed.get(2).unwrap().group_name(), "travel_and_transportation");
+        assert_eq!(parsed.group_name(parsed.get(2).unwrap()), "travel_and_transportation");
         // And the category this whole thread started with.
         assert_eq!(parsed.label(94), Some("plane"));
-        assert_eq!(parsed.get(94).unwrap().group_name(), "travel_and_transportation");
+        assert_eq!(parsed.group_name(parsed.get(94).unwrap()), "travel_and_transportation");
+        // The tail is named, so its byte resolves like any other.
+        assert_eq!(parsed.label(CATEGORY_OTHER), Some("other"));
     }
 
     #[test]
@@ -354,6 +394,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(parsed.get(1).unwrap().group_name(), "other");
+        let church = parsed.get(1).unwrap();
+        assert_eq!(parsed.group_name(church), "other");
     }
 }
