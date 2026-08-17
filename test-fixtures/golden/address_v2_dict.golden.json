@@ -33,14 +33,14 @@
       ]
     },
     {
-      "cell_id": 608659748527538175,
+      "cell_id": 608659749298241535,
       "addresses": [
         {
           "osm_id": 900000001,
           "housenumber": "1",
           "street": "Church St",
-          "lat": 36.16901,
-          "lon": -86.7881,
+          "lat": 36.18373,
+          "lon": -86.78151,
           "source": "osm"
         }
       ]

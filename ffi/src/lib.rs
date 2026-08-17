@@ -2113,17 +2113,37 @@ impl AdminLayer {
 
 // --- AddressLayer: reverse/forward address lookup ---------------------------
 
-/// One decoded address (`{osm_id, housenumber, street}`; location is the cell).
+/// One decoded address.
+///
+/// `location` is `None` only for v1 files, which stored no per-record position
+/// -- every published file is v2 or later. This record used to omit the
+/// position entirely, which made the whole mobile surface unable to answer
+/// "where is this address", the question v2 exists to answer.
+///
+/// `source` names the corpus the record came from (`osm`, `nad`,
+/// `openaddresses`, or `unknown` for a byte a newer builder wrote). v1 and v2
+/// files predate the merged layer, so everything in them reports `osm`.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct AddressRecord {
     pub osm_id: i64,
     pub housenumber: String,
     pub street: String,
+    pub location: Option<LatLon>,
+    pub source: String,
 }
 
 impl From<CoreAddressRecord> for AddressRecord {
     fn from(r: CoreAddressRecord) -> Self {
-        AddressRecord { osm_id: r.osm_id, housenumber: r.housenumber, street: r.street }
+        AddressRecord {
+            osm_id: r.osm_id,
+            housenumber: r.housenumber,
+            street: r.street,
+            location: match (r.lat, r.lon) {
+                (Some(lat), Some(lon)) => Some(LatLon { lat, lon }),
+                _ => None,
+            },
+            source: r.source.name().to_string(),
+        }
     }
 }
 

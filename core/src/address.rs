@@ -40,6 +40,14 @@ pub const V2_INDEX_ENTRY_SIZE: usize = 38;
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AddressRecord {
+    /// The OSM element id when the record came from OSM, `0` otherwise.
+    ///
+    /// Not a key, and not resolvable on its own. Nodes and ways have separate
+    /// id spaces in OSM and this field records neither which one nor the
+    /// element type, so `130905893` names both a node and a way; v3's bulk
+    /// records all carry `0`, so millions share the value by design. It exists
+    /// for the delta chain and the in-cell sort, not for identity -- build a
+    /// link from a record's position instead.
     pub osm_id: i64,
     pub housenumber: String,
     pub street: String,
@@ -319,9 +327,31 @@ pub fn merged_block_cell_slice(
             needed: stop,
         });
     }
-    // The block header's centre is what the record offsets are relative to.
+    // Offsets are relative to *this cell's* centre, not the block header's.
+    //
+    // The block header carries a centre too -- the first cell's -- and reading
+    // the offsets against that is what this decoder used to do. A block holds
+    // eight cells, so seven in every eight decoded kilometres from where they
+    // belong: OSM way 130905893 ("919 Broadway", Nashville) sits at
+    // 36.15770,-86.78416 and came back as 36.13647,-86.78984, 2.4 km south,
+    // with its number and street perfectly intact. The reference builder is
+    // explicit that it measures from each cell's own centre ("per-cell keeps
+    // the deltas small and the decode independent of how cells were batched").
+    //
+    // `try_cell_center` rather than `cell_center`: the latter answers null
+    // island for an id it cannot parse, which would swap a 2 km error for a
+    // 9,700 km one. An unparseable cell id means the block's own table is
+    // wrong, so refuse instead.
     let centre = if has_coords {
-        Some((read_i32(block, 0)?, read_i32(block, 4)?))
+        let (clat, clon) =
+            crate::query::try_cell_center(cell_id).ok_or(DecodeError::UnexpectedEof {
+                offset: 0,
+                needed: 0,
+            })?;
+        Some((
+            crate::math::round(clon * 100_000.0) as i32,
+            crate::math::round(clat * 100_000.0) as i32,
+        ))
     } else {
         None
     };

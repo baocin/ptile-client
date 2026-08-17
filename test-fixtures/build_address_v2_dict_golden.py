@@ -23,6 +23,7 @@ import sys
 
 sys.path.insert(0, "/home/aoi/kino/projects/ptiles/scripts")
 
+import h3  # noqa: E402
 import zstandard as zstd  # noqa: E402
 from shared import (  # noqa: E402
     encode_varint,
@@ -39,8 +40,18 @@ MAGIC = b"PTILESD\x00"
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "golden")
 
-CENTER_LON_MICRO = round(-86.783 * 100000)
-CENTER_LAT_MICRO = round(36.166 * 100000)
+def cell_centre_micro(cell_id):
+    """Each cell's own centre, in 1e-5 degrees -- what the real builder
+    measures its offsets from, and what the decoder must reconstruct.
+
+    The fixture used to use one arbitrary constant for every cell, which made
+    the block header's centre and the per-cell centre identical. That is the
+    one thing a real merged block never is, and it is why a decoder reading
+    offsets against the block header passed this fixture while putting seven of
+    every eight published cells kilometres off.
+    """
+    clat, clon = h3.cell_to_latlng(hex(cell_id)[2:])
+    return round(clon * 100000), round(clat * 100000)
 
 # (cell_id, [(osm_id, housenumber, street, lat, lon, source)]). Positions are
 # inside the cell, so the i16 microdegree offsets cannot overflow -- the same
@@ -56,25 +67,23 @@ CELLS = [
         ],
     ),
     (
-        0x87264D1040FFFFF,
+        # A real neighbour of the cell above, not an invented id: the fixture
+        # used to name 0x87264D1040FFFFF, which is not a valid H3 index at all,
+        # so no cell centre could be derived for it and the offsets had to be
+        # measured from an arbitrary constant instead.
+        0x87264D131FFFFFF,
         [
-            (900000001, "1", "Church St", 36.16901, -86.78810, 1),
+            (900000001, "1", "Church St", 36.18373, -86.78151, 1),
         ],
     ),
 ]
 
 
-def enc_record(osm_id, pid, housenumber, street, lat, lon, source, version):
+def enc_record(osm_id, pid, housenumber, street, lat, lon, source, version, centre):
     """One record: delta osm_id, i16 lon/lat offsets, v3's source byte, strings."""
     b = bytearray()
     b.extend(encode_varint(zigzag_encode(osm_id - pid)))
-    b.extend(
-        struct.pack(
-            "<hh",
-            round(lon * 100000) - CENTER_LON_MICRO,
-            round(lat * 100000) - CENTER_LAT_MICRO,
-        )
-    )
+    b.extend(struct.pack("<hh", round(lon * 100000) - centre[0], round(lat * 100000) - centre[1]))
     if version >= 3:
         b.append(source)
     for s in (housenumber, street):
@@ -104,12 +113,13 @@ def train_dictionary(version):
                 -86.783 + (i % 11) * 0.0004,
                 j % 3,
                 version,
+                cell_centre_micro(0x87264D106FFFFFF),
             )
             for j in range(6)
         ]
         samples.append(
             encode_merged_block(
-                [(0x87264D106FFFFFF + i, recs)], CENTER_LON_MICRO, CENTER_LAT_MICRO
+                [(0x87264D106FFFFFF + i, recs)], *cell_centre_micro(0x87264D106FFFFFF)
             )
         )
     return zstd.train_dictionary(4096, samples).as_bytes()
@@ -119,8 +129,9 @@ def build(version, stem):
     cell_records, golden_cells = [], []
     for cell_id, addrs in CELLS:
         recs, pid, gaddrs = [], 0, []
+        centre = cell_centre_micro(cell_id)
         for osm_id, hn, st, lat, lon, source in addrs:
-            recs.append(enc_record(osm_id, pid, hn, st, lat, lon, source, version))
+            recs.append(enc_record(osm_id, pid, hn, st, lat, lon, source, version, centre))
             pid = osm_id
             gaddrs.append(
                 {
@@ -129,10 +140,8 @@ def build(version, stem):
                     "street": st,
                     # What the decoder must reproduce: the microdegree grid the
                     # offsets are stored on, not the input float.
-                    "lat": (CENTER_LAT_MICRO + round(lat * 100000) - CENTER_LAT_MICRO)
-                    / 100000,
-                    "lon": (CENTER_LON_MICRO + round(lon * 100000) - CENTER_LON_MICRO)
-                    / 100000,
+                    "lat": round(lat * 100000) / 100000,
+                    "lon": round(lon * 100000) / 100000,
                     "source": ["osm", "nad", "openaddresses"][source]
                     if version >= 3
                     else "osm",
@@ -141,7 +150,10 @@ def build(version, stem):
         cell_records.append((cell_id, recs))
         golden_cells.append({"cell_id": cell_id, "addresses": gaddrs})
 
-    block = encode_merged_block(cell_records, CENTER_LON_MICRO, CENTER_LAT_MICRO)
+    # The block header carries the *first* cell's centre, exactly as the real
+    # builder writes it -- so the second cell's records only decode correctly
+    # if the reader uses that cell's own centre instead of this one.
+    block = encode_merged_block(cell_records, *cell_centre_micro(sorted(c[0] for c in CELLS)[0]))
     dict_bytes = train_dictionary(version)
     zd = zstd.ZstdCompressionDict(dict_bytes)
     compressed = zstd.ZstdCompressor(level=12, dict_data=zd).compress(block)
@@ -161,10 +173,10 @@ def build(version, stem):
         index_bytes.extend(
             encode_index_entry_v2(
                 h3_cell=cell_id,
-                min_lon=CENTER_LON_MICRO,
-                min_lat=CENTER_LAT_MICRO,
-                max_lon=CENTER_LON_MICRO,
-                max_lat=CENTER_LAT_MICRO,
+                min_lon=cell_centre_micro(cell_id)[0],
+                min_lat=cell_centre_micro(cell_id)[1],
+                max_lon=cell_centre_micro(cell_id)[0],
+                max_lat=cell_centre_micro(cell_id)[1],
                 block_offset=blocks_offset,
                 block_length=len(compressed),
                 feature_count=len(addrs),

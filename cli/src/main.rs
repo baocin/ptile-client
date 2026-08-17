@@ -509,7 +509,16 @@ fn address_result<S: PtilesSource>(
     };
     let addresses: Vec<Value> = records
         .iter()
-        .map(|r| json!({"osm_id": r.osm_id, "housenumber": r.housenumber, "street": r.street}))
+        .map(|r| {
+            json!({
+                "osm_id": r.osm_id,
+                "housenumber": r.housenumber,
+                "street": r.street,
+                "lat": r.lat,
+                "lon": r.lon,
+                "source": r.source.name(),
+            })
+        })
         .collect();
     Ok(json!({"addresses": addresses, "count": records.len()}))
 }
