@@ -2087,6 +2087,26 @@ impl PtilesLayer {
     /// hit when the substring starts at the name's first character (see
     /// `core::business_search`'s module doc for why). `limit` caps the
     /// returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+    /// The scan section this file carries, if it has one.
+    ///
+    /// `None` for every name index published so far: the section is new. A
+    /// caller that gets `None` keeps using [`Self::search_business`], which is
+    /// fast and incomplete, and [`Self::search_business_everywhere`], which is
+    /// complete and slow -- both of which this replaces where it exists.
+    pub fn name_scan(&self) -> Result<Option<std::sync::Arc<NameScanner>>, PtilesError> {
+        if self.kind != LayerKind::BusinessNameIndex {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        let scan = match &self.file {
+            AnyFile::File(f) => ptiles_core::name_scan::NameScan::read(f),
+            AnyFile::Http(f) => ptiles_core::name_scan::NameScan::read(f),
+        }
+        .map_err(|e| PtilesError::Decode { message: e.to_string() })?;
+        Ok(scan.map(|scan| std::sync::Arc::new(NameScanner { scan })))
+    }
+
     /// The same search over every bucket of the index, for the substring the
     /// fast path cannot reach.
     ///
@@ -2180,6 +2200,49 @@ impl PtilesLayer {
 
 /// An opened admin file (`US.admin.ptiles`). Separate from `PtilesLayer`
 /// because admin is a lookup-grid layer, not block-per-cell.
+/// Every business name in a state, held decompressed and searched repeatedly.
+///
+/// An object rather than a method because the expensive half is opening it:
+/// 132 ms to decompress 829,528 names for Tennessee, against about 35 ms to
+/// search them. A search box asks the same question with one more letter on
+/// it, so the caller holds this and pays the 132 ms once.
+#[derive(uniffi::Object)]
+pub struct NameScanner {
+    scan: ptiles_core::name_scan::NameScan,
+}
+
+#[uniffi::export]
+impl NameScanner {
+    /// Every name containing `query`, best match first.
+    ///
+    /// Complete by construction: there are no buckets to miss, so `affle`
+    /// finds `waffle house` exactly as `waffle` does. The query is folded here
+    /// with the same rule the builder folded the names with, so a caller
+    /// passes what the user typed.
+    pub fn search(&self, query: String, limit: u32) -> Vec<BusinessSearchHit> {
+        // The rule the builder folded the stored names with, not a second
+        // copy of it: two foldings that must agree is the drift this section
+        // exists to avoid.
+        let folded = ptiles_core::fold_name(query.trim());
+        self.scan
+            .search(&folded, limit as usize)
+            .into_iter()
+            .map(|h| BusinessSearchHit {
+                name: h.name,
+                category_idx: 0,
+                location: LatLon { lat: h.lat, lon: h.lon },
+                score: h.score,
+            })
+            .collect()
+    }
+
+    /// How many names this holds, for a caller deciding whether it is worth
+    /// keeping.
+    pub fn len(&self) -> u32 {
+        self.scan.len() as u32
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct AdminLayer {
     file: CoreAdminFile,

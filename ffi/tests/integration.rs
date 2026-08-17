@@ -964,3 +964,31 @@ fn a_highways_pack_is_recognised_as_roads() {
 
     assert!(opened, "a highways pack must open as roads");
 }
+
+/// The scan section, through the FFI, against a file that carries one.
+///
+/// Skips where no such file exists, which is everywhere until a rebuild
+/// publishes one -- and asserts the skip is the only reason, since a name
+/// index that silently returned no scanner would look identical.
+#[test]
+fn a_name_scan_answers_a_substring_no_bucket_could() {
+    let path = std::env::var("PTILES_NAME_SCAN").ok();
+    let Some(path) = path else { return };
+    let layer = PtilesLayer::open(path).expect("open name index");
+
+    let scanner = layer.name_scan().expect("read the section");
+    let Some(scanner) = scanner else {
+        panic!("PTILES_NAME_SCAN was set but the file carries no scan section")
+    };
+
+    assert!(scanner.len() > 0);
+    // The query the bucket index cannot answer: `affle` looks in `a`, and
+    // every waffle house in the state lives in `w`.
+    let hits = scanner.search("affle".to_string(), 40);
+    assert!(!hits.is_empty(), "a mid-name substring must be found");
+    assert!(
+        hits.iter().any(|h| h.name.contains("waffle")),
+        "expected a waffle, got {:?}",
+        hits.iter().take(3).map(|h| &h.name).collect::<Vec<_>>(),
+    );
+}

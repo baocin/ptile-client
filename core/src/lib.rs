@@ -67,7 +67,7 @@ pub use business::{
 };
 pub use business_search::{
     BusinessHit, match_business_name_block, name_to_key, search_business_brute_force,
-    search_business_everywhere, search_business_indexed,
+    fold_name, search_business_everywhere, search_business_indexed,
 };
 pub use ev::{
     CHARGE_RESERVE, CONNECTORS, ChargePlan, ChargeStop, Charger, DEFAULT_MAX_DETOUR_M,

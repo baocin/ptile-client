@@ -77,7 +77,7 @@ pub struct BusinessHit {
 /// decomposed `Cafe\u{0301}` all fold to `cafe`, and `Éclair`→`eclair`.
 ///
 /// Does NOT trim — callers trim the query first where they want to.
-pub(crate) fn fold_name(s: &str) -> String {
+pub fn fold_name(s: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     let stripped: String = s
         .nfd()

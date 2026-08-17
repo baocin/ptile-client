@@ -441,6 +441,26 @@ class PtilesRepository(context: Context) {
     ): List<BusinessResult> {
         if (query.isBlank() || limit <= 0) return emptyList()
         val perIndex = (limit * SEARCH_OVERFETCH).coerceAtMost(SEARCH_MAX_FETCH)
+        // A pack carrying the scan section answers this outright: every folded
+        // name in one blob, so a substring anywhere is found in about 35 ms
+        // rather than the second an all-bucket read costs. Held open, because
+        // the decompression is the expensive half and the next keystroke asks
+        // the same question with one more letter on it.
+        val scanned = nameIndexFiles().flatMap { file ->
+            val scanner = scanners.getOrPut(file.absolutePath) {
+                runCatching { openCached(file)?.nameScan() }.getOrNull()
+            }
+            scanner?.let { scan ->
+                queryVariants(query).flatMap { variant ->
+                    runCatching {
+                        scan.search(variant, perIndex.toUInt())
+                            .map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), it.score.toInt()) }
+                    }.getOrDefault(emptyList())
+                }
+            }.orEmpty()
+        }
+        if (scanned.isNotEmpty()) return rankByNameAndDistance(query, scanned, origin, limit)
+
         val hits = nameIndexFiles().flatMap { file ->
             queryVariants(query).flatMap { variant ->
                 runCatching {
@@ -958,6 +978,15 @@ class PtilesRepository(context: Context) {
             ?.absolutePath
 
     private val categoryTables = mutableMapOf<String, Map<UByte, BusinessCategory>>()
+
+    /**
+     * Scan sections, held open per pack.
+     *
+     * Null means the pack has none, which is every published name index so
+     * far -- cached as null so the file is not re-read on every keystroke to
+     * be told the same thing.
+     */
+    private val scanners = mutableMapOf<String, uniffi.ptiles_ffi.NameScanner?>()
 
     fun installedLayers(): List<File> = manager.packs().flatMap { it.layers }
 
