@@ -613,6 +613,42 @@ var STATE_BBOX = {
   UT:[36.9,-114.1,42.1,-109], VT:[42.7,-73.5,45.1,-71.4], VA:[36.5,-83.7,39.5,-75.1], WA:[45.5,-124.9,49.1,-116.9],
   WV:[37.1,-82.7,40.7,-77.6], WI:[42.4,-92.9,47.1,-86.2], WY:[40.9,-111.1,45.1,-104]
 };
+// State files that were open at a cell and did not contain it, as "ST:cell".
+// Without this the release below flaps: over water or empty ground every
+// candidate misses, so each switch makes the next state the one to reject.
+var cellMisses = new Set();
+
+// Does any layer already open hold data for this point? "No readers loaded" is
+// not evidence of a gap -- before PTILES mode is on there is nothing to ask --
+// so that answers true and leaves the old behaviour alone. A miss is recorded,
+// because the reader for a state is only in memory while that state is current.
+function loadedCellCovered(lat, lon) {
+  var cell;
+  try {
+    cell = BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & CELL_MASK;
+  } catch (e) {
+    return true;
+  }
+  var asked = false;
+  for (var k in ptilesLayers) {
+    var r = ptilesLayers[k].reader;
+    if (!r || !r.cellMap) continue;
+    asked = true;
+    if (r.cellMap.has(cell)) return true;
+  }
+  if (asked) cellMisses.add(currentState + ":" + cell.toString(16));
+  return !asked;
+}
+
+function knownMiss(state, lat, lon) {
+  try {
+    var cell = BigInt("0x" + h3.latLngToCell(lat, lon, 7)) & CELL_MASK;
+    return cellMisses.has(state + ":" + cell.toString(16));
+  } catch (e) {
+    return false;
+  }
+}
+
 function stateAt(lat, lon) {
   var hits = [];
   for (var s in STATE_BBOX) {
@@ -621,12 +657,28 @@ function stateAt(lat, lon) {
   }
   if (!hits.length) return null;
   // ponytail: stay on current when still in its bbox (Memphis is in TN+AR)
-  if (hits.indexOf(currentState) >= 0) return currentState;
+  //
+  // Stickiness assumes the current state's files cover wherever the map
+  // drifted, and along a state line they do not. Manhattan sits inside NJ's
+  // bbox (which reaches -73.89), so a map opened at -74.006 picks NJ and then
+  // *stays* on NJ all the way across NYC: no cell in the viewport is in the NJ
+  // index, every pan renders nothing, and the page says nothing. Release the
+  // stickiness when the loaded index has no entry for this point -- that is
+  // evidence, not a guess, and it costs a Map lookup rather than a request.
+  if (hits.indexOf(currentState) >= 0 && (hits.length === 1 || loadedCellCovered(lat, lon))) {
+    return currentState;
+  }
+  // Nearest centre alone cannot break the tie either: NJ's centre is closer to
+  // upper Manhattan than NY's is, so it would hand NJ straight back. Drop the
+  // candidates already shown not to hold this cell first, and only fall back to
+  // the full list when that leaves nothing -- over water, everyone misses.
+  var live = hits.filter(function(s) { return !knownMiss(s, lat, lon); });
+  if (!live.length) live = hits;
   var best = null, bestD = Infinity;
-  for (var i = 0; i < hits.length; i++) {
-    var c = STATE_CENTERS[hits[i]].center;
+  for (var i = 0; i < live.length; i++) {
+    var c = STATE_CENTERS[live[i]].center;
     var d = (lat - c[0]) * (lat - c[0]) + (lon - c[1]) * (lon - c[1]);
-    if (d < bestD) { bestD = d; best = hits[i]; }
+    if (d < bestD) { bestD = d; best = live[i]; }
   }
   return best;
 }
@@ -6481,10 +6533,12 @@ window.__ptiles = {
                  offsetBase: f.offsetBase.kind, entries: f.entries.length } : null;
   },
   view: function() { return { center: map.getCenter(), zoom: map.getZoom() }; },
-  // Move the map from a harness. The page reads #lat/#lon/#zoom only at load
-  // and has no hashchange handler, so without this a benchmark cannot measure
-  // what panning costs -- only a first render, which is the one case where
-  // every cache is cold and the answer is always "the network".
+  // Move the map from a harness, the way a user pan does, so the moveend path
+  // (including the state-follows-viewport switch) is exercised for real. The
+  // page reads #lat/#lon/#zoom only at load and has no hashchange handler, so
+  // without this a benchmark cannot measure what panning costs -- only a first
+  // render, which is the one case where every cache is cold and the answer is
+  // always "the network".
   setView: function(lat, lon, zoom) {
     map.setView([lat, lon], zoom == null ? map.getZoom() : zoom);
     return { center: map.getCenter(), zoom: map.getZoom() };
@@ -6743,10 +6797,6 @@ window.__ptiles = {
       rows: document.getElementById("viewList").children.length
     };
   },
-  // Harness hook: move the map the way a user pan does, so the moveend path
-  // (including the state-follows-viewport switch) is exercised for real
-  // rather than simulated.
-  setView: function(lat, lon, zoom) { map.setView([lat, lon], zoom || map.getZoom()); },
   // A map click at a coordinate, for tests. The page is a module, so `map` is
   // not a window property and a test cannot reach Leaflet directly; synthesising
   // a mouse event at a pixel would also depend on where the map happens to be
