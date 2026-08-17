@@ -631,6 +631,11 @@ function loadedCellCovered(lat, lon) {
   }
   var asked = false;
   for (var k in ptilesLayers) {
+    // Cameras and signals are US-wide files, so they hold the cell wherever
+    // the map is and would answer "covered" for a state that has none of it --
+    // which is the bug this exists to catch. Only the per-state layers are
+    // evidence about a state.
+    if (US_LAYER_FILES[k]) continue;
     var r = ptilesLayers[k].reader;
     if (!r || !r.cellMap) continue;
     asked = true;

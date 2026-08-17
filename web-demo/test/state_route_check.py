@@ -42,6 +42,11 @@ def main():
         page.wait_for_function("() => !!window.__ptiles", timeout=30_000)
         page.wait_for_timeout(2500)
         assert page.evaluate(ENABLE, "chkBldgs"), "no buildings checkbox"
+        # Signals on purpose: it is a US-wide file, so it holds the cell
+        # wherever the map is. Counting it as coverage would answer "NJ has
+        # this" over Manhattan and restore the bug -- with this layer ticked
+        # and the guard removed, the assertions below fail.
+        assert page.evaluate(ENABLE, "chkSignal"), "no signals checkbox"
         page.click("#btnPtiles")
         for _ in range(300):
             if page.evaluate(SETTLE, "bldgs") > 0:
