@@ -1159,6 +1159,21 @@ impl PtilesLayer {
         Ok(buildings)
     }
 
+    /// Roads of `cell` and its immediate neighbours, decoded once.
+    fn decoded_roads_for_cell_ring(&self, cell: u64) -> Result<Vec<RoadSegment>, PtilesError> {
+        let mut roads = Vec::new();
+        let mut cells = neighbor_cells(cell);
+        cells.push(cell);
+        for c in cells {
+            let Some(block) = self.block(c)? else { continue };
+            let mut decoded = decode_roads(&block).map_err(|e| PtilesError::Decode {
+                message: e.to_string(),
+            })?;
+            roads.append(&mut decoded);
+        }
+        Ok(roads)
+    }
+
     fn decoded_business(&self, lat: f64, lon: f64, ring: u8) -> Result<Vec<Business>, PtilesError> {
         let version = self.file.version();
         let mut businesses = Vec::new();
@@ -1556,16 +1571,32 @@ impl PtilesLayer {
         };
         let mut out: Vec<Option<NearestRoad>> = vec![None; points.len()];
         for (cell, idx) in Self::group_by_cell(&points) {
-            let Some(block) = self.block(cell)? else {
-                continue;
+            // This cell first: eight points in one cell must still cost one
+            // block, which is what makes enriching a day's trace affordable.
+            let roads = match self.block(cell)? {
+                Some(block) => decode_roads(&block).map_err(|e| PtilesError::Decode {
+                    message: e.to_string(),
+                })?,
+                None => Vec::new(),
             };
-            let roads = decode_roads(&block).map_err(|e| PtilesError::Decode {
-                message: e.to_string(),
-            })?;
+            let mut wider: Option<Vec<RoadSegment>> = None;
             for i in idx {
                 let (lat, lon) = (points[i].lat, points[i].lon);
-                out[i] = core_nearest_road(lat, lon, &roads, threshold).map(|nr| {
-                    let road = &roads[nr.road_index];
+                // Only a point this cell cannot answer pays for the ring, and
+                // then the ring is decoded once for the whole group. See
+                // `nearest_road` for why a cell can hold no record of a road
+                // running straight across it.
+                let mut found = core_nearest_road(lat, lon, &roads, threshold)
+                    .map(|nr| (nr, &roads));
+                if found.is_none() {
+                    if wider.is_none() {
+                        wider = Some(self.decoded_roads_for_cell_ring(cell)?);
+                    }
+                    let ring = wider.as_ref().expect("just filled");
+                    found = core_nearest_road(lat, lon, ring, threshold).map(|nr| (nr, ring));
+                }
+                out[i] = found.map(|(nr, source)| {
+                    let road = &source[nr.road_index];
                     NearestRoad {
                         osm_id: road.osm_id,
                         name: road.name.clone(),
@@ -1646,13 +1677,26 @@ impl PtilesLayer {
                 layer: self.kind.as_str().to_string(),
             });
         }
-        // Ring is opt-in everywhere else in this API but nearest_road here
-        // mirrors the CLI's ring-0 one-shot default: callers that want a
-        // wider search should call `roads(..., ring: 1)` and snap manually,
-        // or this method can be revisited if mobile callers need ring-1.
-        let roads = self.decoded_roads(lat, lon, 0)?;
-        let Some(nr) = core_nearest_road(lat, lon, &roads, ptiles_core::DEFAULT_THRESHOLD_M * 2.0)
-        else {
+        // Ring 0, then the neighbours if that found nothing.
+        //
+        // A road is indexed by the cells its *vertices* fall in, and OSM puts
+        // a vertex only where a way bends -- so a straight trunk crossing a
+        // cell without turning leaves no record in it. At 35.44557,-88.06788 a
+        // trunk passes directly overhead and ring 0 returned None, there and
+        // at every small offset around it: a driver halfway along a straight
+        // stretch was told there was no road near. The neighbours hold the
+        // vertices that stretch runs between.
+        //
+        // Widening only on a miss keeps the usual answer at one block; the
+        // seven-block read is paid where the cheap one failed.
+        let threshold = ptiles_core::DEFAULT_THRESHOLD_M * 2.0;
+        let mut roads = self.decoded_roads(lat, lon, 0)?;
+        let mut hit = core_nearest_road(lat, lon, &roads, threshold);
+        if hit.is_none() {
+            roads = self.decoded_roads(lat, lon, 1)?;
+            hit = core_nearest_road(lat, lon, &roads, threshold);
+        }
+        let Some(nr) = hit else {
             return Ok(None);
         };
         let road = &roads[nr.road_index];
