@@ -816,4 +816,152 @@ mod tests {
         // Missing cell -> None, not error.
         assert!(merged_block_cell_slice(&block, 999, 1).unwrap().is_none());
     }
+
+    // --- geocoding -------------------------------------------------------
+
+    fn golden_v3() -> AddressFile<crate::source::MemorySource> {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-fixtures/golden/address_v3_dict.ptiles"
+        ))
+        .unwrap();
+        AddressFile::open(crate::source::MemorySource::new(bytes)).unwrap()
+    }
+
+    #[test]
+    fn street_fold_collapses_type_and_direction_spellings() {
+        // The three corpora spell the same street three ways; matching has to
+        // treat them as one. Memphis ships both "Beale St" and "BEALE Street".
+        for (a, b) in [
+            ("Beale St", "BEALE Street"),
+            ("100 N Main St", "100 North Main Street"),
+            ("W Broadway Ave", "west broadway avenue"),
+            ("Sunset Blvd", "SUNSET BOULEVARD"),
+        ] {
+            assert_eq!(
+                fold_street_for_match(a),
+                fold_street_for_match(b),
+                "{a:?} and {b:?} should fold alike"
+            );
+        }
+        // ...but folding must not merge genuinely different streets.
+        assert_ne!(
+            fold_street_for_match("Main St"),
+            fold_street_for_match("Main Ave")
+        );
+        assert_ne!(
+            fold_street_for_match("N Main St"),
+            fold_street_for_match("S Main St")
+        );
+    }
+
+    #[test]
+    fn forward_search_finds_by_either_spelling() {
+        let f = golden_v3();
+        // The fixture holds "1 Church St"; ask for it the long way round.
+        let long = f.search_address("1", "Church Street", None, 10).unwrap();
+        let short = f.search_address("1", "Church St", None, 10).unwrap();
+        assert_eq!(long.len(), 1, "long spelling should match");
+        assert_eq!(short.len(), 1, "short spelling should match");
+        assert_eq!(long[0].lat, short[0].lat);
+    }
+
+    #[test]
+    fn forward_search_without_a_hint_still_crosses_cells() {
+        // The whole point of search_address over find_address: the record sits
+        // in the fixture's second cell, and no location is supplied.
+        let f = golden_v3();
+        let hits = f.search_address("1", "Church St", None, 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        let cell_of_hit = crate::query::cell_for_coord(hits[0].lat.unwrap(), hits[0].lon.unwrap());
+        let first_cell = f.index()[0].h3_cell;
+        assert_ne!(
+            cell_of_hit, first_cell,
+            "fixture should place this record outside the first cell"
+        );
+    }
+
+    #[test]
+    fn forward_search_orders_by_distance_from_the_hint() {
+        let f = golden_v3();
+        // Two "Broadway" records in the fixture, ~400 m apart. Ask from beside
+        // each in turn; the nearer one must come first both times.
+        let all = f.search_address("", "Broadway", None, 10).unwrap();
+        assert!(all.len() >= 2, "fixture has two Broadway records");
+        let (a, b) = (&all[0], &all[1]);
+        let (alat, alon) = (a.lat.unwrap(), a.lon.unwrap());
+        let (blat, blon) = (b.lat.unwrap(), b.lon.unwrap());
+
+        let from_a = f
+            .search_address("", "Broadway", Some((alat, alon)), 10)
+            .unwrap();
+        assert_eq!(from_a[0].housenumber, a.housenumber);
+        let from_b = f
+            .search_address("", "Broadway", Some((blat, blon)), 10)
+            .unwrap();
+        assert_eq!(from_b[0].housenumber, b.housenumber);
+    }
+
+    #[test]
+    fn forward_search_refuses_an_empty_query() {
+        // Neither part supplied matches every record, which is a file dump.
+        let f = golden_v3();
+        assert!(f.search_address("", "", None, 10).unwrap().is_empty());
+        assert!(f.search_address("1", "Church St", None, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn hinted_search_returns_what_the_unhinted_one_does() {
+        // The distance bound is an optimisation, not a filter: it may only
+        // stop reading once nothing unread can beat what is held.
+        let f = golden_v3();
+        let un = f.search_address("", "Broadway", None, 10).unwrap();
+        let hinted = f
+            .search_address("", "Broadway", Some((36.16612, -86.78321)), 10)
+            .unwrap();
+        assert_eq!(un.len(), hinted.len(), "bound must not drop matches");
+    }
+
+    #[test]
+    fn bbox_distance_is_zero_inside_and_grows_outside() {
+        let f = golden_v3();
+        let e = &f.index()[0];
+        let (clat, clon) = crate::query::cell_center(e.h3_cell);
+        assert_eq!(
+            bbox_distance_m(e, (e.min_lat as f64 + e.max_lat as f64) / 2e5, (e.min_lon as f64 + e.max_lon as f64) / 2e5),
+            0.0,
+            "a point inside the bbox is zero away from it"
+        );
+        let far = bbox_distance_m(e, clat + 1.0, clon);
+        assert!(far > 100_000.0, "a degree of latitude away is ~111 km, got {far}");
+    }
+
+    #[test]
+    fn reverse_lookup_returns_the_record_at_its_own_coordinates() {
+        let f = golden_v3();
+        let e = f.index()[0];
+        let one = f.addresses_in_cell(e.h3_cell).unwrap().remove(0);
+        let (lat, lon) = (one.lat.unwrap(), one.lon.unwrap());
+        let back = f.addresses_at(lat, lon, 1).unwrap();
+        assert!(
+            back.iter()
+                .any(|r| r.housenumber == one.housenumber && r.street == one.street),
+            "reverse lookup at a record's own position lost it"
+        );
+    }
+
+    #[test]
+    fn reverse_lookup_carries_positions_and_sources() {
+        // A stub returning records with no position would satisfy a count
+        // assertion; v3's whole point is that it cannot.
+        let f = golden_v3();
+        let recs = f.addresses_in_cell(f.index()[0].h3_cell).unwrap();
+        assert!(!recs.is_empty());
+        assert!(recs.iter().all(|r| r.lat.is_some() && r.lon.is_some()));
+        assert!(
+            recs.iter().any(|r| r.source != AddressSource::Osm),
+            "fixture mixes sources; all-osm means the byte was not read"
+        );
+    }
+
 }

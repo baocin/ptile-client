@@ -21,7 +21,14 @@ const SPEED_FACTOR: f64 = 0.85;
 /// ~11 m at 50k micro-scale for cross-road merge.
 /// ponytail: tighter than daemon's 10 (~22m) so path follows curves instead of chords.
 const MERGE_THRESH: i32 = 5;
-const NODE_CAP: usize = 250_000;
+/// Ceiling on graph nodes, which is a memory guard rather than a policy.
+///
+/// A 120 km corridor with its middle pruned to arterials still builds past
+/// 250,000 nodes, and the failure was a hard stop on an ordinary inter-city
+/// drive. At ~26 bytes a node plus adjacency this is tens of megabytes, not
+/// hundreds, and a phone that can hold the decoded segments can hold the
+/// graph they build.
+const NODE_CAP: usize = 600_000;
 const BI_ASTAR_MIN_NODES: usize = 50_000;
 
 /// Why a graph route could not be produced.
@@ -863,6 +870,19 @@ pub struct CorridorPrefs {
     /// How far an endpoint may sit from the nearest routable way. `<= 0` uses
     /// [`default_snap_radius_m`] for the profile.
     pub snap_radius_m: f64,
+    /// Cell ceiling for the corridor fetch.
+    ///
+    /// Routing gets its own, larger than the viewport cap: a corridor is long
+    /// and thin, and a 200 km trip needs about 1,600 res-7 cells however
+    /// narrowly it is cut. Splitting the trip instead put the seam in a field.
+    pub max_cells: usize,
+    /// Ceiling on the proportional margin, in metres each side.
+    ///
+    /// [`Self::span_fraction`] alone makes the corridor's *area* grow with the
+    /// square of the trip, so a long route is refused before it is attempted.
+    /// This bounds the width so the box stays inside the cell cap and the
+    /// route is tried rather than split.
+    pub max_margin_m: f64,
 }
 
 impl Default for CorridorPrefs {
@@ -872,6 +892,13 @@ impl Default for CorridorPrefs {
             span_fraction: 0.15,
             retry_scales: vec![2.5, 2.0, 1.6, 1.3],
             snap_radius_m: 0.0,
+            // 9 km each side: wide enough for a highway to bow away from the
+            // straight line between two towns, narrow enough that a 250 km
+            // corridor still fits the 512-cell cap.
+            max_margin_m: 9_000.0,
+            // Room for a ~250 km leg. Beyond that the corridor is better
+            // served by a coarser road band than by more res-7 cells.
+            max_cells: 2_048,
         }
     }
 }
@@ -905,9 +932,25 @@ pub fn corridor_margins_deg(
         .abs()
         .max(0.05);
     let cap_deg = prefs.end_cap_m / M_PER_DEG_LAT;
+    // The proportional margin needs a ceiling or a long route can never fit.
+    // At 15% of the separation, a 200 km trip asks for 30 km of slack on each
+    // side: a 200x60 km box, 12,000 km², against a cap of 512 res-7 cells
+    // (~2,600 km²). It was refused outright, and the client answered by
+    // halving the leg and routing each half -- which is how "bad bounding box"
+    // turned into "disconnected", since a geometric midpoint lands in a field
+    // and snaps to whatever lane is nearest.
+    //
+    // A road does not wander that far from the line between its ends. Beyond
+    // [`CorridorPrefs::max_margin_m`] the extra width buys nothing and costs
+    // the whole request.
+    let ceiling_lat = prefs.max_margin_m / M_PER_DEG_LAT;
     (
-        cap_deg.max((start_lat - end_lat).abs() * prefs.span_fraction),
-        (cap_deg / shrink).max((start_lon - end_lon).abs() * prefs.span_fraction),
+        cap_deg
+            .max((start_lat - end_lat).abs() * prefs.span_fraction)
+            .min(ceiling_lat.max(cap_deg)),
+        (cap_deg / shrink)
+            .max((start_lon - end_lon).abs() * prefs.span_fraction)
+            .min((ceiling_lat / shrink).max(cap_deg / shrink)),
     )
 }
 
@@ -919,12 +962,14 @@ fn cells_at_scale(
     lat_margin: f64,
     lon_margin: f64,
     scale: f64,
+    max_cells: usize,
 ) -> Result<Vec<u64>, crate::query::BoundsError> {
-    crate::query::cells_for_bounds(
+    crate::query::cells_for_bounds_capped(
         start_lat.min(end_lat) - lat_margin * scale,
         start_lon.min(end_lon) - lon_margin * scale,
         start_lat.max(end_lat) + lat_margin * scale,
         start_lon.max(end_lon) + lon_margin * scale,
+        max_cells,
     )
 }
 
@@ -939,7 +984,7 @@ pub fn corridor_cells(
     let (lat_margin, lon_margin) =
         corridor_margins_deg(start_lat, start_lon, end_lat, end_lon, prefs);
     cells_at_scale(
-        start_lat, start_lon, end_lat, end_lon, lat_margin, lon_margin, 1.0,
+        start_lat, start_lon, end_lat, end_lon, lat_margin, lon_margin, 1.0, prefs.max_cells,
     )
 }
 
@@ -959,6 +1004,7 @@ pub fn widened_corridor_cells(
     prefs.retry_scales.iter().find_map(|scale| {
         cells_at_scale(
             start_lat, start_lon, end_lat, end_lon, lat_margin, lon_margin, *scale,
+            prefs.max_cells,
         )
         .ok()
         .filter(|cells| cells.len() > base_cells)
@@ -993,6 +1039,41 @@ pub enum CorridorError<E> {
 /// edge. Widening pulls it in, but only while the cell cap has room left. A
 /// request whose corridor cannot fit [`crate::query::MAX_BOUNDS_CELLS`] is
 /// refused outright; split it into legs and route each.
+/// Which segments lie in the long middle of a corridor rather than near an
+/// end, so [`keep_road_class`] can drop residential streets there.
+///
+/// The flags existed and every caller passed an empty slice, which meant a
+/// 120 km corridor built a graph containing every driveway along the way and
+/// blew the 250,000-node budget. Nobody leaves Jackson by turning onto a
+/// cul-de-sac 60 km down the road: away from the endpoints only the arterial
+/// spine can be part of the answer.
+///
+/// "Near an end" is [`CorridorPrefs::end_cap_m`] times [`END_ZONE_SCALE`],
+/// generous enough to include the whole town at either end.
+fn middle_zones<'a>(
+    segments: &'a [RoadSegment],
+    start_lat: f64,
+    start_lon: f64,
+    end_lat: f64,
+    end_lon: f64,
+    corridor: &CorridorPrefs,
+) -> Vec<bool> {
+    let reach = corridor.end_cap_m * END_ZONE_SCALE;
+    segments
+        .iter()
+        .map(|seg| {
+            let Some(first) = seg.coords.first() else { return false };
+            let (lon, lat) = (first[0], first[1]);
+            haversine_distance_m(lat, lon, start_lat, start_lon) > reach
+                && haversine_distance_m(lat, lon, end_lat, end_lon) > reach
+        })
+        .collect()
+}
+
+/// How far past [`CorridorPrefs::end_cap_m`] the full street network is kept.
+/// 1.67 km x 6 is about 10 km: a town's worth of streets at either end.
+const END_ZONE_SCALE: f64 = 6.0;
+
 pub fn route_in_corridor<E>(
     start_lat: f64,
     start_lon: f64,
@@ -1011,8 +1092,9 @@ pub fn route_in_corridor<E>(
         default_snap_radius_m(prefs.profile)
     };
     let mut decoded_segments = segments.len();
+    let mut zones = middle_zones(&segments, start_lat, start_lon, end_lat, end_lon, corridor);
     let mut attempt = route_roads_diagnostic(
-        &segments, &[], start_lat, start_lon, end_lat, end_lon, snap_m, prefs,
+        &segments, &zones, start_lat, start_lon, end_lat, end_lon, snap_m, prefs,
     );
 
     if attempt == Err(RouteFailure::Disconnected) {
@@ -1027,8 +1109,9 @@ pub fn route_in_corridor<E>(
             let widened = fetch(&wider).map_err(CorridorError::Fetch)?;
             if widened.len() > segments.len() {
                 decoded_segments = widened.len();
+                zones = middle_zones(&widened, start_lat, start_lon, end_lat, end_lon, corridor);
                 attempt = route_roads_diagnostic(
-                    &widened, &[], start_lat, start_lon, end_lat, end_lon, snap_m, prefs,
+                    &widened, &zones, start_lat, start_lon, end_lat, end_lon, snap_m, prefs,
                 );
             }
         }
@@ -1072,24 +1155,26 @@ mod tests {
 
     #[test]
     fn a_diagonal_route_widens_after_the_widest_step_is_rejected() {
-        // ~50 km diagonal: the widest step blows the cell cap, and a single
-        // fixed scale gave up here and left the route disconnected.
+        // A diagonal long enough that the widest step blows the cell cap: a
+        // single fixed scale gave up here and left the route disconnected.
+        // The distance is chosen against `CorridorPrefs::max_cells`, so it
+        // grew when routing stopped borrowing the viewport's 512-cell ceiling.
         let start = (35.0, -88.0);
-        let end = (35.315, -87.685);
+        let end = (35.6, -87.4);
         let prefs = CorridorPrefs::default();
         let base = base_cell_count(start, end);
         let (lat_margin, lon_margin) =
             corridor_margins_deg(start.0, start.1, end.0, end.1, &prefs);
 
         assert!(
-            cells_at_scale(start.0, start.1, end.0, end.1, lat_margin, lon_margin, 2.5).is_err(),
+            cells_at_scale(start.0, start.1, end.0, end.1, lat_margin, lon_margin, 2.5, CorridorPrefs::default().max_cells).is_err(),
             "this case exists because the widest step is rejected",
         );
 
         let wider = widened_corridor_cells(start.0, start.1, end.0, end.1, base, &prefs)
             .expect("a smaller widening must still be found");
         assert!(wider.len() > base);
-        assert!(wider.len() <= crate::query::MAX_BOUNDS_CELLS);
+        assert!(wider.len() <= prefs.max_cells);
     }
 
     #[test]

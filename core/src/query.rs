@@ -159,6 +159,24 @@ pub fn cells_for_bounds(
     max_lat: f64,
     max_lon: f64,
 ) -> Result<Vec<u64>, BoundsError> {
+    cells_for_bounds_capped(min_lat, min_lon, max_lat, max_lon, MAX_BOUNDS_CELLS)
+}
+
+/// [`cells_for_bounds`] with the caller's own ceiling.
+///
+/// [`MAX_BOUNDS_CELLS`] is sized for a map viewport, where more cells than
+/// that means the caller should have zoomed out to a coarser layer. A routing
+/// corridor is not a viewport: it is long and thin by construction, and a
+/// 200 km drive needs ~1,600 cells no matter how narrow the corridor is cut.
+/// Refusing it did not make routing cheaper -- it made the client halve the
+/// trip and route each half from a point in a field.
+pub fn cells_for_bounds_capped(
+    min_lat: f64,
+    min_lon: f64,
+    max_lat: f64,
+    max_lon: f64,
+    cap: usize,
+) -> Result<Vec<u64>, BoundsError> {
     let invalid = || BoundsError::InvalidBounds {
         min_lat: OrderedF64(min_lat),
         min_lon: OrderedF64(min_lon),
@@ -213,13 +231,13 @@ pub fn cells_for_bounds(
             continue;
         }
         result.push(u64::from(cell));
-        if result.len() > MAX_BOUNDS_CELLS {
+        if result.len() > cap {
             return Err(BoundsError::TooManyCells {
                 min_lat: OrderedF64(min_lat),
                 min_lon: OrderedF64(min_lon),
                 max_lat: OrderedF64(max_lat),
                 max_lon: OrderedF64(max_lon),
-                max: MAX_BOUNDS_CELLS,
+                max: cap,
             });
         }
         for neighbor in cell.grid_ring::<Vec<_>>(1) {

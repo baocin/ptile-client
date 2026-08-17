@@ -216,3 +216,40 @@ fn the_corridor_retries_a_disconnection_and_not_an_unsnapped_endpoint() {
          an unsnapped endpoint is not ({fetches})",
     );
 }
+
+// --- corridor capacity ------------------------------------------------------
+
+/// An ordinary inter-city drive has to fit in one corridor.
+///
+/// Routing used to borrow the viewport's 512-cell ceiling, and a 120 km trip
+/// needs about 1,600 res-7 cells however narrowly the corridor is cut. It was
+/// refused before it was attempted, and the client answered by halving the
+/// trip and routing from a geometric midpoint -- which lands in a field, snaps
+/// to a farm track, and reports `Disconnected`. Measured over 138 real
+/// destinations from Jackson, TN, that took the success rate to 46%; giving
+/// routing its own ceiling and pruning the corridor middle to arterials took
+/// it to 78%.
+#[test]
+fn a_hundred_and_twenty_kilometre_corridor_fits() {
+    let prefs = CorridorPrefs::default();
+
+    let cells = ptiles_core::corridor_cells(35.73377, -88.03220, 36.16270, -86.78160, &prefs)
+        .expect("Jackson to Nashville must fit in one corridor");
+
+    assert!(cells.len() > 512, "this case only means something above the old cap");
+    assert!(cells.len() <= prefs.max_cells);
+}
+
+/// The proportional margin needs a ceiling, or the corridor's area grows with
+/// the square of the trip and no long route ever fits.
+#[test]
+fn the_corridor_stops_widening_with_distance() {
+    let prefs = CorridorPrefs::default();
+
+    let (near_lat, _) = ptiles_core::corridor_margins_deg(35.0, -88.0, 35.2, -88.0, &prefs);
+    let (far_lat, _) = ptiles_core::corridor_margins_deg(35.0, -88.0, 39.0, -88.0, &prefs);
+
+    assert!(far_lat >= near_lat, "a longer route may not get a narrower corridor");
+    let ceiling_deg = prefs.max_margin_m / 111_320.0;
+    assert!(far_lat <= ceiling_deg * 1.01, "{far_lat} exceeds the ceiling {ceiling_deg}");
+}
