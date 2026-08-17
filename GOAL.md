@@ -8,7 +8,13 @@ before repeating them; each carries the command that settles it.
 
 ---
 
-## 1. IN FLIGHT — finish publishing v2 roads
+## 1. DONE 2026-08-17 — v2 roads published
+
+Settled by measurement: all 51 states return version byte 2 from the published
+host (`curl -r 8-8` over every state, one `2`, 51 times). Nothing below needs
+running again; it is kept for the rollback path and the CDN caveat.
+
+## 1. (was IN FLIGHT) — finish publishing v2 roads
 
 All 51 states were upgraded from roads v1 to v2 and are in
 `ptiles/tiles/roads-v2/` (1.5 GB). An `aws s3 cp --recursive` to
@@ -59,7 +65,20 @@ cargo build -q -p ptiles-cli
 **Rollback**, if ever needed: the v1 originals are untouched on the NAS at
 `/mnt/core/kino/ptiles/data/states/`.
 
-## 2. IN FLIGHT — NC and TN, one snapshot
+## 2. DONE 2026-08-17 — NC and TN rebuilt, stranded entries gone
+
+`cargo run -p ptiles-core --features http --example intersection_audit`, against
+the published files:
+
+    TN: v2, 23,087 cells, types 1/2/3 = 12,428, type 4 = 489,   stranded = 0
+    NC: v2, 28,459 cells, types 1/2/3 = 34,378, type 4 = 1,350, stranded = 0
+
+TN's 12,428 closes the May-snapshot gap (12,103 before, against 12,425 in the
+July signals for the same cells). Type 4 is unchanged at the predicted 489 and
+1,350. All 9 stranded entries are gone — confirmed by re-resolving every
+intersection's coordinates against the cell that indexes it, not assumed.
+
+## 2. (was IN FLIGHT) — NC and TN, one snapshot
 
 NC and TN were already v2, so they took a different path: their existing
 intersection tables were preserved byte-for-byte and only roundabouts appended.
@@ -85,7 +104,12 @@ Rebuilding should also clear 9 pre-existing stranded entries (1 in TN, 8 in NC)
 that sat in the wrong H3 cell in the shipped files and were therefore unreachable
 by any cell lookup. Confirm they are gone rather than assuming.
 
-## 3. Then: delete the staging cache
+## 3. DONE — staging cache is already gone
+
+`~/.cache/roads-v2-stage/` no longer exists. Disk is at 95% (97 GB free), so
+nothing here is holding space.
+
+## 3. (unblocked) Then: delete the staging cache
 
 `~/.cache/roads-v2-stage/` holds ~13 GB (11 GB of state PBFs, 1.5 GB of roads).
 Kept only because sections 1 and 2 needed the cached PBFs — the NFS mount was
@@ -137,6 +161,74 @@ Also outstanding:
 ## Already done — do not redo
 
 Commit-referenced so nothing here gets rebuilt from scratch.
+
+### Address layer, 2026-08-17
+
+- `57b2fc2` — **every address position the client produced was wrong** unless
+  its cell happened to be first in its merged block. The builder measures each
+  record's `i16` offsets from its own cell's centre; `merged_block_cell_slice`
+  read them against the block header's centre, which is the first cell's.
+  Blocks hold eight cells, so seven in eight decoded kilometres out. Measured on
+  the published `TN.address_v2.ptiles`, OSM way 130905893: truth
+  36.15770,-86.78416, decoded 36.13647,-86.78984 — 2.4 km south, with the
+  number and street perfectly intact, which is why nothing noticed. **This is
+  fixed in the client, so deploying the wasm alone corrects the live site
+  against the files already published.**
+- `57b2fc2` — the golden fixture could not have caught it: it gave every cell
+  the same arbitrary centre, so block centre and cell centre were identical, and
+  one of its two cell ids (`0x87264D1040FFFFF`) was not a valid H3 index at all.
+  The fixture now derives each cell's centre from its id and uses a real
+  neighbour. Reverting the decoder alone turns it red — checked.
+- `eeb4e4a` — `AddressFile::search_address`: forward geocode with no location.
+  `find_address` could only filter cells the caller already named, i.e. a
+  viewport filter, not a geocoder. No hint is a full decompress (14.7 s for
+  Tennessee's 4M records — the price of a layer with no name index); with a hint
+  it is 0.168 s, bounded by distance rather than by count so the early stop
+  cannot change the answer.
+- `99fc8ce` — **nothing is viewport-scoped any more.** The demo's Find box
+  scanned 24 cells on screen and called a miss "no match in the N cells on
+  screen". It now walks the state, ordered by `address_cells_by_distance` (core
+  owns the ordering; `IndexEntry` drops the bbox, so `js/ptiles.js` keeps the
+  raw index bytes). Ordering alone does not bind — "919 Broadway" has two
+  matches in all of Tennessee, so the count bound never fires and the first
+  version read 20,767 cells and 29.6 MB per keystroke. With a 25 km first pass
+  and a stop a few times past the nearest hit: 22 cells, 406 KiB, 188 ms from
+  Nashville; a miss offers to widen to the whole state.
+- `99fc8ce` — street matching folds type and direction words. It was raw
+  substring, which is asymmetric: Memphis carries both `Beale St` and
+  `BEALE Street`, so "Beale St" matched 122 records and "Beale Street" matched
+  71 — typing the type in full silently dropped 51 addresses.
+- `34c5f8a` — first JS-side address coverage that has ever existed (7 tests over
+  `js/ptiles.js` + wasm), plus `core/tests/address_v3_states.rs` over all 51
+  files. Exhaustive run: **143,749,384 records in 820,514 cells, all pass**
+  (osm 3,199,194 / nad 84,977,431 / openaddresses 55,572,759). That is 447 fewer
+  than the builder wrote, which reconciles exactly: 432 dropped by its
+  polar/antimeridian guard, 15 unassignable to a cell.
+
+### Address measurements — do not re-derive
+
+- **h3 (builder, Python) and h3o (client, Rust) disagree on boundary points, and
+  it does not matter.** 84,552 records across six states: 0.0000%–0.0352% per
+  state, and *every* disagreement lands in an **adjacent** cell, worst 1,427 m
+  from the stored centre — i.e. exactly a res-7 edge. Adjacency is the whole
+  point: ring 1 covers all of it, ring 0 does not, so `--query address` now
+  defaults to ring 1. Do not "fix" the H3 implementations.
+- **v3 costs about 3.4x the bytes per click and answers better.** Nashville,
+  same point, demo reverse path: v2 181 KiB / 2,884 records / 24 ms → "919
+  Broadway (0 m)"; v3 616 KiB / 94,421 records / 328 ms → "901 Broadway (12 m)",
+  the genuinely nearest address.
+- **One cell per block beat changing H3 resolution.** Measured on the v2 files,
+  an 8-cell block reaches 494,337 B in Manhattan and a click that wants one cell
+  pays for all eight. v3 writes one cell per block: Tennessee's worst block fell
+  from 70,344 B to 40,392 B *while carrying 29x more addresses*. Resolution was
+  left at 7; the index would have grown 7x at res-8 for no gain here.
+- **The shared dictionary paid for the lost context.** 110 KB trained across
+  states, against 8 KB per state before: 7.45 B/record at v3 versus 8.29 B/record
+  at v2, despite one-cell blocks having far less internal redundancy.
+- **Address `osm_id` is not a key.** Node and way ids share a value space, the
+  layer records neither which nor the element type, and v3's bulk records all
+  carry 0. Nothing in this repo resolves it; the two `/node/` links in the demo
+  are intersections and businesses.
 
 - `11b8cfe` — `conformance/corpus/`, eleven slices of real published layers
   (266 KB). Covers both index entry widths, all three offset bases, merged
