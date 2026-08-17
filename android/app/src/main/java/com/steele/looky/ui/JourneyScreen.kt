@@ -503,6 +503,39 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
             },
         )
     }
+
+    // The second pass, after the first has already answered.
+    //
+    // The name index is keyed by the first letter of the *name*, so the fast
+    // search reads two buckets of 28 and "affle" cannot find "Waffle House".
+    // Reading all of them does, and costs about a second against fifty
+    // milliseconds -- far too slow to sit between a keystroke and the first
+    // result, and fine once results are on screen.
+    //
+    // Only when the fast pass did not fill the list: where it did, the wide
+    // one found nothing new in any query tried, because both were truncated at
+    // the same number.
+    LaunchedEffect(searchedFor, searchedTrail, hits?.size) {
+        val partial = hits.orEmpty()
+        if (searchedFor.length < WIDE_SEARCH_MIN_QUERY || searchedTrail) return@LaunchedEffect
+        if (partial.size >= SEARCH_RESULT_LIMIT) return@LaunchedEffect
+        val asked = searchedFor
+        val extra = withContext(Dispatchers.IO) {
+            runCatching { repo.searchBusinessesEverywhere(asked, anchor) }.getOrDefault(emptyList())
+        }
+        // The box may have moved on while this was running; a slow answer to an
+        // old question must not replace a new one.
+        if (asked != searchedFor || extra.isEmpty()) return@LaunchedEffect
+        val known = partial.map { it.name to it.point }.toHashSet()
+        val added = extra.filterNot { (it.name to it.point) in known }
+        if (added.isNotEmpty()) {
+            // Appended rather than re-ranked: the rows already on screen keep
+            // their places, so nothing moves under a finger that is reaching
+            // for one of them.
+            hits = partial + added
+            status = null
+        }
+    }
     // Distance, bearing and "on your route" are pure functions of a hit and
     // where you are now, so they follow the fix without another decode.
     val picker: PickerState = status ?: PickerState.Found(

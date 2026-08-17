@@ -142,6 +142,17 @@ internal val STOP_ROW_HEIGHT = 52.dp
 internal const val ON_ROUTE_M = 500.0
 
 /**
+ * Shortest query worth a whole-index read.
+ *
+ * One or two letters match most of a state, so the wide pass would spend a
+ * second to append names nobody asked for.
+ */
+internal const val WIDE_SEARCH_MIN_QUERY = 3
+
+/** How many results the panel shows before the wide pass stops being useful. */
+internal const val SEARCH_RESULT_LIMIT = 20
+
+/**
  * How long off the route before it is replanned.
  *
  * A missed turn is obvious within a block; a GPS fix that wanders through a

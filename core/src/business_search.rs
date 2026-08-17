@@ -279,6 +279,34 @@ pub fn search_business_indexed<S: PtilesSource>(
     query: &str,
     limit: usize,
 ) -> Result<Vec<BusinessHit>, FileError> {
+    search_buckets(name_index, query, limit, probe_bucket_keys(query.trim()))
+}
+
+/// The same search over *every* bucket, so a substring is found wherever it
+/// sits in a name.
+///
+/// The index is keyed by the first letter of the name, so the fast path reads
+/// two buckets of 28 and `affle` cannot find `Waffle House`. This reads all of
+/// them, which is complete and costs about ten times as much: measured against
+/// the published Tennessee sidecar, 53-122 ms becomes 1050-1480 ms.
+///
+/// Meant to run *after* the fast search has already answered, never instead of
+/// it: the first results should appear at typing speed, and this fills in what
+/// the buckets hid.
+pub fn search_business_everywhere<S: PtilesSource>(
+    name_index: &PtilesFile<S>,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<BusinessHit>, FileError> {
+    search_buckets(name_index, query, limit, (0..=27u64).collect())
+}
+
+fn search_buckets<S: PtilesSource>(
+    name_index: &PtilesFile<S>,
+    query: &str,
+    limit: usize,
+    buckets: Vec<u64>,
+) -> Result<Vec<BusinessHit>, FileError> {
     let query_trimmed = query.trim();
     let query_folded = fold_name(query_trimmed);
     if query_folded.is_empty() || limit == 0 {
@@ -286,7 +314,7 @@ pub fn search_business_indexed<S: PtilesSource>(
     }
 
     let mut records = Vec::new();
-    for k in probe_bucket_keys(query_trimmed) {
+    for k in buckets {
         if let Some(block) = name_index.read_block(k)? {
             records.extend(decode_name_index_block(&block)?);
         }

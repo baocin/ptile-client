@@ -876,6 +876,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -996,6 +998,8 @@ fun uniffi_ptiles_ffi_checksum_method_ptileslayer_rail(
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_roads(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business(
+): Short
+fun uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business_everywhere(
 ): Short
 fun uniffi_ptiles_ffi_checksum_method_ptileslayer_search_trails(
 ): Short
@@ -1203,6 +1207,8 @@ fun uniffi_ptiles_ffi_fn_method_ptileslayer_rail(`ptr`: Pointer,`lat`: Double,`l
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_roads(`ptr`: Pointer,`lat`: Double,`lon`: Double,`ring`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(`ptr`: Pointer,`query`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_business_everywhere(`ptr`: Pointer,`query`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_ptiles_ffi_fn_method_ptileslayer_search_trails(`ptr`: Pointer,`query`: RustBuffer.ByValue,`lat`: Double,`lon`: Double,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1550,7 +1556,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_roads() != 36266.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business() != 23326.toShort()) {
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business() != 38732.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_business_everywhere() != 46928.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ptiles_ffi_checksum_method_ptileslayer_search_trails() != 46632.toShort()) {
@@ -3592,6 +3601,8 @@ public interface PtilesLayerInterface {
      */
     fun `roads`(`lat`: kotlin.Double, `lon`: kotlin.Double, `ring`: kotlin.UByte): List<RoadInfo>
     
+    fun `searchBusiness`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit>
+    
     /**
      * Business name search over a `{STATE}.business_name_index.ptiles`
      * sidecar (open a `PtilesLayer` on that file, not the main
@@ -3600,8 +3611,19 @@ public interface PtilesLayerInterface {
      * hit when the substring starts at the name's first character (see
      * `core::business_search`'s module doc for why). `limit` caps the
      * returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+     * The same search over every bucket of the index, for the substring the
+     * fast path cannot reach.
+     *
+     * The sidecar is keyed by the first letter of the *name*, so
+     * [`Self::search_business`] reads two buckets of 28 and `affle` never
+     * finds `Waffle House`. This reads all of them.
+     *
+     * Meant to run *after* the fast search has answered, not instead of it:
+     * measured against the published Tennessee sidecar it costs 1050-1480 ms
+     * against 53-122 ms, which is a second pass a caller merges in, and far
+     * too slow to sit between a keystroke and the first result.
      */
-    fun `searchBusiness`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit>
+    fun `searchBusinessEverywhere`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit>
     
     /**
      * Trail name search across the whole `{ST}.trails_v1.ptiles` file.
@@ -4207,6 +4229,19 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
     
 
     
+    @Throws(PtilesException::class)override fun `searchBusiness`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit> {
+            return FfiConverterSequenceTypeBusinessSearchHit.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PtilesException) { _status ->
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(
+        it, FfiConverterString.lower(`query`),FfiConverterUInt.lower(`limit`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     /**
      * Business name search over a `{STATE}.business_name_index.ptiles`
      * sidecar (open a `PtilesLayer` on that file, not the main
@@ -4215,12 +4250,23 @@ open class PtilesLayer: Disposable, AutoCloseable, PtilesLayerInterface
      * hit when the substring starts at the name's first character (see
      * `core::business_search`'s module doc for why). `limit` caps the
      * returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+     * The same search over every bucket of the index, for the substring the
+     * fast path cannot reach.
+     *
+     * The sidecar is keyed by the first letter of the *name*, so
+     * [`Self::search_business`] reads two buckets of 28 and `affle` never
+     * finds `Waffle House`. This reads all of them.
+     *
+     * Meant to run *after* the fast search has answered, not instead of it:
+     * measured against the published Tennessee sidecar it costs 1050-1480 ms
+     * against 53-122 ms, which is a second pass a caller merges in, and far
+     * too slow to sit between a keystroke and the first result.
      */
-    @Throws(PtilesException::class)override fun `searchBusiness`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit> {
+    @Throws(PtilesException::class)override fun `searchBusinessEverywhere`(`query`: kotlin.String, `limit`: kotlin.UInt): List<BusinessSearchHit> {
             return FfiConverterSequenceTypeBusinessSearchHit.lift(
     callWithPointer {
     uniffiRustCallWithError(PtilesException) { _status ->
-    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_search_business(
+    UniffiLib.INSTANCE.uniffi_ptiles_ffi_fn_method_ptileslayer_search_business_everywhere(
         it, FfiConverterString.lower(`query`),FfiConverterUInt.lower(`limit`),_status)
 }
     }

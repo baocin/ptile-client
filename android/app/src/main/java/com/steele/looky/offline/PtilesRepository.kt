@@ -420,6 +420,41 @@ class PtilesRepository(context: Context) {
     }
 
     /**
+     * The same search reading every bucket of the name index, for the
+     * substring the fast one cannot reach.
+     *
+     * The index is keyed by the first letter of the *name*, so a search for
+     * "affle" reads the `a` bucket and Waffle House lives in `w`. Measured
+     * against the published Tennessee sidecar the fast path answers in
+     * 53-122 ms and this in 1050-1480 ms, so it runs *after* results are on
+     * screen and adds to them -- never between a keystroke and the first
+     * answer.
+     *
+     * Worth running only when the fast pass did not fill the limit: where it
+     * did, this found nothing new in any query tried, because both were
+     * already truncated at the same number.
+     */
+    fun searchBusinessesEverywhere(
+        query: String,
+        origin: GeoPoint? = null,
+        limit: Int = SEARCH_LIMIT,
+    ): List<BusinessResult> {
+        if (query.isBlank() || limit <= 0) return emptyList()
+        val perIndex = (limit * SEARCH_OVERFETCH).coerceAtMost(SEARCH_MAX_FETCH)
+        val hits = nameIndexFiles().flatMap { file ->
+            queryVariants(query).flatMap { variant ->
+                runCatching {
+                    openCached(file)
+                        ?.searchBusinessEverywhere(variant, perIndex.toUInt())
+                        ?.map { BusinessResult(it.name, GeoPoint(it.location.lat, it.location.lon), it.score.toInt()) }
+                        .orEmpty()
+                }.getOrDefault(emptyList())
+            }
+        }
+        return rankByNameAndDistance(query, hits, origin, limit)
+    }
+
+    /**
      * What is around you, nearest first -- the list an empty search box shows.
      *
      * Straight off the spatial business layer, so it needs no query and no

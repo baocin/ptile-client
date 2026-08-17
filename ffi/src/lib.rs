@@ -33,7 +33,7 @@ use ptiles_core::{
     cell_center, cell_for_coord, decode_buildings, decode_business_versioned, decode_road_block,
     decode_roads, haversine_distance_m, nearest_intersection as core_nearest_intersection,
     nearest_road as core_nearest_road, neighbor_cells, point_in_polygon, score_candidates,
-    search_business_indexed, search_trails as core_search_trails,
+    search_business_everywhere, search_business_indexed, search_trails as core_search_trails,
     trail_is_developed as core_trail_is_developed,
     route_in_corridor, trail_segments as core_trail_segments,
     CorridorError, CorridorPrefs, RoutePrefs, RouteProfile,
@@ -1303,10 +1303,13 @@ impl PtilesLayer {
         &self,
         query: &str,
         limit: usize,
+        everywhere: bool,
     ) -> Result<Vec<ptiles_core::BusinessHit>, PtilesError> {
-        let result = match &self.file {
-            AnyFile::File(f) => search_business_indexed(f, query, limit),
-            AnyFile::Http(f) => search_business_indexed(f, query, limit),
+        let result = match (&self.file, everywhere) {
+            (AnyFile::File(f), false) => search_business_indexed(f, query, limit),
+            (AnyFile::Http(f), false) => search_business_indexed(f, query, limit),
+            (AnyFile::File(f), true) => search_business_everywhere(f, query, limit),
+            (AnyFile::Http(f), true) => search_business_everywhere(f, query, limit),
         };
         result.map_err(|e| PtilesError::Decode { message: e.to_string() })
     }
@@ -2084,6 +2087,39 @@ impl PtilesLayer {
     /// hit when the substring starts at the name's first character (see
     /// `core::business_search`'s module doc for why). `limit` caps the
     /// returned, score-ranked hit count. `BusinessNameIndex`-layer only.
+    /// The same search over every bucket of the index, for the substring the
+    /// fast path cannot reach.
+    ///
+    /// The sidecar is keyed by the first letter of the *name*, so
+    /// [`Self::search_business`] reads two buckets of 28 and `affle` never
+    /// finds `Waffle House`. This reads all of them.
+    ///
+    /// Meant to run *after* the fast search has answered, not instead of it:
+    /// measured against the published Tennessee sidecar it costs 1050-1480 ms
+    /// against 53-122 ms, which is a second pass a caller merges in, and far
+    /// too slow to sit between a keystroke and the first result.
+    pub fn search_business_everywhere(
+        &self,
+        query: String,
+        limit: u32,
+    ) -> Result<Vec<BusinessSearchHit>, PtilesError> {
+        if self.kind != LayerKind::BusinessNameIndex {
+            return Err(PtilesError::UnsupportedForLayer {
+                layer: self.kind.as_str().to_string(),
+            });
+        }
+        let hits = self.search_business_indexed_dispatch(&query, limit as usize, true)?;
+        Ok(hits
+            .iter()
+            .map(|h| BusinessSearchHit {
+                name: h.name.clone(),
+                category_idx: h.category_idx,
+                location: LatLon { lat: h.lat, lon: h.lon },
+                score: h.score,
+            })
+            .collect())
+    }
+
     pub fn search_business(
         &self,
         query: String,
@@ -2094,7 +2130,7 @@ impl PtilesLayer {
                 layer: self.kind.as_str().to_string(),
             });
         }
-        let hits = self.search_business_indexed_dispatch(&query, limit as usize)?;
+        let hits = self.search_business_indexed_dispatch(&query, limit as usize, false)?;
         Ok(hits
             .iter()
             .map(|h| BusinessSearchHit {
