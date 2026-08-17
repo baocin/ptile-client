@@ -47,6 +47,11 @@ TRIPS = [
     ("Chattanooga -> Atlanta", (35.0456, -85.3097), (33.7490, -84.3880)),
     ("Reno -> Sacramento", (39.5296, -119.8138), (38.5816, -121.4944)),
     ("Fargo -> Sioux Falls", (46.8772, -96.7898), (43.5460, -96.7313)),
+    # Long enough that the guide budget, not the corridor, is the thing being
+    # tested: these cross four to six states and only route if the budget
+    # scales with the distance.
+    ("Atlanta -> Dallas", (33.7490, -84.3880), (32.7767, -96.7970)),
+    ("Chicago -> Denver", (41.8781, -87.6298), (39.7392, -104.9903)),
 ]
 
 

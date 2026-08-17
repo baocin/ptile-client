@@ -3111,7 +3111,31 @@ var ROUTE_MAX_CELLS = 400;
 // One failed long route may pay for a denser arterial-only retry. Kept
 // separate from the ordinary phone budget so widening cannot silently turn
 // every route into a 900-cell load.
+//
+// Flat at 900 it was a distance limit in disguise. The guided corridor puts a
+// k=2 disk (~19 cells) around each spine cell, and a spine samples every 20 km
+// on a long line, so a 1,500 km trip plans ~2,700 cells and was refused with
+// "corridor_budget_exceeded" -- Atlanta to Dallas and Chicago to Denver both
+// died there, with the highway guide working perfectly.
+//
+// Measured: a corridor cell costs 10-14 KiB over the wire (Nashville to
+// Louisville, 639 cells, 6.2 MB; Chattanooga to Atlanta, 408 cells, 5.8 MB), so
+// this is a bandwidth budget at about 12 KiB a cell:
+//
+//    285 km   1,242 cells   ~15 MB
+//  1,160 km   2,292 cells   ~27 MB   Atlanta to Dallas
+//  4,000 km   4,000 cells   ~47 MB   coast to coast, at the ceiling
+//
+// The first-pass budget below stays flat: this is the escalation a trip has
+// already failed once to earn, not what every route pays.
 var ROUTE_RETRY_MAX_CELLS = 900;
+var ROUTE_RETRY_CELLS_PER_KM = 1.2;
+var ROUTE_RETRY_CEILING_CELLS = 4000;
+
+function routeRetryBudget(distM) {
+  return Math.min(ROUTE_RETRY_CEILING_CELLS,
+    Math.round(ROUTE_RETRY_MAX_CELLS + ROUTE_RETRY_CELLS_PER_KM * (distM || 0) / 1000));
+}
 // A reference crawl and the final guided road corridor share this ceiling.
 // Negative probes are still real Range reads, so they count even though they
 // do not appear in the final route graph.
@@ -3119,13 +3143,24 @@ var ROUTE_REF_CRAWL_MAX_CELLS = 900;
 // The prefiltered state backbone has many sparse H3 entries but little data
 // (TN is ~1.7 MB compressed). Bound the aggregate explicitly so a request
 // cannot accidentally load the country.
-// 10,000 was set when a guide meant one state, and it is below what a real
-// trip needs now that a guide spans every state the line crosses: TN 6,429 plus
-// KY 5,576 is 12,005, so Nashville to Louisville lost Kentucky and reported
-// "disconnected" -- and California alone is 11,592, which failed on its own.
-// Four large states fit under 40,000. The bytes this bounds are index entries;
-// what the corridor actually downloads is bounded separately, by the cell plan.
-var ROUTE_HIGHWAY_MAX_CELLS = 40000;
+// What a highway guide is allowed to cost.
+//
+// Measured in Chrome, a guide cell costs ~45 bytes in the list and Set, and the
+// index it comes from costs ~225 bytes resident and ~38 bytes over the wire --
+// so this is a memory budget at ~270 bytes a cell. 120,000 cells is ~32 MB,
+// which is the whole eastern seaboard's worth of highway index.
+//
+// Deliberately NOT scaled by distance, unlike the corridor budget below.
+// Distance predicts what a corridor costs, because a corridor is a band of
+// ground; it does not predict what a guide costs, because a guide is a set of
+// whole state files and states are not the same size. Texas is 21,651 cells
+// against a 6,500 mean, so a per-kilometre budget put Atlanta to Dallas at
+// 37,520 against the 44,492 its five states actually need, dropped Texas, and
+// produced a guide that stopped in Louisiana. A guide missing a state the line
+// crosses cannot work -- the code below already refuses to truncate one for
+// that reason, and truncating by arithmetic instead is the same mistake.
+var ROUTE_HIGHWAY_MAX_CELLS = 120000;
+var ROUTE_HIGHWAY_MAX_STATES = 12;   // sanity ceiling on round trips, not bytes
 var ROUTE_END_CAP_K = 2;
 var routeMode = false;
 var routeA = null, routeB = null, routeLayer = null, routeBusy = false;
@@ -3740,7 +3775,8 @@ async function roadRefGuidedPlan(state, a, b) {
     return { plan: null, attempted: crawl.commonRefs.length > 0, crawl: crawl };
   }
   var plan = cellPlanAroundSpine(
-    crawl.spine, a.lat, a.lon, b.lat, b.lon, 4, ROUTE_RETRY_MAX_CELLS
+    crawl.spine, a.lat, a.lon, b.lat, b.lon, 4,
+    routeRetryBudget(haversineM(a.lat, a.lon, b.lat, b.lon))
   );
   plan.roadRef = crawl.ref;
   plan.roadRefProbeCells = crawl.probedCells;
@@ -3758,7 +3794,8 @@ async function roadRefGuidedPlan(state, a, b) {
 // directions for that reason alone. Highway cells from either side of a border
 // sit adjacent on the same res-7 grid, so the BFS below crosses the seam with
 // no special case once both sets are in the same bag.
-async function highwayGuideFor(states) {
+async function highwayGuideFor(states, budgetCells) {
+  var budget = budgetCells || ROUTE_HIGHWAY_MAX_CELLS;
   var list = [], set = new Set();
   for (var i = 0; i < states.length; i++) {
     var g = null;
@@ -3774,10 +3811,10 @@ async function highwayGuideFor(states) {
     // state that would blow it is refused rather than truncated: half a state's
     // highways is a guide with a hole in the middle, which sends the corridor
     // somewhere worse than no guide at all.
-    if (list.length + g.list.length > ROUTE_HIGHWAY_MAX_CELLS) {
+    if (list.length + g.list.length > budget) {
       console.warn("highway guide budget: skipping " + states[i] + " ("
         + g.list.length + " cells, " + list.length + " already held, budget "
-        + ROUTE_HIGHWAY_MAX_CELLS + ")");
+        + budget + ")");
       continue;
     }
     for (var j = 0; j < g.list.length; j++) {
@@ -3788,9 +3825,10 @@ async function highwayGuideFor(states) {
   return { list: list, set: set, cells: list.length, state: states.join("+") };
 }
 
-async function highwayGuidedPlan(states, a, b) {
+async function highwayGuidedPlan(states, a, b, budgetCells) {
   var guide = await highwayGuideFor(
-    Object.prototype.toString.call(states) === "[object Array]" ? states : [states]);
+    Object.prototype.toString.call(states) === "[object Array]" ? states : [states],
+    budgetCells);
   if (!guide) return null;
   var start = nearestGuideCell(guide, a.lat, a.lon);
   var goal = nearestGuideCell(guide, b.lat, b.lon);
@@ -3799,7 +3837,8 @@ async function highwayGuidedPlan(states, a, b) {
     || guideCellPath(guide, start, goal, 2);
   if (!path) return null;
   var plan = cellPlanAroundSpine(
-    path, a.lat, a.lon, b.lat, b.lon, 2, ROUTE_RETRY_MAX_CELLS
+    path, a.lat, a.lon, b.lat, b.lon, 2,
+    routeRetryBudget(haversineM(a.lat, a.lon, b.lat, b.lon))
   );
   plan.guideCells = guide.cells;
   return plan;
@@ -4529,10 +4568,21 @@ async function runRoute(a, b) {
   var guidedPlan = null;
   var refGuide = null;
   var guideStates = pack ? pack.states : statesAlong(a.lat, a.lon, b.lat, b.lon);
-  // Four states is the cap: each one costs a highway index, and a line long
-  // enough to cross five has bigger problems than guidance.
-  if (!result && attempt.failure === "disconnected" && distM >= 80000
-      && guideStates.length >= 1 && guideStates.length <= 4) {
+  // How many states, and how many cells, this trip has earned. A 90 km hop
+  // gets two states; a coast-to-coast line gets twelve, because that is what
+  // the ground under it costs.
+  // A first pass that ran out of budget is exactly the case guidance exists
+  // for, and it was not on the list: over ~1,000 km the straight-line corridor
+  // needs more than 400 cells, threw "corridor_budget_exceeded", and the retry
+  // chain -- which only looked for "disconnected" -- never ran. Atlanta to
+  // Dallas and Chicago to Denver failed there with a working highway guide
+  // sitting unused. A guided spine follows the road and is cheaper than the
+  // fat straight band it replaces, so budget exhaustion is a reason to try it,
+  // not a reason to stop.
+  var canGuide = attempt.failure === "disconnected"
+    || attempt.failure === "corridor_budget_exceeded";
+  if (!result && canGuide && distM >= 80000
+      && guideStates.length >= 1 && guideStates.length <= ROUTE_HIGHWAY_MAX_STATES) {
     // The ref crawl follows one route number through one state's roads, so it
     // stays single-state -- it is the origin state's shot at the answer. The
     // highway-index corridor below takes every state the line crosses.
@@ -4542,8 +4592,9 @@ async function runRoute(a, b) {
       guidedPlan = refGuide.plan;
     }
     if (!guidedPlan && (guideStates.length > 1 || !refGuide.attempted)) {
-      setStatus("Route: highway-index corridor…");
-      guidedPlan = await highwayGuidedPlan(guideStates, a, b);
+      setStatus("Route: highway-index corridor (" + guideStates.length + " states, "
+        + Math.round(routeRetryBudget(distM) / 1000) + "k corridor cells)…");
+      guidedPlan = await highwayGuidedPlan(guideStates, a, b, ROUTE_HIGHWAY_MAX_CELLS);
     }
     if (guidedPlan) {
       pack = await loadRouteCorridor(
@@ -4561,6 +4612,10 @@ async function runRoute(a, b) {
     maxCells: pack.maxCells,
     segments: pack.segments.length, rawSegments: pack.rawSegmentCount,
     vertices: pack.vertexCount, borderConnectors: pack.borderConnectors,
+    // What the guide was allowed and what it actually held, so a "disconnected"
+    // can be told from a budget refusal without reading the console.
+    highwayBudgetCells: ROUTE_HIGHWAY_MAX_CELLS,
+    corridorBudgetCells: routeRetryBudget(distM),
     highwayGuideCells: guidedPlan ? guidedPlan.guideCells : 0,
     highwayPathCells: guidedPlan ? guidedPlan.spine.length : 0,
     highwayGuideStates: guidedPlan ? guideStates : [],
