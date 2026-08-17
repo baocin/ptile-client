@@ -141,6 +141,57 @@ internal val STOP_ROW_HEIGHT = 52.dp
 /** How near a planned route a hit must be to count as "on your route". */
 internal const val ON_ROUTE_M = 500.0
 
+/**
+ * How long off the route before it is replanned.
+ *
+ * A missed turn is obvious within a block; a GPS fix that wanders through a
+ * tunnel or a parking garage comes back on its own. Twelve seconds is long
+ * enough to tell one from the other and short enough that the replan lands
+ * before the next junction at town speeds.
+ */
+internal const val REROUTE_AFTER_MS = 12_000L
+
+/**
+ * Minimum gap between replans, so a road the map does not have -- a new
+ * bypass, a closed lane -- cannot become a loop that replans on every fix and
+ * flattens the battery.
+ */
+internal const val REROUTE_COOLDOWN_MS = 45_000L
+
+/** Within this of a stop, it has been visited and is dropped from a replan. */
+internal const val ARRIVED_M = 120.0
+
+/**
+ * Whether a journey that has left its route should be replanned now.
+ *
+ * Pulled out of the effect that runs it so the timing can be tested: the
+ * conditions are all about clocks, and a rule about clocks that only runs on a
+ * moving phone is a rule nobody checks.
+ */
+internal fun shouldReroute(
+    offRoute: Boolean,
+    offRouteSince: Long,
+    lastRerouteAt: Long,
+    now: Long,
+    busy: Boolean,
+): Boolean = when {
+    !offRoute -> false
+    busy -> false
+    // Not yet timed: the first fix off the route only starts the clock.
+    offRouteSince <= 0L -> false
+    now - offRouteSince < REROUTE_AFTER_MS -> false
+    // A first replan is always allowed; after that the cooldown holds.
+    lastRerouteAt > 0L && now - lastRerouteAt < REROUTE_COOLDOWN_MS -> false
+    else -> true
+}
+
+/**
+ * The stops still to visit. Falls back to the final stop so a driver who has
+ * technically passed everything still has somewhere to be sent.
+ */
+internal fun remainingStops(stops: List<Stop>, reached: Set<Stop>): List<Stop> =
+    stops.filterNot { it in reached }.ifEmpty { stops.takeLast(1) }
+
 @Composable
 internal fun PlaceRow(hit: PlaceHit, imperial: Boolean, onAdd: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onAdd), verticalAlignment = Alignment.CenterVertically) {

@@ -43,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -277,6 +278,12 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
     var navigator by remember { mutableStateOf<Navigator?>(null) }
     var turns by remember { mutableStateOf(emptyList<TurnInfo>()) }
     var navState by remember { mutableStateOf<NavStateInfo?>(null) }
+    // Rerouting state. `reached` is what the chain has already collected, so a
+    // replan does not send the driver back to a stop they have just left.
+    var offRouteSince by remember { mutableLongStateOf(0L) }
+    var lastRerouteAt by remember { mutableLongStateOf(0L) }
+    var rerouting by remember { mutableStateOf(false) }
+    var reached by remember { mutableStateOf(emptySet<Stop>()) }
     var routeParts by remember { mutableStateOf(emptyList<Pair<RouteModes.Surface, List<GeoPoint>>>()) }
     var dataCenter by remember { mutableStateOf(anchor) }
     var panned by remember { mutableStateOf(false) }
@@ -379,6 +386,73 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
     // Empty box means "what is near me". Every outcome is named: hits, nothing
     // matched, no maps here, or a failure -- an empty list used to stand for
     // all four.
+    // One planner for both the button and the replan, so a rerouted journey is
+    // planned exactly the way the first one was.
+    suspend fun planFrom(
+        origin: GeoPoint,
+        chain: List<Stop>,
+        onTrail: Boolean,
+        onProgress: (Float) -> Unit,
+    ): Pair<PtilesRepository.RouteResult, Navigator?> {
+        val end = chain.last().point
+        return withContext(Dispatchers.Default) {
+            val found = repo.offlineRouteVia(
+                origin, chain.dropLast(1).map { it.point }, end, trail = onTrail,
+                settings.avoidHighways, settings.avoidIntersections,
+            ) { done, total -> onProgress(done.toFloat() / total) }
+            // Turn-by-turn is a driving idea. A footpath's turns are the path,
+            // and a walker reading a phone for them is the failure case.
+            found to if (onTrail) null else repo.navigatorFor(found.points)
+        }
+    }
+
+    // Stops fall off the chain as they are collected, so a replan continues
+    // the journey rather than restarting it.
+    LaunchedEffect(current, stops) {
+        val here = current ?: return@LaunchedEffect
+        val arrived = stops.filter { GpxReader.distanceM(here, it.point) <= ARRIVED_M }
+        if (arrived.isNotEmpty()) reached = reached + arrived
+    }
+
+    // Replan when the route has been abandoned rather than merely lost for a
+    // fix. Nothing acted on `offRoute` before: the card turned red and the
+    // route on the map stayed where it was, which is worse than no guidance
+    // because it still looks like guidance.
+    LaunchedEffect(navState?.offRoute, live.location) {
+        val nav = navigator
+        val here = current
+        if (nav == null || here == null || navState?.offRoute != true) {
+            offRouteSince = 0L
+            return@LaunchedEffect
+        }
+        val now = System.currentTimeMillis()
+        if (offRouteSince == 0L) {
+            offRouteSince = now
+            return@LaunchedEffect
+        }
+        if (!shouldReroute(true, offRouteSince, lastRerouteAt, now, routeRunning || rerouting)) {
+            return@LaunchedEffect
+        }
+        val remaining = remainingStops(stops, reached)
+        if (remaining.isEmpty()) return@LaunchedEffect
+        rerouting = true
+        lastRerouteAt = now
+        runCatching { planFrom(here, remaining, trail) {} }
+            .onSuccess { (found, nav2) ->
+                route = found
+                navigator = nav2
+                turns = nav2?.let { runCatching { it.turns() }.getOrDefault(emptyList()) }.orEmpty()
+                routeError = null
+                offRouteSince = 0L
+            }
+            .onFailure {
+                // Keep the old line on the map: a stale route to the right
+                // place beats an empty screen, and the banner says which it is.
+                routeError = "Off route, and no new route from here yet"
+            }
+        rerouting = false
+    }
+
     val plannedPath = route?.points.orEmpty()
     // The layers are queried on the query and the sort, not on the fix.
     // Re-running this on every GPS update rebuilt the list roughly once a
@@ -609,17 +683,7 @@ internal fun JourneyScreen(settings: AppSettings, onRequestPermissions: () -> Un
                                 routeRunning = true; routeError = null; routeProgress = 0f
                                 scope.launch {
                                     runCatching {
-                                        withContext(Dispatchers.Default) {
-                                            val found = repo.offlineRouteVia(
-                                                anchor, chain.dropLast(1).map { it.point }, end, trail = onTrail,
-                                                settings.avoidHighways, settings.avoidIntersections,
-                                            ) { done, total -> routeProgress = done.toFloat() / total }
-                                            // Turn-by-turn is a driving idea. A
-                                            // footpath's turns are the path, and
-                                            // a walker reading a phone for them
-                                            // is the failure case.
-                                            found to if (onTrail) null else repo.navigatorFor(found.points)
-                                        }
+                                        planFrom(anchor, chain, onTrail) { routeProgress = it }
                                     }.onSuccess { (found, nav) ->
                                         route = found
                                         navigator = nav
