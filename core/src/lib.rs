@@ -38,6 +38,7 @@ pub mod math;
 pub mod locate;
 pub mod merged;
 pub mod nav;
+pub mod name_scan;
 pub mod parks;
 pub mod rail;
 pub mod roads;
