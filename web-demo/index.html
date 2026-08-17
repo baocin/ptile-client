@@ -669,6 +669,18 @@ var stateCellsReady = (async function() {
     }
     var coarse = section(count7), fine = section(count9);
     stateCells = { coarse: coarse, fine: fine, names: names };
+
+    // The page picks a state from the hash before this finishes parsing, so a
+    // map opened on Manhattan starts on NJ and only corrects on the first pan.
+    // Re-ask now that there is something to ask, and switch quietly if the
+    // answer changed -- `quiet` because the map is already where the user
+    // wanted it and switchState would otherwise jump to the state's default
+    // view.
+    try {
+      var c = map.getCenter();
+      var owner = stateOwnerAt(c.lat, c.lng);
+      if (owner && owner !== currentState) switchState(owner, true);
+    } catch (e) { /* the map may not exist yet in some load orders */ }
   } catch (e) {
     // A missing or corrupt table is a downgrade, not a failure: the box logic
     // below still routes, just as badly as it did before.
@@ -3107,7 +3119,13 @@ var ROUTE_REF_CRAWL_MAX_CELLS = 900;
 // The prefiltered state backbone has many sparse H3 entries but little data
 // (TN is ~1.7 MB compressed). Bound the aggregate explicitly so a request
 // cannot accidentally load the country.
-var ROUTE_HIGHWAY_MAX_CELLS = 10000;
+// 10,000 was set when a guide meant one state, and it is below what a real
+// trip needs now that a guide spans every state the line crosses: TN 6,429 plus
+// KY 5,576 is 12,005, so Nashville to Louisville lost Kentucky and reported
+// "disconnected" -- and California alone is 11,592, which failed on its own.
+// Four large states fit under 40,000. The bytes this bounds are index entries;
+// what the corridor actually downloads is bounded separately, by the cell plan.
+var ROUTE_HIGHWAY_MAX_CELLS = 40000;
 var ROUTE_END_CAP_K = 2;
 var routeMode = false;
 var routeA = null, routeB = null, routeLayer = null, routeBusy = false;

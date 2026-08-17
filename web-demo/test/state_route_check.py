@@ -8,9 +8,14 @@ stayed on NJ across the whole of New York City. Every cell in the viewport was
 missing from the NJ index, so the page drew nothing, fetched nothing, and said
 nothing -- the silent-empty failure this format keeps producing.
 
-The fix releases that stickiness on evidence: if the loaded index has no entry
-for the point, the state is re-chosen without it. This checks the fix from the
-outside -- pan into Manhattan, and buildings must appear.
+The fix is the state-cell table: for any cell two or more boxes claim, the
+admin grid says who owns it. This checks it from the outside -- pan into
+Manhattan, and buildings must appear.
+
+Since the table is now consulted at load too, the start point corrects itself
+and this opens in NY rather than NJ. That is the load-time path working, not
+the check going soft: the pan still has to land on a state whose file holds the
+ground, and the flap check below still holds the seam steady.
 
     python3 web-demo/test/state_route_check.py
 """
