@@ -142,23 +142,36 @@ fn an_end_further_than_the_snap_radius_says_so() {
     assert_eq!(failure, Err(RouteFailure::EndNotSnapped));
 }
 
-/// The same request succeeds with a wider radius, which is why an unsnapped
-/// endpoint is worth retrying rather than reporting. 220 m is a normal
-/// distance between a POI pinned on a building and the road serving it.
+/// An endpoint beside the road is reached without the caller asking twice.
+///
+/// 200 m is a normal distance between a POI pinned on a building and the road
+/// serving it, and the driving default is 250 m. The library now climbs its
+/// own ladder -- 1x, 2x, 4x the requested radius -- so a caller passing a
+/// tight radius still gets the route rather than an error it has to interpret
+/// and retry. With random origins this was worth 8 points of success rate on
+/// its own, because a POI makes a poor *start* as often as a poor end.
 #[test]
-fn a_wider_snap_radius_rescues_an_endpoint_beside_the_road() {
+fn an_endpoint_beside_the_road_is_reached_without_a_second_call() {
     let road = run("residential", 36.0, -86.0, 6, 0.001);
     let two_hundred_m_north = 36.0 + 0.0018;
 
     let tight = route_roads_diagnostic(
         &[road.clone()], &[], 36.0, -86.0, two_hundred_m_north, -85.998, 60.0, PREFS,
     );
-    let generous = route_roads_diagnostic(
-        &[road], &[], 36.0, -86.0, two_hundred_m_north, -85.998, 400.0, PREFS,
+
+    assert!(tight.is_ok(), "the ladder reaches 240 m from 60: {tight:?}");
+}
+
+/// The ladder is bounded: something genuinely out of reach still says so.
+#[test]
+fn an_endpoint_past_the_ladder_still_reports_itself() {
+    let road = run("residential", 36.0, -86.0, 6, 0.001);
+
+    let far = route_roads_diagnostic(
+        &[road], &[], 36.0, -86.0, 36.05, -86.0, 60.0, PREFS,
     );
 
-    assert_eq!(tight, Err(RouteFailure::EndNotSnapped));
-    assert!(generous.is_ok(), "200 m from the road is reachable: {generous:?}");
+    assert_eq!(far, Err(RouteFailure::EndNotSnapped));
 }
 
 /// A trailhead served by a forest track is reachable by car, because that is

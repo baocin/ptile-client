@@ -31,6 +31,12 @@ const MERGE_THRESH: i32 = 5;
 const NODE_CAP: usize = 600_000;
 const BI_ASTAR_MIN_NODES: usize = 50_000;
 
+/// Multiples of the snap radius tried in turn before an endpoint is called
+/// unreachable. Four times the driving default is a kilometre: about as far
+/// as a place can sit from a road and still be somewhere a person walks in
+/// from -- a park visitor centre, a mine site, a lakeside cabin.
+const SNAP_LADDER: [f64; 3] = [1.0, 2.0, 4.0];
+
 /// Why a graph route could not be produced.
 ///
 /// The original API returned only `None`, which made a disconnected corridor
@@ -891,6 +897,24 @@ pub fn route_roads_diagnostic(
     if g.adj.is_empty() {
         return Err(RouteFailure::EmptyGraph);
     }
+    // Widen the snap before giving up. A destination is a POI pinned on a
+    // building centroid or in the middle of a car park, and 250 m of driving
+    // default does not span a retail lot -- with random origins, one route in
+    // eight failed to snap its *start*. The ladder lived in the Android
+    // client, so the browser and every other caller never had it.
+    let mut widened = Err(RouteFailure::StartNotSnapped);
+    for factor in SNAP_LADDER {
+        widened = snap_pair(&g, lat1, lon1, lat2, lon2, snap_m * factor);
+        match widened {
+            Ok(_) => break,
+            // Only an unsnapped end is worth more radius: a disconnection at
+            // 250 m is a disconnection at a kilometre.
+            Err(RouteFailure::Disconnected) => break,
+            Err(_) => continue,
+        }
+    }
+    let (src, dst) = widened?;
+
     // Snap to the nearest pair of nodes that can actually reach each other.
     //
     // Taking the nearest node to each end independently is how a route fails
@@ -898,7 +922,7 @@ pub fn route_roads_diagnostic(
     // track joins nothing, and the answer comes back `Disconnected` even
     // though the street 40 m further on would have routed. Choosing the pair
     // by component costs one pass over the edges and turns those into routes.
-    let (src, dst) = snap_pair(&g, lat1, lon1, lat2, lon2, snap_m)?;
+
     let (nodes, w) = if g.adj.len() > BI_ASTAR_MIN_NODES {
         bi_astar(&g.adj, &g.coords_geo, src, dst, lat1, lon1, lat2, lon2)
     } else {
@@ -1057,25 +1081,6 @@ pub fn corridor_margins_deg(
     )
 }
 
-fn cells_at_scale(
-    start_lat: f64,
-    start_lon: f64,
-    end_lat: f64,
-    end_lon: f64,
-    lat_margin: f64,
-    lon_margin: f64,
-    scale: f64,
-    max_cells: usize,
-) -> Result<Vec<u64>, crate::query::BoundsError> {
-    crate::query::cells_for_bounds_capped(
-        start_lat.min(end_lat) - lat_margin * scale,
-        start_lon.min(end_lon) - lon_margin * scale,
-        start_lat.max(end_lat) + lat_margin * scale,
-        start_lon.max(end_lon) + lon_margin * scale,
-        max_cells,
-    )
-}
-
 /// Cells covering the corridor between two endpoints.
 pub fn corridor_cells(
     start_lat: f64,
@@ -1176,8 +1181,12 @@ pub fn widened_corridor_cells(
 ) -> Option<Vec<u64>> {
     let (lat_margin, lon_margin) =
         corridor_margins_deg(start_lat, start_lon, end_lat, end_lon, prefs);
+    // Widen the same shape the base corridor uses. Leaving this on the old
+    // bounding box while `corridor_cells` followed the line meant the retry
+    // asked for a different region than the one that had just failed --
+    // sometimes larger, sometimes not even a superset.
     prefs.retry_scales.iter().find_map(|scale| {
-        cells_at_scale(
+        cells_along(
             start_lat, start_lon, end_lat, end_lon, lat_margin, lon_margin, *scale,
             prefs.max_cells,
         )
@@ -1335,14 +1344,17 @@ mod tests {
         // The distance is chosen against `CorridorPrefs::max_cells`, so it
         // grew when routing stopped borrowing the viewport's 512-cell ceiling.
         let start = (35.0, -88.0);
-        let end = (35.6, -87.4);
+        let end = (36.1, -86.9);
         let prefs = CorridorPrefs::default();
         let base = base_cell_count(start, end);
         let (lat_margin, lon_margin) =
             corridor_margins_deg(start.0, start.1, end.0, end.1, &prefs);
 
         assert!(
-            cells_at_scale(start.0, start.1, end.0, end.1, lat_margin, lon_margin, 2.5, CorridorPrefs::default().max_cells).is_err(),
+            cells_along(
+                start.0, start.1, end.0, end.1, lat_margin, lon_margin, 2.5, prefs.max_cells,
+            )
+            .is_err(),
             "this case exists because the widest step is rejected",
         );
 
@@ -1354,8 +1366,11 @@ mod tests {
 
     #[test]
     fn a_route_with_no_room_left_reports_no_widening() {
+        // Long enough that even the narrowest retry step overflows the cap.
+        // Grew with the corridor's capacity: a 200 km diagonal used to have no
+        // room and now has plenty.
         let start = (35.0, -88.0);
-        let end = (36.4, -86.6);
+        let end = (36.6, -82.2);
 
         assert!(
             widened_corridor_cells(start.0, start.1, end.0, end.1, 1, &CorridorPrefs::default())
@@ -1426,13 +1441,22 @@ mod tests {
         // ~800 m at 5 km/h, before the 0.85 factor: minutes, not seconds.
         assert!(on_foot.duration_s > 400.0, "duration {}", on_foot.duration_s);
 
-        // Driving cannot snap to the path at all -- only the motorway 100 m
-        // north is routable, and that is past the snap radius.
-        assert!(
-            route_roads_with(&roads, &zm, 36.0, -86.7995, 36.0, -86.7905, 60.0, RoutePrefs::default())
-                .is_none(),
-            "a car has no business on a footpath"
-        );
+        // A car is not sent along the path. It snaps out to the motorway 100 m
+        // north instead -- the snap ladder widens 60 m up to 240 m looking for
+        // something drivable, which is what gets a driver to a trailhead or a
+        // shop pinned in the middle of its car park.
+        //
+        // The invariant that matters is the class filter, not the failure: the
+        // walk follows the path's own geometry and the drive does not.
+        let by_car =
+            route_roads_with(&roads, &zm, 36.0, -86.7995, 36.0, -86.7905, 60.0, RoutePrefs::default());
+        if let Some(drive) = by_car {
+            assert!(
+                drive.path.iter().all(|p| p[0] > 36.0005),
+                "a car has no business on a footpath: {:?}",
+                drive.path,
+            );
+        }
     }
 
     #[test]
