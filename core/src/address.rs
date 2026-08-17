@@ -362,6 +362,26 @@ pub fn merged_block_cell_slice(
     )?))
 }
 
+/// Distance from a point to a cell's index bounding box, in metres; zero when
+/// the point is inside it. Used to visit cells nearest-first without
+/// decompressing anything -- the index is the only geometry available up front.
+fn bbox_distance_m(entry: &AddressIndexEntry, lat: f64, lon: f64) -> f64 {
+    let (min_lat, max_lat) = (entry.min_lat as f64 / 1e5, entry.max_lat as f64 / 1e5);
+    let (min_lon, max_lon) = (entry.min_lon as f64 / 1e5, entry.max_lon as f64 / 1e5);
+    let clamped_lat = lat.clamp(min_lat.min(max_lat), max_lat.max(min_lat));
+    let clamped_lon = lon.clamp(min_lon.min(max_lon), max_lon.max(min_lon));
+    crate::proximity::haversine_distance_m(lat, lon, clamped_lat, clamped_lon)
+}
+
+/// Distance from a point to a record, or infinity for a v1 record with no
+/// position -- which sorts it last rather than pretending it is at null island.
+fn record_distance_m(r: &AddressRecord, lat: f64, lon: f64) -> f64 {
+    match (r.lat, r.lon) {
+        (Some(rlat), Some(rlon)) => crate::proximity::haversine_distance_m(lat, lon, rlat, rlon),
+        _ => f64::INFINITY,
+    }
+}
+
 /// An opened `.address.ptiles` file over any [`PtilesSource`].
 pub struct AddressFile<S: PtilesSource> {
     source: S,
@@ -472,6 +492,85 @@ impl<S: PtilesSource> AddressFile<S> {
     /// street both fold-match the query (accent/case-insensitive via
     /// [`crate::business_search::fold_name`]). `street` matches by substring so
     /// `"broadway"` finds `"W Broadway"`; `housenumber` matches exactly (folded).
+    /// Forward geocode with no location hint: "919 Broadway" -> where it is.
+    ///
+    /// [`find_address`](Self::find_address) can only search cells the caller
+    /// already knows to name, which makes it a viewport filter rather than a
+    /// geocoder -- typing an address while looking at the other end of the
+    /// state finds nothing. This walks the whole file instead.
+    ///
+    /// That costs a full decompress (~31 MB and 4M records for Tennessee's v3
+    /// file), because the layer has no name index; `near` is what keeps it off
+    /// that worst case in practice. With a hint, cells are visited nearest
+    /// first -- by their index bounding boxes, which is the only geometry
+    /// available before decompressing anything -- and the walk stops as soon as
+    /// `limit` matches are in hand, so a local search usually touches a handful
+    /// of blocks. Results are then ordered by true distance from the hint.
+    pub fn search_address(
+        &self,
+        housenumber: &str,
+        street: &str,
+        near: Option<(f64, f64)>,
+        limit: usize,
+    ) -> Result<Vec<AddressRecord>, FileError> {
+        let hn = crate::business_search::fold_name(housenumber.trim());
+        let st = crate::business_search::fold_name(street.trim());
+        // With neither part supplied every record matches, which is a file
+        // dump rather than a search.
+        if hn.is_empty() && st.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut order: Vec<usize> = (0..self.index.len()).collect();
+        if let Some((lat, lon)) = near {
+            order.sort_by(|&a, &b| {
+                bbox_distance_m(&self.index[a], lat, lon)
+                    .total_cmp(&bbox_distance_m(&self.index[b], lat, lon))
+            });
+        }
+
+        let mut out: Vec<AddressRecord> = Vec::new();
+        for i in order {
+            let entry = &self.index[i];
+            if entry.block_length == 0 {
+                continue;
+            }
+            // Cells are in bbox-distance order, so once `limit` hits are held
+            // and the next cell's nearest possible point is further than the
+            // worst of them, nothing left to read can improve the answer.
+            // Without this the walk reads the whole state even when the match
+            // is under the cursor: 14.7 s for Tennessee against 0.2 s here.
+            if let Some((lat, lon)) = near {
+                if out.len() >= limit {
+                    let worst = out
+                        .iter()
+                        .map(|r| record_distance_m(r, lat, lon))
+                        .fold(0.0_f64, f64::max);
+                    if bbox_distance_m(entry, lat, lon) > worst {
+                        break;
+                    }
+                }
+            }
+            for r in self.records_for_entry(entry)? {
+                if !hn.is_empty() && crate::business_search::fold_name(&r.housenumber) != hn {
+                    continue;
+                }
+                if !st.is_empty() && !crate::business_search::fold_name(&r.street).contains(&st) {
+                    continue;
+                }
+                out.push(r);
+            }
+        }
+
+        if let Some((lat, lon)) = near {
+            out.sort_by(|a, b| {
+                record_distance_m(a, lat, lon).total_cmp(&record_distance_m(b, lat, lon))
+            });
+        }
+        out.truncate(limit);
+        Ok(out)
+    }
+
     pub fn find_address(
         &self,
         lat: f64,

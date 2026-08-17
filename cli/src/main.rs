@@ -275,12 +275,35 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let lat: f64 = args.value_from_str("--lat").unwrap_or_else(|e| {
-        eprintln!("ptiles-cli: --lat is required ({e})");
+    // Parsed as options first: `address-search` is the one query that can
+    // answer without a point ("where is 919 Broadway" needs no viewport), and
+    // requiring --lat/--lon there would make a whole-state search pretend to
+    // be a local one.
+    let lat_opt: Option<f64> = args.opt_value_from_str("--lat").unwrap_or(None);
+    let lon_opt: Option<f64> = args.opt_value_from_str("--lon").unwrap_or(None);
+
+    if query_peek.as_deref() == Some("address-search") {
+        let number: String = args.opt_value_from_str("--number").unwrap_or(None).unwrap_or_default();
+        let street: String = args.opt_value_from_str("--street").unwrap_or(None).unwrap_or_default();
+        if number.trim().is_empty() && street.trim().is_empty() {
+            eprintln!("ptiles-cli: --query address-search needs --number and/or --street");
+            std::process::exit(2);
+        }
+        let limit: usize = args.opt_value_from_str("--limit").unwrap_or(None).unwrap_or(25);
+        let near = match (lat_opt, lon_opt) {
+            (Some(la), Some(lo)) => Some((la, lo)),
+            _ => None,
+        };
+        run_address_search(&path, &number, &street, near, limit);
+        return;
+    }
+
+    let lat: f64 = lat_opt.unwrap_or_else(|| {
+        eprintln!("ptiles-cli: --lat is required");
         std::process::exit(2);
     });
-    let lon: f64 = args.value_from_str("--lon").unwrap_or_else(|e| {
-        eprintln!("ptiles-cli: --lon is required ({e})");
+    let lon: f64 = lon_opt.unwrap_or_else(|| {
+        eprintln!("ptiles-cli: --lon is required");
         std::process::exit(2);
     });
     // `--query admin`: point -> jurisdiction lookup against an admin file
@@ -295,7 +318,10 @@ fn main() {
     // `--ring`) or `--query address-find --number N --street S` (forward). Like
     // admin, address bypasses the block-per-cell `OpenedLayer` (it uses a v2
     // merged-block index).
-    if matches!(query_peek.as_deref(), Some("address") | Some("address-find")) {
+    if matches!(
+        query_peek.as_deref(),
+        Some("address") | Some("address-find") | Some("address-search")
+    ) {
         let ring: u32 = args.opt_value_from_str("--ring").unwrap_or(None).unwrap_or(0);
         let find = if query_peek.as_deref() == Some("address-find") {
             let number: String = args.value_from_str("--number").unwrap_or_else(|e| {
@@ -491,6 +517,60 @@ fn run_address_query(path_or_url: &str, lat: f64, lon: f64, ring: u8, find: Opti
             std::process::exit(2);
         }
     }
+}
+
+/// `--query address-search`: forward geocode over the whole file, with an
+/// optional `--lat/--lon` hint that orders the walk and the results.
+fn run_address_search(
+    path_or_url: &str,
+    number: &str,
+    street: &str,
+    near: Option<(f64, f64)>,
+    limit: usize,
+) {
+    let result = if is_url(path_or_url) {
+        HttpSource::open(path_or_url)
+            .map_err(|e| e.to_string())
+            .and_then(|s| address_search_result(s, number, street, near, limit))
+    } else {
+        FileSource::open(path_or_url)
+            .map_err(|e| e.to_string())
+            .and_then(|s| address_search_result(s, number, street, near, limit))
+    };
+    match result {
+        Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap()),
+        Err(e) => {
+            eprintln!("ptiles-cli: address search failed for {path_or_url:?}: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
+fn address_search_result<S: PtilesSource>(
+    source: S,
+    number: &str,
+    street: &str,
+    near: Option<(f64, f64)>,
+    limit: usize,
+) -> Result<Value, String> {
+    let file = AddressFile::open(source).map_err(|e| e.to_string())?;
+    let records = file
+        .search_address(number, street, near, limit)
+        .map_err(|e| e.to_string())?;
+    let addresses: Vec<Value> = records
+        .iter()
+        .map(|r| {
+            json!({
+                "osm_id": r.osm_id,
+                "housenumber": r.housenumber,
+                "street": r.street,
+                "lat": r.lat,
+                "lon": r.lon,
+                "source": r.source.name(),
+            })
+        })
+        .collect();
+    Ok(json!({"addresses": addresses, "count": records.len()}))
 }
 
 fn address_result<S: PtilesSource>(
