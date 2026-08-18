@@ -524,6 +524,9 @@ mod tests {
             surface: String::new(),
             sac_scale: String::new(),
             name: Some(name.to_string()),
+            name_en: None,
+            brand: None,
+            park_osm_id: None,
         }
     }
 
@@ -614,6 +617,8 @@ mod tests {
             geom_type: if coords.len() < 2 { 1 } else { 0 },
             coords,
             name: Some(name.to_string()),
+            name_en: None,
+            brand: None,
         }
     }
 
@@ -666,12 +671,16 @@ mod tests {
                 // the park the query point is standing in.
                 coords: square(-86.792, 36.0, 0.0005),
                 name: Some("Small".to_string()),
+                name_en: None,
+                brand: None,
             },
             ParkFeature {
                 osm_id: 2,
                 park_type: "nature_reserve".to_string(),
                 coords: square(-86.795, 36.0, 0.01),
                 name: Some("Big".to_string()),
+                name_en: None,
+                brand: None,
             },
         ];
         let got = park_at(36.0, -86.795, &parks).expect("a park");

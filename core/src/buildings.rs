@@ -57,6 +57,17 @@ pub struct Building {
     /// zero (TX, GA, WA, OH, MI, IL, TN, ...), so callers must treat `None` as
     /// "not published here" rather than "ground level".
     pub height_m: Option<f64>,
+    /// v9's `business_tag` (flags2 0x20) and `opening_hours` (0x40). Present
+    /// in files since v9 and never surfaced, because the decoder stopped at
+    /// the height and let the record's length prefix carry it to the next one.
+    pub business_tag: Option<String>,
+    pub opening_hours: Option<String>,
+    /// v10 alternative names, behind flags2 0x80 -> flags3. `name:en` is the
+    /// one that matters outside the US: 11.8% of named buildings in Japan
+    /// carry one, and a search in English could not match them before.
+    pub name_en: Option<String>,
+    pub brand: Option<String>,
+    pub alt_name: Option<String>,
 }
 
 /// `f64::round` half-away-from-zero, implemented without `std` (no `libm`
@@ -147,6 +158,17 @@ fn decode_building_record(
 
     let flags2 = read_u8(rec, p)?;
     p += 1;
+    // v10: 0x80 was the last free bit in flags2, so it escapes to a third
+    // flags byte carrying the alternative names. The encoder writes it
+    // immediately after flags2, before any optional payload, so it is read
+    // here rather than at the end of the record.
+    let flags3 = if flags2 & 0x80 != 0 {
+        let f = read_u8(rec, p)?;
+        p += 1;
+        f
+    } else {
+        0
+    };
 
     let mut name = None;
     let mut category = None;
@@ -193,10 +215,51 @@ fn decode_building_record(
         None
     };
 
-    // v9's business_tag (0x20) and opening_hours (0x40) are still unmodelled and
-    // sit after this point. Leaving them unread is safe only because a block is
-    // a sequence of length-prefixed records, so the next record's start comes
-    // from its own prefix rather than from this cursor.
+    // v9's business_tag (0x20) and opening_hours (0x40). These used to be left
+    // unread -- safe, because records are length-prefixed and the next one's
+    // start comes from its own prefix. It stopped being safe in v10: the
+    // alternative names sit *after* them, so skipping them lands the cursor in
+    // the middle of a string.
+    let mut business_tag = None;
+    if flags2 & 0x20 != 0 {
+        if let Ok((s, consumed)) = decode_table_ref(rec, p, string_table) {
+            p += consumed;
+            business_tag = if s.is_empty() { None } else { Some(s) };
+        }
+    }
+    let mut opening_hours = None;
+    if flags2 & 0x40 != 0 {
+        if let Ok((s, consumed)) = crate::codec::decode_string_u8(rec, p) {
+            p += consumed;
+            opening_hours = if s.is_empty() { None } else { Some(s) };
+        }
+    }
+
+    // v10 alternative names. Each is a string-table reference, like the name
+    // and category before them.
+    let mut name_en = None;
+    let mut brand = None;
+    let mut alt_name = None;
+    for (bit, slot) in [
+        (0x01u8, &mut name_en),
+        (0x02, &mut brand),
+        (0x04, &mut alt_name),
+    ] {
+        if flags3 & bit != 0 {
+            match decode_table_ref(rec, p, string_table) {
+                Ok((s, consumed)) => {
+                    p += consumed;
+                    if !s.is_empty() {
+                        *slot = Some(s);
+                    }
+                }
+                // Same reasoning as height: the footprint is already decoded
+                // and is the valuable part, so a malformed tail costs the
+                // name, not the building.
+                Err(_) => break,
+            }
+        }
+    }
     let _ = p;
 
     let (centroid_lon, centroid_lat) = compute_centroid(&coords);
@@ -213,6 +276,11 @@ fn decode_building_record(
             name_source,
             poi_osm_id,
             height_m,
+            business_tag,
+            opening_hours,
+            name_en,
+            brand,
+            alt_name,
         },
         osm_id,
     ))

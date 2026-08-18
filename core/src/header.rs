@@ -4,7 +4,8 @@
 //! magic(7) + null(1) + version(1) + pad(3) + min_lat/min_lon/max_lat/max_lon
 //! (f32 each) + feature_count(u64) + block_count(u32) + dict_offset(u64) +
 //! dict_length(u32) + index_offset(u64) + index_length(u32) +
-//! blocks_offset(u64) + aux_offset(u64) + aux_length(u32) + reserved(172).
+//! blocks_offset(u64) + aux_offset(u64) + aux_length(u32) +
+//! boundary_offset(u64) @84 + boundary_length(u32) @92 + reserved(160).
 
 use crate::codec::DecodeError;
 
@@ -30,6 +31,13 @@ pub struct Header {
     pub blocks_offset: u64,
     pub aux_offset: u64,
     pub aux_length: u32,
+    /// PTBD block holding the polygon this file was cut to, at @84/@92 (taken
+    /// from the reserved tail). Zero in every file written before the field
+    /// existed, which readers must treat as "absent" and fall back to the bbox
+    /// above -- the bbox is what state files overlap on, so a present polygon
+    /// is the only thing that says which of two files owns a border point.
+    pub boundary_offset: u64,
+    pub boundary_length: u32,
 }
 
 impl Header {
@@ -62,6 +70,8 @@ impl Header {
         let blocks_offset = u64::from_le_bytes(data[64..72].try_into().unwrap());
         let aux_offset = u64::from_le_bytes(data[72..80].try_into().unwrap());
         let aux_length = u32::from_le_bytes(data[80..84].try_into().unwrap());
+        let boundary_offset = u64::from_le_bytes(data[84..92].try_into().unwrap());
+        let boundary_length = u32::from_le_bytes(data[92..96].try_into().unwrap());
 
         Ok(Header {
             magic,
@@ -79,6 +89,8 @@ impl Header {
             blocks_offset,
             aux_offset,
             aux_length,
+            boundary_offset,
+            boundary_length,
         })
     }
 

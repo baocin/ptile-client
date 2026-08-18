@@ -277,6 +277,11 @@ mod tests {
             name_source: None,
             poi_osm_id: None,
             height_m: None,
+            business_tag: None,
+            opening_hours: None,
+            name_en: None,
+            brand: None,
+            alt_name: None,
         }
     }
 

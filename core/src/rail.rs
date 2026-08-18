@@ -21,6 +21,10 @@ pub struct RailFeature {
     pub geom_type: u8, // 0 = linestring/track, 1 = point/station
     pub coords: Vec<[f64; 2]>,
     pub name: Option<String>,
+    /// `name:en`, from v2. Rail is the layer that carries it most: 94.2% of
+    /// named lines measured on Shikoku.
+    pub name_en: Option<String>,
+    pub brand: Option<String>,
 }
 
 fn decode_rail_record(
@@ -81,6 +85,23 @@ fn decode_rail_record(
         p += consumed;
     }
 
+
+    // v2: name:en and brand, flag-guarded, so one decoder reads v1 and v2
+    // alike -- a v1 file simply has the bits clear. The writer still had to
+    // bump: these records field-walk, and an appended field a reader skips
+    // desyncs every record after it in the cell, silently.
+    let mut name_en = None;
+    let mut brand = None;
+    if flags & 0x02 != 0 {
+        let (s, consumed) = crate::codec::decode_string_u16(data, p)?;
+        name_en = Some(s);
+        p += consumed;
+    }
+    if flags & 0x04 != 0 {
+        let (s, consumed) = crate::codec::decode_string_u16(data, p)?;
+        brand = Some(s);
+        p += consumed;
+    }
     Ok((
         RailFeature {
             osm_id,
@@ -88,6 +109,8 @@ fn decode_rail_record(
             geom_type,
             coords,
             name,
+            name_en,
+            brand,
         },
         p - start,
         osm_id,

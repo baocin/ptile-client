@@ -43,6 +43,15 @@ pub enum DecodeError {
     /// brackets pointing at the wrong entries, which surfaces as "cell not in
     /// this file" -- the same silent-empty result as every other index bug
     /// this format has had.
+    /// A section or container did not start with the magic it was opened as.
+    /// Distinct from a truncation: the bytes are there, they are something
+    /// else -- most often a PTiles layer handed to the PTLR reader, or the
+    /// reverse, since roads has shipped in both containers.
+    #[error("expected magic {expected:?}, found {found:?}")]
+    WrongMagic {
+        expected: &'static [u8],
+        found: [u8; 4],
+    },
     #[error("{section} version {found} is not supported (this build reads {supported})")]
     UnsupportedSectionVersion {
         section: &'static str,

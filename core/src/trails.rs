@@ -31,6 +31,14 @@ pub struct TrailFeature {
     pub surface: String,
     pub sac_scale: String,
     pub name: Option<String>,
+    /// `name:en`, from v2. Footpaths rarely carry one (3.7% on Shikoku).
+    pub name_en: Option<String>,
+    pub brand: Option<String>,
+    /// The park this trail *starts* in, when it starts in one -- a claim about
+    /// the first vertex, not the whole way, since a trail can enter and leave.
+    /// None means it started outside every park, or that parks were not built
+    /// when this file was.
+    pub park_osm_id: Option<i64>,
 }
 
 fn lookup(table: &[(u8, &str)], idx: u8) -> String {
@@ -96,6 +104,31 @@ fn decode_trail_record(
         p += consumed;
     }
 
+
+    // v2: name:en and brand, flag-guarded, so one decoder reads v1 and v2
+    // alike -- a v1 file simply has the bits clear. The writer still had to
+    // bump: these records field-walk, and an appended field a reader skips
+    // desyncs every record after it in the cell, silently.
+    let mut name_en = None;
+    let mut brand = None;
+    if flags & 0x02 != 0 {
+        let (s, consumed) = crate::codec::decode_string_u16(data, p)?;
+        name_en = Some(s);
+        p += consumed;
+    }
+    if flags & 0x04 != 0 {
+        let (s, consumed) = crate::codec::decode_string_u16(data, p)?;
+        brand = Some(s);
+        p += consumed;
+    }
+    // 0x08: the park containing the first vertex, as a varint osm id.
+    let mut park_osm_id = None;
+    if flags & 0x08 != 0 {
+        let (v, consumed) = crate::codec::decode_varint(data, p)?;
+        park_osm_id = Some(v as i64);
+        p += consumed;
+    }
+
     Ok((
         TrailFeature {
             osm_id,
@@ -105,6 +138,9 @@ fn decode_trail_record(
             surface,
             sac_scale,
             name,
+            name_en,
+            brand,
+            park_osm_id,
         },
         p - start,
         osm_id,

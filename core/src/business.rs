@@ -40,6 +40,13 @@ pub struct Business {
     pub website: Option<String>,
     pub address: Option<String>,
     pub brand: Option<String>,
+    /// From v5: `names.common['en']` in Overture, dropped at the projection
+    /// until then. A cross-language search has nothing to match on without it.
+    pub name_en: Option<String>,
+    /// How many places in this state share the name, from v4's 0x80 field.
+    /// Read rather than skipped now: it is what separates a chain from a
+    /// one-off, and the decoder was stepping over it blind.
+    pub chain_count: Option<u8>,
     pub operating_status: String, // "open" | "closed" | "temporarily_closed"
     pub emails: Vec<String>,
     pub socials: Vec<String>,
@@ -167,6 +174,10 @@ fn decode_business_record(
             website,
             address,
             brand,
+            // v1/v2 spend 0x10 on operating_status, so these records can carry
+            // no English name, and chain_count did not exist yet.
+            name_en: None,
+            chain_count: None,
             operating_status,
             emails,
             socials,
@@ -331,9 +342,21 @@ fn decode_business_record_v4(
         brand = Some(s);
         p += consumed;
     }
-    // v4 bits 0x10, 0x20, 0x40 are unused (reserved for future amenities)
+    // v5 puts name:en here, between brand and chain_count. 0x10 meant
+    // operating_status in v1/v2; v4 dropped that, which is what freed the bit.
+    // A v4 file has it clear, so one decoder reads both -- but the position is
+    // the contract: these records carry no length prefix, so reading it
+    // anywhere else desyncs everything after it in the block.
+    let mut name_en = None;
+    if flags & 0x10 != 0 {
+        let (s, consumed) = decode_string_u16(data, p)?;
+        name_en = Some(s);
+        p += consumed;
+    }
+    // 0x20 and 0x40 remain unused.
+    let mut chain_count = None;
     if flags & 0x80 != 0 {
-        // chain_count: u8, consumed for position tracking
+        chain_count = data.get(p).copied();
         p += 1;
     }
 
@@ -353,6 +376,8 @@ fn decode_business_record_v4(
             website,
             address,
             brand,
+            name_en,
+            chain_count,
             operating_status: String::from("open"),
             emails: Vec::new(),
             socials: Vec::new(),

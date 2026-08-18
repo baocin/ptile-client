@@ -11,6 +11,7 @@
 
 extern crate alloc;
 
+pub mod boundary;
 pub mod coarse;
 pub mod codec;
 #[cfg(any(test, feature = "fixtures"))]
@@ -40,6 +41,8 @@ pub mod merged;
 pub mod nav;
 pub mod name_scan;
 pub mod parks;
+pub mod places;
+pub mod ptlr;
 pub mod rail;
 pub mod roads;
 pub mod signals;

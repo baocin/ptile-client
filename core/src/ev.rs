@@ -47,6 +47,11 @@ pub struct Charger {
     /// Charging network or operator (`Tesla`, `Electrify America`, ...).
     pub network: Option<String>,
     pub ref_tag: Option<String>,
+    /// `name:en` (u16-prefixed) and `brand` (u8-prefixed), from v2. The widths
+    /// differ because the builder caps brand at 255 bytes and name:en not --
+    /// read one as the other and the record desyncs.
+    pub name_en: Option<String>,
+    pub brand: Option<String>,
 }
 
 /// Access vocabulary, in on-disk index order.
@@ -147,6 +152,23 @@ fn decode_charger_record(
         p += c;
     }
 
+    // v2 fields, written after every v1 field and flag-guarded, so a v1 file
+    // reads unchanged. The version bump exists to stop a v1 *reader* meeting a
+    // v2 file: these records carry no length prefix, so an unread trailing
+    // field desyncs the rest of the cell.
+    let mut name_en = None;
+    if flags & 0x08 != 0 {
+        let (s, c) = decode_string_u16(data, p)?;
+        name_en = Some(s);
+        p += c;
+    }
+    let mut brand = None;
+    if flags & 0x10 != 0 {
+        let (s, c) = decode_string_u8(data, p)?;
+        brand = Some(s);
+        p += c;
+    }
+
     Ok((
         Charger {
             osm_id,
@@ -160,6 +182,8 @@ fn decode_charger_record(
             name,
             network,
             ref_tag,
+            name_en,
+            brand,
         },
         p - start,
         osm_id,
@@ -531,6 +555,8 @@ mod tests {
             name: None,
             network: None,
             ref_tag: None,
+            name_en: None,
+            brand: None,
         }
     }
 

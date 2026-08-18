@@ -1545,6 +1545,9 @@ mod tests {
                 surface: String::from("compacted"),
                 sac_scale: String::from("hiking"),
                 name: Some(String::from("Greenway")),
+                name_en: None,
+                brand: None,
+                park_osm_id: None,
             },
             TrailFeature {
                 osm_id: 8,
@@ -1554,6 +1557,9 @@ mod tests {
                 surface: String::new(),
                 sac_scale: String::new(),
                 name: Some(String::from("North Gate")),
+                name_en: None,
+                brand: None,
+                park_osm_id: None,
             },
         ];
         let segs = trail_segments(&trails);

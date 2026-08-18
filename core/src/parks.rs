@@ -18,6 +18,9 @@ pub struct ParkFeature {
     pub park_type: String,
     pub coords: Vec<[f64; 2]>,
     pub name: Option<String>,
+    /// `name:en`, from v2. 4.9% of named parks carry one.
+    pub name_en: Option<String>,
+    pub brand: Option<String>,
 }
 
 fn decode_park_record(
@@ -70,12 +73,31 @@ fn decode_park_record(
         p += consumed;
     }
 
+
+    // v2: name:en and brand, flag-guarded. A v1 file has the bits clear, so
+    // one decoder reads both -- but the *writer* had to bump, because these
+    // records field-walk: an appended field a reader does not know about
+    // desyncs every record after it in the cell, silently.
+    let mut name_en = None;
+    let mut brand = None;
+    if flags & 0x02 != 0 {{
+        let (s, consumed) = crate::codec::decode_string_u16(data, p)?;
+        name_en = Some(s);
+        p += consumed;
+    }}
+    if flags & 0x04 != 0 {{
+        let (s, consumed) = crate::codec::decode_string_u16(data, p)?;
+        brand = Some(s);
+        p += consumed;
+    }}
     Ok((
         ParkFeature {
             osm_id,
             park_type,
             coords,
             name,
+            name_en,
+            brand,
         },
         p - start,
         osm_id,

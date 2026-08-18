@@ -371,7 +371,7 @@ fn check_region(source_len: Option<u64>, offset: u64, length: u64) -> Result<(),
 /// Try zstd decompress with the layer dictionary, falling back to plain
 /// (dict-less) decompress on failure — matches
 /// `ptiles/compression.py::decompress_block` / `decompress_fallback`.
-pub(crate) fn decompress_with_dict_fallback(
+pub fn decompress_with_dict_fallback(
     compressed: &[u8],
     dict: &[u8],
 ) -> Result<Vec<u8>, String> {
@@ -742,17 +742,27 @@ mod tests {
     /// not silently accepted -- the fail-closed contract from Addendum 2.
     #[test]
     fn open_rejects_bumped_version() {
-        // Real TN.buildings_v9.ptiles header is magic PTILESF version 9; bump
-        // to 10, which is not in SUPPORTED_FORMATS (only {8, 9}).
+        // One past whatever buildings currently ships. Taken from the table
+        // rather than written out: as a literal it was "10", which stopped
+        // testing rejection the day buildings actually shipped v10.
+        let unseen = crate::versions::versions_for(b"PTILESF")
+            .unwrap()
+            .iter()
+            .max()
+            .unwrap()
+            + 1;
         let mut buf = alloc::vec![0u8; HEADER_SIZE];
         buf[0..7].copy_from_slice(b"PTILESF");
-        buf[8] = 10;
+        buf[8] = unseen;
         buf[64..72].copy_from_slice(&256u64.to_le_bytes()); // blocks_offset
         let src = MemorySource::new(buf);
         match PtilesFile::open(src) {
             Err(FileError::UnsupportedVersion(e)) => {
-                assert_eq!(e.found, 10);
-                assert_eq!(e.supported, alloc::vec![8, 9]);
+                assert_eq!(e.found, unseen);
+                assert_eq!(
+                    e.supported,
+                    crate::versions::versions_for(b"PTILESF").unwrap().to_vec()
+                );
             }
             Ok(_) => panic!("expected UnsupportedVersion, got Ok"),
             Err(other) => {
