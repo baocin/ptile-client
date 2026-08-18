@@ -2600,3 +2600,213 @@ mod tests {
         assert!(json["sampling"].get("generation").is_some());
     }
 }
+
+// ===========================================================================
+// PTLR roads
+// ===========================================================================
+
+/// A PTLR file's header, as JS needs it to fetch the rest.
+///
+/// PTLR is not a PTiles file: no H3 index, no per-cell blocks, three zstd
+/// frames of every road in the region at one level of detail. So the page
+/// cannot ask for "the block containing this cell" -- it reads the header,
+/// then range-fetches one band and its dictionary, then hands both to
+/// `PtlrBand`. Without this the demo has only `highways`, which is the
+/// motorway/trunk/primary subset: enough to draw, not enough to route.
+#[derive(serde::Serialize)]
+struct PtlrHeaderResponse {
+    version: u8,
+    road_count: u32,
+    /// `[min_lat, min_lon, max_lat, max_lon]`, or null when the file records
+    /// none (a v1 file), which means "consult it for every query".
+    bounds: Option<[f64; 4]>,
+    boundary_offset: u64,
+    boundary_length: u32,
+    bands: Vec<PtlrBandResponse>,
+}
+
+#[derive(serde::Serialize)]
+struct PtlrBandResponse {
+    /// `z04` (highways only), `z05` (all roads, simplified) or `z07` (full).
+    name: String,
+    offset: u64,
+    compressed_length: u32,
+    dict_offset: u64,
+    dict_length: u32,
+    road_count: u32,
+}
+
+fn band_by_name(name: &str) -> Result<ptiles_core::ptlr::Band, JsValue> {
+    match name {
+        "z04" => Ok(ptiles_core::ptlr::Band::Z04),
+        "z05" => Ok(ptiles_core::ptlr::Band::Z05),
+        "z07" => Ok(ptiles_core::ptlr::Band::Z07),
+        other => Err(JsValue::from_str(&format!(
+            "unknown PTLR band {other:?}; expected z04, z05 or z07"
+        ))),
+    }
+}
+
+/// Parse the first 256 bytes of a PTLR file.
+#[wasm_bindgen]
+pub fn ptlr_header(head: &[u8]) -> Result<JsValue, JsValue> {
+    let h = ptiles_core::ptlr::PtlrHeader::parse(head)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let bands = [
+        ("z04", ptiles_core::ptlr::Band::Z04),
+        ("z05", ptiles_core::ptlr::Band::Z05),
+        ("z07", ptiles_core::ptlr::Band::Z07),
+    ]
+    .into_iter()
+    .map(|(name, band)| {
+        let (offset, compressed_length) = h.band_range(band);
+        let (dict_offset, dict_length) = h.dict_range(band);
+        PtlrBandResponse {
+            name: String::from(name),
+            offset,
+            compressed_length,
+            dict_offset,
+            dict_length,
+            road_count: h.band_count(band),
+        }
+    })
+    .collect();
+    to_js(&PtlrHeaderResponse {
+        version: h.version,
+        road_count: h.road_count,
+        bounds: h.bounds.map(|(s, w, n, e)| [s, w, n, e]),
+        boundary_offset: h.boundary_offset,
+        boundary_length: h.boundary_length,
+        bands,
+    })
+}
+
+/// One decompressed, indexed PTLR band, held in wasm memory.
+///
+/// The band stays on this side of the boundary on purpose: it is tens of
+/// megabytes decompressed, and the index is built by walking all of it once.
+/// Copying that into JS per query would cost more than the query. Each call
+/// returns only the roads asked for.
+#[wasm_bindgen]
+pub struct PtlrBand {
+    raw: Vec<u8>,
+    index: ptiles_core::ptlr::BandIndex,
+}
+
+#[wasm_bindgen]
+impl PtlrBand {
+    /// Decompress a band frame with its dictionary and index it.
+    ///
+    /// `dict` may be empty: the fallback tries a plain frame, which is what a
+    /// dictionary-less build produces.
+    #[wasm_bindgen(constructor)]
+    pub fn new(frame: &[u8], dict: &[u8]) -> Result<PtlrBand, JsValue> {
+        let raw = ptiles_core::file::decompress_with_dict_fallback(frame, dict)
+            .map_err(|e| JsValue::from_str(&e))?;
+        let index = ptiles_core::ptlr::BandIndex::build(&raw);
+        Ok(PtlrBand { raw, index })
+    }
+
+    /// Roads indexed in this band.
+    #[wasm_bindgen(js_name = roadCount)]
+    pub fn road_count(&self) -> usize {
+        self.index.len()
+    }
+
+    /// Roads in the cells around a point. `rings` widens the search in ~1.1 km
+    /// steps; 2 is the useful default.
+    #[wasm_bindgen(js_name = roadsNear)]
+    pub fn roads_near(&self, lat: f64, lon: f64, rings: i32) -> Result<JsValue, JsValue> {
+        let roads = self.decode(self.index.candidates(lat, lon, rings));
+        to_js(&roads)
+    }
+
+    /// Roads whose first vertex falls in a bounding box -- what a map redraw
+    /// asks for.
+    #[wasm_bindgen(js_name = roadsInBounds)]
+    pub fn roads_in_bounds(
+        &self,
+        min_lat: f64,
+        min_lon: f64,
+        max_lat: f64,
+        max_lon: f64,
+    ) -> Result<JsValue, JsValue> {
+        let roads = self.decode(self.index.in_bounds(min_lat, min_lon, max_lat, max_lon));
+        to_js(&roads)
+    }
+
+    /// The nearest road to a point within `max_meters`, with its distance and
+    /// snapped position -- the same shape `nearest_road` returns for the older
+    /// container, so callers can treat the two alike.
+    #[wasm_bindgen(js_name = nearestRoad)]
+    pub fn nearest_road(&self, lat: f64, lon: f64, max_meters: f64) -> Result<JsValue, JsValue> {
+        let roads = self.decode(self.index.candidates(lat, lon, 2));
+        let mut best: Option<(f64, (f64, f64), &ptiles_core::RoadSegment)> = None;
+        for road in &roads {
+            for pair in road.coords.windows(2) {
+                let proj = ptiles_core::point_to_segment_distance_m(
+                    lat, lon, pair[0][1], pair[0][0], pair[1][1], pair[1][0],
+                );
+                if best.is_none() || proj.distance_m < best.as_ref().unwrap().0 {
+                    best = Some((proj.distance_m, proj.snapped, road));
+                }
+            }
+        }
+        match best {
+            Some((distance_m, snapped, road)) if distance_m <= max_meters => {
+                to_js(&NearestRoadResponse {
+                    osm_id: road.osm_id,
+                    name: road.name.clone(),
+                    road_class: road.road_class.clone(),
+                    snapped: [snapped.0, snapped.1],
+                    distance_m,
+                    geometry: road.coords.iter().map(|c| [c[1], c[0]]).collect(),
+                })
+            }
+            _ => Ok(JsValue::NULL),
+        }
+    }
+}
+
+impl PtlrBand {
+    fn decode(&self, pairs: Vec<(u32, i64)>) -> Vec<ptiles_core::RoadSegment> {
+        pairs
+            .into_iter()
+            .filter_map(|(offset, absolute_id)| {
+                // The absolute id comes from the index walk: ids are deltas
+                // along the whole band, so a record decoded on its own would
+                // report its delta as its id.
+                ptiles_core::ptlr::decode_record(&self.raw, offset as usize, 0, Some(absolute_id))
+                    .ok()
+                    .map(|(road, _, _)| road)
+            })
+            .collect()
+    }
+}
+
+/// Decode a PTLR boundary block: the polygon the file was cut to.
+///
+/// Returned as `[[[lon, lat], ...], ...]`. The page needs it to decide which
+/// of two overlapping state files owns a point -- bounding boxes cannot, since
+/// New Jersey's contains all of Manhattan.
+#[wasm_bindgen]
+pub fn decode_boundary(blob: &[u8]) -> Result<JsValue, JsValue> {
+    let rings = ptiles_core::boundary::decode_boundary(blob)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&rings)
+}
+
+/// Whether a point falls inside a decoded boundary, given `[[[lon, lat], ...]]`.
+#[wasm_bindgen]
+pub fn boundary_contains(rings_js: JsValue, lat: f64, lon: f64) -> Result<bool, JsValue> {
+    let rings: Vec<Vec<[f64; 2]>> = from_js_or_empty(rings_js, "rings")?;
+    Ok(ptiles_core::boundary::point_in_rings(lon, lat, &rings))
+}
+
+/// Decode a places block: named settlements, with `name_en` from v2 on.
+#[wasm_bindgen]
+pub fn decode_places(data: &[u8]) -> Result<JsValue, JsValue> {
+    let places =
+        ptiles_core::places::decode_places(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&places)
+}

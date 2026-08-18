@@ -3073,6 +3073,8 @@ mod tests {
             website: None,
             address: None,
             brand: Some("Shell".to_string()),
+            name_en: None,
+            chain_count: None,
             operating_status: "open".to_string(),
             emails: Vec::new(),
             socials: Vec::new(),
@@ -3129,5 +3131,173 @@ mod tests {
         assert!(validate_ring(1).is_ok());
         assert!(matches!(validate_ring(2), Err(PtilesError::InvalidRing { ring: 2 })));
         assert!(matches!(validate_ring(u8::MAX), Err(PtilesError::InvalidRing { ring: 255 })));
+    }
+}
+
+// ===========================================================================
+// PTLR roads
+// ===========================================================================
+
+/// An open PTLR roads file: `{SCOPE}.roads_v3.ptiles` and later.
+///
+/// Separate from `PtilesLayer` because PTLR is a separate container. It has no
+/// 256-byte PTiles header, no H3 index and no per-cell blocks -- three zstd
+/// frames holding every road in the region at one level of detail -- so it
+/// cannot be opened, indexed or read through the same object. What it does
+/// have that `highways` does not is every road class: residential streets,
+/// service roads, tracks and paths. A pack without it can draw a map but
+/// cannot route to a house.
+#[derive(uniffi::Object)]
+pub struct PtlrRoads {
+    inner: std::sync::Mutex<ptiles_core::ptlr::PtlrFile<FileSource>>,
+    path: String,
+}
+
+/// Which level of detail to read. The bands hold the same roads simplified
+/// differently, except `Highways`, which is also filtered to
+/// motorway/trunk/primary.
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum RoadBand {
+    /// res 4, zoom 5-9: highways only, simplified to 500 m.
+    Highways,
+    /// res 5, zoom 10-12: every road, simplified to 200 m. The default for a
+    /// query -- the extra vertices in the detailed band do not change which
+    /// road is nearest, and it is nearly twice the bytes.
+    Simplified,
+    /// res 7, zoom 13+: every road at full precision.
+    Detailed,
+}
+
+impl From<RoadBand> for ptiles_core::ptlr::Band {
+    fn from(b: RoadBand) -> Self {
+        match b {
+            RoadBand::Highways => ptiles_core::ptlr::Band::Z04,
+            RoadBand::Simplified => ptiles_core::ptlr::Band::Z05,
+            RoadBand::Detailed => ptiles_core::ptlr::Band::Z07,
+        }
+    }
+}
+
+#[uniffi::export]
+impl PtlrRoads {
+    /// Open a local PTLR roads file. Remote reads are deliberately absent:
+    /// answering one query means decompressing a whole band, so a file this
+    /// size is downloaded into a pack, not range-read over the network.
+    #[uniffi::constructor]
+    pub fn open(path: String) -> Result<Arc<Self>, PtilesError> {
+        let source = FileSource::open(&path).map_err(|e| PtilesError::Open {
+            path: path.clone(),
+            message: e.to_string(),
+        })?;
+        let file = ptiles_core::ptlr::PtlrFile::open(source)
+            .map_err(|e| PtilesError::from_file(&path, &e))?;
+        Ok(Arc::new(PtlrRoads {
+            inner: std::sync::Mutex::new(file),
+            path,
+        }))
+    }
+
+    pub fn path(&self) -> String {
+        self.path.clone()
+    }
+
+    /// Roads this file holds for the region around a point.
+    ///
+    /// `ring` widens the search in ~1.1 km steps; 2 is the useful default. A
+    /// road whose geometry passes nearby but whose first vertex is far away is
+    /// found by widening, not by a larger radius.
+    pub fn roads_near(
+        &self,
+        lat: f64,
+        lon: f64,
+        ring: u8,
+        band: RoadBand,
+    ) -> Result<Vec<RoadInfo>, PtilesError> {
+        let mut file = self.inner.lock().expect("ptlr lock");
+        let roads = file
+            .roads_near(lat, lon, i32::from(ring), band.into())
+            .map_err(|e| PtilesError::from_file(&self.path, &e))?;
+        Ok(roads.iter().map(road_info).collect())
+    }
+
+    pub fn roads_in_bounds(
+        &self,
+        min_lat: f64,
+        min_lon: f64,
+        max_lat: f64,
+        max_lon: f64,
+        band: RoadBand,
+    ) -> Result<Vec<RoadInfo>, PtilesError> {
+        let mut file = self.inner.lock().expect("ptlr lock");
+        let roads = file
+            .roads_in_bounds(min_lat, min_lon, max_lat, max_lon, band.into())
+            .map_err(|e| PtilesError::from_file(&self.path, &e))?;
+        Ok(roads.iter().map(road_info).collect())
+    }
+
+    /// The nearest road to a point, or none within `max_meters`.
+    pub fn nearest_road(
+        &self,
+        lat: f64,
+        lon: f64,
+        max_meters: f64,
+        band: RoadBand,
+    ) -> Result<Option<RoadInfo>, PtilesError> {
+        let mut file = self.inner.lock().expect("ptlr lock");
+        let roads = file
+            .roads_near(lat, lon, 2, band.into())
+            .map_err(|e| PtilesError::from_file(&self.path, &e))?;
+        let mut best: Option<(f64, &ptiles_core::RoadSegment)> = None;
+        for road in &roads {
+            for pair in road.coords.windows(2) {
+                let proj = ptiles_core::point_to_segment_distance_m(
+                    lat, lon, pair[0][1], pair[0][0], pair[1][1], pair[1][0],
+                );
+                let d = proj.distance_m;
+                if best.is_none() || d < best.as_ref().unwrap().0 {
+                    best = Some((d, road));
+                }
+            }
+        }
+        Ok(match best {
+            Some((d, road)) if d <= max_meters => Some(road_info(road)),
+            _ => None,
+        })
+    }
+
+    /// Whether this file is the one that owns a point.
+    ///
+    /// The region polygon answers when the file carries one, the bounding box
+    /// otherwise. It matters because boxes overlap: Tennessee's holds parts of
+    /// six neighbours, so "is this point in my box" is not the same question.
+    pub fn covers(&self, lat: f64, lon: f64) -> Result<bool, PtilesError> {
+        let mut file = self.inner.lock().expect("ptlr lock");
+        file.covers(lat, lon)
+            .map_err(|e| PtilesError::from_file(&self.path, &e))
+    }
+
+    /// Roads in the file, as the builder counted them.
+    pub fn road_count(&self) -> u32 {
+        self.inner.lock().expect("ptlr lock").header().road_count
+    }
+
+    pub fn format_version(&self) -> u8 {
+        self.inner.lock().expect("ptlr lock").header().version
+    }
+}
+
+fn road_info(road: &ptiles_core::RoadSegment) -> RoadInfo {
+    RoadInfo {
+        osm_id: road.osm_id,
+        name: road.name.clone(),
+        road_class: road.road_class.clone(),
+        geometry: road
+            .coords
+            .iter()
+            .map(|c| LatLon {
+                lat: c[1],
+                lon: c[0],
+            })
+            .collect(),
     }
 }
