@@ -2267,16 +2267,10 @@ function layerFile(layer) {
 }
 
 function stateUrl(state, layer) {
-  // Refuse a layer whose format is newer than this build understands. Every
-  // caller already treats a missing layer as "no data here" -- a road lookup
-  // survives a missing roads file -- so refusing is the one place that keeps a
-  // v10 record from being decoded as v9 and drawn as plausible nonsense.
-  if (UNSUPPORTED_LAYERS[layer]) {
-    throw new Error(
-      layer + " is " + UNSUPPORTED_LAYERS[layer] +
-      " in this snapshot; this build cannot decode it"
-    );
-  }
+  // For a layer the snapshot has moved past, this returns the older stem this
+  // build can read (see checkSnapshotFormats). The file is there when the
+  // snapshot carried the superseded version forward, and 404s otherwise --
+  // either way nothing decodes a v10 record as v9 and draws the result.
   return PTILES_BASE + state + "." + layerFile(layer) + ".ptiles";
 }
 
@@ -2338,8 +2332,16 @@ function checkSnapshotFormats() {
         return;
       }
       if (entry.version > have.version) {
+        // The snapshot has moved past this build. Keep asking for the version
+        // this build *can* read rather than adopting the new stem: snapshots
+        // carry a superseded layer forward when clients still need it (roads
+        // is the standing case), so the old file is often still there. If it
+        // is not, the request 404s and the layer is simply absent -- which is
+        // the same outcome as refusing it, without giving up the case where
+        // the older file exists.
         UNSUPPORTED_LAYERS[layer] =
           "v" + entry.version + " > v" + have.version;
+        return;
       } else if (entry.version < have.version) {
         // Older data than this build knows. Readable -- every format addition
         // so far is flag-guarded or appended -- so note it and carry on.

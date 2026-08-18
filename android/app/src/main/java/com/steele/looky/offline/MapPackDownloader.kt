@@ -56,10 +56,16 @@ object MapPackDownloader {
         val report = FormatCheck.check(context, BASE, CURRENT_DATE)
         fun resolve(layer: String): String {
             val key = layer.substringBefore("_v")
+            // A layer the snapshot has moved past keeps the built-in name --
+            // the version this build can actually decode. Snapshots carry a
+            // superseded layer forward while clients still need it, so that
+            // file is often still published; if it is not, the download 404s
+            // and the layer is skipped, which is where it would have ended up
+            // anyway. What must never happen is fetching the newer format and
+            // decoding it with the older reader.
+            if (report.unsupported.containsKey(key)) return layer
             return report.stems[key] ?: layer
         }
-        fun decodable(layer: String) =
-            report.unsupported[layer.substringBefore("_v")] == null
 
         // Admin before anything else: it is what makes "which state am I in"
         // exact, and every state pack that follows is chosen by that answer.
@@ -67,7 +73,6 @@ object MapPackDownloader {
         val jobs = (admin +
             states.flatMap { state -> STATE_LAYERS.map { state to it } } +
             if (includeUsLayers) US_LAYERS.filterNot { it.startsWith("admin") }.map { "US" to it } else emptyList())
-            .filter { (_, layer) -> decodable(layer) }
             .map { (state, layer) -> state to resolve(layer) }
 
         if (report.unsupported.isNotEmpty()) {
@@ -85,6 +90,17 @@ object MapPackDownloader {
                 connection.readTimeout = 120_000
                 connection.requestMethod = "GET"
                 connection.connect()
+                if (connection.responseCode == 404) {
+                    // The snapshot does not publish this one. That is normal
+                    // for a layer this build had to pin to an older version
+                    // that was not carried forward -- one absent layer must
+                    // not cost the other twelve, which is what erroring here
+                    // did: runCatching abandons the whole run on the first
+                    // failure.
+                    android.util.Log.w("MapPackDownloader", "missing in snapshot: $state.$layer")
+                    connection.disconnect()
+                    return@forEach
+                }
                 if (connection.responseCode !in 200..299) error("${connection.responseCode} for $layer")
                 val pending = java.io.File(dir, ".$name.pending")
                 pending.outputStream().use { output ->
