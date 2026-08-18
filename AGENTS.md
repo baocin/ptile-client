@@ -92,3 +92,20 @@ cargo test --workspace && node --test "demo/test/*.test.mjs"
 ## Child DOX Index
 
 No subdirectories with their own AGENTS.md.
+
+## Native libraries in `android/app/src/main/jniLibs`
+
+`libptiles_ffi.so` is committed, for both ABIs, so the Android app builds
+without a Rust toolchain or the NDK — CI only builds `target/debug` for
+binding generation, so nothing else produces them.
+
+**Rebuild them whenever the FFI changes, but commit them only when cutting a
+build worth keeping.** They are 4.3 MB each, stripped, and do not delta against
+their previous version: every commit that includes them costs 8.6 MB of
+history forever. One session that rebuilt on each change put 36 versions and
+155 MB into this repo — 94% of it — and the history had to be rewritten to get
+it back.
+
+The working copy is what the APK is built from, so an uncommitted rebuild is
+still the thing you are testing. Committing it is a separate decision, and the
+right moment is a release rather than an edit.
