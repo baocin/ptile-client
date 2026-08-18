@@ -54,6 +54,33 @@ else
   exit 1
 fi
 
+# Which layer formats this deploy was validated against. The page compares it
+# with the snapshot's manifest.json at boot and refuses to decode a layer the
+# snapshot has moved past -- see checkSnapshotFormats in index.html. It is
+# regenerated here rather than committed once, because "what this build can
+# read" is a property of the build, and a stale copy would claim support for
+# formats this deploy has never seen.
+FORMATS="$(dirname "$0")/lib/client_formats.json"
+BUILD_DIR="${PTILES_BUILD:-/mnt/core/kino/ptiles/data/v5/states}"
+SNAPSHOT="${PTILES_SNAPSHOT:-$(python3 - "$(dirname "$0")/index.html" <<'PY'
+import re, sys
+html = open(sys.argv[1]).read()
+m = re.search(r'PTILES_BASE = "[^"]*/maps/([0-9-]+)/"', html)
+print(m.group(1) if m else "unknown")
+PY
+)}"
+if [ -f "$PTILES_REPO/scripts/write_client_manifest.py" ] && [ -d "$BUILD_DIR" ]; then
+  echo "==> recording client formats (snapshot $SNAPSHOT)"
+  python3 "$PTILES_REPO/scripts/write_client_manifest.py" "$BUILD_DIR" \
+    --client web-demo --snapshot "$SNAPSHOT" --out "$FORMATS"
+elif [ -f "$FORMATS" ]; then
+  echo "==> WARNING: cannot regenerate client formats; shipping the existing copy"
+else
+  echo "==> ERROR: no client formats file and no build directory to derive one."
+  echo "    Set PTILES_BUILD to the validated build this deploy targets."
+  exit 1
+fi
+
 echo "==> building $SITE"
 (cd "$SITE" && python3 build.py >/dev/null)
 

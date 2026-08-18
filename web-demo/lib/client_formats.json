@@ -1,0 +1,74 @@
+{
+  "client": "web-demo",
+  "snapshot": "2026-08-18",
+  "generated": "2026-08-18T04:49:13Z",
+  "checked": 25,
+  "failed": 0,
+  "formats": {
+    "address": {
+      "version": 4,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "address_name_index": {
+      "version": null,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "buildings": {
+      "version": 10,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "business": {
+      "version": 5,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "business_name_index": {
+      "version": null,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "ev": {
+      "version": 2,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "highways": {
+      "version": 3,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "parks": {
+      "version": 2,
+      "scopes_validated": 9,
+      "scopes_total": 9
+    },
+    "places": {
+      "version": 2,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "rail": {
+      "version": 2,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "roads": {
+      "version": 3,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    },
+    "trails": {
+      "version": 2,
+      "scopes_validated": 5,
+      "scopes_total": 5
+    },
+    "water": {
+      "version": 2,
+      "scopes_validated": 1,
+      "scopes_total": 1
+    }
+  }
+}

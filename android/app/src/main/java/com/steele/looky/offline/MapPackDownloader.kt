@@ -46,12 +46,35 @@ object MapPackDownloader {
     suspend fun downloadStates(context: Context, states: List<String>, onProgress: (MapDownloadProgress) -> Unit, includeUsLayers: Boolean = false): Result<Int> = withContext(Dispatchers.IO) {
         val dir = PackManager(context).packsDir
         var completed = 0
+
+        // Ask the snapshot what it actually publishes before downloading a
+        // megabyte of it. Two things come back: the real filename stem per
+        // layer (so a version bump does not need a new APK to be *found*), and
+        // which layers this build cannot decode (so a version bump does not
+        // silently fill the map with nonsense). The lists below are the
+        // fallback for when the manifest cannot be read at all.
+        val report = FormatCheck.check(context, BASE, CURRENT_DATE)
+        fun resolve(layer: String): String {
+            val key = layer.substringBefore("_v")
+            return report.stems[key] ?: layer
+        }
+        fun decodable(layer: String) =
+            report.unsupported[layer.substringBefore("_v")] == null
+
         // Admin before anything else: it is what makes "which state am I in"
         // exact, and every state pack that follows is chosen by that answer.
         val admin = listOf("US" to "admin_v2")
-        val jobs = admin +
+        val jobs = (admin +
             states.flatMap { state -> STATE_LAYERS.map { state to it } } +
-            if (includeUsLayers) US_LAYERS.filterNot { it.startsWith("admin") }.map { "US" to it } else emptyList()
+            if (includeUsLayers) US_LAYERS.filterNot { it.startsWith("admin") }.map { "US" to it } else emptyList())
+            .filter { (_, layer) -> decodable(layer) }
+            .map { (state, layer) -> state to resolve(layer) }
+
+        if (report.unsupported.isNotEmpty()) {
+            // Not an exception: the layers this build *can* read are still
+            // worth having offline, and the user is told which are missing.
+            android.util.Log.w("MapPackDownloader", report.summary())
+        }
         runCatching {
             jobs.forEach { (state, layer) ->
                 val extension = if (layer == "business_categories") "json" else "ptiles"

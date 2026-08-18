@@ -565,6 +565,10 @@ var wasmInit = init_wasm().then(function() {
   P = createPtiles(wasm);
   // Format constants come from core once, not from literals in this file.
   CELL_MASK = wasm.cell_filler_mask();
+  // Compare this build's formats against the snapshot's before anything is
+  // decoded; see checkSnapshotFormats. Its failure is never fatal -- the page
+  // then behaves exactly as it did before the check existed.
+  return checkSnapshotFormats().catch(function () {});
 });
 
 // --- State data ---
@@ -2263,7 +2267,98 @@ function layerFile(layer) {
 }
 
 function stateUrl(state, layer) {
+  // Refuse a layer whose format is newer than this build understands. Every
+  // caller already treats a missing layer as "no data here" -- a road lookup
+  // survives a missing roads file -- so refusing is the one place that keeps a
+  // v10 record from being decoded as v9 and drawn as plausible nonsense.
+  if (UNSUPPORTED_LAYERS[layer]) {
+    throw new Error(
+      layer + " is " + UNSUPPORTED_LAYERS[layer] +
+      " in this snapshot; this build cannot decode it"
+    );
+  }
   return PTILES_BASE + state + "." + layerFile(layer) + ".ptiles";
+}
+
+// --- Format check: is this page too old for the snapshot it is reading? -----
+//
+// The table above names a wire format per layer, and those move: buildings v9
+// gained three flag-guarded fields and became v10, highways v3 is the first
+// build whose records the decoders can actually parse. A page pointed at a
+// newer snapshot than it was built for does not fail loudly -- it decodes
+// garbage, or draws nothing, and looks like an empty region.
+//
+// So the page carries `lib/client_formats.json`, written by
+// scripts/write_client_manifest.py from the build that was validated for THIS
+// client, and compares it against the snapshot's own manifest.json at boot.
+// The Android app carries its own copy of the same idea: the two ship on
+// different days against different snapshots, so a shared file would be wrong
+// for whichever shipped second.
+var CLIENT_FORMATS = null;      // what this build was validated against
+var SNAPSHOT_FORMATS = null;    // what the snapshot actually holds
+var UNSUPPORTED_LAYERS = {};    // layer -> why it must not be decoded
+
+function layerSupported(layer) {
+  return !UNSUPPORTED_LAYERS[layer];
+}
+
+function formatMismatchMessage() {
+  var names = Object.keys(UNSUPPORTED_LAYERS);
+  if (!names.length) return "";
+  return "Data newer than this build: " +
+    names.map(function (n) { return n + " " + UNSUPPORTED_LAYERS[n]; }).join(", ") +
+    ". Rebuild the demo against this snapshot.";
+}
+
+function checkSnapshotFormats() {
+  return Promise.all([
+    fetch("lib/client_formats.json", { cache: "no-cache" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; }),
+    fetch(PTILES_BASE + "manifest.json", { cache: "no-cache" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; }),
+  ]).then(function (both) {
+    CLIENT_FORMATS = both[0];
+    var manifest = both[1];
+    if (!CLIENT_FORMATS || !manifest || !manifest.layers) {
+      // No manifest is not an error: a partial download or a local directory
+      // has none, and the hardcoded table above is the fallback that has
+      // always been used. Silence beats a warning nobody can act on.
+      return;
+    }
+    SNAPSHOT_FORMATS = manifest.layers;
+    Object.keys(manifest.layers).forEach(function (layer) {
+      var entry = manifest.layers[layer];
+      var have = CLIENT_FORMATS.formats[layer];
+      if (entry.version == null) return;         // unversioned layer, e.g. camera
+      if (!have) {
+        // The snapshot has a layer this build never saw. Not fatal: it is only
+        // read if something asks for it, and nothing here does.
+        return;
+      }
+      if (entry.version > have.version) {
+        UNSUPPORTED_LAYERS[layer] =
+          "v" + entry.version + " > v" + have.version;
+      } else if (entry.version < have.version) {
+        // Older data than this build knows. Readable -- every format addition
+        // so far is flag-guarded or appended -- so note it and carry on.
+        console.info("ptiles: " + layer + " in this snapshot is v" +
+                     entry.version + ", this build was validated against v" +
+                     have.version);
+      }
+      // Take the filename from the manifest when it offers one, so a snapshot
+      // that bumps a version stays readable without editing LAYER_FILES.
+      if (entry.pattern) {
+        var stem = entry.pattern.replace("{scope}.", "").replace(".ptiles", "");
+        if (stem) LAYER_FILES[layer] = stem;
+      }
+    });
+    if (Object.keys(UNSUPPORTED_LAYERS).length) {
+      console.warn("ptiles: " + formatMismatchMessage());
+      try { setStatus(formatMismatchMessage(), true); } catch (e) {}
+    }
+  });
 }
 
 // What a record's `category_idx` means.
